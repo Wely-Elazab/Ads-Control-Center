@@ -60,12 +60,21 @@ export default async function handler(req, res) {
       const endKey = shiftDateKey(range.until, 1);
       const startTime = range.since + 'T00:00:00.000' + tzOffsetString(range.since, tz);
       const endTime = endKey + 'T00:00:00.000' + tzOffsetString(endKey, tz);
-      const statsUrl = accountPath + '/stats' +
-        '?granularity=DAY&breakdown=ad&fields=spend,swipes,impressions' +
-        '&start_time=' + encodeURIComponent(startTime) + '&end_time=' + encodeURIComponent(endTime);
-      const statsResp = await fetch(statsUrl, { headers: headers });
-      const statsData = await statsResp.json().catch(function () { return null; });
-      const statsError = (!statsResp.ok || (statsData && statsData.request_status === 'ERROR')) ? snapError(statsData, statsResp.status) : null;
+      const fetchStats = async function (fields) {
+        const statsUrl = accountPath + '/stats' +
+          '?granularity=DAY&breakdown=ad&fields=' + fields +
+          '&start_time=' + encodeURIComponent(startTime) + '&end_time=' + encodeURIComponent(endTime);
+        const r = await fetch(statsUrl, { headers: headers });
+        const data = await r.json().catch(function () { return null; });
+        const error = (!r.ok || (data && data.request_status === 'ERROR')) ? snapError(data, r.status) : null;
+        return { data: data, error: error };
+      };
+      // بنطلب المشتريات وقيمتها (من Snap Pixel) عشان تنبيهات العائد والصرف بدون طلبات.
+      // لو الحساب مش بيدعمها ورفض الطلب، بنرجع للإنفاق والسوايب بس بدل ما نخسر الإنفاق كله
+      let stats = await fetchStats('spend,swipes,impressions,conversion_purchases,conversion_purchases_value');
+      if (stats.error) stats = await fetchStats('spend,swipes,impressions');
+      const statsData = stats.data;
+      const statsError = stats.error;
 
       res.status(200).json({
         ads: ads,

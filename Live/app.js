@@ -7,7 +7,15 @@
   var ARABIC_DIGITS = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
   function ar(n) { return String(n).replace(/[0-9]/g, function (d) { return ARABIC_DIGITS[d]; }); }
   function digitsAny(n) { return ar(n); }
-  function money(n) { var s = Math.round(n || 0).toLocaleString('en-US'); return ar(s.replace(/,/g, '\u066C')) + ' ر.س'; }
+  // العملة بتيجي من الحساب الإعلاني نفسه — ر.س افتراضياً لو المنصة مرجّعتهاش
+  var CURRENCY_LABELS = { SAR: 'ر.س', AED: 'د.إ', EGP: 'ج.م', KWD: 'د.ك', QAR: 'ر.ق', BHD: 'د.ب', OMR: 'ر.ع', JOD: 'د.أ', USD: '$', EUR: '€', GBP: '£' };
+  function currencyLabel(cur) { return CURRENCY_LABELS[cur] || cur || 'ر.س'; }
+  function money(n, cur) { var s = Math.round(n || 0).toLocaleString('en-US'); return ar(s.replace(/,/g, '٬')) + ' ' + currencyLabel(cur); }
+  // رقم بخانة عشرية واحدة بالأرقام العربية (مثال: ٢٫٥)
+  // الأرقام اليومية بتتخزن بخانتين عشريتين — التقريب لأقرب رقم صحيح بيحصل وقت العرض بس،
+  // عشان صرف صغير زي ٠٫٤ ميتحسبش صفر ويبوّظ تنبيهات زي "مصرفش أمس"
+  function r2(n) { return Math.round((n || 0) * 100) / 100; }
+  function numAr(n) { var r = Math.round((n || 0) * 10) / 10; return ar(String(r).replace('.', '٫')); }
   function roasStr(r) { if (!r) return '—'; return '\u00D7' + ar(Math.round(r * 10) / 10); }
   function sinceLabel(n) {
     if (n == null) return '';
@@ -83,7 +91,8 @@
   function daysFromRange(range) { return last7Days((range && range.until) || todayKeyInTz(BROWSER_TZ)); }
 
   var candidates = [];
-  var filters = { platform: 'all', format: 'all', status: 'all', text: '', dateFrom: '', dateTo: '', sort: 'launch' };
+  // الترتيب الافتراضي "الأولوية": الإعلانات اللي محتاجة انتباه تظهر الأول
+  var filters = { platform: 'all', format: 'all', status: 'all', health: 'all', text: '', dateFrom: '', dateTo: '', sort: 'priority' };
   var selectedIds = {};
 
   // ---------- حفظ الجلسة ----------
@@ -319,7 +328,7 @@
         connectStatus.textContent = 'الاتصال نجح لكن مفيش إعلانات (غير محذوفة) في هذا الحساب.';
         return;
       }
-      var googleCandidates = transformGoogleRows(payload.ads, payload.metrics || [], daysFromRange(payload.range));
+      var googleCandidates = transformGoogleRows(payload.ads, payload.metrics || [], daysFromRange(payload.range), info.currency);
       mergeCandidates(googleCandidates, 'google:' + customerId);
       connectStatus.textContent = 'متصل — ' + ar(candidates.length) + ' إعلان محمّل إجمالاً عبر كل المنصات المتصلة.';
       selectedIds = {};
@@ -335,7 +344,7 @@
 
   // adRows: كل الإعلانات بحالتها (من غير تاريخ) — metricRows: صف لكل إعلان × يوم فيه نشاط
   // المفتاح adGroupId-adId لأن نفس الإعلان ممكن يتكرر في أكتر من مجموعة إعلانية
-  function transformGoogleRows(adRows, metricRows, days) {
+  function transformGoogleRows(adRows, metricRows, days, currency) {
     var byDate = {};
     metricRows.forEach(function (row) {
       var key = ggPick(row, 'adGroup.id') + '-' + ggPick(row, 'adGroupAd.ad.id');
@@ -344,9 +353,9 @@
       var m = row.metrics || {};
       if (!byDate[key]) byDate[key] = {};
       byDate[key][date] = {
-        spend: Math.round(parseInt(m.costMicros || 0, 10) / 1000000),
+        spend: r2(parseInt(m.costMicros || 0, 10) / 1000000),
         results: parseFloat(m.conversions || 0),
-        sales: Math.round(parseFloat(m.conversionsValue || 0))
+        sales: r2(parseFloat(m.conversionsValue || 0))
       };
     });
     return adRows.map(function (row) {
@@ -358,6 +367,7 @@
       var desc = (ggPick(ad, 'responsiveSearchAd.descriptions.0.text')) ||
         (ggPick(ad, 'expandedTextAd.description')) || '';
       var adStatus = ggPick(row, 'adGroupAd.status'), agStatus = ggPick(row, 'adGroup.status'), campStatus = ggPick(row, 'campaign.status');
+      var approval = ggPick(row, 'adGroupAd.policySummary.approvalStatus');
       var perDay = byDate[key] || {};
       var daily = [], dailyResults = [], dailySales = [];
       days.forEach(function (day) {
@@ -370,7 +380,9 @@
       var totalResults = dailyResults.reduce(function (a, b) { return a + b; }, 0);
       var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
       return {
-        id: id, platform: 'Google Ads',
+        id: id, platform: 'Google Ads', currency: currency || null,
+        reviewStatus: approval === 'DISAPPROVED' ? 'disapproved' : ((approval === 'APPROVED_LIMITED' || approval === 'AREA_OF_INTEREST_ONLY') ? 'limited' : null),
+        frequency: null,
         placement: ggPick(row, 'campaign.name') || '—',
         format: (ad.type && /VIDEO/i.test(ad.type)) ? 'video' : ((ad.type && /IMAGE/i.test(ad.type)) ? 'image' : 'text'),
         thumbUrl: ggPick(ad, 'imageAd.imageUrl') || null,
@@ -404,7 +416,7 @@
         connectStatus.textContent = 'مفيش حسابات إعلانية مرتبطة بحسابك.';
         return;
       }
-      response.data.forEach(function (a) { accountInfo['meta:' + a.id] = { timeZone: a.timezone_name || null, currency: a.currency || null }; });
+      response.data.forEach(function (a) { accountInfo['meta:' + a.id] = { timeZone: a.timezone_name || null, currency: a.currency || null, accountStatus: a.account_status }; });
       setPlatformOptions('meta', response.data.map(function (a) { return { value: a.id, label: 'Meta — ' + a.name }; }));
       document.getElementById('tConnectTitle').textContent = 'متصل بحساب Meta — دوس تسجيل الدخول لإضافة منصة تانية';
       loadAdsForAccount(response.data[0].id);
@@ -498,7 +510,7 @@
         connectStatus.textContent = 'الاتصال نجح لكن مفيش إعلانات راجعة لهذا الحساب.';
         return;
       }
-      var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range));
+      var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency);
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
       var statsNote = payload.statsError ? ' (تعذّر تحميل الإنفاق: ' + payload.statsError + ')' : '';
       connectStatus.textContent = 'متصل — ' + ar(candidates.length) + ' إعلان محمّل إجمالاً عبر كل المنصات المتصلة.' + statsNote;
@@ -509,7 +521,7 @@
     });
   }
 
-  function transformSnapchatAds(adsList, statsList, days) {
+  function transformSnapchatAds(adsList, statsList, days, currency) {
     // مع breakdown=ad الإحصائيات بتيجي جوه breakdown_stats.ad[] تحت الحساب —
     // الـ id اللي في المستوى الأعلى هو id الحساب مش الإعلان
     var statsByAd = {};
@@ -519,22 +531,36 @@
       if (perAd) { perAd.forEach(function (b) { statsByAd[b.id] = b.timeseries || []; }); }
       else if (ts.id) { statsByAd[ts.id] = ts.timeseries || []; }
     });
-    return adsList.map(function (item) {
+    // القيم المالية في Snapchat بالمايكرو (÷ 1,000,000)
+    var parsed = adsList.map(function (item) {
       var ad = item.ad || item;
-      var id = 's-' + ad.id;
-      var rows = statsByAd[ad.id] || [];
       var byDay = {};
-      rows.forEach(function (r) { byDay[(r.start_time || '').slice(0, 10)] = r.stats || r; });
-      var daily = [], dailyResults = [];
+      (statsByAd[ad.id] || []).forEach(function (r) { byDay[(r.start_time || '').slice(0, 10)] = r.stats || r; });
+      var p = { ad: ad, daily: [], swipes: [], purchases: [], sales: [] };
       days.forEach(function (day) {
-        var stats = byDay[day.key];
-        daily.push(stats ? Math.round(parseFloat(stats.spend || 0) / 1000000) : 0);
-        dailyResults.push(stats ? Math.round(parseFloat(stats.swipes || 0)) : 0);
+        var st = byDay[day.key];
+        p.daily.push(st ? r2(parseFloat(st.spend || 0) / 1000000) : 0);
+        p.swipes.push(st ? Math.round(parseFloat(st.swipes || 0)) : 0);
+        p.purchases.push(st ? Math.round(parseFloat(st.conversion_purchases || 0)) : 0);
+        p.sales.push(st ? r2(parseFloat(st.conversion_purchases_value || 0) / 1000000) : 0);
       });
-      var spend = daily.reduce(function (a, b) { return a + b; }, 0);
+      return p;
+    });
+    // لو الحساب بيسجّل مشتريات (Snap Pixel) نعتبرها النتيجة لكل إعلاناته، وإلا نرجع للسوايب —
+    // قرار واحد على مستوى الحساب عشان المقارنة بين الإعلانات تفضل عادلة
+    var tracksPurchases = parsed.some(function (p) { return p.purchases.some(function (v) { return v > 0; }); });
+    return parsed.map(function (p) {
+      var ad = p.ad;
+      var id = 's-' + ad.id;
+      var dailyResults = tracksPurchases ? p.purchases : p.swipes;
+      var dailySales = tracksPurchases ? p.sales : p.daily.map(function () { return 0; });
+      var spend = r2(p.daily.reduce(function (a, b) { return a + b; }, 0));
       var results = dailyResults.reduce(function (a, b) { return a + b; }, 0);
+      var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
       return {
-        id: id, platform: 'Snapchat', placement: 'Discover',
+        id: id, platform: 'Snapchat', placement: 'Discover', currency: currency || null,
+        reviewStatus: ad.review_status === 'REJECTED' ? 'disapproved' : null,
+        frequency: null,
         format: ad.type && /VIDEO/i.test(ad.type) ? 'video' : (ad.type && /SNAP_AD/i.test(ad.type) ? 'video' : 'image'),
         thumbUrl: null,
         headline: ad.name || ('إعلان Snapchat #' + ad.id), desc: '',
@@ -542,8 +568,10 @@
         landing: '—', landingKind: null,
         daysAgo: ad.created_at ? daysBetween(ad.created_at) : null,
         updatedDaysAgo: ad.updated_at ? daysBetween(ad.updated_at) : null,
-        daily: daily, dailySales: daily.map(function () { return 0; }), dailyResults: dailyResults, dailyDates: days.map(function (d) { return d.label; }),
-        spend: spend, results: results, resultLabel: 'سوايب (نقرات)', cpr: (results && spend) ? (spend / results) : null, roas: null,
+        daily: p.daily, dailySales: dailySales, dailyResults: dailyResults, dailyDates: days.map(function (d) { return d.label; }),
+        spend: spend, results: results, resultLabel: tracksPurchases ? 'مشتريات' : 'سوايب (نقرات)',
+        cpr: (results && spend) ? (spend / results) : null,
+        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null,
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: ad.status === 'ACTIVE', pausedLevel: ad.status !== 'ACTIVE' ? 'ad' : null,
         fail: false
@@ -626,7 +654,7 @@
           if (o.dataset.platform === 'tiktok' && o.value === String(advertiserId)) o.textContent = 'TikTok Ads — ' + payload.advertiser.name;
         });
       }
-      var tiktokCandidates = transformTikTokAds(adsList, payload.report || [], daysFromRange(payload.range));
+      var tiktokCandidates = transformTikTokAds(adsList, payload.report || [], daysFromRange(payload.range), payload.advertiser && payload.advertiser.currency);
       mergeCandidates(tiktokCandidates, 'tiktok:' + advertiserId);
       var reportNote = payload.reportError ? ' (تعذّر تحميل الإنفاق: ' + payload.reportError + ')' : '';
       connectStatus.textContent = 'متصل — ' + ar(candidates.length) + ' إعلان محمّل إجمالاً عبر كل المنصات المتصلة.' + reportNote;
@@ -640,7 +668,7 @@
   // TikTok بترجّع الأوقات بصيغة "YYYY-MM-DD HH:MM:SS" بتوقيت UTC — نحوّلها لصيغة ISO عشان كل المتصفحات تفهمها
   function tiktokTime(s) { return s ? String(s).replace(' ', 'T') + 'Z' : null; }
 
-  function transformTikTokAds(adsList, reportList, days) {
+  function transformTikTokAds(adsList, reportList, days, currency) {
     var statsByAd = {};
     reportList.forEach(function (row) {
       var dims = row.dimensions || {};
@@ -654,13 +682,14 @@
       var daily = [], dailyResults = [];
       days.forEach(function (day) {
         var m = byDay[day.key];
-        daily.push(m ? Math.round(parseFloat(m.spend || 0)) : 0);
+        daily.push(m ? r2(parseFloat(m.spend || 0)) : 0);
         dailyResults.push(m ? Math.round(parseFloat(m.conversion || 0)) : 0);
       });
       var spend = daily.reduce(function (a, b) { return a + b; }, 0);
       var results = dailyResults.reduce(function (a, b) { return a + b; }, 0);
       return {
-        id: id, platform: 'TikTok', placement: 'In-Feed',
+        id: id, platform: 'TikTok', placement: 'In-Feed', currency: currency || null,
+        reviewStatus: null, frequency: null,
         format: ad.ad_format && /VIDEO|SINGLE_VIDEO/i.test(ad.ad_format) ? 'video' : 'image',
         thumbUrl: null,
         headline: ad.ad_name || ('إعلان TikTok #' + ad.ad_id), desc: ad.ad_text || '',
@@ -759,7 +788,18 @@
           if (!insightsByAd[row.ad_id]) insightsByAd[row.ad_id] = [];
           insightsByAd[row.ad_id].push(row);
         });
-        mergeCandidates(order.map(function (id) { return transformRealAd(adsById[id], insightsByAd[id] || [], adsetStatusMap, days); }), 'meta:' + accountId);
+        // تكرار الظهور (frequency) لازم يتحسب على الأسبوع كله مرة واحدة — مينفعش نجمعه من أرقام يومية،
+        // لأن نفس الشخص ممكن يظهر في أكتر من يوم. فشل الطلب ده مش بيوقف التحميل، بس تنبيه "زهق الجمهور" مش هيظهر
+        fetchAllPages('/' + accountId + '/insights', {
+          level: 'ad',
+          time_range: JSON.stringify({ since: days[0].key, until: days[days.length - 1].key }),
+          fields: 'ad_id,frequency,reach,impressions',
+          limit: 500
+        }, FULL_SCAN_CAP, function (err3, reachData) {
+        var reachByAd = {};
+        (reachData || []).forEach(function (row) { reachByAd[row.ad_id] = row; });
+        var currency = info.currency || null;
+        mergeCandidates(order.map(function (id) { return transformRealAd(adsById[id], insightsByAd[id] || [], adsetStatusMap, days, reachByAd[id], currency); }), 'meta:' + accountId);
         var notes = [];
         if (adsTruncated) notes.push('تم عرض أول ' + ar(PAGE_SAFETY_CAP) + ' إعلان بس — قولّي لو محتاج نرفع الحد');
         if (err2) notes.push('تعذّر تحميل الإنفاق اليومي: ' + err2.message);
@@ -767,6 +807,7 @@
         connectStatus.textContent = 'متصل — ' + ar(candidates.length) + ' إعلان محمّل إجمالاً عبر كل المنصات المتصلة.' + (notes.length ? ' (' + notes.join('؛ ') + ')' : '');
         selectedIds = {};
         render();
+        });
       });
     });
     });
@@ -838,7 +879,10 @@
     } catch (e) { return { url: '—', kind: null }; }
   }
 
-  function transformRealAd(ad, insightRows, adsetStatusMap, days) {
+  // حالات Meta اللي معناها إن المنصة نفسها عندها ملاحظة على الإعلان
+  var META_REVIEW_STATUS = { DISAPPROVED: 'disapproved', WITH_ISSUES: 'limited' };
+
+  function transformRealAd(ad, insightRows, adsetStatusMap, days, reachRow, currency) {
     var creative = ad.creative || {};
     var format = creative.video_id ? 'video' : ((creative.image_url || creative.thumbnail_url) ? 'image' : 'text');
     var goal = (ad.adset && ad.adset.optimization_goal) || null;
@@ -846,10 +890,12 @@
     (insightRows || []).forEach(function (r) { byDate[r.date_start] = r; });
 
     var daily = [], dailySales = [], dailyResultsArr = [];
-    var totalResultsVal = 0, resultLabel = null, resultType = null, matchedGoal = false;
+    // لو هدف الإعلان معروف، نوع النتيجة معروف حتى لو الإعلان مصرفش ولا يوم
+    var goalAction = GOAL_TO_ACTION[goal] && GOAL_TO_ACTION[goal][0];
+    var totalResultsVal = 0, resultLabel = goalAction ? goalAction.label : null, resultType = goalAction ? goalAction.type : null, matchedGoal = !!goalAction;
     days.forEach(function (day) {
       var row = byDate[day.key];
-      var spendVal = row ? Math.round(parseFloat(row.spend || 0)) : 0;
+      var spendVal = row ? r2(parseFloat(row.spend || 0)) : 0;
       daily.push(spendVal);
       if (row) {
         var found = resultForGoal(row.actions, goal);
@@ -859,7 +905,7 @@
           dailyResultsArr.push(Math.round(found.value));
         } else { dailyResultsArr.push(0); }
         var salesVal = resultType ? valueForType(row.action_values, resultType) : null;
-        dailySales.push(salesVal != null ? Math.round(salesVal) : 0);
+        dailySales.push(salesVal != null ? r2(salesVal) : 0);
       } else {
         dailyResultsArr.push(0); dailySales.push(0);
       }
@@ -878,6 +924,10 @@
     return {
       id: ad.id,
       platform: 'Meta',
+      currency: currency || null,
+      reviewStatus: META_REVIEW_STATUS[ad.effective_status] || null,
+      frequency: reachRow && reachRow.frequency != null ? parseFloat(reachRow.frequency) : null,
+      reach: reachRow && reachRow.reach != null ? parseInt(reachRow.reach, 10) : null,
       placement: (ad.adset && ad.adset.name) || '—',
       format: format,
       duration: format === 'video' ? '' : undefined,
@@ -925,7 +975,54 @@
     return null;
   }
 
-  // ---------- Rendering (same logic as the demo prototype) ----------
+  // ---------- وضع العرض فقط ----------
+  // المرحلة الأولى: الأداة للعرض والتحليل والتنبيه بس، من غير أي إجراء على الإعلانات — عشان قرارات
+  // صاحب البزنس متتعارضش مع اختبارات مسؤول الإعلانات أو الوكالة.
+  // أدوات الإيقاف/التشغيل التوضيحية (المفتاح، التحديد، "إيقاف المحدد"، تقرير الإثبات) مخفية بس،
+  // وكودها لسه موجود تحت — لو اتفعّلت في مرحلة لاحقة يكفي نخلّي ACTIONS_ENABLED = true
+  var ACTIONS_ENABLED = false;
+  document.body.classList.toggle('view-only', !ACTIONS_ENABLED);
+
+  // ---------- التقييم والتنبيهات (المحرك نفسه في alerts.js) ----------
+  var HEALTH = {
+    review: { label: 'يحتاج مراجعة', cls: 'h-review', order: 0 },
+    improve: { label: 'يحتاج تحسين', cls: 'h-improve', order: 1 },
+    good: { label: 'جيد', cls: 'h-good', order: 2 },
+    inactive: { label: 'غير فعال', cls: 'h-inactive', order: 3 }
+  };
+  var LEVELS = {
+    critical: { label: 'يحتاج مراجعة', cls: 'lv-critical' },
+    warning: { label: 'يحتاج تحسين', cls: 'lv-warning' },
+    opportunity: { label: 'فرصة', cls: 'lv-opportunity' },
+    info: { label: 'للعلم', cls: 'lv-info' }
+  };
+
+  // إعدادات حدود التنبيهات بتتحفظ في متصفح المستخدم نفسه
+  var SETTINGS_KEY = 'pauseproof.alertSettings.v1';
+  function loadAlertSettings() { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null') || {}; } catch (e) { return {}; } }
+  function storeAlertSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); return true; } catch (e) { return false; } }
+  var alertSettings = loadAlertSettings();
+
+  var ALERT_FMT = { money: money, currencyLabel: currencyLabel, num: numAr, int: function (n) { return ar(Math.round(n || 0)); } };
+  var analysis = PauseProofAlerts.analyze([], {}, alertSettings, ALERT_FMT);
+
+  // اسم كل حساب وعملته وحالته — عشان تنبيهات مستوى الحساب
+  function accountsMeta() {
+    var meta = {};
+    Object.keys(platformOptions).forEach(function (p) {
+      (platformOptions[p] || []).forEach(function (o) {
+        var info = accountInfo[p + ':' + o.value] || {};
+        meta[p + ':' + o.value] = { label: o.label, currency: info.currency || null, metaAccountStatus: p === 'meta' && info.accountStatus != null ? Number(info.accountStatus) : null };
+      });
+    });
+    return meta;
+  }
+  function runAnalysis() { analysis = PauseProofAlerts.analyze(candidates, accountsMeta(), alertSettings, ALERT_FMT); }
+  function adAnalysis(c) { return analysis.byAd[c.id] || { health: c.active ? 'good' : 'inactive', issues: [], metricLevels: {} }; }
+  // كلاس اللون لمقياس معيّن لو عليه ملاحظة (أحمر/أصفر/أخضر)
+  function mv(c, metric) { var lv = adAnalysis(c).metricLevels[metric]; return lv ? ' mv-' + lv : ''; }
+
+  // ---------- Rendering ----------
   function previewMarkup(c) {
     // الرابط بيتحط جوه url('...') جوه style="..." — فلازم نشفّر ' و ( و ) عشان ميخرجش من CSS
     var thumb = safeUrl(c.thumbUrl);
@@ -941,23 +1038,76 @@
     return '<div class="preview preview-text"><span class="text-url">' + esc(c.landing !== '—' ? c.landing : '') + '</span><span class="text-headline">' + esc(c.headline) + '</span><span class="text-desc">' + esc(c.desc) + '</span></div>';
   }
 
+  function statusLabelOf(c) {
+    if (c.active) return 'نشط';
+    if (c.pausedLevel === 'adset') return 'متوقف (المجموعة)';
+    if (c.pausedLevel === 'campaign') return 'متوقف (الحملة)';
+    return 'متوقف';
+  }
+
+  function cardChips(c) {
+    var chips = '<span class="metric-chip' + mv(c, 'spend') + '" title="الإنفاق — آخر ٧ أيام">' + money(c.spend, c.currency) + '</span>';
+    if (c.results != null) {
+      chips += '<span class="metric-chip' + mv(c, 'results') + '" title="النتائج — آخر ٧ أيام">' + ar(c.results) + ' ' + esc(c.resultLabel || 'نتائج') + '</span>';
+    }
+    var showRoas = c.roas != null || mv(c, 'roas');
+    if (showRoas) {
+      chips += '<span class="metric-chip' + mv(c, 'roas') + '" title="كل ١ بيتصرف بيرجع كام مبيعات">عائد ' + roasStr(c.roas) + '</span>';
+    }
+    // تكلفة النتيجة بتظهر لو مفيش عائد نعرضه، أو لو هي نفسها المشكلة
+    if (c.cpr != null && (!showRoas || mv(c, 'cpr'))) {
+      chips += '<span class="metric-chip' + mv(c, 'cpr') + '" title="تكلفة النتيجة الواحدة">' + money(c.cpr, c.currency) + ' للواحد</span>';
+    }
+    if (c.frequency != null && mv(c, 'frequency')) {
+      chips += '<span class="metric-chip' + mv(c, 'frequency') + '" title="متوسط مرات ظهور الإعلان لنفس الشخص">تكرار ' + numAr(c.frequency) + '</span>';
+    }
+    if (mv(c, 'delivery') && !mv(c, 'spend')) {
+      chips += '<span class="metric-chip' + mv(c, 'delivery') + '">وصول ضعيف</span>';
+    }
+    return chips;
+  }
+
   function cardMarkup(c) {
+    var eid = esc(c.id);
+    var a = adAnalysis(c);
+    var h = HEALTH[a.health];
+    var dot = '<span class="health-dot ' + h.cls + '" title="' + h.label + '"><span class="sr-only">' + h.label + '</span></span>';
+    var shown = a.issues.filter(function (i) { return i.level !== 'info'; });
+    var top = shown[0] || a.issues[0];
+    var issueLine = top
+      ? '<div class="card-issue ' + LEVELS[top.level].cls + '">' + esc(top.title) + (a.issues.length > 1 ? ' <span class="card-issue-more">+' + ar(a.issues.length - 1) + '</span>' : '') + '</div>'
+      : '';
+    var line1 = '<div class="card-line1">' + esc(c.platform) + ' <span style="color:var(--ink-faint);font-weight:400;">·</span> ' + esc(c.placement) + '</div>';
+    var name = '<div class="card-name" title="' + esc(c.offer) + '">' + esc(c.offer) + '</div>';
+    var info = '<div class="card-info">' + line1 + name + issueLine + '<div class="card-metrics">' + cardChips(c) + '</div>';
+
+    if (!ACTIONS_ENABLED) {
+      return (
+        '<article class="candidate-card ' + h.cls + '" id="card-' + eid + '" data-id="' + eid + '" tabindex="0" role="button" aria-label="' + esc(c.offer) + ' — ' + h.label + '">' +
+          dot +
+          '<span class="preview-trigger" data-id="' + eid + '">' + previewMarkup(c) + '</span>' +
+          info +
+            '<div class="card-foot">' +
+              '<span class="days-badge">' + sinceLabel(c.daysAgo) + '</span>' +
+              '<span class="status-text' + (c.active ? ' on' : '') + '">' + statusLabelOf(c) + '</span>' +
+            '</div>' +
+          '</div>' +
+        '</article>'
+      );
+    }
+
+    // وضع الإجراءات (مرحلة لاحقة) — نفس الكارت القديم بالتحديد والمفتاح
     var checked = selectedIds[c.id] ? ' checked' : '';
     var selCls = selectedIds[c.id] ? ' selected' : '';
-    var eid = esc(c.id);
-    var statusLabel = c.active ? 'نشط' : 'متوقف';
-    if (!c.active && c.pausedLevel === 'adset') statusLabel = 'متوقف (المجموعة)';
-    if (!c.active && c.pausedLevel === 'campaign') statusLabel = 'متوقف (الحملة)';
     return (
-      '<label class="candidate-card' + selCls + '" id="card-' + eid + '">' +
+      '<label class="candidate-card ' + h.cls + selCls + '" id="card-' + eid + '">' +
+        dot +
         '<span class="check-wrap"><input type="checkbox" class="card-check" data-id="' + eid + '"' + checked + '></span>' +
         '<span class="preview-trigger" data-id="' + eid + '">' + previewMarkup(c) + '</span>' +
-        '<div class="card-info">' +
-          '<div class="card-line1">' + esc(c.platform) + ' <span style="color:var(--ink-faint);font-weight:400;">\u00B7</span> ' + esc(c.placement) + '</div>' +
-          '<div class="card-metrics"><span class="metric-chip">' + money(c.spend) + '</span><span class="metric-chip">' + roasStr(c.roas) + '</span></div>' +
+        info +
           '<div class="card-foot">' +
             '<span class="days-badge">' + sinceLabel(c.daysAgo) + '</span>' +
-            '<button type="button" class="state-switch" id="badge-' + eid + '" data-id="' + eid + '"><span class="switch-track' + (c.active ? ' on' : '') + '"><span class="switch-thumb"></span></span><span class="switch-label">' + statusLabel + '</span></button>' +
+            '<button type="button" class="state-switch" id="badge-' + eid + '" data-id="' + eid + '"><span class="switch-track' + (c.active ? ' on' : '') + '"><span class="switch-thumb"></span></span><span class="switch-label">' + statusLabelOf(c) + '</span></button>' +
           '</div>' +
         '</div>' +
       '</label>'
@@ -972,6 +1122,7 @@
       if (filters.format !== 'all' && c.format !== filters.format) return false;
       if (filters.status === 'active' && !c.active) return false;
       if (filters.status === 'paused' && c.active) return false;
+      if (filters.health !== 'all' && adAnalysis(c).health !== filters.health) return false;
       // تاريخ الإطلاق غير معروف (زي Google Ads) — منقدرش نأكد إنه جوه النطاق، فمنعرضوش مع فلتر تاريخ
       if ((filters.dateFrom || filters.dateTo) && c.daysAgo == null) return false;
       if (filters.dateFrom) { var from = new Date(filters.dateFrom); from.setHours(0, 0, 0, 0); if (getLaunchDate(c) < from) return false; }
@@ -988,13 +1139,18 @@
     var arr = list.slice();
     // القيم غير المعروفة (null) تنزل آخر القائمة
     var age = function (v) { return v == null ? Number.MAX_SAFE_INTEGER : v; };
-    if (key === 'launch') arr.sort(function (a, b) { return age(a.daysAgo) - age(b.daysAgo); });
+    if (key === 'priority') {
+      // الأهم أولاً: يحتاج مراجعة ← يحتاج تحسين ← جيد ← غير فعال، وجوه كل مجموعة الأعلى إنفاقاً
+      arr.sort(function (a, b) { return (HEALTH[adAnalysis(a).health].order - HEALTH[adAnalysis(b).health].order) || (b.spend - a.spend); });
+    }
+    else if (key === 'launch') arr.sort(function (a, b) { return age(a.daysAgo) - age(b.daysAgo); });
     else if (key === 'update') arr.sort(function (a, b) { return age(a.updatedDaysAgo) - age(b.updatedDaysAgo); });
     else if (key === 'spend') arr.sort(function (a, b) { return b.spend - a.spend; });
     return arr;
   }
 
   function render() {
+    runAnalysis();
     var visible = sortCandidates(visibleCandidates(), filters.sort);
     if (!candidates.length) {
       cardGrid.innerHTML = '';
@@ -1003,7 +1159,18 @@
       cardGrid.innerHTML = visible.length ? visible.map(cardMarkup).join('') : '<div class="empty-state" style="grid-column:1/-1">لا توجد إعلانات مطابقة للفلتر الحالي</div>';
       galleryCount.textContent = 'عرض ' + ar(visible.length) + ' من ' + ar(candidates.length) + ' إعلاناً حقيقياً';
     }
-    updateSelectionSummary();
+    renderHealthCounts();
+    renderAlerts();
+    if (ACTIONS_ENABLED) updateSelectionSummary();
+  }
+
+  // عدد الإعلانات في كل تقييم — بيظهر جنب كل اختيار في فلتر "تقييم الأداء"
+  function renderHealthCounts() {
+    var counts = analysis.summary.health;
+    document.querySelectorAll('[data-health-count]').forEach(function (el) {
+      var k = el.getAttribute('data-health-count');
+      el.textContent = candidates.length ? ar(counts[k] || 0) : '';
+    });
   }
 
   selectAllBtn.addEventListener('click', function () { visibleCandidates().forEach(function (c) { selectedIds[c.id] = true; }); render(); });
@@ -1014,7 +1181,7 @@
     var selected = candidates.filter(function (c) { return selectedIds[c.id]; });
     var visibleNow = visibleCandidates();
     var unselectedVisible = visibleNow.filter(function (c) { return !selectedIds[c.id]; }).length;
-    selectionSummary.textContent = 'محدد: ' + ar(selected.length) + ' \u00B7 غير محدد من الظاهر: ' + ar(unselectedVisible);
+    selectionSummary.textContent = 'محدد: ' + ar(selected.length) + ' · غير محدد من الظاهر: ' + ar(unselectedVisible);
     var toStop = selected.filter(function (c) { return c.active; }).length;
     var toResume = selected.filter(function (c) { return !c.active; }).length;
     if (!selected.length) { stopSelectedBtn.disabled = true; stopSelectedBtn.textContent = 'إيقاف المحدد الآن'; }
@@ -1026,12 +1193,14 @@
   document.querySelectorAll('.filter-group').forEach(function (group) {
     group.addEventListener('click', function (e) {
       var btn = e.target.closest('.chip'); if (!btn) return;
-      group.querySelectorAll('.chip').forEach(function (c) { c.classList.remove('active'); });
-      btn.classList.add('active');
-      filters[group.dataset.filter] = btn.dataset.value;
+      setFilterChip(group, btn.dataset.value);
       render();
     });
   });
+  function setFilterChip(group, value) {
+    group.querySelectorAll('.chip').forEach(function (c) { c.classList.toggle('active', c.dataset.value === value); });
+    filters[group.dataset.filter] = value;
+  }
   textFilter.addEventListener('input', function () { filters.text = textFilter.value; render(); });
   dateFrom.addEventListener('change', function () { filters.dateFrom = dateFrom.value; render(); });
   dateTo.addEventListener('change', function () { filters.dateTo = dateTo.value; render(); });
@@ -1047,15 +1216,29 @@
     }
   });
 
-  function metricBox(label, value) { return '<div class="metric-box"><div class="metric-label">' + label + '</div><div class="metric-value">' + value + '</div></div>'; }
+  function metricBox(label, value, extraCls) { return '<div class="metric-box' + (extraCls || '') + '"><div class="metric-label">' + label + '</div><div class="metric-value">' + value + '</div></div>'; }
 
   var DEST_LABELS = { whatsapp: 'رابط واتساب', messenger: 'رابط ماسنجر', website: 'الصفحة المقصودة' };
 
+  function issueMarkup(i) {
+    return '<div class="issue-item ' + LEVELS[i.level].cls + '">' +
+      '<div class="issue-title"><span class="issue-level">' + LEVELS[i.level].label + '</span>' + esc(i.title) + '</div>' +
+      '<div class="issue-detail">' + esc(i.detail) + '</div>' +
+      '<div class="issue-advice">💡 ' + esc(i.advice) + '</div>' +
+    '</div>';
+  }
+
   function openExpand(c) {
+    var a = adAnalysis(c);
+    var h = HEALTH[a.health];
     var previewEl = document.getElementById('expandPreview');
     previewEl.innerHTML = previewMarkup(c);
     document.getElementById('expandTitle').textContent = c.offer;
-    document.getElementById('expandSub').textContent = c.platform + ' \u00B7 ' + c.placement + (c.daysAgo != null ? ' \u2014 ' + sinceLabel(c.daysAgo) : '');
+    document.getElementById('expandSub').textContent = c.platform + ' · ' + c.placement + ' · ' + statusLabelOf(c) + (c.daysAgo != null ? ' — ' + sinceLabel(c.daysAgo) : '');
+    document.getElementById('expandHealth').innerHTML = '<span class="health-badge ' + h.cls + '"><span class="health-dot-inline"></span>' + h.label + '</span>';
+    document.getElementById('expandIssues').innerHTML = a.issues.length
+      ? a.issues.map(issueMarkup).join('')
+      : (c.active ? '<div class="issue-none">مفيش ملاحظات على الإعلان ده حالياً.</div>' : '');
     document.getElementById('expandCaption').textContent = c.caption || c.headline || '(بدون نص)';
 
     var destLabel = DEST_LABELS[c.landingKind] || 'الوجهة';
@@ -1066,29 +1249,34 @@
       : '<span class="expand-landing-value mono">' + esc(c.landing || '—') + '</span>';
     document.getElementById('expandLanding').innerHTML = '<div class="expand-landing"><span class="expand-landing-label">' + destLabel + '</span>' + landingInner + '</div>';
 
-    var resultsLabelTxt = c.results != null ? ('النتائج (' + (c.resultLabel || 'نتائج') + ')') : 'النتائج';
-    document.getElementById('expandMetrics').innerHTML =
-      metricBox('الإنفاق (٧ أيام)', money(c.spend)) +
-      metricBox(resultsLabelTxt, c.results != null ? ar(c.results) : '— (لا توجد بيانات تحويل لهذا الإعلان)') +
-      metricBox('تكلفة النتيجة', c.cpr != null ? money(c.cpr) : '—') +
-      metricBox('ROAS', roasStr(c.roas)) +
-      metricBox('قيمة المبيعات', c.dailySales.some(function(v){return v>0;}) ? money(c.dailySales.reduce(function(a,b){return a+b;},0)) : '— (بدون قيمة مالية مرتبطة بالنتائج)');
+    var cur = c.currency;
+    var hasSales = c.dailySales.some(function (v) { return v > 0; });
+    var resultsLabelTxt = c.results != null ? ('النتائج (' + esc(c.resultLabel || 'نتائج') + ')') : 'النتائج';
+    var boxes =
+      metricBox('الإنفاق (٧ أيام)', money(c.spend, cur), mv(c, 'spend') || mv(c, 'delivery')) +
+      metricBox(resultsLabelTxt, c.results != null ? ar(c.results) : '— (لا توجد بيانات تحويل لهذا الإعلان)', mv(c, 'results')) +
+      metricBox('تكلفة النتيجة الواحدة', c.cpr != null ? money(c.cpr, cur) : '—', mv(c, 'cpr')) +
+      metricBox('العائد (كل ١ بيرجع)', roasStr(c.roas), mv(c, 'roas'));
+    if (c.frequency != null) boxes += metricBox('تكرار الظهور لنفس الشخص', numAr(c.frequency) + ' مرة', mv(c, 'frequency'));
+    boxes += metricBox('قيمة المبيعات', hasSales ? money(c.dailySales.reduce(function (x, y) { return x + y; }, 0), cur) : '— (بدون قيمة مالية مرتبطة بالنتائج)');
+    document.getElementById('expandMetrics').innerHTML = boxes;
 
     // السلسلة الثانية: مبيعات فعلية لو موجودة، وإلا عدد النتائج (حسب هدف الإعلان نفسه) كبديل مفيد
-    var useSales = c.dailySales.some(function (v) { return v > 0; });
-    var secondSeries = useSales ? c.dailySales : c.dailyResults;
-    var secondRowLabel = useSales ? 'المبيعات (ر.س)' : ('النتائج' + (c.resultLabel ? ' — ' + c.resultLabel : ''));
-    document.getElementById('legendSalesLabel').textContent = useSales ? 'المبيعات' : 'النتائج';
-    var maxBoth = Math.max.apply(null, c.daily.concat(secondSeries)) || 1;
-    var headerCells = c.dailyDates.map(function (dt) { return '<th>' + dt + '</th>'; }).join('');
-    var spendCells = c.daily.map(function (v) { return '<td class="mono">' + digitsAny(v) + '</td>'; }).join('');
-    var secondCells = secondSeries.map(function (v) { return '<td class="mono">' + digitsAny(v) + '</td>'; }).join('');
+    var secondSeries = hasSales ? c.dailySales : c.dailyResults;
+    var secondRowLabel = hasSales ? 'المبيعات (' + currencyLabel(cur) + ')' : ('النتائج' + (c.resultLabel ? ' — ' + esc(c.resultLabel) : ''));
+    document.getElementById('legendSalesLabel').textContent = hasSales ? 'المبيعات' : 'النتائج';
+    // عمود "أمس" متعلّم — أغلب التنبيهات مبنية عليه، وعمود النهارده يوم لسه مخلصش
+    var colCls = function (i) { return i === 5 ? ' class="col-yesterday"' : (i === 6 ? ' class="col-today"' : ''); };
+    var headerCells = c.dailyDates.map(function (dt, i) { return '<th' + colCls(i) + '>' + (i === 5 ? 'أمس' : (i === 6 ? 'اليوم' : dt)) + '</th>'; }).join('');
+    var spendCells = c.daily.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + digitsAny(Math.round(v)) + '</span></td>'; }).join('');
+    var secondCells = secondSeries.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + digitsAny(Math.round(v)) + '</span></td>'; }).join('');
     document.getElementById('expandChart').innerHTML =
       '<div class="daily-table-wrap"><table class="daily-table"><thead><tr><th></th>' + headerCells + '</tr></thead>' +
-      '<tbody><tr><td>الإنفاق (ر.س)</td>' + spendCells + '</tr>' +
+      '<tbody><tr><td>الإنفاق (' + currencyLabel(cur) + ')</td>' + spendCells + '</tr>' +
       '<tr><td>' + secondRowLabel + '</td>' + secondCells + '</tr></tbody></table></div>';
 
     expandOverlay.classList.remove('hidden');
+    expandOverlay.querySelector('.expand-card').scrollTop = 0;
 
     // محاولة تحميل الفيديو الحقيقي نفسه (مش صورة منه) بثلاث محاولات متدرجة:
     // 1) رابط ملف مباشر (source) داخل عنصر <video> حقيقي — أقرب حاجة لـ"سحب الميديا نفسها"
@@ -1133,6 +1321,14 @@
   }
   expandClose.addEventListener('click', function () { expandOverlay.classList.add('hidden'); });
   expandOverlay.addEventListener('click', function (e) { if (e.target === expandOverlay) expandOverlay.classList.add('hidden'); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    expandOverlay.classList.add('hidden');
+    settingsOverlay.classList.add('hidden');
+    platformOverlay.classList.add('hidden');
+  });
+
+  function findCandidate(id) { return candidates.filter(function (x) { return x.id === id; })[0]; }
 
   function setBadge(id, state, label) {
     var el = document.getElementById('badge-' + id);
@@ -1146,10 +1342,18 @@
   }
 
   cardGrid.addEventListener('click', function (e) {
+    if (!ACTIONS_ENABLED) {
+      // وضع العرض: الضغط على أي مكان في الكارت بيفتح التفاصيل
+      var card = e.target.closest('.candidate-card');
+      if (!card) return;
+      var picked = findCandidate(card.dataset.id);
+      if (picked) openExpand(picked);
+      return;
+    }
     var trigger = e.target.closest('.preview-trigger');
     if (trigger) {
       e.preventDefault(); e.stopPropagation();
-      var c = candidates.filter(function (x) { return x.id === trigger.dataset.id; })[0];
+      var c = findCandidate(trigger.dataset.id);
       if (c) openExpand(c);
       return;
     }
@@ -1157,9 +1361,140 @@
     if (sw) {
       e.preventDefault(); e.stopPropagation();
       if (sw.disabled) return;
-      var c2 = candidates.filter(function (x) { return x.id === sw.dataset.id; })[0];
+      var c2 = findCandidate(sw.dataset.id);
       if (c2) toggleOne(c2, sw);
     }
+  });
+  cardGrid.addEventListener('keydown', function (e) {
+    if (ACTIONS_ENABLED || (e.key !== 'Enter' && e.key !== ' ')) return;
+    var card = e.target.closest('.candidate-card');
+    if (!card) return;
+    e.preventDefault();
+    var picked = findCandidate(card.dataset.id);
+    if (picked) openExpand(picked);
+  });
+
+  // ---------- التبويبات: الإعلانات / التنبيهات ----------
+  var viewTabs = document.querySelectorAll('.view-tab');
+  function showView(view) {
+    viewTabs.forEach(function (t) {
+      var on = t.dataset.view === view;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.getElementById('viewAds').classList.toggle('hidden', view !== 'ads');
+    document.getElementById('viewAlerts').classList.toggle('hidden', view !== 'alerts');
+  }
+  viewTabs.forEach(function (t) { t.addEventListener('click', function () { showView(t.dataset.view); }); });
+
+  // ---------- صفحة التنبيهات ----------
+  var alertsLevelFilter = 'all';
+  var alertsSummaryEl = document.getElementById('alertsSummary');
+  var alertsListEl = document.getElementById('alertsList');
+  var alertsTabCount = document.getElementById('alertsTabCount');
+
+  function alertMarkup(a) {
+    var clickable = a.adId && findCandidate(a.adId);
+    // اسم الحساب فيه اسم المنصة أصلاً (مثال: "Meta — متجري")، فمنكررهاش
+    var source = a.adName ? esc(a.platform || '') + ' · ' + esc(a.adName) : esc(a.accountName || a.platform || '');
+    return '<article class="alert-item ' + LEVELS[a.level].cls + (clickable ? ' clickable' : '') + '"' +
+        (clickable ? ' data-ad-id="' + esc(a.adId) + '" tabindex="0" role="button"' : '') + '>' +
+      '<div class="alert-head"><span class="alert-level">' + LEVELS[a.level].label + '</span><span class="alert-source">' + source + '</span></div>' +
+      '<div class="alert-title">' + esc(a.title) + '</div>' +
+      '<p class="alert-detail">' + esc(a.detail) + '</p>' +
+      '<p class="alert-advice">💡 ' + esc(a.advice) + '</p>' +
+    '</article>';
+  }
+
+  function renderAlerts() {
+    var s = analysis.summary;
+    var urgent = s.levels.critical + s.levels.warning;
+    alertsTabCount.textContent = urgent ? ar(urgent) : '';
+    alertsTabCount.classList.toggle('has-critical', s.levels.critical > 0);
+
+    if (!candidates.length) {
+      alertsSummaryEl.innerHTML = '';
+      alertsListEl.innerHTML = '<div class="empty-state">سجّل الدخول وحمّل حساب إعلاني عشان تظهر التنبيهات هنا.</div>';
+      return;
+    }
+
+    var atRiskKeys = Object.keys(s.atRisk);
+    var atRisk = atRiskKeys.length ? atRiskKeys.map(function (cur) { return money(s.atRisk[cur], cur || null); }).join(' + ') : money(0);
+    var box = function (level, count, label) {
+      return '<button type="button" class="summary-box ' + LEVELS[level].cls + (alertsLevelFilter === level ? ' active' : '') + '" data-level="' + level + '">' +
+        '<span class="summary-count">' + ar(count) + '</span><span class="summary-label">' + label + '</span></button>';
+    };
+    alertsSummaryEl.innerHTML =
+      '<div class="summary-risk"><span class="summary-risk-label">ميزانية معرّضة للهدر (صرف بدون نتائج أو بخسارة)</span><span class="summary-risk-value">' + atRisk + '</span></div>' +
+      '<div class="summary-boxes">' +
+        box('critical', s.levels.critical, 'يحتاج مراجعة') +
+        box('warning', s.levels.warning, 'يحتاج تحسين') +
+        box('opportunity', s.levels.opportunity, 'فرص') +
+        box('info', s.levels.info, 'للعلم') +
+      '</div>';
+
+    var list = analysis.alerts.filter(function (a) { return alertsLevelFilter === 'all' || a.level === alertsLevelFilter; });
+    alertsListEl.innerHTML = list.length
+      ? list.map(alertMarkup).join('')
+      : '<div class="empty-state">' + (alertsLevelFilter === 'all' ? 'مفيش تنبيهات حالياً — أداء إعلاناتك ماشي كويس.' : 'مفيش تنبيهات من النوع ده حالياً.') + '</div>';
+  }
+
+  alertsSummaryEl.addEventListener('click', function (e) {
+    var b = e.target.closest('.summary-box'); if (!b) return;
+    alertsLevelFilter = alertsLevelFilter === b.dataset.level ? 'all' : b.dataset.level;
+    renderAlerts();
+  });
+  function openAlertAd(e) {
+    var item = e.target.closest('.alert-item.clickable'); if (!item) return;
+    if (e.type === 'keydown') { if (e.key !== 'Enter' && e.key !== ' ') return; e.preventDefault(); }
+    var c = findCandidate(item.dataset.adId);
+    if (c) openExpand(c);
+  }
+  alertsListEl.addEventListener('click', openAlertAd);
+  alertsListEl.addEventListener('keydown', openAlertAd);
+
+  // ---------- إعدادات التنبيهات ----------
+  var settingsOverlay = document.getElementById('settingsOverlay');
+  var settingsForm = document.getElementById('settingsForm');
+  var SETTING_UNITS = { multiple: '×', ratio: '٪', days: 'يوم', times: 'مرة', count: 'نتيجة' };
+
+  function renderSettingsForm() {
+    var current = PauseProofAlerts.mergeSettings(alertSettings);
+    var groups = {};
+    PauseProofAlerts.SETTINGS_META.forEach(function (m) { (groups[m.group] = groups[m.group] || []).push(m); });
+    settingsForm.innerHTML = Object.keys(groups).map(function (g) {
+      return '<fieldset class="settings-group"><legend>' + esc(g) + '</legend>' + groups[g].map(function (m) {
+        var v = current[m.key];
+        var shown = m.kind === 'ratio' ? Math.round(v * 100) : v;
+        var step = m.kind === 'multiple' ? '0.1' : '1';
+        return '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(m.label) + '</span><span class="setting-help">' + esc(m.help) + '</span></span>' +
+          '<span class="setting-input"><input type="number" inputmode="decimal" min="0" step="' + step + '" name="' + m.key + '" value="' + shown + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
+      }).join('') + '</fieldset>';
+    }).join('');
+  }
+
+  document.getElementById('openSettingsBtn').addEventListener('click', function () { renderSettingsForm(); settingsOverlay.classList.remove('hidden'); });
+  document.getElementById('settingsClose').addEventListener('click', function () { settingsOverlay.classList.add('hidden'); });
+  settingsOverlay.addEventListener('click', function (e) { if (e.target === settingsOverlay) settingsOverlay.classList.add('hidden'); });
+  document.getElementById('settingsReset').addEventListener('click', function () {
+    alertSettings = {};
+    storeAlertSettings(alertSettings);
+    renderSettingsForm();
+    render();
+  });
+  document.getElementById('settingsSave').addEventListener('click', function () {
+    var next = {};
+    PauseProofAlerts.SETTINGS_META.forEach(function (m) {
+      var input = settingsForm.querySelector('[name="' + m.key + '"]');
+      var raw = parseFloat(String(input.value).replace(',', '.'));
+      if (!isFinite(raw) || raw < 0) return; // قيمة غلط = نرجع للافتراضي
+      next[m.key] = m.kind === 'ratio' ? raw / 100 : raw;
+    });
+    alertSettings = next;
+    var saved = storeAlertSettings(alertSettings);
+    settingsOverlay.classList.add('hidden');
+    render();
+    if (!saved) connectStatus.textContent = 'اتطبقت الإعدادات، بس المتصفح مش سامح بحفظها — هترجع للافتراضي لو قفلت الصفحة.';
   });
 
   // ملاحظة صريحة: التبديل هنا توضيحي (simulated) — بيحاكي نفس تسلسل الإرسال والتحقق
@@ -1177,7 +1512,7 @@
 
   function resetFilterChips() {
     document.querySelectorAll('.filter-group').forEach(function (g) { g.querySelectorAll('.chip').forEach(function (ch) { ch.classList.toggle('active', ch.dataset.value === 'all'); }); });
-    filters.platform = 'all'; filters.format = 'all'; filters.status = 'all'; filters.text = '';
+    filters.platform = 'all'; filters.format = 'all'; filters.status = 'all'; filters.health = 'all'; filters.text = '';
     textFilter.value = '';
   }
 

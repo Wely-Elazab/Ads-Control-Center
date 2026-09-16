@@ -153,7 +153,7 @@
   .video-fallback-link { position: absolute; bottom: 10px; inset-inline-start: 10px; z-index: 2; background: rgba(22,26,31,0.72); color: #fff; font-size: 12px; padding: 7px 12px; border-radius: 8px; text-decoration: none; }
   .video-fallback-note { position: absolute; bottom: 10px; inset-inline-start: 10px; inset-inline-end: 10px; z-index: 2; background: rgba(22,26,31,0.72); color: #fff; font-size: 11.5px; padding: 7px 12px; border-radius: 8px; text-align: center; }
   .expand-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
-  .expand-metrics .metric-box:last-child { grid-column: 1 / -1; }
+  .expand-metrics .metric-box:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .metric-box { background: var(--paper); border-radius: 10px; padding: 10px 12px; }
   .metric-label { font-size: 10.5px; color: var(--ink-faint); margin-bottom: 3px; }
   .metric-value { font-size: 15px; font-weight: 700; }
@@ -179,12 +179,118 @@
   .daily-table tbody tr:last-child td:first-child { color: var(--ink-soft); }
   .daily-table tbody tr:first-child td:first-child { color: var(--ink-soft); }
 
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* ---------- وضع العرض فقط: أدوات الإيقاف/التحديد مخفية ---------- */
+  .view-only .action-only, .view-only .check-wrap { display: none !important; }
+  .view-only .candidate-card, .view-only .preview-trigger { cursor: pointer; }
+  .candidate-card:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .ghost-btn:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+
+  /* ---------- التبويبات ---------- */
+  .view-tabs { display: flex; gap: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 5px; margin-bottom: 14px; }
+  .view-tab { flex: 1; border: none; background: none; padding: 11px 14px; border-radius: 9px; font-family: inherit; font-size: 14px; font-weight: 600; color: var(--ink-soft); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  .view-tab.active { background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+  .view-tab:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .tab-count { min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--pending); color: #fff; font-size: 12px; line-height: 1.6; }
+  .tab-count.has-critical { background: var(--alert); }
+  .tab-count:empty { display: none; }
+
+  /* ---------- تقييم الأداء: ألوان الحالة والمستويات ---------- */
+  .h-review { --h: var(--alert); }
+  .h-improve { --h: var(--pending); }
+  .h-good { --h: var(--verified); }
+  .h-inactive { --h: var(--ink-faint); }
+  .lv-critical { --lv: var(--alert); --lv-bg: var(--alert-bg); }
+  .lv-warning { --lv: var(--pending); --lv-bg: var(--pending-bg); }
+  .lv-opportunity { --lv: var(--verified); --lv-bg: var(--verified-bg); }
+  .lv-info { --lv: var(--ink-soft); --lv-bg: var(--sending-bg); }
+
+  .health-dot { position: absolute; top: 9px; inset-inline-start: 9px; z-index: 2; width: 16px; height: 16px; border-radius: 50%; background: var(--h); box-shadow: 0 0 0 3px var(--card), 0 1px 5px rgba(0,0,0,0.3); }
+  .candidate-card.h-review { border-color: color-mix(in srgb, var(--alert) 45%, var(--line)); }
+  .chip-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--h); margin-inline-end: 6px; vertical-align: middle; }
+  .chip.active .chip-dot { box-shadow: 0 0 0 2px #fff; }
+  .chip-count { opacity: .75; font-size: 12px; }
+  .chip-count:empty { display: none; }
+  .health-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-soft); }
+
+  .card-name { font-size: 12.5px; color: var(--ink-soft); margin: -4px 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-issue { font-size: 12px; font-weight: 600; padding: 5px 9px; border-radius: 7px; margin-bottom: 8px; background: var(--lv-bg); color: var(--lv); }
+  .card-issue-more { font-weight: 500; opacity: .8; }
+  .metric-chip.mv-critical { color: var(--alert); background: var(--alert-bg); border-color: var(--alert); }
+  .metric-chip.mv-warning { color: var(--pending); background: var(--pending-bg); border-color: var(--pending); }
+  .metric-chip.mv-opportunity { color: var(--verified); background: var(--verified-bg); border-color: var(--verified); }
+  .status-text { font-size: 11.5px; font-weight: 600; color: var(--ink-faint); }
+  .status-text.on { color: var(--verified); }
+
+  .health-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--h); background: color-mix(in srgb, var(--h) 14%, transparent); padding: 4px 10px; border-radius: 999px; margin-bottom: 8px; }
+  .health-dot-inline { width: 9px; height: 9px; border-radius: 50%; background: var(--h); }
+  .expand-issues { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+  .expand-issues:empty { display: none; }
+  .issue-item { border-inline-start: 4px solid var(--lv); background: var(--lv-bg); border-radius: 10px; padding: 10px 12px; }
+  .issue-title { font-size: 13.5px; font-weight: 700; color: var(--ink); margin-bottom: 3px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .issue-level { font-size: 10.5px; font-weight: 700; color: var(--lv); border: 1px solid currentColor; border-radius: 999px; padding: 1px 7px; }
+  .issue-detail { font-size: 12.5px; line-height: 1.65; color: var(--ink); overflow-wrap: anywhere; }
+  .issue-advice { font-size: 12.5px; line-height: 1.65; color: var(--ink-soft); margin-top: 4px; }
+  .issue-none { font-size: 12.5px; color: var(--verified); background: var(--verified-bg); border-radius: 10px; padding: 10px 12px; }
+  .metric-box.mv-critical { background: var(--alert-bg); box-shadow: inset 0 0 0 1.5px var(--alert); }
+  .metric-box.mv-critical .metric-value { color: var(--alert); }
+  .metric-box.mv-warning { background: var(--pending-bg); box-shadow: inset 0 0 0 1.5px var(--pending); }
+  .metric-box.mv-warning .metric-value { color: var(--pending); }
+  .metric-box.mv-opportunity { background: var(--verified-bg); box-shadow: inset 0 0 0 1.5px var(--verified); }
+  .metric-box.mv-opportunity .metric-value { color: var(--verified); }
+  .daily-table .col-yesterday { background: var(--paper); }
+  .daily-table th.col-yesterday { color: var(--ink); font-weight: 700; }
+  .daily-table .col-today { opacity: .6; }
+
+  /* ---------- صفحة التنبيهات ---------- */
+  .alerts-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .alerts-heading { font-size: 18px; margin: 0 0 4px; }
+  .alerts-sub { margin: 0; font-size: 12.5px; color: var(--ink-soft); max-width: 62ch; line-height: 1.6; }
+  .summary-risk { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; margin-bottom: 10px; }
+  .summary-risk-label { font-size: 13px; color: var(--ink-soft); }
+  .summary-risk-value { font-size: 20px; font-weight: 700; color: var(--alert); }
+  .summary-boxes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px; }
+  @media (min-width: 640px) { .summary-boxes { grid-template-columns: repeat(4, 1fr); } }
+  .summary-box { text-align: start; background: var(--card); border: 1px solid var(--line); border-inline-start: 4px solid var(--lv); border-radius: 12px; padding: 12px 14px; cursor: pointer; font-family: inherit; color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
+  .summary-box.active { background: var(--lv-bg); box-shadow: inset 0 0 0 1.5px var(--lv); }
+  .summary-box:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .summary-count { font-size: 22px; font-weight: 700; color: var(--lv); }
+  .summary-label { font-size: 12.5px; color: var(--ink-soft); }
+  .alerts-list { display: flex; flex-direction: column; gap: 10px; }
+  .alert-item { background: var(--card); border: 1px solid var(--line); border-inline-start: 4px solid var(--lv); border-radius: 12px; padding: 14px 16px; }
+  .alert-item.clickable { cursor: pointer; }
+  .alert-item.clickable:hover { border-color: var(--ink-faint); border-inline-start-color: var(--lv); }
+  .alert-item:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .alert-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+  .alert-level { font-size: 11px; font-weight: 700; color: var(--lv); background: var(--lv-bg); padding: 2px 9px; border-radius: 999px; }
+  .alert-source { font-size: 12px; color: var(--ink-faint); overflow-wrap: anywhere; }
+  .alert-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+  .alert-detail { margin: 0 0 6px; font-size: 13.5px; line-height: 1.7; overflow-wrap: anywhere; }
+  .alert-advice { margin: 0; font-size: 13px; line-height: 1.7; color: var(--ink-soft); }
+
+  /* ---------- إعدادات التنبيهات ---------- */
+  .settings-card { max-width: 580px; }
+  .settings-group { border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px 2px; margin: 14px 0 0; }
+  .settings-group legend { font-size: 12px; font-weight: 700; color: var(--ink-soft); padding: 0 6px; }
+  .setting-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px dashed var(--line); }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .setting-label { font-size: 13.5px; font-weight: 600; }
+  .setting-help { font-size: 11.5px; color: var(--ink-soft); line-height: 1.5; }
+  .setting-input { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .setting-input input { width: 78px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 8px; font-size: 16px; font-family: inherit; color: var(--ink); background: var(--paper); text-align: center; }
+  .setting-input input:focus-visible { outline: 2px solid var(--verified); outline-offset: 1px; }
+  .setting-unit { font-size: 12px; color: var(--ink-soft); min-width: 28px; }
+  .settings-actions { display: flex; gap: 10px; flex-wrap: wrap; position: sticky; bottom: 0; background: var(--card); padding: 14px 0 4px; margin-top: 8px; }
+  @media (max-width: 420px) { .setting-row { flex-wrap: wrap; } }
+
   @media (max-width: 560px) {
     .expand-overlay { align-items: flex-end; padding: 0; }
     .expand-card { max-width: 100%; border-radius: 18px 18px 0 0; max-height: 85vh; }
   }
   @media print {
-    .topbar, .connect-panel, .filter-toggle, .filter-bar, .gallery-actions, .proof-actions, #alertBanner, .check-wrap { display: none !important; }
+    .topbar, .connect-panel, .filter-toggle, .filter-bar, .gallery-actions, .proof-actions, #alertBanner, .check-wrap, .view-tabs, #openSettingsBtn { display: none !important; }
   }
   @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 </style>
@@ -195,7 +301,7 @@
   <header class="topbar">
     <div class="brand">
       <span class="brand-mark">PauseProof</span>
-      <span class="brand-tag" id="tBrandTag">إثبات التوقف، لا مجرد أمر يُرسَل</span>
+      <span class="brand-tag" id="tBrandTag">كل إعلاناتك في مكان واحد — وتنبيهات تحمي ميزانيتك</span>
     </div>
     <div class="topbar-controls">
       <button type="button" class="icon-toggle" id="themeToggle" aria-label="theme">☀️</button>
@@ -211,15 +317,32 @@
       </div>
       <div class="connect-actions">
         <select id="accountSelect" class="sort-select hidden"></select>
+        <button type="button" class="ghost-btn" id="resetAllBtn" title="إعادة تحميل كل الحسابات المتصلة">↻ تحديث البيانات</button>
         <button type="button" class="stop-btn" id="loginMenuBtn">تسجيل الدخول</button>
       </div>
     </div>
   </section>
 
-  <div class="sim-note" id="simNote">⚠ <span id="tSimNote">البيانات المعروضة هنا حقيقية من حسابك. أزرار الإيقاف/التشغيل في هذا العرض توضيحية فقط ولا تُغيّر حسابك الفعلي بعد.</span></div>
+  <div class="sim-note" id="simNote">ℹ <span id="tSimNote">PauseProof أداة عرض وتحليل وتنبيه فقط — مش بتغيّر أي حاجة في إعلاناتك. القرار دايماً ليك ولمسؤول الإعلانات.</span></div>
 
+  <nav class="view-tabs" role="tablist" aria-label="أقسام الصفحة">
+    <button type="button" class="view-tab active" data-view="ads" role="tab" aria-selected="true">الإعلانات</button>
+    <button type="button" class="view-tab" data-view="alerts" role="tab" aria-selected="false">التنبيهات <span class="tab-count" id="alertsTabCount"></span></button>
+  </nav>
+
+  <div id="viewAds">
   <button type="button" class="filter-toggle" id="filterToggle">🔍 <span id="tFilterToggle">إظهار / إخفاء الفلاتر</span></button>
   <section class="filter-bar" id="filterBar">
+    <div class="filter-row">
+      <span class="filter-label" id="tLblHealth">تقييم الأداء</span>
+      <div class="filter-group" data-filter="health">
+        <button class="chip active" data-value="all">الكل</button>
+        <button class="chip" data-value="review"><span class="chip-dot h-review"></span>يحتاج مراجعة <span class="chip-count" data-health-count="review"></span></button>
+        <button class="chip" data-value="improve"><span class="chip-dot h-improve"></span>يحتاج تحسين <span class="chip-count" data-health-count="improve"></span></button>
+        <button class="chip" data-value="good"><span class="chip-dot h-good"></span>جيد <span class="chip-count" data-health-count="good"></span></button>
+        <button class="chip" data-value="inactive"><span class="chip-dot h-inactive"></span>غير فعال <span class="chip-count" data-health-count="inactive"></span></button>
+      </div>
+    </div>
     <div class="filter-row">
       <span class="filter-label">المنصة</span>
       <div class="filter-group" data-filter="platform">
@@ -259,6 +382,7 @@
     <div class="filter-row">
       <span class="filter-label" id="tLblSort">ترتيب</span>
       <select id="sortSelect" class="sort-select">
+        <option value="priority">الأولوية (المشاكل أولاً)</option>
         <option value="launch">الأحدث إطلاقاً</option>
         <option value="update">آخر تحديث</option>
         <option value="spend">الأعلى إنفاقاً</option>
@@ -272,7 +396,13 @@
 
   <div class="gallery-head">
     <span class="gallery-count" id="galleryCount">سجّل الدخول لعرض إعلاناتك</span>
-    <div class="gallery-actions">
+    <div class="health-legend" aria-hidden="true">
+      <span><span class="chip-dot h-review"></span>يحتاج مراجعة</span>
+      <span><span class="chip-dot h-improve"></span>يحتاج تحسين</span>
+      <span><span class="chip-dot h-good"></span>جيد</span>
+      <span><span class="chip-dot h-inactive"></span>غير فعال</span>
+    </div>
+    <div class="gallery-actions action-only">
       <button type="button" class="text-btn" id="selectAllBtn">تحديد كل الظاهر</button>
       <button type="button" class="text-btn" id="clearSelBtn">إلغاء التحديد</button>
       <span class="selection-summary" id="selectionSummary">محدد: ٠</span>
@@ -287,7 +417,7 @@
 
   <div class="card-grid" id="cardGrid"></div>
 
-  <section id="proofReport" class="proof-report hidden">
+  <section id="proofReport" class="proof-report hidden action-only">
     <div class="proof-head">
       <span class="proof-title">تقرير الإثبات (توضيحي)</span>
       <span class="proof-time mono" id="proofTime">—</span>
@@ -299,8 +429,20 @@
     </div>
     <div class="proof-actions">
       <button id="printBtn" class="ghost-btn">طباعة / تحميل التقرير</button>
-      <button id="resetAllBtn" class="ghost-btn">إعادة تحميل الحساب</button>
     </div>
+  </section>
+  </div>
+
+  <section id="viewAlerts" class="hidden" aria-labelledby="alertsHeading">
+    <div class="alerts-head">
+      <div>
+        <h2 class="alerts-heading" id="alertsHeading">التنبيهات المهمة</h2>
+        <p class="alerts-sub">مبنية على أداء آخر ٧ أيام، و«أمس» يعني آخر يوم كامل. اضغط على أي تنبيه عشان تشوف تفاصيل الإعلان.</p>
+      </div>
+      <button type="button" class="ghost-btn" id="openSettingsBtn">⚙ إعدادات التنبيهات</button>
+    </div>
+    <div id="alertsSummary"></div>
+    <div class="alerts-list" id="alertsList"></div>
   </section>
 
 </div>
@@ -338,8 +480,10 @@
     <button class="expand-close" id="expandClose" aria-label="close">✕</button>
     <div class="expand-preview" id="expandPreview"></div>
     <div class="expand-body">
+      <div id="expandHealth"></div>
       <div class="expand-title" id="expandTitle"></div>
       <div class="expand-sub" id="expandSub"></div>
+      <div class="expand-issues" id="expandIssues"></div>
       <div class="expand-caption" id="expandCaption"></div>
       <div id="expandLanding"></div>
       <div class="expand-metrics" id="expandMetrics"></div>
@@ -353,6 +497,22 @@
   </div>
 </div>
 
+<div id="settingsOverlay" class="expand-overlay hidden">
+  <div class="expand-card settings-card" role="dialog" aria-labelledby="settingsTitle">
+    <button class="expand-close" id="settingsClose" aria-label="close">✕</button>
+    <div class="expand-body" style="padding-top:24px;">
+      <div class="expand-title" id="settingsTitle">إعدادات التنبيهات</div>
+      <div class="expand-sub">القيم الافتراضية محسوبة نسبةً لأداء حسابك نفسه، فتناسب أي حجم ميزانية. عدّلها لو عندك أهداف مختلفة — بتتحفظ على المتصفح ده.</div>
+      <div id="settingsForm"></div>
+      <div class="settings-actions">
+        <button type="button" class="stop-btn" id="settingsSave">حفظ</button>
+        <button type="button" class="ghost-btn" id="settingsReset">رجوع للقيم الافتراضية</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="alerts.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
