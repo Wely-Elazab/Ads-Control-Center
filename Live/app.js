@@ -1249,11 +1249,11 @@
   }
 
   var expandSeq = 0;
+  var expandedAd = null; // الإعلان المفتوح حالياً في نافذة التفاصيل
   function openExpand(c) {
     var a = adAnalysis(c);
     var h = HEALTH[a.health];
-    var previewEl = document.getElementById('expandPreview');
-    previewEl.innerHTML = previewMarkup(c);
+    expandedAd = c;
     document.getElementById('expandTitle').textContent = c.offer;
     document.getElementById('expandSub').textContent = c.platform + ' · ' + c.placement + ' · ' + statusLabelOf(c) + (c.daysAgo != null ? ' — ' + sinceLabel(c.daysAgo) : '');
     document.getElementById('expandHealth').innerHTML = '<span class="health-badge ' + h.cls + '"><span class="health-dot-inline"></span>' + h.label + '</span>';
@@ -1299,52 +1299,73 @@
     expandOverlay.classList.remove('hidden');
     expandOverlay.querySelector('.expand-card').scrollTop = 0;
 
-    // محاولة تحميل الفيديو الحقيقي نفسه (مش صورة منه) بثلاث محاولات متدرجة:
-    // 1) رابط ملف مباشر (source) داخل عنصر <video> حقيقي — أقرب حاجة لـ"سحب الميديا نفسها"
-    // 2) تضمين رسمي من Meta (embed_html) لو الملف المباشر مش متاح
-    // 3) رابط "افتح على Meta" لو الاتنين فوق فشلوا — عشان الموضوع يبان واضح مش بس صورة ثابتة صامتة
-    // كل فتح جديد للنافذة بياخد رقم — عشان رد متأخر من Meta لإعلان قديم ميكتبش فوق معاينة الإعلان المفتوح دلوقتي
-    var openSeq = ++expandSeq;
-    if (c.platform === 'Meta' && typeof FB !== 'undefined') {
-      // المحاولة الأولى (صور وفيديو): Ad Previews API — أداة Meta الرسمية لمعاينة الإعلان كما يظهر فعلياً
-      // بنفس جودة الصورة الأصلية، ومصممة أصلاً لصلاحيات إعلانية عادية زي ads_read
-      FB.api('/' + c.id + '/previews', { ad_format: 'MOBILE_FEED_STANDARD' }, function (prevResp) {
-        var el = document.getElementById('expandPreview');
-        if (!el || openSeq !== expandSeq) return;
-        var previewFrame = prevResp && prevResp.data && prevResp.data[0] && metaIframeHtml(prevResp.data[0].body);
-        if (previewFrame) {
-          el.innerHTML = '<div class="video-embed-wrap">' + previewFrame + '</div>';
-          return;
-        }
-        // إعلان صورة والمعاينة فشلت: الصورة الثابتة اللي معروضة أصلاً تكفي
-        if (!c.videoId) return;
-        // المحاولة الثانية للفيديو: بيانات الفيديو مباشرة (تضمين رسمي، ثم ملف مباشر، ثم رابط خارجي)
-        FB.api('/' + c.videoId, { fields: 'embed_html,source,permalink_url,picture' }, function (vidResp) {
-          if (openSeq !== expandSeq) return;
-          var mediaHtml = '';
-          var embedFrame = vidResp && metaIframeHtml(vidResp.embed_html);
-          var videoSrc = vidResp && safeUrl(vidResp.source);
-          var posterSrc = vidResp && safeUrl(vidResp.picture);
-          if (embedFrame) {
-            mediaHtml = '<div class="video-embed-wrap">' + embedFrame + '</div>';
-          } else if (videoSrc) {
-            mediaHtml = '<video class="real-video" controls playsinline preload="metadata"' +
-              (posterSrc ? ' poster="' + esc(posterSrc) + '"' : '') +
-              '><source src="' + esc(videoSrc) + '" type="video/mp4"></video>';
-          }
-          var permalink = vidResp && vidResp.permalink_url && safeUrl('https://www.facebook.com' + vidResp.permalink_url);
-          var linkHtml = permalink
-            ? '<a class="video-fallback-link" href="' + esc(permalink) + '" target="_blank" rel="noopener noreferrer">🔗 فتح الفيديو الأصلي على Meta</a>'
-            : '';
-          if (mediaHtml || linkHtml) {
-            el.innerHTML = mediaHtml + linkHtml;
-          } else {
-            el.innerHTML += '<div class="video-fallback-note">تعذّر جلب الفيديو لهذا الإعلان (قد يحتاج صلاحية إضافية على التطبيق).</div>';
-          }
-        });
-      });
-    }
+    // الوسائط: إعلانات الفيديو بتبدأ بمعاينة Meta (عشان الفيديو يشتغل)، وإعلانات الصور بتبدأ بالصورة نفسها.
+    // معاينة Meta ساعات بتعرض رسالة خطأ منها هي جوه الإطار (بوست محذوف، صفحة مفيش صلاحية عليها،
+    // كتالوج منتجات فاضي)، ومنقدرش نكتشف ده من الكود لأن محتوى الإطار ممنوع علينا نقراه —
+    // عشان كده فيه زرارين يبدّل بيهم المستخدم بين الاتنين بنفسه
+    setMediaMode(c, c.videoId ? 'meta' : 'image');
   }
+
+  function renderMediaSwitch(c, mode) {
+    var sw = document.getElementById('expandMediaSwitch');
+    if (c.platform !== 'Meta' || typeof FB === 'undefined') { sw.innerHTML = ''; return; }
+    var btn = function (m, label) {
+      return '<button type="button" class="media-switch-btn' + (mode === m ? ' active' : '') + '" data-mode="' + m + '" aria-pressed="' + (mode === m) + '">' + label + '</button>';
+    };
+    sw.innerHTML = '<div class="media-switch-row">' + btn('image', c.videoId ? 'غلاف الفيديو' : 'صورة الإعلان') + btn('meta', 'معاينة Meta') + '</div>' +
+      (mode === 'meta' ? '<div class="media-switch-note">المعاينة جاية من Meta مباشرةً. لو ظهر فيها رسالة خطأ (بوست محذوف، صلاحية، أو كتالوج فاضي)، اختار «' + (c.videoId ? 'غلاف الفيديو' : 'صورة الإعلان') + '».</div>' : '');
+  }
+
+  // كل تغيير في الوسائط بياخد رقم — عشان رد متأخر من Meta لإعلان أو وضع قديم ميكتبش فوق اللي معروض دلوقتي
+  function setMediaMode(c, mode) {
+    var openSeq = ++expandSeq;
+    var el = document.getElementById('expandPreview');
+    el.innerHTML = previewMarkup(c);
+    renderMediaSwitch(c, mode);
+    if (mode !== 'meta' || c.platform !== 'Meta' || typeof FB === 'undefined') return;
+
+    // المحاولة الأولى: Ad Previews API — أداة Meta الرسمية لمعاينة الإعلان كما يظهر فعلياً
+    FB.api('/' + c.id + '/previews', { ad_format: 'MOBILE_FEED_STANDARD' }, function (prevResp) {
+      if (openSeq !== expandSeq) return;
+      var previewFrame = prevResp && prevResp.data && prevResp.data[0] && metaIframeHtml(prevResp.data[0].body);
+      if (previewFrame) {
+        el.innerHTML = '<div class="video-embed-wrap">' + previewFrame + '</div>';
+        return;
+      }
+      // إعلان صورة والمعاينة فشلت: الصورة الثابتة اللي معروضة أصلاً تكفي
+      if (!c.videoId) return;
+      // المحاولة الثانية للفيديو: بيانات الفيديو مباشرة (تضمين رسمي، ثم ملف مباشر، ثم رابط خارجي)
+      FB.api('/' + c.videoId, { fields: 'embed_html,source,permalink_url,picture' }, function (vidResp) {
+        if (openSeq !== expandSeq) return;
+        var mediaHtml = '';
+        var embedFrame = vidResp && metaIframeHtml(vidResp.embed_html);
+        var videoSrc = vidResp && safeUrl(vidResp.source);
+        var posterSrc = vidResp && safeUrl(vidResp.picture);
+        if (embedFrame) {
+          mediaHtml = '<div class="video-embed-wrap">' + embedFrame + '</div>';
+        } else if (videoSrc) {
+          mediaHtml = '<video class="real-video" controls playsinline preload="metadata"' +
+            (posterSrc ? ' poster="' + esc(posterSrc) + '"' : '') +
+            '><source src="' + esc(videoSrc) + '" type="video/mp4"></video>';
+        }
+        var permalink = vidResp && vidResp.permalink_url && safeUrl('https://www.facebook.com' + vidResp.permalink_url);
+        var linkHtml = permalink
+          ? '<a class="video-fallback-link" href="' + esc(permalink) + '" target="_blank" rel="noopener noreferrer">🔗 فتح الفيديو الأصلي على Meta</a>'
+          : '';
+        if (mediaHtml || linkHtml) {
+          el.innerHTML = mediaHtml + linkHtml;
+        } else {
+          el.innerHTML += '<div class="video-fallback-note">تعذّر جلب الفيديو لهذا الإعلان (قد يحتاج صلاحية إضافية على التطبيق).</div>';
+        }
+      });
+    });
+  }
+
+  document.getElementById('expandMediaSwitch').addEventListener('click', function (e) {
+    var b = e.target.closest('.media-switch-btn');
+    if (!b || !expandedAd || b.classList.contains('active')) return;
+    setMediaMode(expandedAd, b.dataset.mode);
+  });
   expandClose.addEventListener('click', function () { expandOverlay.classList.add('hidden'); });
   expandOverlay.addEventListener('click', function (e) { if (e.target === expandOverlay) expandOverlay.classList.add('hidden'); });
   document.addEventListener('keydown', function (e) {
