@@ -764,12 +764,7 @@
     connectStatus.textContent = 'جارٍ تحميل حالة الحملات والمجموعات الإعلانية…';
     loadAdsetStatusMap(accountId, function (adsetStatusMap) {
     connectStatus.textContent = 'جارٍ تحميل كل الإعلانات (قد يستغرق لحظات لو الحساب كبير)…';
-    fetchAllPages('/' + accountId + '/ads', {
-      fields: 'id,name,effective_status,created_time,updated_time,' +
-        'adset{id,name,optimization_goal},' +
-        'creative{title,body,image_url,thumbnail_url,video_id,object_story_spec{link_data{link,call_to_action},video_data{call_to_action}}}',
-      limit: 100
-    }, PAGE_SAFETY_CAP, function (err, adsData, adsTruncated) {
+    fetchMetaAds(accountId, function (err, adsData, adsTruncated) {
       if (err) { connectStatus.textContent = 'تعذّر تحميل الإعلانات (' + err.message + ').'; return; }
       var adsById = {};
       var order = [];
@@ -882,9 +877,34 @@
   // حالات Meta اللي معناها إن المنصة نفسها عندها ملاحظة على الإعلان
   var META_REVIEW_STATUS = { DISAPPROVED: 'disapproved', WITH_ISSUES: 'limited' };
 
+  // صور الإعلانات: thumbnail_url الافتراضي من Meta صورة مصغّرة ٦٤×٦٤ بس — ولما بتتكبّر في الكارت بتبان مشوشة.
+  // عشان كده بنطلب نسخة ١٠٨٠ بكسل، ولو الـ API رفض الصيغة دي بنرجع للطلب العادي بدل ما الإعلانات كلها متحمّلش
+  var META_AD_FIELDS = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},';
+  var META_CREATIVE_FIELDS = '{title,body,image_url,thumbnail_url,video_id,' +
+    'object_story_spec{link_data{link,picture,call_to_action},video_data{call_to_action,image_url}}}';
+  function fetchMetaAds(accountId, onDone) {
+    fetchAllPages('/' + accountId + '/ads', {
+      fields: META_AD_FIELDS + 'creative.thumbnail_width(1080).thumbnail_height(1080)' + META_CREATIVE_FIELDS,
+      limit: 100
+    }, PAGE_SAFETY_CAP, function (err, adsData, truncated) {
+      if (!err) { onDone(null, adsData, truncated); return; }
+      fetchAllPages('/' + accountId + '/ads', { fields: META_AD_FIELDS + 'creative' + META_CREATIVE_FIELDS, limit: 100 }, PAGE_SAFETY_CAP, onDone);
+    });
+  }
+
+  // أوضح صورة متاحة للإعلان: الصورة الأصلية ← صورة الرابط ← غلاف الفيديو ← الصورة المصغّرة (عالية الدقة لو اتطلبت)
+  function metaImageUrl(creative) {
+    var spec = creative.object_story_spec || {};
+    return creative.image_url ||
+      (spec.link_data && spec.link_data.picture) ||
+      (spec.video_data && spec.video_data.image_url) ||
+      creative.thumbnail_url || null;
+  }
+
   function transformRealAd(ad, insightRows, adsetStatusMap, days, reachRow, currency) {
     var creative = ad.creative || {};
-    var format = creative.video_id ? 'video' : ((creative.image_url || creative.thumbnail_url) ? 'image' : 'text');
+    var imageUrl = metaImageUrl(creative);
+    var format = creative.video_id ? 'video' : (imageUrl ? 'image' : 'text');
     var goal = (ad.adset && ad.adset.optimization_goal) || null;
     var byDate = {};
     (insightRows || []).forEach(function (r) { byDate[r.date_start] = r; });
@@ -932,7 +952,7 @@
       format: format,
       duration: format === 'video' ? '' : undefined,
       videoId: creative.video_id || null,
-      thumbUrl: creative.image_url || creative.thumbnail_url || null,
+      thumbUrl: imageUrl,
       headline: creative.title || ad.name,
       desc: creative.body || '',
       offer: ad.name,
@@ -1228,6 +1248,7 @@
     '</div>';
   }
 
+  var expandSeq = 0;
   function openExpand(c) {
     var a = adAnalysis(c);
     var h = HEALTH[a.health];
@@ -1282,19 +1303,24 @@
     // 1) رابط ملف مباشر (source) داخل عنصر <video> حقيقي — أقرب حاجة لـ"سحب الميديا نفسها"
     // 2) تضمين رسمي من Meta (embed_html) لو الملف المباشر مش متاح
     // 3) رابط "افتح على Meta" لو الاتنين فوق فشلوا — عشان الموضوع يبان واضح مش بس صورة ثابتة صامتة
-    if (c.videoId && typeof FB !== 'undefined') {
-      // المحاولة الأولى: Ad Previews API — أداة Meta الرسمية لمعاينة الإعلان كما يظهر فعلياً
-      // (بما فيها الفيديو الحقيقي)، ومصممة أصلاً لصلاحيات إعلانية عادية زي ads_read
+    // كل فتح جديد للنافذة بياخد رقم — عشان رد متأخر من Meta لإعلان قديم ميكتبش فوق معاينة الإعلان المفتوح دلوقتي
+    var openSeq = ++expandSeq;
+    if (c.platform === 'Meta' && typeof FB !== 'undefined') {
+      // المحاولة الأولى (صور وفيديو): Ad Previews API — أداة Meta الرسمية لمعاينة الإعلان كما يظهر فعلياً
+      // بنفس جودة الصورة الأصلية، ومصممة أصلاً لصلاحيات إعلانية عادية زي ads_read
       FB.api('/' + c.id + '/previews', { ad_format: 'MOBILE_FEED_STANDARD' }, function (prevResp) {
         var el = document.getElementById('expandPreview');
-        if (!el) return;
+        if (!el || openSeq !== expandSeq) return;
         var previewFrame = prevResp && prevResp.data && prevResp.data[0] && metaIframeHtml(prevResp.data[0].body);
         if (previewFrame) {
           el.innerHTML = '<div class="video-embed-wrap">' + previewFrame + '</div>';
           return;
         }
-        // المحاولة الثانية: بيانات الفيديو مباشرة (تضمين رسمي، ثم ملف مباشر، ثم رابط خارجي)
+        // إعلان صورة والمعاينة فشلت: الصورة الثابتة اللي معروضة أصلاً تكفي
+        if (!c.videoId) return;
+        // المحاولة الثانية للفيديو: بيانات الفيديو مباشرة (تضمين رسمي، ثم ملف مباشر، ثم رابط خارجي)
         FB.api('/' + c.videoId, { fields: 'embed_html,source,permalink_url,picture' }, function (vidResp) {
+          if (openSeq !== expandSeq) return;
           var mediaHtml = '';
           var embedFrame = vidResp && metaIframeHtml(vidResp.embed_html);
           var videoSrc = vidResp && safeUrl(vidResp.source);
