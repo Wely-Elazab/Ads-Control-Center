@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/", "destination": "/pauseproof-live.html" },
+    { "source": "/index.html", "destination": "/pauseproof-live.html" }
+  ]
+}
