@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>PauseProof — Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F5F6F2; --card: #FFFFFF; --ink: #161A1F; --ink-soft: #5B6470; --ink-faint: #9098A0; --line: #E3E5DF;
+    --verified: #0E7A63; --verified-bg: #E4F3EF; --pending: #C7841A; --pending-bg: #FBF0DD;
+    --alert: #B3311F; --alert-bg: #FBE7E3; --sending-bg: #EEEFEC; --radius: 14px;
+  }
+  [data-theme="dark"] {
+    --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #6E7681; --line: #2B303A;
+    --verified: #2BC4A4; --verified-bg: #123832; --pending: #E3A94A; --pending-bg: #3A2C13;
+    --alert: #EC6952; --alert-bg: #3D1B15; --sending-bg: #262B34;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); font-family: 'IBM Plex Sans Arabic', 'IBM Plex Sans', 'Segoe UI', Tahoma, sans-serif; transition: background .2s ease, color .2s ease; }
+  html[lang="en"] body { font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; }
+  .mono { font-family: 'IBM Plex Mono', 'Courier New', monospace; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 22px 16px 84px; }
+  .hidden { display: none !important; }
+  .fade-out { opacity: 0; transform: translateY(-6px); }
+
+  .topbar { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+  .brand { display: flex; flex-direction: column; gap: 3px; }
+  .brand-mark { font-size: 23px; font-weight: 700; letter-spacing: 0.2px; }
+  .brand-tag { font-size: 13px; color: var(--ink-soft); }
+  .topbar-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .icon-toggle { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; }
+  .lang-toggle { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 8px 15px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .icon-toggle:focus-visible, .lang-toggle:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+
+  .connect-panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 16px; }
+  .connect-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; }
+  .connect-title { font-size: 14.5px; font-weight: 700; margin-bottom: 3px; }
+  .connect-sub { font-size: 12.5px; color: var(--ink-soft); }
+  .connect-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .platform-list { display: flex; flex-direction: column; gap: 10px; }
+  .platform-item { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; text-align: start; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; cursor: pointer; font-family: inherit; }
+  .platform-item:hover:not(:disabled) { border-color: var(--verified); }
+  .platform-item:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .platform-item-name { font-size: 14.5px; font-weight: 700; color: var(--ink); }
+  .platform-item-sub { font-size: 12px; color: var(--ink-soft); }
+  .platform-item.soon { opacity: .55; cursor: default; }
+  .platform-item.soon .platform-item-sub { color: var(--pending); font-weight: 600; }
+  .sim-note { display: flex; align-items: center; gap: 8px; background: var(--pending-bg); color: var(--pending); border-radius: 10px; padding: 10px 14px; font-size: 12.5px; font-weight: 500; margin-bottom: 16px; }
+
+  .filter-toggle { display: flex; align-items: center; gap: 8px; width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 13px 18px; font-size: 13.5px; font-weight: 600; color: var(--ink); cursor: pointer; font-family: inherit; margin-bottom: 12px; }
+  .filter-bar { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; display: none; flex-direction: column; gap: 12px; }
+  .filter-bar.open { display: flex; }
+  .filter-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .filter-label { font-size: 11.5px; color: var(--ink-faint); min-width: 46px; flex-shrink: 0; }
+  .filter-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); font-size: 13px; font-weight: 500; padding: 8px 15px; border-radius: 999px; cursor: pointer; font-family: inherit; transition: background .12s ease, color .12s ease, border-color .12s ease; }
+  .chip.active { background: var(--verified); border-color: var(--verified); color: #fff; }
+  .text-filter, .date-input, .sort-select { border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; font-size: 16px; font-family: inherit; color: var(--ink); background: var(--paper); }
+  .text-filter { flex: 1 1 220px; }
+  .date-range { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .date-sep { font-size: 12.5px; color: var(--ink-faint); }
+  .text-filter:focus-visible, .chip:focus-visible, .stop-btn:focus-visible, .ghost-btn:focus-visible, .date-input:focus-visible, .sort-select:focus-visible, .text-btn:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+
+  .gallery-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+  .gallery-count { font-size: 13px; color: var(--ink-soft); }
+  .gallery-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .selection-summary { font-size: 12.5px; color: var(--ink-soft); white-space: nowrap; }
+  .text-btn { background: none; border: none; font-size: 12.5px; color: var(--ink-soft); text-decoration: underline; cursor: pointer; font-family: inherit; padding: 6px 0; white-space: nowrap; }
+  .text-btn:hover { color: var(--ink); }
+  .stop-btn { background: var(--verified); color: #fff; border: none; border-radius: 10px; padding: 14px 22px; font-size: 14.5px; font-weight: 600; font-family: inherit; cursor: pointer; transition: filter .15s ease, transform .1s ease; white-space: nowrap; }
+  .stop-btn:hover:not(:disabled) { filter: brightness(0.92); }
+  .stop-btn:active:not(:disabled) { transform: scale(0.98); }
+  .stop-btn:disabled { background: var(--ink-faint); cursor: default; }
+
+  .alert-banner { display: flex; align-items: center; gap: 10px; background: var(--alert-bg); color: var(--alert); border: 1px solid rgba(179,49,31,0.25); border-radius: var(--radius); padding: 13px 16px; margin-bottom: 16px; font-size: 14px; font-weight: 500; }
+  .alert-icon { width: 20px; height: 20px; border-radius: 50%; background: var(--alert); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--ink-faint); font-size: 13.5px; background: var(--card); border: 1px dashed var(--line); border-radius: var(--radius); }
+
+  .card-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 20px; }
+  @media (min-width: 480px) { .card-grid { grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); } }
+  .candidate-card { position: relative; display: block; border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
+  .candidate-card.selected { border-color: var(--verified); box-shadow: 0 0 0 1px var(--verified); }
+  .check-wrap { position: absolute; top: 8px; inset-inline-end: 8px; z-index: 2; width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,0.92); display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
+  [data-theme="dark"] .check-wrap { background: rgba(29,33,41,0.9); }
+  .card-check { width: 20px; height: 20px; accent-color: var(--verified); cursor: pointer; margin: 0; }
+  .preview-trigger { display: block; cursor: zoom-in; }
+  .preview { position: relative; height: 126px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .preview::after { content: ''; position: absolute; width: 90px; height: 90px; border-radius: 50%; background: rgba(255,255,255,0.4); filter: blur(16px); top: -18px; inset-inline-end: -18px; }
+  .pv-t0 { background: linear-gradient(150deg, #E1F0EA 0%, #AEDBC7 55%, #78BFA3 100%); }
+  .pv-t1 { background: linear-gradient(150deg, #E7EAF6 0%, #C4CFEC 55%, #97A9DE 100%); }
+  .pv-t2 { background: linear-gradient(150deg, #F7EAE0 0%, #EFCBA6 55%, #DE9F62 100%); }
+  .pv-t3 { background: linear-gradient(150deg, #F6E6EE 0%, #EAC1D8 55%, #D890B7 100%); }
+  .play-icon-wrap { position: relative; z-index: 1; width: 44px; height: 44px; border-radius: 50%; background: rgba(22,26,31,0.4); display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(22,26,31,0.2); }
+  .play-icon { width: 0; height: 0; border-top: 9px solid transparent; border-bottom: 9px solid transparent; border-inline-start: 14px solid #fff; margin-inline-start: 3px; }
+  .dur-badge { position: absolute; bottom: 8px; inset-inline-start: 8px; background: rgba(22,26,31,0.55); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: 6px; z-index: 1; }
+  .format-badge { position: relative; z-index: 1; background: rgba(255,255,255,0.75); color: #161A1F; font-size: 11.5px; padding: 4px 11px; border-radius: 6px; font-weight: 600; }
+  .preview-text { flex-direction: column; align-items: flex-start; justify-content: center; background: var(--card); padding: 15px 17px; gap: 4px; height: auto; min-height: 126px; }
+  .text-url { font-size: 11px; color: var(--verified); display: block; }
+  .text-headline { font-size: 13.5px; font-weight: 700; line-height: 1.35; display: block; }
+  .text-desc { font-size: 12px; color: var(--ink-soft); line-height: 1.4; display: block; }
+  .card-info { padding: 12px 13px 14px; }
+  .card-line1 { font-size: 13.5px; font-weight: 700; margin-bottom: 8px; }
+  .card-metrics { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .metric-chip { font-size: 11px; font-weight: 600; color: var(--ink-soft); background: var(--paper); border: 1px solid var(--line); padding: 3px 9px; border-radius: 6px; }
+  .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+  .days-badge { font-size: 11px; color: var(--ink-faint); font-weight: 500; }
+
+  .state-switch { display: inline-flex; align-items: center; gap: 7px; background: none; border: none; padding: 6px 2px; margin: -6px -2px; font-family: inherit; cursor: pointer; }
+  .state-switch:disabled { cursor: default; opacity: .65; }
+  .state-switch:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; border-radius: 8px; }
+  .switch-track { position: relative; width: 32px; height: 18px; border-radius: 999px; background: var(--ink-faint); transition: background .2s ease; flex-shrink: 0; }
+  .switch-track.on { background: var(--verified); }
+  .switch-track.pulse-neutral { animation: swpulse .9s ease-in-out infinite; }
+  .switch-track.pulse-red { background: var(--alert); animation: swpulse .7s ease-in-out infinite; }
+  @keyframes swpulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+  .switch-thumb { position: absolute; top: 2px; inset-inline-start: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: inset-inline-start .2s ease; }
+  .switch-track.on .switch-thumb { inset-inline-start: 16px; }
+  .switch-label { font-size: 11.5px; font-weight: 600; color: var(--ink-soft); }
+
+  .proof-report { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .proof-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px dashed var(--line); }
+  .proof-title { font-weight: 700; font-size: 15.5px; }
+  .proof-time { font-size: 12.5px; color: var(--ink-faint); }
+  .proof-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 11px; }
+  .proof-line { display: flex; justify-content: space-between; gap: 16px; font-size: 14px; }
+  .proof-line > span:first-child { color: var(--ink-soft); flex-shrink: 0; }
+  .proof-line > span:last-child { font-weight: 500; }
+  .proof-actions { display: flex; gap: 10px; padding: 16px 20px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .ghost-btn { background: transparent; border: 1px solid var(--line); color: var(--ink); border-radius: 9px; padding: 11px 16px; font-size: 13.5px; font-weight: 500; font-family: inherit; cursor: pointer; }
+  .ghost-btn:hover { border-color: var(--ink-faint); background: var(--paper); }
+
+  .expand-overlay { position: fixed; inset: 0; background: rgba(10,12,15,0.55); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
+  .expand-card { background: var(--card); border-radius: 16px; max-width: 460px; width: 100%; max-height: 90vh; overflow-y: auto; position: relative; }
+  .expand-close { position: absolute; top: 12px; inset-inline-end: 12px; width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(120,120,120,0.15); cursor: pointer; font-size: 15px; color: var(--ink); z-index: 2; }
+  .expand-preview .preview { height: 280px; }
+  .expand-body { padding: 16px 20px 22px; }
+  .expand-title { font-size: 15.5px; font-weight: 700; margin-bottom: 3px; }
+  .expand-sub { font-size: 12px; color: var(--ink-faint); margin-bottom: 12px; }
+  .expand-caption { font-size: 13.5px; line-height: 1.65; background: var(--paper); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
+  .expand-landing { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12.5px; padding: 10px 0; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); margin-bottom: 14px; }
+  .expand-landing-label { color: var(--ink-faint); flex-shrink: 0; }
+  .expand-landing-value { color: var(--verified); font-weight: 500; word-break: break-all; text-decoration: none; }
+  a.expand-landing-value:hover { text-decoration: underline; }
+  .preview { background-color: var(--sending-bg); }
+  .video-embed-wrap { width: 100%; min-height: 420px; }
+  .video-embed-wrap iframe { width: 100% !important; height: 420px !important; max-width: 100%; border: 0; display: block; }
+  @media (min-width: 480px) { .video-embed-wrap, .video-embed-wrap iframe { height: 480px !important; min-height: 480px; } }
+  .real-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  .video-fallback-link { position: absolute; bottom: 10px; inset-inline-start: 10px; z-index: 2; background: rgba(22,26,31,0.72); color: #fff; font-size: 12px; padding: 7px 12px; border-radius: 8px; text-decoration: none; }
+  .video-fallback-note { position: absolute; bottom: 10px; inset-inline-start: 10px; inset-inline-end: 10px; z-index: 2; background: rgba(22,26,31,0.72); color: #fff; font-size: 11.5px; padding: 7px 12px; border-radius: 8px; text-align: center; }
+  .expand-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+  .expand-metrics .metric-box:last-child { grid-column: 1 / -1; }
+  .metric-box { background: var(--paper); border-radius: 10px; padding: 10px 12px; }
+  .metric-label { font-size: 10.5px; color: var(--ink-faint); margin-bottom: 3px; }
+  .metric-value { font-size: 15px; font-weight: 700; }
+  .chart-section-label { font-size: 11.5px; color: var(--ink-faint); margin-bottom: 8px; }
+  .chart-legend { display: flex; gap: 16px; margin-bottom: 10px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-soft); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .legend-dot.legend-spend { background: var(--pending); }
+  .legend-dot.legend-sales { background: var(--verified); }
+  .daily-chart { display: flex; align-items: flex-end; gap: 7px; height: 58px; }
+  .chart-day-group { flex: 1; display: flex; align-items: flex-end; gap: 3px; height: 58px; }
+  .chart-bar-wrap { flex: 1; display: flex; align-items: flex-end; height: 58px; }
+  .chart-bar { width: 100%; border-radius: 3px 3px 0 0; opacity: .85; }
+  .chart-bar.chart-bar-spend { background: var(--pending); }
+  .chart-bar.chart-bar-sales { background: var(--verified); }
+  .daily-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .daily-table { border-collapse: collapse; width: 100%; min-width: 420px; font-size: 11.5px; }
+  .daily-table th, .daily-table td { padding: 6px 4px; text-align: center; white-space: nowrap; }
+  .daily-table thead th { color: var(--ink-faint); font-weight: 500; font-size: 10.5px; border-bottom: 1px solid var(--line); }
+  .daily-table tbody td:first-child { text-align: start; color: var(--ink-soft); font-weight: 600; font-size: 11px; }
+  .daily-table tbody tr:first-child td { color: var(--pending); font-weight: 600; }
+  .daily-table tbody tr:last-child td { color: var(--verified); font-weight: 600; }
+  .daily-table tbody tr:last-child td:first-child { color: var(--ink-soft); }
+  .daily-table tbody tr:first-child td:first-child { color: var(--ink-soft); }
+
+  @media (max-width: 560px) {
+    .expand-overlay { align-items: flex-end; padding: 0; }
+    .expand-card { max-width: 100%; border-radius: 18px 18px 0 0; max-height: 85vh; }
+  }
+  @media print {
+    .topbar, .connect-panel, .filter-toggle, .filter-bar, .gallery-actions, .proof-actions, #alertBanner, .check-wrap { display: none !important; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">PauseProof</span>
+      <span class="brand-tag" id="tBrandTag">إثبات التوقف، لا مجرد أمر يُرسَل</span>
+    </div>
+    <div class="topbar-controls">
+      <button type="button" class="icon-toggle" id="themeToggle" aria-label="theme">☀️</button>
+      <button type="button" class="lang-toggle" id="langToggle">EN</button>
+    </div>
+  </header>
+
+  <section class="connect-panel">
+    <div class="connect-row">
+      <div>
+        <div class="connect-title" id="tConnectTitle">اتصال بحسابات إعلانية حقيقية</div>
+        <div class="connect-sub" id="connectStatus">غير متصل — دوس تسجيل الدخول للبدء</div>
+      </div>
+      <div class="connect-actions">
+        <select id="accountSelect" class="sort-select hidden"></select>
+        <button type="button" class="stop-btn" id="loginMenuBtn">تسجيل الدخول</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="sim-note" id="simNote">⚠ <span id="tSimNote">البيانات المعروضة هنا حقيقية من حسابك. أزرار الإيقاف/التشغيل في هذا العرض توضيحية فقط ولا تُغيّر حسابك الفعلي بعد.</span></div>
+
+  <button type="button" class="filter-toggle" id="filterToggle">🔍 <span id="tFilterToggle">إظهار / إخفاء الفلاتر</span></button>
+  <section class="filter-bar" id="filterBar">
+    <div class="filter-row">
+      <span class="filter-label">المنصة</span>
+      <div class="filter-group" data-filter="platform">
+        <button class="chip active" data-value="all">الكل</button>
+        <button class="chip" data-value="Meta">Meta</button>
+        <button class="chip" data-value="Google Ads">Google Ads</button>
+        <button class="chip" data-value="TikTok">TikTok</button>
+        <button class="chip" data-value="Snapchat">Snapchat</button>
+      </div>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label" id="tLblFormat">الصيغة</span>
+      <div class="filter-group" data-filter="format">
+        <button class="chip active" data-value="all">الكل</button>
+        <button class="chip" data-value="video">فيديو</button>
+        <button class="chip" data-value="image">تصميم</button>
+        <button class="chip" data-value="text">نص</button>
+      </div>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label" id="tLblStatus">الحالة</span>
+      <div class="filter-group" data-filter="status">
+        <button class="chip active" data-value="all">الكل</button>
+        <button class="chip" data-value="active">نشط فقط</button>
+        <button class="chip" data-value="paused">متوقف فقط</button>
+      </div>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label" id="tLblDate">التاريخ</span>
+      <div class="date-range">
+        <input type="date" id="dateFrom" class="date-input" aria-label="date-from">
+        <span class="date-sep" id="tDateSep">إلى</span>
+        <input type="date" id="dateTo" class="date-input" aria-label="date-to">
+        <button type="button" class="chip" id="clearDates">مسح التاريخ</button>
+      </div>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label" id="tLblSort">ترتيب</span>
+      <select id="sortSelect" class="sort-select">
+        <option value="launch">الأحدث إطلاقاً</option>
+        <option value="update">آخر تحديث</option>
+        <option value="spend">الأعلى إنفاقاً</option>
+      </select>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label" id="tLblSearch">بحث</span>
+      <input type="text" id="textFilter" class="text-filter" placeholder="اسم الإعلان، أو أي كلمة موجودة فيه">
+    </div>
+  </section>
+
+  <div class="gallery-head">
+    <span class="gallery-count" id="galleryCount">سجّل الدخول لعرض إعلاناتك</span>
+    <div class="gallery-actions">
+      <button type="button" class="text-btn" id="selectAllBtn">تحديد كل الظاهر</button>
+      <button type="button" class="text-btn" id="clearSelBtn">إلغاء التحديد</button>
+      <span class="selection-summary" id="selectionSummary">محدد: ٠</span>
+      <button id="stopSelectedBtn" class="stop-btn" disabled>إيقاف المحدد الآن</button>
+    </div>
+  </div>
+
+  <div id="alertBanner" class="alert-banner hidden" role="status" aria-live="polite">
+    <span class="alert-icon">!</span>
+    <span id="alertText"></span>
+  </div>
+
+  <div class="card-grid" id="cardGrid"></div>
+
+  <section id="proofReport" class="proof-report hidden">
+    <div class="proof-head">
+      <span class="proof-title">تقرير الإثبات (توضيحي)</span>
+      <span class="proof-time mono" id="proofTime">—</span>
+    </div>
+    <div class="proof-body">
+      <div class="proof-line"><span>حالة التنفيذ</span><span id="proofStatus">—</span></div>
+      <div class="proof-line"><span>مدة التنفيذ</span><span class="mono" id="proofDuration">—</span></div>
+      <div class="proof-line"><span>ملاحظة</span><span id="proofIncident">—</span></div>
+    </div>
+    <div class="proof-actions">
+      <button id="printBtn" class="ghost-btn">طباعة / تحميل التقرير</button>
+      <button id="resetAllBtn" class="ghost-btn">إعادة تحميل الحساب</button>
+    </div>
+  </section>
+
+</div>
+
+<div id="platformOverlay" class="expand-overlay hidden">
+  <div class="expand-card">
+    <button class="expand-close" id="platformClose" aria-label="close">✕</button>
+    <div class="expand-body" style="padding-top:24px;">
+      <div class="expand-title" style="margin-bottom:4px;">اختر المنصة</div>
+      <div class="expand-sub" style="margin-bottom:16px;">سجّل دخولك في كل منصة تستخدمها، وهتظهر كل إعلاناتك في مكان واحد</div>
+      <div class="platform-list">
+        <button type="button" class="platform-item" id="platformMeta">
+          <span class="platform-item-name">Meta</span>
+          <span class="platform-item-sub">فيسبوك وإنستغرام — متصل وشغّال</span>
+        </button>
+        <button type="button" class="platform-item" id="platformGoogle">
+          <span class="platform-item-name">Google Ads</span>
+          <span class="platform-item-sub">الإعلانات والإنفاق اليومي — بما فيها حسابات MCC</span>
+        </button>
+        <button type="button" class="platform-item" id="platformSnapchat">
+          <span class="platform-item-name">Snapchat Ads</span>
+          <span class="platform-item-sub">لا يحتاج مراجعة من Snapchat — أسرع الأربعة</span>
+        </button>
+        <button type="button" class="platform-item" id="platformTikTok">
+          <span class="platform-item-name">TikTok Ads</span>
+          <span class="platform-item-sub">تسجيل الدخول شغّال — البيانات تحتاج موافقة Business Center</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="expandOverlay" class="expand-overlay hidden">
+  <div class="expand-card">
+    <button class="expand-close" id="expandClose" aria-label="close">✕</button>
+    <div class="expand-preview" id="expandPreview"></div>
+    <div class="expand-body">
+      <div class="expand-title" id="expandTitle"></div>
+      <div class="expand-sub" id="expandSub"></div>
+      <div class="expand-caption" id="expandCaption"></div>
+      <div id="expandLanding"></div>
+      <div class="expand-metrics" id="expandMetrics"></div>
+      <div class="chart-section-label">الإنفاق اليومي — آخر ٧ أيام</div>
+      <div class="chart-legend">
+        <span class="legend-item"><span class="legend-dot legend-spend"></span>الإنفاق</span>
+        <span class="legend-item"><span class="legend-dot legend-sales"></span><span id="legendSalesLabel">مبيعات (تقديرية)</span></span>
+      </div>
+      <div class="daily-chart" id="expandChart"></div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

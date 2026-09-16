@@ -1,0 +1,78 @@
+// نفس مجلد /api
+// المسار النهائي: https://<مشروعك>.vercel.app/api/tiktok-ads-fetch
+
+import { last7DaysRange } from './_dates.js';
+import { guardRequest } from './_cors.js';
+
+const TT_API = 'https://business-api.tiktok.com/open_api/v1.3';
+const PAGE_SIZE = 1000; // أقصى حجم صفحة — الافتراضي 10 بس
+const MAX_PAGES = 20;   // حد أمان للتصفّح
+
+// TikTok بترجّع HTTP 200 حتى مع الأخطاء — الخطأ الحقيقي في code != 0
+async function ttGet(url, headers) {
+  const r = await fetch(url, { headers: headers });
+  const data = await r.json().catch(function () { return null; });
+  if (!data || data.code !== 0) {
+    throw new Error((data && data.message) || ('HTTP ' + r.status));
+  }
+  return data.data || {};
+}
+
+async function ttGetAllPages(baseUrl, headers) {
+  let list = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const data = await ttGet(baseUrl + '&page=' + page + '&page_size=' + PAGE_SIZE, headers);
+    list = list.concat(data.list || []);
+    const totalPages = (data.page_info && data.page_info.total_page) || 1;
+    if (page >= totalPages) break;
+  }
+  return list;
+}
+
+export default async function handler(req, res) {
+  if (!guardRequest(req, res)) return;
+
+  const { accessToken, advertiserId, clientTz } = req.body || {};
+  if (!accessToken || !advertiserId) {
+    res.status(400).json({ error: 'accessToken و advertiserId مطلوبين في جسم الطلب.' });
+    return;
+  }
+
+  // ملاحظة: TikTok بتستخدم اسم Header مخصص (Access-Token) مش "Authorization: Bearer" العادي
+  const headers = { 'Access-Token': accessToken, 'Content-Type': 'application/json' };
+  const adv = encodeURIComponent(advertiserId);
+
+  // بيانات الحساب (التوقيت والعملة) — لو فشلت نكمّل بتوقيت المتصفح بدل ما نوقف كل حاجة
+  let advertiser = null;
+  try {
+    const info = await ttGet(TT_API + '/advertiser/info/?advertiser_ids=' + encodeURIComponent(JSON.stringify([String(advertiserId)])) +
+      '&fields=' + encodeURIComponent(JSON.stringify(['name', 'timezone', 'currency'])), headers);
+    const a = info.list && info.list[0];
+    if (a) advertiser = { name: a.name || null, timezone: a.timezone || null, currency: a.currency || null };
+  } catch (e) { /* مش أساسي */ }
+
+  let ads;
+  try {
+    ads = await ttGetAllPages(TT_API + '/ad/get/?advertiser_id=' + adv +
+      '&fields=' + encodeURIComponent(JSON.stringify(['ad_id', 'ad_name', 'operation_status', 'ad_format', 'landing_page_url', 'video_id', 'image_ids', 'ad_text', 'campaign_id', 'adgroup_id', 'create_time', 'modify_time'])), headers);
+  } catch (err) {
+    res.status(502).json({ error: String(err && err.message ? err.message : err) });
+    return;
+  }
+
+  // تقرير يومي على مستوى الإعلان — data_level=AUCTION_AD إلزامي مع dimension ad_id
+  const range = last7DaysRange((advertiser && advertiser.timezone) || clientTz);
+  let report = [];
+  let reportError = null;
+  try {
+    report = await ttGetAllPages(TT_API + '/report/integrated/get/?advertiser_id=' + adv +
+      '&report_type=BASIC&data_level=AUCTION_AD&service_type=AUCTION' +
+      '&dimensions=' + encodeURIComponent(JSON.stringify(['ad_id', 'stat_time_day'])) +
+      '&metrics=' + encodeURIComponent(JSON.stringify(['spend', 'conversion', 'cost_per_conversion'])) +
+      '&start_date=' + range.since + '&end_date=' + range.until, headers);
+  } catch (err) {
+    reportError = String(err && err.message ? err.message : err);
+  }
+
+  res.status(200).json({ ads: ads, report: report, reportError: reportError, range: range, advertiser: advertiser });
+}
