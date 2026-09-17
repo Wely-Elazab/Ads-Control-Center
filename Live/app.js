@@ -52,14 +52,25 @@
     } catch (e) { return null; }
   }
   // HTML المعاينة اللي بيرجع من Meta: بناخد منه الـ iframe بس، وبنتأكد إن مصدره facebook.com
-  // بدل ما نحط HTML خام من API جوه الصفحة
+  // بدل ما نحط HTML خام من API جوه الصفحة.
+  // المقاس: Meta بتحدد عرض وارتفاع الإطار حسب شكل الإعلان — لازم نحافظ عليهم (كأرقام بس)،
+  // وإلا الإعلان بيتقص أو بيصغر. مشغّل الفيديو (plugins/video.php) بيتمدد بعرض النافذة بنفس النسبة،
+  // وصفحة المعاينة (preview_iframe) بتتعرض بمقاسها الأصلي لأن محتواها مش بيتمدد
   function metaIframeHtml(html) {
     try {
       var doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
       var frame = doc.querySelector('iframe');
       var src = frame && safeUrl(frame.getAttribute('src'));
       if (!src || !/(^|\.)facebook\.com$/i.test(new URL(src).hostname)) return null;
-      return '<iframe src="' + esc(src) + '" scrolling="no" allowfullscreen="true" allow="autoplay; encrypted-media; picture-in-picture"></iframe>';
+      var dim = function (name, fallback) {
+        var n = parseInt(frame.getAttribute(name), 10);
+        return (n >= 150 && n <= 2000) ? n : fallback;
+      };
+      var w = dim('width', 540), h = dim('height', 690);
+      var style = /\/plugins\/video\.php/.test(src)
+        ? 'width:100%;aspect-ratio:' + w + ' / ' + h + ';'
+        : 'width:' + w + 'px;height:' + h + 'px;';
+      return '<iframe src="' + esc(src) + '" style="' + style + '" allowfullscreen="true" allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>';
     } catch (e) { return null; }
   }
   var AR_MONTHS_SHORT = ['ينا', 'فبر', 'مار', 'أبر', 'ماي', 'يون', 'يول', 'أغس', 'سبت', 'أكت', 'نوف', 'ديس'];
@@ -1491,6 +1502,23 @@
   // الوسائط: إعلانات الصور بتتعرض بالملف الأصلي للصورة (اللي بيتسحب من مكتبة صور الحساب).
   // إعلانات الفيديو بتحاول تشغّل الفيديو نفسه عن طريق معاينة Meta، وتفضل على الغلاف لو فشلت.
   // كل فتح بياخد رقم — عشان رد متأخر من Meta لإعلان قديم ميكتبش فوق الإعلان المفتوح دلوقتي
+  // صفحة معاينة Meta مقاسها ثابت ومش بتتمدد — لو أعرض من النافذة (موبايل مثلاً) بنصغّرها بنفس النسبة
+  // بدل ما تتقص، وبنظبط ارتفاع الحاوية على المقاس الجديد عشان ميفضلش فراغ
+  function fitEmbeds(el) {
+    Array.prototype.slice.call(el.querySelectorAll('.video-embed-wrap iframe')).forEach(function (frame) {
+      if (/aspect-ratio/.test(frame.getAttribute('style') || '')) return; // مشغّل الفيديو بيتمدد لوحده
+      var wrap = frame.parentNode;
+      var w = parseFloat(frame.style.width), h = parseFloat(frame.style.height);
+      var available = wrap.clientWidth;
+      if (!w || !h || !available || w <= available) return;
+      var scale = available / w;
+      frame.style.transform = 'scale(' + scale + ')';
+      frame.style.transformOrigin = 'top center';
+      wrap.style.height = Math.ceil(h * scale) + 'px';
+      wrap.style.overflow = 'hidden';
+    });
+  }
+
   function showMedia(c) {
     var openSeq = ++expandSeq;
     var el = document.getElementById('expandPreview');
@@ -1503,6 +1531,7 @@
       var previewFrame = prevResp && prevResp.data && prevResp.data[0] && metaIframeHtml(prevResp.data[0].body);
       if (previewFrame) {
         el.innerHTML = '<div class="video-embed-wrap">' + previewFrame + '</div>';
+        fitEmbeds(el);
         return;
       }
       // المحاولة الثانية للفيديو: بيانات الفيديو مباشرة (تضمين رسمي، ثم ملف مباشر، ثم رابط خارجي)
@@ -1525,6 +1554,7 @@
           : '';
         if (mediaHtml || linkHtml) {
           el.innerHTML = mediaHtml + linkHtml;
+          fitEmbeds(el);
         } else {
           el.innerHTML += '<div class="video-fallback-note">تعذّر جلب الفيديو لهذا الإعلان (قد يحتاج صلاحية إضافية على التطبيق).</div>';
         }

@@ -134,7 +134,7 @@
   .ghost-btn:hover { border-color: var(--ink-faint); background: var(--paper); }
 
   .expand-overlay { position: fixed; inset: 0; background: rgba(10,12,15,0.55); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
-  .expand-card { background: var(--card); border-radius: 16px; max-width: 460px; width: 100%; max-height: 90vh; overflow-y: auto; position: relative; }
+  .expand-card { background: var(--card); border-radius: 16px; max-width: 560px; width: 100%; max-height: 90vh; overflow-y: auto; position: relative; }
   .expand-close { position: absolute; top: 12px; inset-inline-end: 12px; width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(120,120,120,0.15); cursor: pointer; font-size: 15px; color: var(--ink); z-index: 2; }
   .expand-preview .preview { height: 280px; }
   /* زرار الإغلاق فوق معاينة Meta — خلفية صلبة عشان ميتلخبطش مع النص اللي جوه المعاينة */
@@ -148,9 +148,10 @@
   .expand-landing-value { color: var(--verified); font-weight: 500; word-break: break-all; text-decoration: none; }
   a.expand-landing-value:hover { text-decoration: underline; }
   .preview { background-color: var(--sending-bg); }
-  .video-embed-wrap { width: 100%; min-height: 420px; }
-  .video-embed-wrap iframe { width: 100% !important; height: 420px !important; max-width: 100%; border: 0; display: block; }
-  @media (min-width: 480px) { .video-embed-wrap, .video-embed-wrap iframe { height: 480px !important; min-height: 480px; } }
+  /* معاينة Meta بمقاسها الأصلي في النص؛ لو أعرض من النافذة (موبايل صغير) بتتمرر أفقياً بدل ما تتقص */
+  .video-embed-wrap { width: 100%; display: flex; justify-content: center; overflow-x: auto; background: var(--paper); }
+  .video-embed-wrap iframe { max-width: none; border: 0; display: block; flex-shrink: 0; }
+  .video-embed-wrap iframe[style*="aspect-ratio"] { flex-shrink: 1; }
   .real-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
   .video-fallback-link { position: absolute; bottom: 10px; inset-inline-start: 10px; z-index: 2; background: rgba(22,26,31,0.72); color: #fff; font-size: 12px; padding: 7px 12px; border-radius: 8px; text-decoration: none; }
   .video-fallback-note { position: absolute; bottom: 10px; inset-inline-start: 10px; inset-inline-end: 10px; z-index: 2; background: rgba(22,26,31,0.72); color: #fff; font-size: 11.5px; padding: 7px 12px; border-radius: 8px; text-align: center; }
