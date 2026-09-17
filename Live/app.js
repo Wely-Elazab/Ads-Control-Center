@@ -770,6 +770,17 @@
       var order = [];
       adsData.forEach(function (ad) { adsById[ad.id] = ad; order.push(ad.id); });
 
+      // الصور الأصلية بتتحمّل بالتوازي مع بيانات الإنفاق — لو وصلت قبل بناء الكروت بتتاخد على طول،
+      // ولو وصلت بعدها بنحدّث صور الكروت ونعيد العرض
+      resolveMetaImages(accountId, adsData, function () {
+        var changed = false;
+        candidates.forEach(function (c) {
+          var ad = c.platform === 'Meta' && adsById[c.id];
+          if (ad && ad._fullImage && c.thumbUrl !== ad._fullImage) { c.thumbUrl = ad._fullImage; changed = true; }
+        });
+        if (changed) render();
+      });
+
       connectStatus.textContent = 'جارٍ تحميل بيانات الإنفاق اليومي لـ ' + ar(order.length) + ' إعلان…';
       fetchAllPages('/' + accountId + '/insights', {
         level: 'ad',
@@ -877,33 +888,96 @@
   // حالات Meta اللي معناها إن المنصة نفسها عندها ملاحظة على الإعلان
   var META_REVIEW_STATUS = { DISAPPROVED: 'disapproved', WITH_ISSUES: 'limited' };
 
-  // صور الإعلانات: thumbnail_url الافتراضي من Meta صورة مصغّرة ٦٤×٦٤ بس — ولما بتتكبّر في الكارت بتبان مشوشة.
-  // عشان كده بنطلب نسخة ١٠٨٠ بكسل، ولو الـ API رفض الصيغة دي بنرجع للطلب العادي بدل ما الإعلانات كلها متحمّلش
+  // ---------- صور إعلانات Meta بجودتها الأصلية ----------
+  // thumbnail_url الافتراضي صورة مصغّرة ٦٤×٦٤ بتبان مشوشة لما تتكبّر. بدل ما نعتمد عليها بنسحب ملف الصورة نفسه
+  // (زي ما بنعمل مع الفيديو)، بالترتيب ده:
+  //   1) image_hash → مكتبة صور الحساب (/act_x/adimages) — الملف الأصلي اللي اترفع بالظبط، وكفاية صلاحية ads_read
+  //   2) إعلان مبني على بوست موجود → full_picture بتاع البوست (محتاج صلاحية على الصفحة، ولو فشل بنكمّل)
+  //   3) احتياطي: image_url / صورة الرابط / غلاف الفيديو / صورة مصغّرة بحجم ١٠٨٠
+  // الحقول دي بنطلبها على مراحل: لو Meta رفضت حقل منها، بنرجع لطلب أبسط بدل ما الإعلانات كلها متحمّلش
   var META_AD_FIELDS = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},';
-  var META_CREATIVE_FIELDS = '{title,body,image_url,thumbnail_url,video_id,' +
+  var META_CREATIVE_FULL = '{title,body,image_url,image_hash,thumbnail_url,video_id,effective_object_story_id,product_set_id,' +
+    'asset_feed_spec{images{hash,url}},' +
+    'object_story_spec{link_data{link,picture,image_hash,call_to_action,child_attachments{image_hash,picture}},video_data{call_to_action,image_url,image_hash}}}';
+  var META_CREATIVE_BASIC = '{title,body,image_url,thumbnail_url,video_id,' +
     'object_story_spec{link_data{link,picture,call_to_action},video_data{call_to_action,image_url}}}';
   function fetchMetaAds(accountId, onDone) {
-    fetchAllPages('/' + accountId + '/ads', {
-      fields: META_AD_FIELDS + 'creative.thumbnail_width(1080).thumbnail_height(1080)' + META_CREATIVE_FIELDS,
-      limit: 100
-    }, PAGE_SAFETY_CAP, function (err, adsData, truncated) {
-      if (!err) { onDone(null, adsData, truncated); return; }
-      fetchAllPages('/' + accountId + '/ads', { fields: META_AD_FIELDS + 'creative' + META_CREATIVE_FIELDS, limit: 100 }, PAGE_SAFETY_CAP, onDone);
-    });
+    var attempts = [
+      'creative.thumbnail_width(1080).thumbnail_height(1080)' + META_CREATIVE_FULL,
+      'creative' + META_CREATIVE_FULL,
+      'creative' + META_CREATIVE_BASIC
+    ];
+    (function tryNext(i) {
+      fetchAllPages('/' + accountId + '/ads', { fields: META_AD_FIELDS + attempts[i], limit: 100 }, PAGE_SAFETY_CAP, function (err, adsData, truncated) {
+        if (err && i < attempts.length - 1) { tryNext(i + 1); return; }
+        onDone(err, adsData, truncated);
+      });
+    })(0);
   }
 
-  // أوضح صورة متاحة للإعلان: الصورة الأصلية ← صورة الرابط ← غلاف الفيديو ← الصورة المصغّرة (عالية الدقة لو اتطلبت)
-  function metaImageUrl(creative) {
+  // الـ hash بتاع الصورة الرئيسية للإعلان (أو أول كارت في الإعلان الدوّار)
+  function metaImageHash(creative) {
     var spec = creative.object_story_spec || {};
-    return creative.image_url ||
-      (spec.link_data && spec.link_data.picture) ||
-      (spec.video_data && spec.video_data.image_url) ||
-      creative.thumbnail_url || null;
+    var link = spec.link_data || {};
+    var firstChild = link.child_attachments && link.child_attachments[0];
+    var feedImage = creative.asset_feed_spec && creative.asset_feed_spec.images && creative.asset_feed_spec.images[0];
+    return creative.image_hash || link.image_hash || (firstChild && firstChild.image_hash) ||
+      (spec.video_data && spec.video_data.image_hash) || (feedImage && feedImage.hash) || null;
+  }
+
+  // بتجيب روابط الصور الأصلية لكل الإعلانات دفعة واحدة، وبتحطها في ad._fullImage.
+  // أي فشل هنا مش بيوقف التحميل — الإعلان بيرجع للصورة الاحتياطية
+  function resolveMetaImages(accountId, ads, onDone) {
+    var byHash = {}, byStory = {};
+    ads.forEach(function (ad) {
+      var creative = ad.creative || {};
+      if (creative.video_id) return; // الفيديو ليه غلاف ومعاينة خاصة بيه
+      var hash = metaImageHash(creative);
+      if (hash) { (byHash[hash] = byHash[hash] || []).push(ad); return; }
+      if (creative.effective_object_story_id) (byStory[creative.effective_object_story_id] = byStory[creative.effective_object_story_id] || []).push(ad);
+    });
+    var chunks = function (arr, n) { var out = []; for (var i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
+    var jobs = [];
+    chunks(Object.keys(byHash), 50).forEach(function (hashes) {
+      jobs.push(function (next) {
+        FB.api('/' + accountId + '/adimages', { hashes: JSON.stringify(hashes), fields: 'hash,url,width,height', limit: 50 }, function (resp) {
+          ((resp && resp.data) || []).forEach(function (img) {
+            if (img && img.url && byHash[img.hash]) byHash[img.hash].forEach(function (ad) { ad._fullImage = img.url; });
+          });
+          next();
+        });
+      });
+    });
+    chunks(Object.keys(byStory), 50).forEach(function (ids) {
+      jobs.push(function (next) {
+        FB.api('/', { ids: ids.join(','), fields: 'full_picture' }, function (resp) {
+          if (resp && !resp.error) {
+            ids.forEach(function (id) {
+              var post = resp[id];
+              if (post && post.full_picture) byStory[id].forEach(function (ad) { ad._fullImage = post.full_picture; });
+            });
+          }
+          next();
+        });
+      });
+    });
+    (function run(i) { if (i >= jobs.length) { onDone(); return; } jobs[i](function () { run(i + 1); }); })(0);
+  }
+
+  // أوضح صورة متاحة: الملف الأصلي ← الصورة الأصلية ← صورة الرابط ← غلاف الفيديو ← الصورة المصغّرة (١٠٨٠ لو اتطلبت)
+  function metaImageUrl(ad) {
+    var creative = ad.creative || {};
+    var spec = creative.object_story_spec || {};
+    var link = spec.link_data || {};
+    var firstChild = link.child_attachments && link.child_attachments[0];
+    var feedImage = creative.asset_feed_spec && creative.asset_feed_spec.images && creative.asset_feed_spec.images[0];
+    return ad._fullImage || creative.image_url || link.picture || (firstChild && firstChild.picture) ||
+      (feedImage && feedImage.url) || (spec.video_data && spec.video_data.image_url) || creative.thumbnail_url || null;
   }
 
   function transformRealAd(ad, insightRows, adsetStatusMap, days, reachRow, currency) {
     var creative = ad.creative || {};
-    var imageUrl = metaImageUrl(creative);
+    var imageUrl = metaImageUrl(ad);
     var format = creative.video_id ? 'video' : (imageUrl ? 'image' : 'text');
     var goal = (ad.adset && ad.adset.optimization_goal) || null;
     var byDate = {};
