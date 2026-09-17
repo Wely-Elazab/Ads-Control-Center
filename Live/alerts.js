@@ -141,7 +141,10 @@
     var spendY = daily[YESTERDAY] || 0, spend2 = sum(daily, DAY_BEFORE, YESTERDAY);
     var resY = results[YESTERDAY] || 0, res2 = sum(results, DAY_BEFORE, YESTERDAY);
     var salesY = sales[YESTERDAY] || 0;
-    var prevSpendAvg = sum(daily, 0, DAY_BEFORE) / 5;
+    // المتوسط بيتقسم على الأيام اللي الإعلان كان فيها موجود فعلاً — إعلان عمره ٣ أيام
+    // كان متوسطه بيتقسم على ٥ فيطلع أقل من الحقيقة وتنبيه "وصوله ضعيف" ميظهرش
+    var historyDays = age != null ? Math.max(1, Math.min(5, age - 1)) : 5;
+    var prevSpendAvg = sum(daily, 0, DAY_BEFORE) / historyDays;
 
     // 1) حالة المراجعة من المنصة — مهمة سواء الإعلان فعّال أو لا
     if (c.reviewStatus === 'disapproved') {

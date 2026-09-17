@@ -11,6 +11,7 @@
 
 import { GOOGLE_ADS_API, googleErrorMessage, googleHeaders, gaql } from './_google.js';
 import { guardRequest } from './_cors.js';
+import { verifyGoogleToken } from './_verify.js';
 
 export default async function handler(req, res) {
   if (!guardRequest(req, res)) return;
@@ -26,6 +27,10 @@ export default async function handler(req, res) {
     res.status(400).json({ error: 'accessToken مطلوب في جسم الطلب.' });
     return;
   }
+
+  // التوكن لازم يكون صادر لتطبيقنا — من غير كده أي حد يستهلك حصة Developer Token بتاعنا
+  const verified = await verifyGoogleToken(accessToken);
+  if (!verified.ok) { res.status(403).json({ error: verified.error }); return; }
 
   try {
     const response = await fetch(GOOGLE_ADS_API + '/customers:listAccessibleCustomers', {

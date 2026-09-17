@@ -24,6 +24,9 @@ export function guardRequest(req, res) {
   const ok = !origin || sameOrigin || allowedOrigins().indexOf(origin) !== -1;
 
   res.setHeader('Vary', 'Origin');
+  // ردود فيها بيانات حساب إعلاني — متتخزنش في أي كاش وسيط ولا في المتصفح
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   if (origin && ok) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');

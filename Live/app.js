@@ -31,10 +31,12 @@
     if (n === 2) return 'قبل يومين';
     return 'قبل ' + ar(n) + ' يوماً';
   }
+  // بيرجّع null لو التاريخ مش موجود أو غلط — "٠ يوم" كانت بتتقري غلط إنه اتطلق النهارده
   function daysBetween(dateStr) {
-    if (!dateStr) return 0;
-    var then = new Date(dateStr);
-    return Math.max(0, Math.round((new Date() - then) / 86400000));
+    if (!dateStr) return null;
+    var then = new Date(dateStr).getTime();
+    if (isNaN(then)) return null;
+    return Math.max(0, Math.round((Date.now() - then) / 86400000));
   }
   function hashCode(str) {
     var h = 0;
@@ -50,11 +52,12 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
     });
   }
-  // بيرجّع الرابط بس لو http/https — أي حاجة تانية زي javascript: أو data: بترجع null
+  // بيرجّع الرابط بس لو http/https وكامل — أي حاجة تانية (javascript: أو data: أو رابط ناقص
+  // كان هيتحوّل لرابط على موقعنا إحنا) بترجع null
   function safeUrl(u) {
     if (!u || u === '—') return null;
     try {
-      var parsed = new URL(String(u), window.location.href);
+      var parsed = new URL(String(u));
       return (parsed.protocol === 'https:' || parsed.protocol === 'http:') ? parsed.href : null;
     } catch (e) { return null; }
   }
@@ -152,6 +155,40 @@
   var loadSeq = {};
   function beginLoad(platform) { loadSeq[platform] = (loadSeq[platform] || 0) + 1; return loadSeq[platform]; }
   function isCurrentLoad(platform, token) { return loadSeq[platform] === token; }
+
+  // ---------- التحميل: نسخة محفوظة + حالة واضحة ----------
+  // آخر تحميل لكل حساب بيتحفظ في الذاكرة، فلما ترجع لحساب فتحته قبل كده بيظهر فوراً
+  // وبيتحدّث في الخلفية بدل ما تقعد مستني قدام شاشة فاضية
+  var sourceCache = {};
+  function cacheSource(source, ads) { sourceCache[source] = ads.slice(); }
+  function showCachedWhileLoading(source) {
+    var cached = sourceCache[source];
+    if (!cached || !cached.length) return false;
+    mergeCandidates(cached, source);
+    render();
+    return true;
+  }
+
+  var loadingPlatforms = {};
+  function anyLoading() { return Object.keys(loadingPlatforms).some(function (p) { return loadingPlatforms[p]; }); }
+  function setLoading(platform, on, text) {
+    loadingPlatforms[platform] = !!on;
+    document.body.classList.toggle('is-loading', anyLoading());
+    if (text) connectStatus.textContent = text;
+    // شاشة الانتظار بتظهر بس لما مفيش أي إعلانات معروضة — لو فيه بيانات قديمة بتفضل ظاهرة وهي بتتحدّث
+    if (on && !candidates.length) showSkeletons();
+  }
+  function showSkeletons() {
+    var one = '<div class="skeleton-card"><div class="sk sk-img"></div><div class="sk sk-line"></div><div class="sk sk-line short"></div><div class="sk sk-chips"></div></div>';
+    var html = '';
+    for (var i = 0; i < 6; i++) html += one;
+    cardGrid.innerHTML = html;
+    galleryCount.textContent = 'جارٍ التحميل…';
+  }
+  function connectedText(notes) {
+    return 'متصل — ' + ar(candidates.length) + ' إعلان محمّل إجمالاً عبر كل المنصات المتصلة.' +
+      (notes && notes.length ? ' (' + notes.join('؛ ') + ')' : '');
+  }
 
   // بيسمح بتحميل أكتر من منصة في نفس الوقت من غير ما نمسح اللي محمّل قبل كده —
   // لو اخترت حساب تاني من *نفس* المنصة بيستبدل بتاعها بس، ولو من منصة تانية بيتضاف جنبها
@@ -337,7 +374,8 @@
   function loadGoogleAdsForAccount(customerId) {
     var info = accountInfo['google:' + customerId] || {};
     var token = beginLoad('google');
-    connectStatus.textContent = 'جارٍ تحميل إعلانات Google Ads…';
+    showCachedWhileLoading('google:' + customerId);
+    setLoading('google', true, 'جارٍ تحميل إعلانات Google Ads…');
     fetch('/api/google-ads-fetch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -347,20 +385,22 @@
     }).then(function (r) { return r.json(); }).then(function (payload) {
       if (!isCurrentLoad('google', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (!payload || payload.error) {
-        connectStatus.textContent = 'تعذّر تحميل إعلانات Google Ads (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').';
+        setLoading('google', false, 'تعذّر تحميل إعلانات Google Ads (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').');
         return;
       }
       if (!payload.ads || !payload.ads.length) {
-        connectStatus.textContent = 'الاتصال نجح لكن مفيش إعلانات (غير محذوفة) في هذا الحساب.';
+        setLoading('google', false, 'الاتصال نجح لكن مفيش إعلانات (غير محذوفة) في هذا الحساب.');
         return;
       }
       var googleCandidates = transformGoogleRows(payload.ads, payload.metrics || [], daysFromRange(payload.range), info.currency);
       mergeCandidates(googleCandidates, 'google:' + customerId);
-      connectStatus.textContent = 'متصل — ' + ar(candidates.length) + ' إعلان محمّل إجمالاً عبر كل المنصات المتصلة.';
+      cacheSource('google:' + customerId, googleCandidates);
       selectedIds = {};
+      setLoading('google', false, connectedText());
       render();
     }).catch(function (err) {
-      connectStatus.textContent = 'تعذّر تحميل إعلانات Google Ads (' + err.message + ').';
+      if (!isCurrentLoad('google', token)) return;
+      setLoading('google', false, 'تعذّر تحميل إعلانات Google Ads (' + err.message + ').');
     });
   }
 
@@ -594,30 +634,32 @@
 
   function loadSnapchatAdsForAccount(adAccountId) {
     var token = beginLoad('snapchat');
-    connectStatus.textContent = 'جارٍ تحميل إعلانات Snapchat…';
+    showCachedWhileLoading('snapchat:' + adAccountId);
+    setLoading('snapchat', true, 'جارٍ تحميل إعلانات Snapchat…');
     fetch('/api/snapchat-ads-fetch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accessToken: snapchatAccessToken, action: 'ads', adAccountId: adAccountId, clientTz: BROWSER_TZ })
     }).then(function (r) { return r.json(); }).then(function (payload) {
       if (!isCurrentLoad('snapchat', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (!payload || payload.error) {
-        connectStatus.textContent = 'تعذّر تحميل إعلانات Snapchat (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').';
+        setLoading('snapchat', false, 'تعذّر تحميل إعلانات Snapchat (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').');
         return;
       }
       var adsList = payload.ads || [];
       var statsList = (payload.stats && payload.stats.timeseries_stats) || [];
       if (!adsList.length) {
-        connectStatus.textContent = 'الاتصال نجح لكن مفيش إعلانات راجعة لهذا الحساب.';
+        setLoading('snapchat', false, 'الاتصال نجح لكن مفيش إعلانات راجعة لهذا الحساب.');
         return;
       }
       var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns);
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
-      var statsNote = payload.statsError ? ' (تعذّر تحميل الإنفاق: ' + payload.statsError + ')' : '';
-      connectStatus.textContent = 'متصل — ' + ar(candidates.length) + ' إعلان محمّل إجمالاً عبر كل المنصات المتصلة.' + statsNote;
+      cacheSource('snapchat:' + adAccountId, snapCandidates);
       selectedIds = {};
+      setLoading('snapchat', false, connectedText(payload.statsError ? ['تعذّر تحميل الإنفاق: ' + payload.statsError] : []));
       render();
     }).catch(function (err) {
-      connectStatus.textContent = 'تعذّر تحميل إعلانات Snapchat (' + err.message + ').';
+      if (!isCurrentLoad('snapchat', token)) return;
+      setLoading('snapchat', false, 'تعذّر تحميل إعلانات Snapchat (' + err.message + ').');
     });
   }
 
@@ -764,19 +806,20 @@
 
   function loadTikTokAdsForAdvertiser(advertiserId) {
     var token = beginLoad('tiktok');
-    connectStatus.textContent = 'جارٍ تحميل إعلانات TikTok…';
+    showCachedWhileLoading('tiktok:' + advertiserId);
+    setLoading('tiktok', true, 'جارٍ تحميل إعلانات TikTok…');
     fetch('/api/tiktok-ads-fetch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accessToken: tiktokAccessToken, advertiserId: advertiserId, clientTz: BROWSER_TZ })
     }).then(function (r) { return r.json(); }).then(function (payload) {
       if (!isCurrentLoad('tiktok', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (!payload || payload.error) {
-        connectStatus.textContent = 'تعذّر تحميل إعلانات TikTok (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').';
+        setLoading('tiktok', false, 'تعذّر تحميل إعلانات TikTok (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').');
         return;
       }
       var adsList = payload.ads || [];
       if (!adsList.length) {
-        connectStatus.textContent = 'الاتصال نجح لكن مفيش إعلانات راجعة لهذا الحساب (تأكد من مستوى موافقة التطبيق).';
+        setLoading('tiktok', false, 'الاتصال نجح لكن مفيش إعلانات راجعة لهذا الحساب (تأكد من مستوى موافقة التطبيق).');
         return;
       }
       // اسم الحساب الحقيقي بدل الرقم لو رجع
@@ -787,12 +830,13 @@
       }
       var tiktokCandidates = transformTikTokAds(adsList, payload.report || [], daysFromRange(payload.range), payload.advertiser && payload.advertiser.currency);
       mergeCandidates(tiktokCandidates, 'tiktok:' + advertiserId);
-      var reportNote = payload.reportError ? ' (تعذّر تحميل الإنفاق: ' + payload.reportError + ')' : '';
-      connectStatus.textContent = 'متصل — ' + ar(candidates.length) + ' إعلان محمّل إجمالاً عبر كل المنصات المتصلة.' + reportNote;
+      cacheSource('tiktok:' + advertiserId, tiktokCandidates);
       selectedIds = {};
+      setLoading('tiktok', false, connectedText(payload.reportError ? ['تعذّر تحميل الإنفاق: ' + payload.reportError] : []));
       render();
     }).catch(function (err) {
-      connectStatus.textContent = 'تعذّر تحميل إعلانات TikTok (' + err.message + ').';
+      if (!isCurrentLoad('tiktok', token)) return;
+      setLoading('tiktok', false, 'تعذّر تحميل إعلانات TikTok (' + err.message + ').');
     });
   }
 
@@ -925,26 +969,74 @@
     });
   }
 
+  // ---------- تحميل إعلانات Meta ----------
+  // الطلبات الأربعة (الإعلانات، حالة المجموعات، الإنفاق اليومي، تكرار الظهور) مالهمش علاقة ببعض،
+  // فبتتبعت كلها مرة واحدة بالتوازي بدل ما تستنى بعضها بالدور — ده أكبر سبب في بطء التحميل.
+  // وأول ما الإعلانات وحالتها يوصلوا بنعرض الكروت على طول، وأرقام الإنفاق بتتملي لما توصل.
+  function fbPagesPromise(path, params, cap) {
+    return new Promise(function (resolve) {
+      fetchAllPages(path, params, cap, function (err, data, truncated) { resolve({ err: err, data: data || [], truncated: truncated }); });
+    });
+  }
+
   function loadAdsForAccount(accountId) {
     var info = accountInfo['meta:' + accountId] || {};
     var token = beginLoad('meta');
+    var source = 'meta:' + accountId;
     // آخر 7 أيام *شاملة النهارده* بتوقيت الحساب — last_7d بتاع Meta بينتهي امبارح،
     // فكان يوم النهارده دايماً صفر وأقدم يوم بيضيع من الجدول
     var days = last7Days(todayKeyInTz(info.timeZone || BROWSER_TZ));
-    connectStatus.textContent = 'جارٍ تحميل حالة الحملات والمجموعات الإعلانية…';
-    loadAdsetStatusMap(accountId, function (adsetStatusMap) {
-    connectStatus.textContent = 'جارٍ تحميل كل الإعلانات (قد يستغرق لحظات لو الحساب كبير)…';
-    fetchMetaAds(accountId, function (err, adsData, adsTruncated) {
-      if (!isCurrentLoad('meta', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
-      if (err) { connectStatus.textContent = 'تعذّر تحميل الإعلانات (' + err.message + ').'; return; }
-      var adsById = {};
-      var order = [];
-      adsData.forEach(function (ad) { adsById[ad.id] = ad; order.push(ad.id); });
+    var timeRange = JSON.stringify({ since: days[0].key, until: days[days.length - 1].key });
+    var live = function () { return isCurrentLoad('meta', token); };
 
-      // الصور الأصلية بتتحمّل بالتوازي مع بيانات الإنفاق — لو وصلت قبل بناء الكروت بتتاخد على طول،
-      // ولو وصلت بعدها بنحدّث صور الكروت ونعيد العرض
-      resolveMetaImages(accountId, adsData, function () {
-        if (!isCurrentLoad('meta', token)) return;
+    showCachedWhileLoading(source, 'Meta');
+    setLoading('meta', true, 'جارٍ تحميل إعلانات Meta…');
+
+    var adsP = new Promise(function (resolve) {
+      fetchMetaAds(accountId, function (err, data, truncated) { resolve({ err: err, data: data || [], truncated: truncated }); });
+    });
+    var adsetsP = new Promise(function (resolve) { loadAdsetStatusMap(accountId, resolve); });
+    var dailyP = fbPagesPromise('/' + accountId + '/insights', {
+      level: 'ad', time_increment: 1, time_range: timeRange,
+      fields: 'ad_id,date_start,spend,actions,action_values', limit: 500
+    }, FULL_SCAN_CAP);
+    // تكرار الظهور لازم يتحسب على الأسبوع كله مرة واحدة — مينفعش نجمعه من أرقام يومية،
+    // لأن نفس الشخص ممكن يتكرر في أكتر من يوم. فشل الطلب ده مش بيوقف التحميل
+    var reachP = fbPagesPromise('/' + accountId + '/insights', {
+      level: 'ad', time_range: timeRange, fields: 'ad_id,frequency,reach,impressions', limit: 500
+    }, FULL_SCAN_CAP);
+
+    var order = [], adsById = {}, adsTruncated = false;
+    var build = function (insightsByAd, reachByAd, adsetStatusMap) {
+      return order.map(function (id) {
+        return transformRealAd(adsById[id], (insightsByAd && insightsByAd[id]) || [], adsetStatusMap, days,
+          reachByAd && reachByAd[id], info.currency || null, accountInfo[source]);
+      });
+    };
+    var byAdId = function (rows, multi) {
+      var map = {};
+      (rows || []).forEach(function (row) {
+        if (!multi) { map[row.ad_id] = row; return; }
+        (map[row.ad_id] = map[row.ad_id] || []).push(row);
+      });
+      return map;
+    };
+
+    // المرحلة الأولى: الإعلانات + حالتها → الكروت تظهر بسرعة (من غير أرقام لسه)
+    var stage1 = Promise.all([adsP, adsetsP]).then(function (r) {
+      if (!live()) return null;
+      var ads = r[0], adsetStatusMap = r[1];
+      if (ads.err) { setLoading('meta', false, 'تعذّر تحميل إعلانات Meta (' + ads.err.message + ').'); return null; }
+      adsTruncated = ads.truncated;
+      ads.data.forEach(function (ad) { adsById[ad.id] = ad; order.push(ad.id); });
+      if (!order.length) { setLoading('meta', false, 'الاتصال نجح لكن مفيش إعلانات في الحساب ده.'); return null; }
+      mergeCandidates(build(null, null, adsetStatusMap), source);
+      selectedIds = {};
+      render();
+      setLoading('meta', true, 'ظهرت ' + ar(order.length) + ' إعلان — جارٍ تحميل أرقام الإنفاق…');
+      // الصور الأصلية بتتحمّل بالتوازي، وأول ما توصل بنحدّث الكروت
+      resolveMetaImages(accountId, ads.data, function () {
+        if (!live()) return;
         var changed = false;
         candidates.forEach(function (c) {
           var ad = c.platform === 'Meta' && adsById[c.id];
@@ -952,43 +1044,21 @@
         });
         if (changed) render();
       });
-
-      connectStatus.textContent = 'جارٍ تحميل بيانات الإنفاق اليومي لـ ' + ar(order.length) + ' إعلان…';
-      fetchAllPages('/' + accountId + '/insights', {
-        level: 'ad',
-        time_increment: 1,
-        time_range: JSON.stringify({ since: days[0].key, until: days[days.length - 1].key }),
-        fields: 'ad_id,date_start,spend,actions,action_values',
-        limit: 500
-      }, FULL_SCAN_CAP, function (err2, insightsData, insightsTruncated) {
-        var insightsByAd = {};
-        (insightsData || []).forEach(function (row) {
-          if (!insightsByAd[row.ad_id]) insightsByAd[row.ad_id] = [];
-          insightsByAd[row.ad_id].push(row);
-        });
-        // تكرار الظهور (frequency) لازم يتحسب على الأسبوع كله مرة واحدة — مينفعش نجمعه من أرقام يومية،
-        // لأن نفس الشخص ممكن يظهر في أكتر من يوم. فشل الطلب ده مش بيوقف التحميل، بس تنبيه "زهق الجمهور" مش هيظهر
-        fetchAllPages('/' + accountId + '/insights', {
-          level: 'ad',
-          time_range: JSON.stringify({ since: days[0].key, until: days[days.length - 1].key }),
-          fields: 'ad_id,frequency,reach,impressions',
-          limit: 500
-        }, FULL_SCAN_CAP, function (err3, reachData) {
-        if (!isCurrentLoad('meta', token)) return;
-        var reachByAd = {};
-        (reachData || []).forEach(function (row) { reachByAd[row.ad_id] = row; });
-        var currency = info.currency || null;
-        mergeCandidates(order.map(function (id) { return transformRealAd(adsById[id], insightsByAd[id] || [], adsetStatusMap, days, reachByAd[id], currency, accountInfo['meta:' + accountId]); }), 'meta:' + accountId);
-        var notes = [];
-        if (adsTruncated) notes.push('تم عرض أول ' + ar(PAGE_SAFETY_CAP) + ' إعلان بس — قولّي لو محتاج نرفع الحد');
-        if (err2) notes.push('تعذّر تحميل الإنفاق اليومي: ' + err2.message);
-        else if (insightsTruncated) notes.push('بيانات الإنفاق اتقطعت عند ' + ar(FULL_SCAN_CAP) + ' صف — بعض الأرقام ممكن تكون ناقصة');
-        connectStatus.textContent = 'متصل — ' + ar(candidates.length) + ' إعلان محمّل إجمالاً عبر كل المنصات المتصلة.' + (notes.length ? ' (' + notes.join('؛ ') + ')' : '');
-        selectedIds = {};
-        render();
-        });
-      });
+      return adsetStatusMap;
     });
+
+    // المرحلة التانية: أرقام الإنفاق والنتائج والتكرار
+    Promise.all([stage1, dailyP, reachP]).then(function (r) {
+      var adsetStatusMap = r[0], daily = r[1], reach = r[2];
+      if (!live() || !adsetStatusMap) return;
+      mergeCandidates(build(byAdId(daily.data, true), byAdId(reach.data), adsetStatusMap), source);
+      cacheSource(source, candidates.filter(function (c) { return c.source === source; }));
+      var notes = [];
+      if (adsTruncated) notes.push('تم عرض أول ' + ar(PAGE_SAFETY_CAP) + ' إعلان بس — قولّي لو محتاج نرفع الحد');
+      if (daily.err) notes.push('تعذّر تحميل الإنفاق اليومي: ' + daily.err.message);
+      else if (daily.truncated) notes.push('بيانات الإنفاق اتقطعت عند ' + ar(FULL_SCAN_CAP) + ' صف — بعض الأرقام ممكن تكون ناقصة');
+      setLoading('meta', false, connectedText(notes));
+      render();
     });
   }
 
@@ -1461,14 +1531,20 @@
   function render() {
     runAnalysis();
     var visible = sortCandidates(visibleCandidates(), filters.sort);
+    // شاشة البداية بتظهر بس لما مفيش إعلانات ومفيش تحميل شغّال
+    var empty = !candidates.length && !anyLoading();
+    document.getElementById('emptyHero').classList.toggle('hidden', !empty);
+    document.getElementById('adsContent').classList.toggle('hidden', empty);
     if (!candidates.length) {
-      cardGrid.innerHTML = '';
-      galleryCount.textContent = 'سجّل الدخول لعرض إعلاناتك';
+      if (!anyLoading()) cardGrid.innerHTML = '';
+      galleryCount.textContent = anyLoading() ? 'جارٍ التحميل…' : 'سجّل الدخول لعرض إعلاناتك';
     } else {
       cardGrid.innerHTML = visible.length ? visible.map(cardMarkup).join('') : '<div class="empty-state" style="grid-column:1/-1">لا توجد إعلانات مطابقة للفلتر الحالي</div>';
       galleryCount.textContent = 'عرض ' + ar(visible.length) + ' من ' + ar(candidates.length) + ' إعلاناً حقيقياً';
     }
     renderHealthCounts();
+    renderFilterState();
+    renderKpis();
     renderAlerts();
     if (ACTIONS_ENABLED) updateSelectionSummary();
   }
@@ -1484,7 +1560,85 @@
 
   selectAllBtn.addEventListener('click', function () { visibleCandidates().forEach(function (c) { selectedIds[c.id] = true; }); render(); });
   clearSelBtn.addEventListener('click', function () { selectedIds = {}; render(); });
-  filterToggle.addEventListener('click', function () { filterBar.classList.toggle('open'); });
+
+  // ---------- درج الفلاتر ----------
+  var filterDrawer = document.getElementById('filterDrawer');
+  function openFilters() { filterDrawer.classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
+  function closeFilters() { filterDrawer.classList.add('hidden'); document.body.style.overflow = ''; }
+  filterToggle.addEventListener('click', openFilters);
+  document.getElementById('filterDrawerClose').addEventListener('click', closeFilters);
+  document.getElementById('filterDrawerDone').addEventListener('click', closeFilters);
+  filterDrawer.addEventListener('click', function (e) { if (e.target.hasAttribute('data-close-drawer')) closeFilters(); });
+  document.getElementById('clearFiltersBtn').addEventListener('click', function () {
+    resetFilterChips();
+    dateFrom.value = ''; dateTo.value = ''; filters.dateFrom = ''; filters.dateTo = '';
+    render();
+  });
+  document.getElementById('heroLoginBtn').addEventListener('click', function () { platformOverlay.classList.remove('hidden'); });
+
+  // وصف كل فلتر شغّال — بيظهر كشرائح فوق الإعلانات، والضغط على أي واحدة بيلغيها
+  var FILTER_LABELS = {
+    health: { review: 'يحتاج مراجعة', improve: 'يحتاج تحسين', good: 'جيد', inactive: 'غير فعال' },
+    status: { active: 'نشط فقط', paused: 'متوقف فقط' },
+    format: { video: 'فيديو', image: 'تصميم', text: 'نص' }
+  };
+  function activeFilterList() {
+    var out = [];
+    ['health', 'status', 'format', 'platform'].forEach(function (k) {
+      if (filters[k] === 'all') return;
+      var label = (FILTER_LABELS[k] && FILTER_LABELS[k][filters[k]]) || filters[k];
+      out.push({ key: k, label: label });
+    });
+    if (filters.text) out.push({ key: 'text', label: 'بحث: ' + filters.text });
+    if (filters.dateFrom) out.push({ key: 'dateFrom', label: 'من ' + filters.dateFrom });
+    if (filters.dateTo) out.push({ key: 'dateTo', label: 'إلى ' + filters.dateTo });
+    return out;
+  }
+  function renderFilterState() {
+    var list = activeFilterList();
+    document.getElementById('filterCount').textContent = list.length ? ar(list.length) : '';
+    document.getElementById('activeFilters').innerHTML = list.map(function (f) {
+      return '<button type="button" class="active-filter" data-filter-key="' + f.key + '">' + esc(f.label) + '</button>';
+    }).join('');
+  }
+  document.getElementById('activeFilters').addEventListener('click', function (e) {
+    var btn = e.target.closest('.active-filter'); if (!btn) return;
+    var key = btn.dataset.filterKey;
+    if (key === 'text') { filters.text = ''; textFilter.value = ''; }
+    else if (key === 'dateFrom') { filters.dateFrom = ''; dateFrom.value = ''; }
+    else if (key === 'dateTo') { filters.dateTo = ''; dateTo.value = ''; }
+    else {
+      var group = document.querySelector('.filter-group[data-filter="' + key + '"]');
+      if (group) setFilterChip(group, 'all'); else filters[key] = 'all';
+    }
+    render();
+  });
+
+  // ---------- ملخص الأرقام فوق الإعلانات ----------
+  function renderKpis() {
+    var strip = document.getElementById('kpiStrip');
+    if (!candidates.length) { strip.innerHTML = ''; return; }
+    // المجاميع بتتحسب لكل عملة على حدة — جمع ريال مع دولار يطلع رقم بلا معنى
+    var spendByCur = {}, resultsTotal = 0;
+    candidates.forEach(function (c) {
+      spendByCur[c.currency || ''] = (spendByCur[c.currency || ''] || 0) + (c.spend || 0);
+      resultsTotal += c.results || 0;
+    });
+    var joinMoney = function (map) {
+      var keys = Object.keys(map).filter(function (k) { return map[k] > 0; });
+      return keys.length ? keys.map(function (k) { return money(map[k], k || null); }).join(' + ') : money(0);
+    };
+    var atRisk = analysis.summary.atRisk;
+    var review = analysis.summary.health.review;
+    var box = function (label, value, cls) {
+      return '<div class="kpi' + (cls || '') + '"><div class="kpi-label">' + label + '</div><div class="kpi-value">' + value + '</div></div>';
+    };
+    strip.innerHTML =
+      box('الإنفاق — آخر ٧ أيام', joinMoney(spendByCur)) +
+      box('النتائج — آخر ٧ أيام', ar(resultsTotal)) +
+      box('ميزانية معرّضة للهدر', joinMoney(atRisk), ' kpi-risk') +
+      box('إعلانات تحتاج مراجعة', ar(review), review ? ' kpi-review' : '');
+  }
 
   function updateSelectionSummary() {
     var selected = candidates.filter(function (c) { return selectedIds[c.id]; });
@@ -1659,6 +1813,7 @@
     expandOverlay.classList.add('hidden');
     settingsOverlay.classList.add('hidden');
     platformOverlay.classList.add('hidden');
+    closeFilters();
   });
 
   function findCandidate(id) { return candidates.filter(function (x) { return x.id === id; })[0]; }
