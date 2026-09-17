@@ -89,8 +89,9 @@
   function accountStats(ads) {
     var byLabel = {};
     var hasSales = false, spendByDay = [0, 0, 0, 0, 0, 0, 0], resultsByDay = [0, 0, 0, 0, 0, 0, 0];
-    var total7 = 0, activeCount = 0;
+    var total7 = 0, activeCount = 0, spendingAds = 0;
     ads.forEach(function (c) {
+      if ((c.spend || 0) > 0) spendingAds++;
       for (var i = 0; i < 7; i++) {
         spendByDay[i] += (c.daily && c.daily[i]) || 0;
         resultsByDay[i] += (c.dailyResults && c.dailyResults[i]) || 0;
@@ -108,7 +109,14 @@
       var g = byLabel[k];
       g.avgCpr = g.results > 0 ? g.spend / g.results : null;
     });
-    return { byLabel: byLabel, hasSales: hasSales, spendByDay: spendByDay, resultsByDay: resultsByDay, total7: total7, activeCount: activeCount };
+    // متوسط صرف الإعلان الواحد في يومين — بنستخدمه كبديل لما الحساب ملوش متوسط تكلفة نتيجة أصلاً
+    // (مثلاً حساب كل إعلاناته لسه مجابتش ولا نتيجة) — من غيره كان أهم تنبيه بيختفي تماماً
+    var spend2All = spendByDay[DAY_BEFORE] + spendByDay[YESTERDAY];
+    var avgAdSpend2 = spendingAds > 0 ? spend2All / spendingAds : 0;
+    return {
+      byLabel: byLabel, hasSales: hasSales, spendByDay: spendByDay, resultsByDay: resultsByDay,
+      total7: total7, activeCount: activeCount, avgAdSpend2: avgAdSpend2
+    };
   }
 
   // amount: المبلغ المرتبط بالتنبيه (للترتيب). code: معرّف داخلي للتنبيه.
@@ -189,11 +197,16 @@
     var wasteRaised = false;
     if (!learning && c.results != null) {
       // 4) صرف بدون نتائج في آخر يومين
-      var threshold = avgCpr ? avgCpr * s.wasteCprMultiple : null;
+      //    الأساس: مضاعف من متوسط تكلفة النتيجة في الحساب. ولو الحساب ملوش متوسط (ولا إعلان جاب نتيجة)،
+      //    بنقارن بمتوسط صرف الإعلان الواحد في يومين — عشان التنبيه ميختفيش في أسوأ الحالات
+      var accountHasResults = !!(group && group.results > 0);
+      var threshold = avgCpr ? avgCpr * s.wasteCprMultiple
+        : ((!accountHasResults && acc.avgAdSpend2 > 0) ? acc.avgAdSpend2 : null);
       if (res2 === 0 && spend2 > 0 && threshold) {
-        var expected = spend2 / avgCpr;
-        var wasteDetail = name + ' صرف ' + money(spend2) + ' خلال آخر يومين بدون أي ' + label + '. متوسط تكلفة كل ' + one + ' في حسابك ' + money(avgCpr) +
-          '، يعني الصرف ده كان المفروض يجيب حوالي ' + fmt.int(Math.max(1, expected)) + ' ' + label + '.';
+        var wasteDetail = avgCpr
+          ? name + ' صرف ' + money(spend2) + ' خلال آخر يومين بدون أي ' + label + '. متوسط تكلفة كل ' + one + ' في حسابك ' + money(avgCpr) +
+              '، يعني الصرف ده كان المفروض يجيب حوالي ' + fmt.int(Math.max(1, spend2 / avgCpr)) + ' ' + label + '.'
+          : name + ' صرف ' + money(spend2) + ' خلال آخر يومين بدون أي ' + label + '، ومفيش ولا إعلان في الحساب جاب نتيجة في نفس الفترة.';
         if (spend2 >= threshold) {
           wasteRaised = true;
           issues.push(makeIssue('critical', ['spend', 'results'], 'صرف بدون نتائج', wasteDetail,

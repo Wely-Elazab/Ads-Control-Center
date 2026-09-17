@@ -30,8 +30,14 @@ export default async function handler(req, res) {
       body: JSON.stringify({ app_id: appId, secret: appSecret, auth_code: authCode })
     });
     const data = await response.json();
-    // الرد بيرجّع access_token وقائمة advertiser_ids مباشرة، من غير نداء منفصل زي Google
-    res.status(response.status).json(data);
+    // الرد بيرجّع access_token وقائمة advertiser_ids مباشرة، من غير نداء منفصل زي Google.
+    // بنرجّع المطلوب بس للمتصفح من غير أي حقول إضافية
+    const payload = data && data.data;
+    if (!response.ok || !payload || !payload.access_token) {
+      res.status(response.ok ? 502 : response.status).json({ error: (data && data.message) || ('HTTP ' + response.status) });
+      return;
+    }
+    res.status(200).json({ data: { access_token: payload.access_token, advertiser_ids: payload.advertiser_ids || [], scope: payload.scope } });
   } catch (err) {
     res.status(500).json({ error: String(err && err.message ? err.message : err) });
   }

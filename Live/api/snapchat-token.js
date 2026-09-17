@@ -37,8 +37,15 @@ export default async function handler(req, res) {
       body: params.toString()
     });
     const data = await response.json();
-    // بيرجع access_token (صالح 60 دقيقة) و refresh_token — الفرونت إند بيحتفظ بيهم في الذاكرة بس، مش أبعد من كده
-    res.status(response.status).json(data);
+    // Snapchat بترجّع كمان refresh_token صلاحيته طويلة — منرجّعوش للمتصفح أصلاً،
+    // الواجهة محتاجة access_token ومدته بس
+    if (!response.ok || !data || !data.access_token) {
+      res.status(response.ok ? 502 : response.status).json({
+        error: (data && (data.error_description || data.error)) || ('HTTP ' + response.status)
+      });
+      return;
+    }
+    res.status(200).json({ access_token: data.access_token, expires_in: data.expires_in, token_type: data.token_type });
   } catch (err) {
     res.status(500).json({ error: String(err && err.message ? err.message : err) });
   }

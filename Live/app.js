@@ -10,7 +10,14 @@
   // العملة بتيجي من الحساب الإعلاني نفسه — ر.س افتراضياً لو المنصة مرجّعتهاش
   var CURRENCY_LABELS = { SAR: 'ر.س', AED: 'د.إ', EGP: 'ج.م', KWD: 'د.ك', QAR: 'ر.ق', BHD: 'د.ب', OMR: 'ر.ع', JOD: 'د.أ', USD: '$', EUR: '€', GBP: '£' };
   function currencyLabel(cur) { return CURRENCY_LABELS[cur] || cur || 'ر.س'; }
-  function money(n, cur) { var s = Math.round(n || 0).toLocaleString('en-US'); return ar(s.replace(/,/g, '٬')) + ' ' + currencyLabel(cur); }
+  // المبالغ الصغيرة بتتعرض بخانة عشرية (٠٫٤ ر.س) — التقريب كان بيخليها "٠ ر.س" في تنبيه زي "صرف ١ بس"
+  function money(n, cur) {
+    var v = n || 0;
+    var s = (Math.abs(v) > 0 && Math.abs(v) < 10 && Math.round(v) !== v)
+      ? String(Math.round(v * 10) / 10).replace('.', '٫')
+      : Math.round(v).toLocaleString('en-US').replace(/,/g, '٬');
+    return ar(s) + ' ' + currencyLabel(cur);
+  }
   // رقم بخانة عشرية واحدة بالأرقام العربية (مثال: ٢٫٥)
   // الأرقام اليومية بتتخزن بخانتين عشريتين — التقريب لأقرب رقم صحيح بيحصل وقت العرض بس،
   // عشان صرف صغير زي ٠٫٤ ميتحسبش صفر ويبوّظ تنبيهات زي "مصرفش أمس"
@@ -139,6 +146,12 @@
     saveSession();
   }
   function validToken(entry) { return entry && entry.token && (!entry.expiresAt || entry.expiresAt > Date.now()) ? entry.token : null; }
+
+  // لو المستخدم بدّل الحساب بسرعة، رد الحساب القديم ممكن يوصل بعد الجديد ويكتب فوقه.
+  // كل عملية تحميل لمنصة بتاخد رقم، والرد بيتجاهل نفسه لو بقى قديم
+  var loadSeq = {};
+  function beginLoad(platform) { loadSeq[platform] = (loadSeq[platform] || 0) + 1; return loadSeq[platform]; }
+  function isCurrentLoad(platform, token) { return loadSeq[platform] === token; }
 
   // بيسمح بتحميل أكتر من منصة في نفس الوقت من غير ما نمسح اللي محمّل قبل كده —
   // لو اخترت حساب تاني من *نفس* المنصة بيستبدل بتاعها بس، ولو من منصة تانية بيتضاف جنبها
@@ -323,6 +336,7 @@
 
   function loadGoogleAdsForAccount(customerId) {
     var info = accountInfo['google:' + customerId] || {};
+    var token = beginLoad('google');
     connectStatus.textContent = 'جارٍ تحميل إعلانات Google Ads…';
     fetch('/api/google-ads-fetch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -331,6 +345,7 @@
         loginCustomerId: info.loginCustomerId, timeZone: info.timeZone, clientTz: BROWSER_TZ
       })
     }).then(function (r) { return r.json(); }).then(function (payload) {
+      if (!isCurrentLoad('google', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (!payload || payload.error) {
         connectStatus.textContent = 'تعذّر تحميل إعلانات Google Ads (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').';
         return;
@@ -405,14 +420,18 @@
       var delivery = googleDelivery(row, adStatus, agStatus, campStatus, approval);
       var perDay = byDate[key] || {};
       var daily = [], dailyResults = [], dailySales = [];
+      // تحويلات Google ممكن تكون كسور (٠٫٥ تحويلة مثلاً) — بنجمع القيم الأصلية ونقرّب الإجمالي بس،
+      // عشان أيام فيها كسور صغيرة ماتتحسبش صفر
+      var rawResults = 0;
       days.forEach(function (day) {
         var r = perDay[day.key];
         daily.push(r ? r.spend : 0);
+        rawResults += r ? r.results : 0;
         dailyResults.push(r ? Math.round(r.results) : 0);
         dailySales.push(r ? r.sales : 0);
       });
       var spend = daily.reduce(function (a, b) { return a + b; }, 0);
-      var totalResults = dailyResults.reduce(function (a, b) { return a + b; }, 0);
+      var totalResults = Math.round(rawResults);
       var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
       return {
         id: id, platform: 'Google Ads', currency: currency || null,
@@ -440,21 +459,32 @@
     });
   }
 
-  function loadAdAccounts() {
+  var META_ACCOUNT_FIELDS = 'id,name,account_status,timezone_name,currency,spend_cap,amount_spent';
+
+  // بيحمّل *كل* الحسابات الإعلانية مش أول صفحة بس (Meta بترجّع ٢٥ حساب في الصفحة افتراضياً)
+  function loadAdAccounts(onlyRefreshId) {
     connectStatus.textContent = 'جارٍ تحميل الحسابات الإعلانية…';
-    FB.api('/me/adaccounts', { fields: 'id,name,account_status,timezone_name,currency,spend_cap,amount_spent' }, function (response) {
-      if (!response || response.error) {
+    fetchAllPages('/me/adaccounts', { fields: META_ACCOUNT_FIELDS, limit: 100 }, FULL_SCAN_CAP, function (err, data) {
+      if (err) {
         connectStatus.textContent = 'تعذّر تحميل الحسابات — تأكد إن حسابك عنده صلاحية على حساب إعلاني واحد على الأقل.';
         return;
       }
-      if (!response.data || !response.data.length) {
+      if (!data || !data.length) {
         connectStatus.textContent = 'مفيش حسابات إعلانية مرتبطة بحسابك.';
         return;
       }
-      response.data.forEach(function (a) { accountInfo['meta:' + a.id] = { timeZone: a.timezone_name || null, currency: a.currency || null, accountStatus: a.account_status, spendCap: a.spend_cap || null, amountSpent: a.amount_spent || null }; });
-      setPlatformOptions('meta', response.data.map(function (a) { return { value: a.id, label: 'Meta — ' + a.name }; }));
+      data.forEach(function (a) {
+        accountInfo['meta:' + a.id] = {
+          timeZone: a.timezone_name || null, currency: a.currency || null,
+          accountStatus: a.account_status, spendCap: a.spend_cap || null, amountSpent: a.amount_spent || null
+        };
+      });
+      setPlatformOptions('meta', data.map(function (a) { return { value: a.id, label: 'Meta — ' + a.name }; }));
       document.getElementById('tConnectTitle').textContent = 'متصل بحساب Meta — دوس تسجيل الدخول لإضافة منصة تانية';
-      loadAdsForAccount(response.data[0].id);
+      // بعد استرجاع الجلسة بنحدّث بيانات الحساب (حالته وحد الصرف) الأول، وبعدين نحمّل نفس الحساب المحفوظ
+      var target = (onlyRefreshId && accountInfo['meta:' + onlyRefreshId]) ? onlyRefreshId : data[0].id;
+      accountSelect.value = target;
+      loadAdsForAccount(target);
     });
   }
   function loadSource(platform, id) {
@@ -468,17 +498,50 @@
     if (opt) loadSource(opt.dataset.platform, opt.value);
   });
 
+  // ---------- حماية تدفّق تسجيل الدخول (state) ----------
+  // قيمة state كانت ثابتة ("snapchat_auth")، يعني أي حد يقدر يبعتلك رابط رجوع بكود بتاعه
+  // ومتصفحك يكمّل تسجيل الدخول بيه من غير ما تحس (CSRF على OAuth). دلوقتي القيمة عشوائية
+  // لكل محاولة، متخزّنة في نفس التاب، وبتتأكد وقت الرجوع ومتستخدمش تاني
+  var OAUTH_STATE_KEY = 'pauseproof.oauthState';
+  function randomHex(bytes) {
+    try {
+      var a = new Uint8Array(bytes);
+      window.crypto.getRandomValues(a);
+      return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+    } catch (e) { return String(Date.now()) + String(Math.random()).slice(2); }
+  }
+  function newOauthState(platform) {
+    var state = platform + '.' + randomHex(16);
+    try { sessionStorage.setItem(OAUTH_STATE_KEY, state); }
+    catch (e) { return platform + '.nostore'; } // التخزين مقفول — بنكتفي بالتأكد من اسم المنصة
+    return state;
+  }
+  function consumeOauthState(platform, received) {
+    if (!received || received.indexOf(platform + '.') !== 0) return false;
+    var saved = null;
+    try { saved = sessionStorage.getItem(OAUTH_STATE_KEY); sessionStorage.removeItem(OAUTH_STATE_KEY); } catch (e) { /* مقفول */ }
+    if (received === platform + '.nostore') return true;
+    return received === saved;
+  }
+  // رسالة خطأ راجعة من المنصة نفسها في الرابط (مثلاً المستخدم رفض الصلاحيات)
+  function oauthErrorFromUrl(params) {
+    var err = params.get('error') || params.get('error_code');
+    if (!err) return null;
+    return params.get('error_description') || params.get('error_message') || err;
+  }
+
   // ---------- Snapchat: تدفّق إعادة توجيه كامل الصفحة (مش نافذة منبثقة زي Meta/Google) ----------
   // !!! هام: عدّل بالـ Client ID بتاعك من Snap Business Manager !!!
   var SNAPCHAT_CLIENT_ID = "00315198-57f5-4c42-98f0-c0396d0053f5"
   var snapchatAccessToken = null;
 
   function loginWithSnapchat() {
+    platformOverlay.classList.add('hidden');
     var redirectUri = window.location.origin + window.location.pathname;
     var authUrl = 'https://accounts.snapchat.com/login/oauth2/authorize' +
       '?client_id=' + encodeURIComponent(SNAPCHAT_CLIENT_ID) +
       '&redirect_uri=' + encodeURIComponent(redirectUri) +
-      '&response_type=code&scope=snapchat-marketing-api&state=snapchat_auth';
+      '&response_type=code&scope=snapchat-marketing-api&state=' + encodeURIComponent(newOauthState('snapchat'));
     saveSession(); // احتياطي قبل ما الصفحة تتقفل — المنصات المحمّلة هترجع بعد الرجوع من Snapchat
     window.location.href = authUrl; // توجيه كامل الصفحة، مش نافذة منبثقة — طبيعة تدفّق Snapchat نفسه
   }
@@ -530,11 +593,13 @@
   }
 
   function loadSnapchatAdsForAccount(adAccountId) {
+    var token = beginLoad('snapchat');
     connectStatus.textContent = 'جارٍ تحميل إعلانات Snapchat…';
     fetch('/api/snapchat-ads-fetch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accessToken: snapchatAccessToken, action: 'ads', adAccountId: adAccountId, clientTz: BROWSER_TZ })
     }).then(function (r) { return r.json(); }).then(function (payload) {
+      if (!isCurrentLoad('snapchat', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (!payload || payload.error) {
         connectStatus.textContent = 'تعذّر تحميل إعلانات Snapchat (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').';
         return;
@@ -563,14 +628,14 @@
     var time = function (s) { var t = s ? Date.parse(s) : NaN; return isNaN(t) ? null : t; };
     var squad = squadsById[ad.ad_squad_id] || null;
     var campaign = squad ? campaignsById[squad.campaign_id] || null : null;
-    if (ad.review_status === 'REJECTED') return off('rejected');
+    if (/REJECT|DENY/i.test(ad.review_status || '')) return off('rejected');
     if (campaign && campaign.status && campaign.status !== 'ACTIVE') return off('campaign');
     if (squad && squad.status && squad.status !== 'ACTIVE') return off('adset');
     var ends = [campaign && time(campaign.end_time), squad && time(squad.end_time)];
     if (ends.some(function (t) { return t && t < now; })) return off('ended');
     var starts = [campaign && time(campaign.start_time), squad && time(squad.start_time)];
     if (starts.some(function (t) { return t && t > now; })) return off('scheduled');
-    if (ad.review_status === 'PENDING') return off('pending');
+    if (/PENDING/i.test(ad.review_status || '')) return off('pending'); // ممكن ترجع PENDING أو PENDING_REVIEW
     if (ad.status !== 'ACTIVE') return off('ad');
     return { active: true, level: null };
   }
@@ -617,7 +682,7 @@
       var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
       return {
         id: id, platform: 'Snapchat', placement: 'Discover', currency: currency || null,
-        reviewStatus: ad.review_status === 'REJECTED' ? 'disapproved' : null,
+        reviewStatus: /REJECT|DENY/i.test(ad.review_status || '') ? 'disapproved' : null,
         frequency: null,
         format: ad.type && /VIDEO/i.test(ad.type) ? 'video' : (ad.type && /SNAP_AD/i.test(ad.type) ? 'video' : 'image'),
         thumbUrl: null,
@@ -641,11 +706,17 @@
   (function checkSnapchatRedirect() {
     var params = new URLSearchParams(window.location.search);
     var code = params.get('code');
-    var state = params.get('state');
-    if (code && state === 'snapchat_auth') {
-      window.history.replaceState({}, document.title, window.location.pathname);
-      exchangeSnapchatCode(code);
+    var state = params.get('state') || '';
+    if (state.indexOf('snapchat') !== 0) return;
+    window.history.replaceState({}, document.title, window.location.pathname);
+    var oauthError = oauthErrorFromUrl(params);
+    if (oauthError) { connectStatus.textContent = 'Snapchat رفض تسجيل الدخول (' + oauthError + ').'; return; }
+    if (!code) return;
+    if (!consumeOauthState('snapchat', state)) {
+      connectStatus.textContent = 'تعذّر إتمام تسجيل الدخول بحساب Snapchat — رابط الرجوع مش مطابق للجلسة. ابدأ تسجيل الدخول من الأول.';
+      return;
     }
+    exchangeSnapchatCode(code);
   })();
 
   // ---------- TikTok: نفس نمط إعادة التوجيه الكامل بتاع Snapchat ----------
@@ -658,7 +729,7 @@
     var redirectUri = window.location.origin + window.location.pathname;
     var authUrl = 'https://business-api.tiktok.com/portal/auth' +
       '?app_id=' + encodeURIComponent(TIKTOK_APP_ID) +
-      '&state=tiktok_auth' +
+      '&state=' + encodeURIComponent(newOauthState('tiktok')) +
       '&redirect_uri=' + encodeURIComponent(redirectUri);
     saveSession(); // احتياطي قبل ما الصفحة تتقفل — المنصات المحمّلة هترجع بعد الرجوع من TikTok
     window.location.href = authUrl;
@@ -684,7 +755,7 @@
         loadTikTokAdsForAdvertiser(ids[0]);
         accountSelect.value = ids[0];
       } else {
-        connectStatus.textContent = 'تعذّر إتمام تسجيل الدخول بحساب TikTok (' + (data && data.message ? data.message : 'خطأ غير معروف') + ').';
+        connectStatus.textContent = 'تعذّر إتمام تسجيل الدخول بحساب TikTok (' + ((data && (data.error || data.message)) || 'خطأ غير معروف') + ').';
       }
     }).catch(function (err) {
       connectStatus.textContent = 'تعذّر الاتصال بالخادم الخلفي لـ TikTok (' + err.message + ').';
@@ -692,11 +763,13 @@
   }
 
   function loadTikTokAdsForAdvertiser(advertiserId) {
+    var token = beginLoad('tiktok');
     connectStatus.textContent = 'جارٍ تحميل إعلانات TikTok…';
     fetch('/api/tiktok-ads-fetch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accessToken: tiktokAccessToken, advertiserId: advertiserId, clientTz: BROWSER_TZ })
     }).then(function (r) { return r.json(); }).then(function (payload) {
+      if (!isCurrentLoad('tiktok', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (!payload || payload.error) {
         connectStatus.textContent = 'تعذّر تحميل إعلانات TikTok (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').';
         return;
@@ -755,14 +828,15 @@
       var id = 't-' + ad.ad_id;
       var delivery = tiktokDelivery(ad);
       var byDay = statsByAd[ad.ad_id] || {};
-      var daily = [], dailyResults = [];
+      var daily = [], dailyResults = [], rawResults = 0;
       days.forEach(function (day) {
         var m = byDay[day.key];
         daily.push(m ? r2(parseFloat(m.spend || 0)) : 0);
+        rawResults += m ? (parseFloat(m.conversion) || 0) : 0;
         dailyResults.push(m ? Math.round(parseFloat(m.conversion || 0)) : 0);
       });
       var spend = daily.reduce(function (a, b) { return a + b; }, 0);
-      var results = dailyResults.reduce(function (a, b) { return a + b; }, 0);
+      var results = Math.round(rawResults);
       return {
         id: id, platform: 'TikTok', placement: 'In-Feed', currency: currency || null,
         reviewStatus: null, frequency: null,
@@ -785,11 +859,17 @@
   (function checkTikTokRedirect() {
     var params = new URLSearchParams(window.location.search);
     var authCode = params.get('auth_code') || params.get('code');
-    var state = params.get('state');
-    if (authCode && state === 'tiktok_auth') {
-      window.history.replaceState({}, document.title, window.location.pathname);
-      exchangeTikTokCode(authCode);
+    var state = params.get('state') || '';
+    if (state.indexOf('tiktok') !== 0) return;
+    window.history.replaceState({}, document.title, window.location.pathname);
+    var oauthError = oauthErrorFromUrl(params);
+    if (oauthError) { connectStatus.textContent = 'TikTok رفض تسجيل الدخول (' + oauthError + ').'; return; }
+    if (!authCode) return;
+    if (!consumeOauthState('tiktok', state)) {
+      connectStatus.textContent = 'تعذّر إتمام تسجيل الدخول بحساب TikTok — رابط الرجوع مش مطابق للجلسة. ابدأ تسجيل الدخول من الأول.';
+      return;
     }
+    exchangeTikTokCode(authCode);
   })();
 
   var PAGE_SAFETY_CAP = 800;    // حد أمان لعدد الإعلانات المعروضة من حساب Meta واحد
@@ -847,6 +927,7 @@
 
   function loadAdsForAccount(accountId) {
     var info = accountInfo['meta:' + accountId] || {};
+    var token = beginLoad('meta');
     // آخر 7 أيام *شاملة النهارده* بتوقيت الحساب — last_7d بتاع Meta بينتهي امبارح،
     // فكان يوم النهارده دايماً صفر وأقدم يوم بيضيع من الجدول
     var days = last7Days(todayKeyInTz(info.timeZone || BROWSER_TZ));
@@ -854,6 +935,7 @@
     loadAdsetStatusMap(accountId, function (adsetStatusMap) {
     connectStatus.textContent = 'جارٍ تحميل كل الإعلانات (قد يستغرق لحظات لو الحساب كبير)…';
     fetchMetaAds(accountId, function (err, adsData, adsTruncated) {
+      if (!isCurrentLoad('meta', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (err) { connectStatus.textContent = 'تعذّر تحميل الإعلانات (' + err.message + ').'; return; }
       var adsById = {};
       var order = [];
@@ -862,6 +944,7 @@
       // الصور الأصلية بتتحمّل بالتوازي مع بيانات الإنفاق — لو وصلت قبل بناء الكروت بتتاخد على طول،
       // ولو وصلت بعدها بنحدّث صور الكروت ونعيد العرض
       resolveMetaImages(accountId, adsData, function () {
+        if (!isCurrentLoad('meta', token)) return;
         var changed = false;
         candidates.forEach(function (c) {
           var ad = c.platform === 'Meta' && adsById[c.id];
@@ -891,6 +974,7 @@
           fields: 'ad_id,frequency,reach,impressions',
           limit: 500
         }, FULL_SCAN_CAP, function (err3, reachData) {
+        if (!isCurrentLoad('meta', token)) return;
         var reachByAd = {};
         (reachData || []).forEach(function (row) { reachByAd[row.ad_id] = row; });
         var currency = info.currency || null;
@@ -1157,14 +1241,16 @@
   function metaDelivery(ad, adsetStatusMap, acct) {
     var adset = ad.adset || {}, campaign = ad.campaign || {};
     var st = (adset.id && adsetStatusMap && adsetStatusMap[adset.id]) || {};
-    var campStatus = campaign.effective_status || st.campaignStatus;
-    var adsetStatus = adset.effective_status || st.adsetStatus;
+    // WITH_ISSUES على مستوى الحملة/المجموعة معناه ملاحظة مش إيقاف — منحسبهاش توقف
+    var notPaused = function (s) { return s === 'ACTIVE' || s === 'WITH_ISSUES' ? null : s; };
+    var campStatus = notPaused(campaign.effective_status || st.campaignStatus);
+    var adsetStatus = notPaused(adset.effective_status || st.adsetStatus);
     var now = Date.now();
     var time = function (s) { var t = s ? Date.parse(s) : NaN; return isNaN(t) ? null : t; };
     var off = function (level) { return { active: false, level: level }; };
 
-    if (acct && acct.accountStatus != null && META_ACCOUNT_BLOCKING[Number(acct.accountStatus)]) return off('account');
-    if (acct && Number(acct.spendCap) > 0 && Number(acct.amountSpent) >= Number(acct.spendCap)) return off('account-cap');
+    // الترتيب مهم: السبب الأقرب للإعلان الأول. لو حد وقف الإعلان أو الحملة بإيده، ده السبب الحقيقي
+    // اللي المفروض يظهر — مش مشكلة عامة في الحساب
     if (ad.effective_status === 'DISAPPROVED') return off('rejected');
     if ((campStatus && campStatus !== 'ACTIVE') || ad.effective_status === 'CAMPAIGN_PAUSED') return off('campaign');
     if ((adsetStatus && adsetStatus !== 'ACTIVE') || ad.effective_status === 'ADSET_PAUSED') return off('adset');
@@ -1173,7 +1259,11 @@
     var campStart = time(campaign.start_time || st.campaignStart), adsetStart = time(adset.start_time || st.adsetStart);
     if ((campStart && campStart > now) || (adsetStart && adsetStart > now)) return off('scheduled');
     if (ad.effective_status === 'PENDING_REVIEW' || ad.effective_status === 'IN_PROCESS') return off('pending');
-    if (ad.effective_status !== 'ACTIVE') return off('ad');
+    // WITH_ISSUES: الإعلان عليه ملاحظة من Meta لكنه غالباً لسه بيظهر — بيتعلّم كملاحظة مش كإيقاف
+    if (ad.effective_status !== 'ACTIVE' && ad.effective_status !== 'WITH_ISSUES') return off('ad');
+    // مشاكل الحساب آخر حاجة: بتوقف الإعلانات اللي كانت شغّالة، فمعناها يظهر بس لما ميكونش فيه سبب أقرب
+    if (acct && acct.accountStatus != null && META_ACCOUNT_BLOCKING[Number(acct.accountStatus)]) return off('account');
+    if (acct && Number(acct.spendCap) > 0 && Number(acct.amountSpent) >= Number(acct.spendCap)) return off('account-cap');
     return { active: true, level: null };
   }
 
@@ -1729,6 +1819,7 @@
     var next = {};
     PauseProofAlerts.SETTINGS_META.forEach(function (m) {
       var input = settingsForm.querySelector('[name="' + m.key + '"]');
+      if (!input) return;
       var raw = parseFloat(String(input.value).replace(',', '.'));
       if (!isFinite(raw) || raw < 0) return; // قيمة غلط = نرجع للافتراضي
       next[m.key] = m.kind === 'ratio' ? raw / 100 : raw;
@@ -1831,11 +1922,18 @@
     var active = saved.active || {};
     Object.keys(active).forEach(function (p) {
       if (!hasSession(p)) return;
-      if (p !== 'meta') { activeSources[p] = active[p]; loadSource(p, active[p]); return; }
+      if (p !== 'meta') {
+        activeSources[p] = active[p];
+        accountSelect.value = active[p]; // القائمة تفضل مطابقة للحساب المعروض فعلاً
+        loadSource(p, active[p]);
+        return;
+      }
       activeSources.meta = active.meta;
       whenFbReady(function () {
         FB.getLoginStatus(function (resp) {
-          if (resp && resp.status === 'connected') { loadAdsForAccount(active.meta); return; }
+          // بنعيد قراءة بيانات الحساب (الحالة وحد الصرف) بدل ما نعتمد على المحفوظ من جلسة قديمة —
+          // حساب اتحل عنده مشكلة الدفع كان هيفضل ظاهر إن إعلاناته كلها متوقفة
+          if (resp && resp.status === 'connected') { loadAdAccounts(active.meta); return; }
           delete activeSources.meta;
           setPlatformOptions('meta', []);
           connectStatus.textContent = 'انتهت جلسة Meta — سجّل الدخول تاني لعرض إعلاناتها.';

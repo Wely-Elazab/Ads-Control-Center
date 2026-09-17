@@ -12,19 +12,32 @@ export function googleErrorMessage(data, status) {
   return e.message || ('HTTP ' + status);
 }
 
+// أرقام حسابات Google أرقام بس — بننضّفها من أي حاجة تانية عشان محدش يقدر يحقن مسار في الرابط
+// أو سطر جديد في الهيدر عن طريق قيمة ملغومة
+export function cleanCustomerId(id) {
+  const clean = String(id == null ? '' : id).replace(/\D/g, '');
+  return clean || null;
+}
+
 export function googleHeaders(developerToken, accessToken, loginCustomerId) {
   const headers = {
     'Content-Type': 'application/json',
     'developer-token': developerToken,
     'Authorization': 'Bearer ' + accessToken
   };
-  if (loginCustomerId) headers['login-customer-id'] = String(loginCustomerId).replace(/-/g, '');
+  const login = cleanCustomerId(loginCustomerId);
+  if (login) headers['login-customer-id'] = login;
   return headers;
 }
 
 // بيشغّل استعلام GAQL عن طريق searchStream وبيرجّع كل الصفوف في مصفوفة واحدة
 export async function gaql(opts, query) {
-  const customerId = String(opts.customerId).replace(/-/g, '');
+  const customerId = cleanCustomerId(opts.customerId);
+  if (!customerId) {
+    const bad = new Error('رقم حساب Google Ads غير صالح.');
+    bad.status = 400;
+    throw bad;
+  }
   const response = await fetch(GOOGLE_ADS_API + '/customers/' + customerId + '/googleAds:searchStream', {
     method: 'POST',
     headers: googleHeaders(opts.developerToken, opts.accessToken, opts.loginCustomerId),

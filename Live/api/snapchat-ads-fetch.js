@@ -42,24 +42,32 @@ export default async function handler(req, res) {
       const tz = (acc && acc.timezone) || clientTz;
 
       // كل الإعلانات مع التصفّح (الافتراضي كان صفحة واحدة بس)
-      let ads = [];
-      let url = accountPath + '/ads?limit=1000';
-      for (let page = 0; url && page < MAX_PAGES; page++) {
-        const r = await fetch(url, { headers: headers });
-        const data = await r.json().catch(function () { return null; });
-        if (!r.ok || !data || data.request_status === 'ERROR') {
-          res.status(r.ok ? 502 : r.status).json({ error: snapError(data, r.status) });
-          return;
+      // لو Snapchat رفض limit=1000 بنعيد المحاولة بالحجم الافتراضي بدل ما نرجع بمفيش إعلانات خالص
+      const fetchAds = async function (firstUrl) {
+        const out = [];
+        let url = firstUrl;
+        for (let page = 0; url && page < MAX_PAGES; page++) {
+          const r = await fetch(url, { headers: headers });
+          const data = await r.json().catch(function () { return null; });
+          if (!r.ok || !data || data.request_status === 'ERROR') return { error: snapError(data, r.status), status: r.ok ? 502 : r.status };
+          (data.ads || []).forEach(function (item) { if (item && item.ad) out.push(item.ad); });
+          url = data.paging && data.paging.next_link;
         }
-        (data.ads || []).forEach(function (item) { if (item && item.ad) ads.push(item.ad); });
-        url = data.paging && data.paging.next_link;
+        return { ads: out };
+      };
+      let adsResult = await fetchAds(accountPath + '/ads?limit=1000');
+      if (adsResult.error) adsResult = await fetchAds(accountPath + '/ads');
+      if (adsResult.error) {
+        res.status(adsResult.status || 502).json({ error: adsResult.error });
+        return;
       }
+      const ads = adsResult.ads;
 
       // حالة المجموعات الإعلانية (Ad Squads) والحملات: الإعلان ممكن يكون ACTIVE وهو فعلياً مش شغّال
       // لأن المجموعة أو الحملة متوقفة أو مدتها خلصت. فشل الطلبين دول مش بيوقف التحميل
-      const fetchList = async function (path, key, itemKey) {
+      const fetchList = async function (path, key, itemKey, firstUrl) {
         const out = [];
-        let u = accountPath + path + '?limit=1000';
+        let u = firstUrl || (accountPath + path + '?limit=1000');
         for (let page = 0; u && page < MAX_PAGES; page++) {
           const r = await fetch(u, { headers: headers });
           const d = await r.json().catch(function () { return null; });
@@ -69,9 +77,14 @@ export default async function handler(req, res) {
         }
         return out;
       };
+      // نفس فكرة الإعلانات: لو الحجم الكبير اترفض بنعيد بالحجم الافتراضي
+      const fetchListSafe = async function (path, key, itemKey) {
+        const first = await fetchList(path, key, itemKey);
+        return first || (await fetchList(path, key, itemKey, accountPath + path));
+      };
       const [squadList, campaignList] = await Promise.all([
-        fetchList('/adsquads', 'adsquads', 'adsquad'),
-        fetchList('/campaigns', 'campaigns', 'campaign')
+        fetchListSafe('/adsquads', 'adsquads', 'adsquad'),
+        fetchListSafe('/campaigns', 'campaigns', 'campaign')
       ]);
       const squads = (squadList || []).map(function (s) {
         return { id: s.id, status: s.status, campaign_id: s.campaign_id, start_time: s.start_time || null, end_time: s.end_time || null };
