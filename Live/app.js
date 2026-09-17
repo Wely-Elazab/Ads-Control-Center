@@ -410,25 +410,42 @@
 
   // حالة التشغيل الفعلية لإعلان Google: الحالة (status) بتقول بس هل حد وقفه يدوياً،
   // لكن primary_status بيقول هل هو شغّال فعلاً — الحملة ممكن تكون ENABLED ومدتها خلصت أو غير مؤهلة
+  // Google بترجّع primary_status = حالة التشغيل الفعلية، و primary_status_reasons = السبب بالظبط
+  // (الحملة متوقفة، المجموعة متوقفة، مدة الحملة خلصت، الإعلان مرفوض...). بنترجم كلامها هي،
+  // ومنستنتجش من الحالة اليدوية (status) غير لما الحقول دي متكونش موجودة
+  var GOOGLE_REASON_LEVEL = {
+    CAMPAIGN_REMOVED: 'campaign', CAMPAIGN_PAUSED: 'campaign', CAMPAIGN_PENDING: 'scheduled', CAMPAIGN_ENDED: 'ended',
+    AD_GROUP_PAUSED: 'adset', AD_GROUP_REMOVED: 'adset',
+    AD_REMOVED: 'ad', AD_PAUSED: 'ad',
+    AD_DISAPPROVED: 'rejected', AD_UNDER_REVIEW: 'pending', AD_UNDER_APPEAL: 'pending',
+    AD_LIMITED_BY_POLICY: 'not-eligible', AD_APPROVED_LABELED: 'not-eligible', AD_AREA_OF_INTEREST_ONLY: 'not-eligible',
+    AD_GROUP_AD_NOT_ELIGIBLE: 'not-eligible'
+  };
+  var GOOGLE_PRIMARY_LEVEL = {
+    ELIGIBLE: null, LIMITED: null,               // شغّال (مع ملاحظة في حالة LIMITED)
+    PAUSED: 'ad', REMOVED: 'ad', ENDED: 'ended', PENDING: 'pending', NOT_ELIGIBLE: 'not-eligible'
+  };
   function googleDelivery(row, adStatus, agStatus, campStatus, approval) {
-    var off = function (level) { return { active: false, level: level }; };
-    var campPrimary = ggPick(row, 'campaign.primaryStatus');
-    var agPrimary = ggPick(row, 'adGroup.primaryStatus');
-    var adPrimary = ggPick(row, 'adGroupAd.primaryStatus');
+    var off = function (level, reason) { return { active: false, level: level, reason: reason || null }; };
+    var primary = ggPick(row, 'adGroupAd.primaryStatus');
+    var reasons = ggPick(row, 'adGroupAd.primaryStatusReasons') || [];
+
+    if (primary) {
+      var level = GOOGLE_PRIMARY_LEVEL[primary];
+      if (level === null) return { active: true, level: null, reason: null }; // ELIGIBLE / LIMITED
+      // السبب الأول اللي نعرفه بيحدد المستوى بدقة أكتر من الحالة العامة
+      for (var i = 0; i < reasons.length; i++) {
+        if (GOOGLE_REASON_LEVEL[reasons[i]]) return off(GOOGLE_REASON_LEVEL[reasons[i]], reasons.join(', '));
+      }
+      return off(level || 'ad', reasons.join(', ') || primary);
+    }
+
+    // احتياطي: الحقول الجديدة مش موجودة، فبنرجع للحالة اليدوية بس
     if (campStatus && campStatus !== 'ENABLED') return off('campaign');
-    if (campPrimary === 'ENDED') return off('ended');
-    if (campPrimary === 'PENDING') return off('scheduled');
-    if (campPrimary === 'PAUSED' || campPrimary === 'REMOVED') return off('campaign');
-    if (campPrimary === 'NOT_ELIGIBLE') return off('not-eligible');
     if (agStatus && agStatus !== 'ENABLED') return off('adset');
-    if (agPrimary === 'PAUSED' || agPrimary === 'REMOVED') return off('adset');
-    if (agPrimary === 'NOT_ELIGIBLE') return off('not-eligible');
-    if (adStatus !== 'ENABLED') return off('ad');
     if (approval === 'DISAPPROVED') return off('rejected');
-    if (adPrimary === 'PENDING') return off('pending');
-    if (adPrimary === 'PAUSED' || adPrimary === 'REMOVED') return off('ad');
-    if (adPrimary === 'NOT_ELIGIBLE') return off('not-eligible');
-    return { active: true, level: null };
+    if (adStatus !== 'ENABLED') return off('ad');
+    return { active: true, level: null, reason: null };
   }
 
   // adRows: كل الإعلانات بحالتها (من غير تاريخ) — metricRows: صف لكل إعلان × يوم فيه نشاط
@@ -493,6 +510,8 @@
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active,
         pausedLevel: delivery.level,
+        deliveryReason: delivery.reason || null,
+        platformStatus: ggPick(row, 'adGroupAd.primaryStatus') || adStatus || null,
         _resourceName: row.adGroupAd && row.adGroupAd.resourceName,
         fail: false
       };
@@ -739,6 +758,7 @@
         roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null,
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active, pausedLevel: delivery.level,
+        deliveryReason: null, platformStatus: ad.status || null,
         fail: false
       };
     });
@@ -895,6 +915,7 @@
         spend: spend, results: results, resultLabel: 'تحويلات', cpr: (results && spend) ? (spend / results) : null, roas: null,
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active, pausedLevel: delivery.level,
+        deliveryReason: null, platformStatus: ad.secondary_status || ad.operation_status || null,
         fail: false
       };
     });
@@ -951,6 +972,8 @@
           adsetStatus: as.effective_status || null,
           adsetStart: as.start_time || null,
           adsetEnd: as.end_time || null,
+          adsetLifetime: as.lifetime_budget || null,
+          adsetRemaining: as.budget_remaining != null ? as.budget_remaining : null,
           campaignStatus: camp.effective_status || null,
           campaignStart: camp.start_time || null,
           campaignStop: camp.stop_time || null
@@ -959,7 +982,7 @@
       return map;
     };
     fetchAllPages('/' + accountId + '/adsets', {
-      fields: 'id,effective_status,start_time,end_time,campaign{effective_status,start_time,stop_time}',
+      fields: 'id,effective_status,start_time,end_time,lifetime_budget,budget_remaining,campaign{effective_status,start_time,stop_time}',
       limit: 200
     }, FULL_SCAN_CAP, function (err, data) {
       if (!err) { onDone(build(data)); return; }
@@ -1140,8 +1163,11 @@
   // الحقول دي بنطلبها على مراحل: لو Meta رفضت حقل منها، بنرجع لطلب أبسط بدل ما الإعلانات كلها متحمّلش
   // المجموعة والحملة بحالتهم ومواعيدهم متسحبين مع كل إعلان — أدق من الخريطة المنفصلة لوحدها،
   // والخريطة بتفضل احتياطي لو الحقول دي اترفضت
-  var META_AD_FIELDS = 'id,name,effective_status,created_time,updated_time,' +
-    'adset{id,name,optimization_goal,effective_status,start_time,end_time},campaign{id,effective_status,start_time,stop_time},';
+  // issues_info = سبب عدم الظهور بكلام Meta نفسها (ميزانية خلصت، مشكلة دفع، تحت المراجعة...)
+  var META_ISSUES = 'issues_info{error_code,error_summary,error_message,level}';
+  var META_AD_FIELDS = 'id,name,effective_status,created_time,updated_time,' + META_ISSUES + ',' +
+    'adset{id,name,optimization_goal,effective_status,start_time,end_time,lifetime_budget,budget_remaining,' + META_ISSUES + '},' +
+    'campaign{id,effective_status,start_time,stop_time,' + META_ISSUES + '},';
   var META_AD_FIELDS_BASIC = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},';
   var META_CREATIVE_FULL = '{title,body,image_url,image_hash,thumbnail_url,video_id,effective_object_story_id,product_set_id,' +
     'asset_feed_spec{images{hash,url}},' +
@@ -1254,6 +1280,12 @@
     });
     var dailyDates = days.map(function (d) { return d.label; });
     var spend = daily.reduce(function (a, b) { return a + b; }, 0);
+    // تحقق أخير: لو الإعلان صرف النهارده فهو بيظهر فعلاً، مهما كانت الملاحظة اللي رجعت من المنصة —
+    // الصرف دليل عملي أقوى من أي وصف. الملاحظة بتفضل ظاهرة في التفاصيل
+    var ISSUE_LEVELS = { issue: 1, 'ad-issue': 1, 'adset-issue': 1, 'campaign-issue': 1, budget: 1 };
+    if (!delivery.active && ISSUE_LEVELS[delivery.level] && daily[6] > 0) {
+      delivery = { active: true, level: null, reason: delivery.reason };
+    }
     // مصدر واحد بس لقيمة المبيعات: مجموع نفس الأرقام اليومية الظاهرة في الجدول تحت —
     // عشان أي رقم إجمالي معروض يطابق دايماً تفصيله اليومي، من غير أي مصدر ثانٍ يختلف معاه
     var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
@@ -1296,45 +1328,74 @@
       themeClass: 'pv-t' + (hashCode(ad.id) % 4),
       active: delivery.active,
       pausedLevel: delivery.level,
+      deliveryReason: delivery.reason || null,
+      platformStatus: ad.effective_status || null,
       fail: false
     };
   }
 
   // ---------- حالة التشغيل الفعلية لإعلان Meta ----------
-  // مش بناخد حالة الإعلان وحده على الثقة: الإعلان ممكن يكون "نشط" وهو فعلياً مش بيظهر، لأن:
-  //   - الحملة أو المجموعة الإعلانية متوقفة / متأرشفة / فيها مشكلة
-  //   - مدة الحملة أو المجموعة خلصت، أو لسه مبدأتش
-  //   - الحساب نفسه معطّل / عليه مبلغ مستحق / وصل لحد الصرف
-  //   - الإعلان تحت المراجعة أو مرفوض
-  // بنرجّع { active, level } — level بيحدد سبب الإيقاف اللي بيظهر على الكارت
-  var META_ACCOUNT_BLOCKING = { 2: true, 3: true, 7: true, 100: true, 101: true };
+  // القاعدة: منستنتجش الحالة بنفسنا. Meta نفسها بتحسب effective_status للإعلان وهي شايفة حالة
+  // المجموعة والحملة، وبترجّع في issues_info السبب اللي مانع الظهور (ميزانية خلصت، مشكلة دفع،
+  // جدول انتهى، مراجعة...). إحنا بنترجم كلامها بس، وبنسيب سبب المنصة كما هو عشان تقدر تراجعه.
+  var META_STATUS_LEVEL = {
+    ACTIVE: null, WITH_ISSUES: null, PREAPPROVED: null,          // دي حالات بتظهر فيها الإعلانات
+    PAUSED: 'ad', ARCHIVED: 'ad', DELETED: 'ad',
+    ADSET_PAUSED: 'adset', CAMPAIGN_PAUSED: 'campaign',
+    DISAPPROVED: 'rejected', PENDING_REVIEW: 'pending', IN_PROCESS: 'pending',
+    PENDING_BILLING_INFO: 'account'
+  };
+  // بيانات المستوى اللي جات منه المشكلة في issues_info
+  var META_ISSUE_LEVEL = { AD: 'ad-issue', ADSET: 'adset-issue', CAMPAIGN: 'campaign-issue', ACCOUNT: 'account' };
+  function firstIssue(entity) {
+    var list = entity && entity.issues_info;
+    return (list && list.length) ? list[0] : null;
+  }
+  function issueText(issue) {
+    return (issue && (issue.error_summary || issue.error_message)) || '';
+  }
+  // الحالات اللي معناها إن الحساب نفسه واقف تماماً (مش مجرد ملاحظة)
+  var META_ACCOUNT_BLOCKING = { 2: true, 100: true, 101: true };
+
   function metaDelivery(ad, adsetStatusMap, acct) {
     var adset = ad.adset || {}, campaign = ad.campaign || {};
     var st = (adset.id && adsetStatusMap && adsetStatusMap[adset.id]) || {};
-    // WITH_ISSUES على مستوى الحملة/المجموعة معناه ملاحظة مش إيقاف — منحسبهاش توقف
-    var notPaused = function (s) { return s === 'ACTIVE' || s === 'WITH_ISSUES' ? null : s; };
-    var campStatus = notPaused(campaign.effective_status || st.campaignStatus);
-    var adsetStatus = notPaused(adset.effective_status || st.adsetStatus);
     var now = Date.now();
     var time = function (s) { var t = s ? Date.parse(s) : NaN; return isNaN(t) ? null : t; };
-    var off = function (level) { return { active: false, level: level }; };
+    var off = function (level, reason) { return { active: false, level: level, reason: reason || null }; };
+    var status = ad.effective_status;
 
-    // الترتيب مهم: السبب الأقرب للإعلان الأول. لو حد وقف الإعلان أو الحملة بإيده، ده السبب الحقيقي
-    // اللي المفروض يظهر — مش مشكلة عامة في الحساب
-    if (ad.effective_status === 'DISAPPROVED') return off('rejected');
-    if ((campStatus && campStatus !== 'ACTIVE') || ad.effective_status === 'CAMPAIGN_PAUSED') return off('campaign');
-    if ((adsetStatus && adsetStatus !== 'ACTIVE') || ad.effective_status === 'ADSET_PAUSED') return off('adset');
+    // 1) حالة Meta للإعلان — دي بتشمل أصلاً إيقاف الحملة أو المجموعة
+    var mapped = META_STATUS_LEVEL[status];
+    if (mapped) return off(mapped);
+
+    // 2) الإعلان حالته "شغّال" عند Meta — نشوف هل هي نفسها بتقول فيه حاجة مانعة الظهور
+    var issue = firstIssue(ad) || firstIssue(adset) || firstIssue(campaign);
+    if (issue) {
+      var level = META_ISSUE_LEVEL[issue.level] || 'issue';
+      return off(level, issueText(issue));
+    }
+
+    // 3) إيقاف يدوي واضح على المجموعة أو الحملة (احتياطي لو حالة الإعلان جات ناقصة)
+    var hardPaused = { PAUSED: true, ARCHIVED: true, DELETED: true };
+    if (hardPaused[campaign.effective_status || st.campaignStatus]) return off('campaign');
+    if (hardPaused[adset.effective_status || st.adsetStatus]) return off('adset');
+
+    // 4) الجدول الزمني — Meta بتسيب الحالة "نشطة" حتى بعد ما المدة تخلص
     var campStop = time(campaign.stop_time || st.campaignStop), adsetEnd = time(adset.end_time || st.adsetEnd);
     if ((campStop && campStop < now) || (adsetEnd && adsetEnd < now)) return off('ended');
     var campStart = time(campaign.start_time || st.campaignStart), adsetStart = time(adset.start_time || st.adsetStart);
     if ((campStart && campStart > now) || (adsetStart && adsetStart > now)) return off('scheduled');
-    if (ad.effective_status === 'PENDING_REVIEW' || ad.effective_status === 'IN_PROCESS') return off('pending');
-    // WITH_ISSUES: الإعلان عليه ملاحظة من Meta لكنه غالباً لسه بيظهر — بيتعلّم كملاحظة مش كإيقاف
-    if (ad.effective_status !== 'ACTIVE' && ad.effective_status !== 'WITH_ISSUES') return off('ad');
-    // مشاكل الحساب آخر حاجة: بتوقف الإعلانات اللي كانت شغّالة، فمعناها يظهر بس لما ميكونش فيه سبب أقرب
+
+    // 5) ميزانية المجموعة مدى الحياة خلصت
+    var lifetime = Number(adset.lifetime_budget || st.adsetLifetime || 0);
+    var remaining = adset.budget_remaining != null ? Number(adset.budget_remaining) : (st.adsetRemaining != null ? Number(st.adsetRemaining) : null);
+    if (lifetime > 0 && remaining === 0) return off('budget');
+
+    // 6) الحساب نفسه واقف تماماً (مشاكل الدفع الأخف بتظهر كتنبيه على مستوى الحساب، مش كإيقاف لكل إعلان)
     if (acct && acct.accountStatus != null && META_ACCOUNT_BLOCKING[Number(acct.accountStatus)]) return off('account');
-    if (acct && Number(acct.spendCap) > 0 && Number(acct.amountSpent) >= Number(acct.spendCap)) return off('account-cap');
-    return { active: true, level: null };
+
+    return { active: true, level: null, reason: null };
   }
 
   // ---------- وضع العرض فقط ----------
@@ -1374,7 +1435,12 @@
     Object.keys(platformOptions).forEach(function (p) {
       (platformOptions[p] || []).forEach(function (o) {
         var info = accountInfo[p + ':' + o.value] || {};
-        meta[p + ':' + o.value] = { label: o.label, currency: info.currency || null, metaAccountStatus: p === 'meta' && info.accountStatus != null ? Number(info.accountStatus) : null };
+        meta[p + ':' + o.value] = {
+          label: o.label, currency: info.currency || null,
+          metaAccountStatus: p === 'meta' && info.accountStatus != null ? Number(info.accountStatus) : null,
+          // حد الصرف على الحساب: لما يتقفل، Meta بتوقف كل الإعلانات — بيظهر كتنبيه على مستوى الحساب
+          spendCapReached: !!(p === 'meta' && Number(info.spendCap) > 0 && Number(info.amountSpent) >= Number(info.spendCap))
+        };
       });
     });
     return meta;
@@ -1411,7 +1477,13 @@
     rejected: 'مرفوض',
     account: 'متوقف (مشكلة في الحساب)',
     'account-cap': 'متوقف (الحساب وصل لحد الصرف)',
-    'not-eligible': 'غير مؤهل للظهور'
+    'not-eligible': 'غير مؤهل للظهور',
+    budget: 'ميزانية المجموعة خلصت',
+    // دول بييجوا من سبب صريح بترجّعه المنصة نفسها (issues_info)
+    issue: 'مش بيظهر — سبب من المنصة',
+    'ad-issue': 'مش بيظهر — مشكلة في الإعلان',
+    'adset-issue': 'مش بيظهر — مشكلة في المجموعة الإعلانية',
+    'campaign-issue': 'مش بيظهر — مشكلة في الحملة'
   };
   // إعلان كل مستوياته نشطة بس مصرفش ولا جنيه آخر ٣ أيام (أول امبارح وامبارح والنهارده) — عملياً مش شغّال
   function notDelivering(c) {
@@ -1698,6 +1770,13 @@
     document.getElementById('expandTitle').textContent = c.offer;
     document.getElementById('expandSub').textContent = c.platform + ' · ' + c.placement + ' · ' + statusLabelOf(c) + (c.daysAgo != null ? ' — ' + sinceLabel(c.daysAgo) : '');
     document.getElementById('expandHealth').innerHTML = '<span class="health-badge ' + h.cls + '"><span class="health-dot-inline"></span>' + h.label + '</span>';
+    // سطر "حالة الظهور": التقييم بتاعنا + سبب المنصة نفسه لو موجود + الحالة الخام —
+    // ده اللي بيخلّيك تقارن بسطر واحد مع عمود Delivery في لوحة المنصة
+    var statusBits = [statusLabelOf(c)];
+    if (c.deliveryReason) statusBits.push(c.deliveryReason);
+    if (c.platformStatus) statusBits.push('حالة المنصة: ' + c.platformStatus);
+    document.getElementById('expandStatus').innerHTML =
+      '<span class="status-line-label">الظهور</span><span class="status-line-value">' + esc(statusBits.join(' — ')) + '</span>';
     document.getElementById('expandIssues').innerHTML = a.issues.length
       ? a.issues.map(issueMarkup).join('')
       : (c.active ? '<div class="issue-none">مفيش ملاحظات على الإعلان ده حالياً.</div>' : '');

@@ -229,6 +229,9 @@
 
   .health-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--h); background: color-mix(in srgb, var(--h) 14%, transparent); padding: 4px 10px; border-radius: 999px; margin-bottom: 8px; }
   .health-dot-inline { width: 9px; height: 9px; border-radius: 50%; background: var(--h); }
+  .status-line { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; background: var(--paper); border-radius: 9px; padding: 8px 12px; margin: 8px 0 12px; font-size: 12.5px; }
+  .status-line-label { color: var(--ink-faint); flex-shrink: 0; }
+  .status-line-value { color: var(--ink); overflow-wrap: anywhere; }
   .expand-issues { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
   .expand-issues:empty { display: none; }
   .issue-item { border-inline-start: 4px solid var(--lv); background: var(--lv-bg); border-radius: 10px; padding: 10px 12px; }
@@ -604,6 +607,7 @@
       <div id="expandHealth"></div>
       <div class="expand-title" id="expandTitle"></div>
       <div class="expand-sub" id="expandSub"></div>
+      <div class="status-line" id="expandStatus"></div>
       <div class="expand-issues" id="expandIssues"></div>
       <div class="expand-caption" id="expandCaption"></div>
       <div id="expandLanding"></div>

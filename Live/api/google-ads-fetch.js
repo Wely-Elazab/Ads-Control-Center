@@ -38,6 +38,7 @@ export default async function handler(req, res) {
   // حالتها ENABLED بس مش شغّالة فعلاً (مدة الحملة خلصت، لسه مبدأتش، أو غير مؤهلة بسبب الدفع/السياسات)
   const statusFields = `
       ad_group_ad.primary_status,
+      ad_group_ad.primary_status_reasons,
       ad_group.primary_status,
       campaign.primary_status,`;
   const adsQuery = (withPrimaryStatus) => `

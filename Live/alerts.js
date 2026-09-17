@@ -352,6 +352,12 @@
         'ادخل على إعدادات الدفع والحساب في Meta Business Suite أو تواصل مع مسؤول الإعلانات فوراً.'));
     }
 
+    if (meta && meta.spendCapReached) {
+      alerts.push(makeIssue('critical', ['account'], 'الحساب وصل للحد الأقصى للصرف',
+        accName + ' وصل لحد الصرف المحدد عليه، ولما ده بيحصل Meta بتوقف كل إعلانات الحساب.',
+        'ارفع حد الصرف أو صفّره من إعدادات الحساب في Meta Business Suite لو عايز الإعلانات تكمل.'));
+    }
+
     var spendY = acc.spendByDay[YESTERDAY];
     var prevAvg = sum(acc.spendByDay, 0, DAY_BEFORE) / 5;
     if (prevAvg > 0) {
