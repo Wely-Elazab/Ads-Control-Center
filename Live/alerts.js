@@ -149,9 +149,16 @@
     // 2) إعلان غير فعّال: التنبيه الوحيد المفيد إنه وقف مؤخراً
     if (!c.active) {
       var recentSpend = sum(daily, 3, YESTERDAY);
-      var stoppedRecently = recentSpend > 0 && (spendY === 0 || (c.updatedDaysAgo != null && c.updatedDaysAgo <= 1));
+      // (الإعلان غير فعّال دلوقتي — فأي صرف في آخر ٣ أيام معناه إنه كان شغّال ووقف قريب)
+      var stoppedRecently = recentSpend > 0 && (spendY === 0 || !(daily[TODAY] > 0) || (c.updatedDaysAgo != null && c.updatedDaysAgo <= 1));
       if (stoppedRecently) {
-        var where = c.pausedLevel === 'campaign' ? ' (الحملة كلها متوقفة)' : (c.pausedLevel === 'adset' ? ' (المجموعة الإعلانية متوقفة)' : '');
+        var STOP_REASONS = {
+          campaign: ' (الحملة كلها متوقفة)', adset: ' (المجموعة الإعلانية متوقفة)',
+          ended: ' لأن مدة الحملة انتهت', account: ' بسبب مشكلة في حساب الإعلانات',
+          'account-cap': ' لأن الحساب وصل للحد الأقصى للصرف', rejected: ' لأن المنصة رفضته',
+          pending: ' لأنه رجع تحت المراجعة', 'not-eligible': ' لأنه بقى غير مؤهل للظهور'
+        };
+        var where = STOP_REASONS[c.pausedLevel] || '';
         var wasGood = avgCpr && c.results > 0 && c.cpr != null && c.cpr <= avgCpr;
         issues.push(makeIssue(wasGood ? 'warning' : 'info', ['status'], 'إعلان توقف مؤخراً',
           name + ' اتوقف' + where + ' بعد ما صرف ' + money(recentSpend) + ' في آخر ٣ أيام' +

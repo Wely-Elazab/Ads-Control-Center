@@ -51,10 +51,14 @@ export default async function handler(req, res) {
     if (a) advertiser = { name: a.name || null, timezone: a.timezone || null, currency: a.currency || null };
   } catch (e) { /* مش أساسي */ }
 
+  // secondary_status = حالة التشغيل الفعلية (زي: الحملة متوقفة، المجموعة متوقفة، المدة خلصت، الرصيد خلص)،
+  // لأن operation_status بيقول بس هل الإعلان نفسه متشغّل يدوياً. لو الحقل اترفض بنرجع للطلب العادي
+  const adFields = ['ad_id', 'ad_name', 'operation_status', 'ad_format', 'landing_page_url', 'video_id', 'image_ids', 'ad_text', 'campaign_id', 'adgroup_id', 'create_time', 'modify_time'];
+  const adsUrl = function (fields) { return TT_API + '/ad/get/?advertiser_id=' + adv + '&fields=' + encodeURIComponent(JSON.stringify(fields)); };
   let ads;
   try {
-    ads = await ttGetAllPages(TT_API + '/ad/get/?advertiser_id=' + adv +
-      '&fields=' + encodeURIComponent(JSON.stringify(['ad_id', 'ad_name', 'operation_status', 'ad_format', 'landing_page_url', 'video_id', 'image_ids', 'ad_text', 'campaign_id', 'adgroup_id', 'create_time', 'modify_time'])), headers);
+    ads = await ttGetAllPages(adsUrl(adFields.concat(['secondary_status'])), headers)
+      .catch(function () { return ttGetAllPages(adsUrl(adFields), headers); });
   } catch (err) {
     res.status(502).json({ error: String(err && err.message ? err.message : err) });
     return;

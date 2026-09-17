@@ -55,6 +55,31 @@ export default async function handler(req, res) {
         url = data.paging && data.paging.next_link;
       }
 
+      // حالة المجموعات الإعلانية (Ad Squads) والحملات: الإعلان ممكن يكون ACTIVE وهو فعلياً مش شغّال
+      // لأن المجموعة أو الحملة متوقفة أو مدتها خلصت. فشل الطلبين دول مش بيوقف التحميل
+      const fetchList = async function (path, key, itemKey) {
+        const out = [];
+        let u = accountPath + path + '?limit=1000';
+        for (let page = 0; u && page < MAX_PAGES; page++) {
+          const r = await fetch(u, { headers: headers });
+          const d = await r.json().catch(function () { return null; });
+          if (!r.ok || !d || d.request_status === 'ERROR') return null;
+          (d[key] || []).forEach(function (item) { if (item && item[itemKey]) out.push(item[itemKey]); });
+          u = d.paging && d.paging.next_link;
+        }
+        return out;
+      };
+      const [squadList, campaignList] = await Promise.all([
+        fetchList('/adsquads', 'adsquads', 'adsquad'),
+        fetchList('/campaigns', 'campaigns', 'campaign')
+      ]);
+      const squads = (squadList || []).map(function (s) {
+        return { id: s.id, status: s.status, campaign_id: s.campaign_id, start_time: s.start_time || null, end_time: s.end_time || null };
+      });
+      const campaigns = (campaignList || []).map(function (c) {
+        return { id: c.id, status: c.status, start_time: c.start_time || null, end_time: c.end_time || null };
+      });
+
       // نهاية النطاق حصرية: بداية اليوم اللي بعد النهارده
       const range = last7DaysRange(tz);
       const endKey = shiftDateKey(range.until, 1);
@@ -78,6 +103,8 @@ export default async function handler(req, res) {
 
       res.status(200).json({
         ads: ads,
+        squads: squadList ? squads : null,
+        campaigns: campaignList ? campaigns : null,
         stats: statsError ? null : statsData,
         statsError: statsError,
         range: range,

@@ -342,6 +342,29 @@
     return path.split('.').reduce(function (o, k) { return (o && o[k] != null) ? o[k] : undefined; }, obj);
   }
 
+  // حالة التشغيل الفعلية لإعلان Google: الحالة (status) بتقول بس هل حد وقفه يدوياً،
+  // لكن primary_status بيقول هل هو شغّال فعلاً — الحملة ممكن تكون ENABLED ومدتها خلصت أو غير مؤهلة
+  function googleDelivery(row, adStatus, agStatus, campStatus, approval) {
+    var off = function (level) { return { active: false, level: level }; };
+    var campPrimary = ggPick(row, 'campaign.primaryStatus');
+    var agPrimary = ggPick(row, 'adGroup.primaryStatus');
+    var adPrimary = ggPick(row, 'adGroupAd.primaryStatus');
+    if (campStatus && campStatus !== 'ENABLED') return off('campaign');
+    if (campPrimary === 'ENDED') return off('ended');
+    if (campPrimary === 'PENDING') return off('scheduled');
+    if (campPrimary === 'PAUSED' || campPrimary === 'REMOVED') return off('campaign');
+    if (campPrimary === 'NOT_ELIGIBLE') return off('not-eligible');
+    if (agStatus && agStatus !== 'ENABLED') return off('adset');
+    if (agPrimary === 'PAUSED' || agPrimary === 'REMOVED') return off('adset');
+    if (agPrimary === 'NOT_ELIGIBLE') return off('not-eligible');
+    if (adStatus !== 'ENABLED') return off('ad');
+    if (approval === 'DISAPPROVED') return off('rejected');
+    if (adPrimary === 'PENDING') return off('pending');
+    if (adPrimary === 'PAUSED' || adPrimary === 'REMOVED') return off('ad');
+    if (adPrimary === 'NOT_ELIGIBLE') return off('not-eligible');
+    return { active: true, level: null };
+  }
+
   // adRows: كل الإعلانات بحالتها (من غير تاريخ) — metricRows: صف لكل إعلان × يوم فيه نشاط
   // المفتاح adGroupId-adId لأن نفس الإعلان ممكن يتكرر في أكتر من مجموعة إعلانية
   function transformGoogleRows(adRows, metricRows, days, currency) {
@@ -368,6 +391,7 @@
         (ggPick(ad, 'expandedTextAd.description')) || '';
       var adStatus = ggPick(row, 'adGroupAd.status'), agStatus = ggPick(row, 'adGroup.status'), campStatus = ggPick(row, 'campaign.status');
       var approval = ggPick(row, 'adGroupAd.policySummary.approvalStatus');
+      var delivery = googleDelivery(row, adStatus, agStatus, campStatus, approval);
       var perDay = byDate[key] || {};
       var daily = [], dailyResults = [], dailySales = [];
       days.forEach(function (day) {
@@ -397,8 +421,8 @@
         cpr: (totalResults && spend > 0) ? (spend / totalResults) : null,
         roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null,
         themeClass: 'pv-t' + (hashCode(id) % 4),
-        active: adStatus === 'ENABLED' && (!agStatus || agStatus === 'ENABLED') && (!campStatus || campStatus === 'ENABLED'),
-        pausedLevel: campStatus && campStatus !== 'ENABLED' ? 'campaign' : (agStatus && agStatus !== 'ENABLED' ? 'adset' : (adStatus !== 'ENABLED' ? 'ad' : null)),
+        active: delivery.active,
+        pausedLevel: delivery.level,
         _resourceName: row.adGroupAd && row.adGroupAd.resourceName,
         fail: false
       };
@@ -407,7 +431,7 @@
 
   function loadAdAccounts() {
     connectStatus.textContent = 'جارٍ تحميل الحسابات الإعلانية…';
-    FB.api('/me/adaccounts', { fields: 'id,name,account_status,timezone_name,currency' }, function (response) {
+    FB.api('/me/adaccounts', { fields: 'id,name,account_status,timezone_name,currency,spend_cap,amount_spent' }, function (response) {
       if (!response || response.error) {
         connectStatus.textContent = 'تعذّر تحميل الحسابات — تأكد إن حسابك عنده صلاحية على حساب إعلاني واحد على الأقل.';
         return;
@@ -416,7 +440,7 @@
         connectStatus.textContent = 'مفيش حسابات إعلانية مرتبطة بحسابك.';
         return;
       }
-      response.data.forEach(function (a) { accountInfo['meta:' + a.id] = { timeZone: a.timezone_name || null, currency: a.currency || null, accountStatus: a.account_status }; });
+      response.data.forEach(function (a) { accountInfo['meta:' + a.id] = { timeZone: a.timezone_name || null, currency: a.currency || null, accountStatus: a.account_status, spendCap: a.spend_cap || null, amountSpent: a.amount_spent || null }; });
       setPlatformOptions('meta', response.data.map(function (a) { return { value: a.id, label: 'Meta — ' + a.name }; }));
       document.getElementById('tConnectTitle').textContent = 'متصل بحساب Meta — دوس تسجيل الدخول لإضافة منصة تانية';
       loadAdsForAccount(response.data[0].id);
@@ -510,7 +534,7 @@
         connectStatus.textContent = 'الاتصال نجح لكن مفيش إعلانات راجعة لهذا الحساب.';
         return;
       }
-      var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency);
+      var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns);
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
       var statsNote = payload.statsError ? ' (تعذّر تحميل الإنفاق: ' + payload.statsError + ')' : '';
       connectStatus.textContent = 'متصل — ' + ar(candidates.length) + ' إعلان محمّل إجمالاً عبر كل المنصات المتصلة.' + statsNote;
@@ -521,7 +545,29 @@
     });
   }
 
-  function transformSnapchatAds(adsList, statsList, days, currency) {
+  // حالة التشغيل الفعلية لإعلان Snapchat: الإعلان نفسه + المجموعة (Ad Squad) + الحملة، ومواعيد البداية والنهاية
+  function snapchatDelivery(ad, squadsById, campaignsById) {
+    var off = function (level) { return { active: false, level: level }; };
+    var now = Date.now();
+    var time = function (s) { var t = s ? Date.parse(s) : NaN; return isNaN(t) ? null : t; };
+    var squad = squadsById[ad.ad_squad_id] || null;
+    var campaign = squad ? campaignsById[squad.campaign_id] || null : null;
+    if (ad.review_status === 'REJECTED') return off('rejected');
+    if (campaign && campaign.status && campaign.status !== 'ACTIVE') return off('campaign');
+    if (squad && squad.status && squad.status !== 'ACTIVE') return off('adset');
+    var ends = [campaign && time(campaign.end_time), squad && time(squad.end_time)];
+    if (ends.some(function (t) { return t && t < now; })) return off('ended');
+    var starts = [campaign && time(campaign.start_time), squad && time(squad.start_time)];
+    if (starts.some(function (t) { return t && t > now; })) return off('scheduled');
+    if (ad.review_status === 'PENDING') return off('pending');
+    if (ad.status !== 'ACTIVE') return off('ad');
+    return { active: true, level: null };
+  }
+
+  function transformSnapchatAds(adsList, statsList, days, currency, squads, campaigns) {
+    var squadsById = {}, campaignsById = {};
+    (squads || []).forEach(function (s) { squadsById[s.id] = s; });
+    (campaigns || []).forEach(function (c) { campaignsById[c.id] = c; });
     // مع breakdown=ad الإحصائيات بتيجي جوه breakdown_stats.ad[] تحت الحساب —
     // الـ id اللي في المستوى الأعلى هو id الحساب مش الإعلان
     var statsByAd = {};
@@ -551,6 +597,7 @@
     var tracksPurchases = parsed.some(function (p) { return p.purchases.some(function (v) { return v > 0; }); });
     return parsed.map(function (p) {
       var ad = p.ad;
+      var delivery = snapchatDelivery(ad, squadsById, campaignsById);
       var id = 's-' + ad.id;
       var dailyResults = tracksPurchases ? p.purchases : p.swipes;
       var dailySales = tracksPurchases ? p.sales : p.daily.map(function () { return 0; });
@@ -573,7 +620,7 @@
         cpr: (results && spend) ? (spend / results) : null,
         roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null,
         themeClass: 'pv-t' + (hashCode(id) % 4),
-        active: ad.status === 'ACTIVE', pausedLevel: ad.status !== 'ACTIVE' ? 'ad' : null,
+        active: delivery.active, pausedLevel: delivery.level,
         fail: false
       };
     });
@@ -668,6 +715,23 @@
   // TikTok بترجّع الأوقات بصيغة "YYYY-MM-DD HH:MM:SS" بتوقيت UTC — نحوّلها لصيغة ISO عشان كل المتصفحات تفهمها
   function tiktokTime(s) { return s ? String(s).replace(' ', 'T') + 'Z' : null; }
 
+  // حالة التشغيل الفعلية لإعلان TikTok من secondary_status (لو رجع)، وإلا من operation_status بتاع الإعلان نفسه
+  function tiktokDelivery(ad) {
+    var off = function (level) { return { active: false, level: level }; };
+    var s = String(ad.secondary_status || '');
+    if (ad.operation_status !== 'ENABLE') return off('ad');
+    if (!s) return { active: true, level: null };
+    if (/CAMPAIGN/.test(s) && /DISABLE|DELETE/.test(s)) return off('campaign');
+    if (/ADGROUP/.test(s) && /DISABLE|DELETE/.test(s)) return off('adset');
+    if (/TIME_DONE|END/.test(s)) return off('ended');
+    if (/NOT_START/.test(s)) return off('scheduled');
+    if (/AUDIT_DENY|REJECT/.test(s)) return off('rejected');
+    if (/AUDIT/.test(s)) return off('pending');
+    if (/BALANCE|BUDGET_EXCEED/.test(s)) return off('account-cap');
+    if (/DELIVERY_OK|LEARN/.test(s)) return { active: true, level: null };
+    return off('not-eligible');
+  }
+
   function transformTikTokAds(adsList, reportList, days, currency) {
     var statsByAd = {};
     reportList.forEach(function (row) {
@@ -678,6 +742,7 @@
     });
     return adsList.map(function (ad) {
       var id = 't-' + ad.ad_id;
+      var delivery = tiktokDelivery(ad);
       var byDay = statsByAd[ad.ad_id] || {};
       var daily = [], dailyResults = [];
       days.forEach(function (day) {
@@ -700,7 +765,7 @@
         daily: daily, dailySales: daily.map(function () { return 0; }), dailyResults: dailyResults, dailyDates: days.map(function (d) { return d.label; }),
         spend: spend, results: results, resultLabel: 'تحويلات', cpr: (results && spend) ? (spend / results) : null, roas: null,
         themeClass: 'pv-t' + (hashCode(id) % 4),
-        active: ad.operation_status === 'ENABLE', pausedLevel: ad.operation_status !== 'ENABLE' ? 'ad' : null,
+        active: delivery.active, pausedLevel: delivery.level,
         fail: false
       };
     });
@@ -741,18 +806,31 @@
   function loadAdsetStatusMap(accountId, onDone) {
     // استعلام مستقل ومباشر لحالة المجموعات الإعلانية وحملاتها — أوثق من محاولة سحبها
     // متداخلة جوه استعلام الإعلانات نفسه على 3 مستويات دفعة واحدة
-    fetchAllPages('/' + accountId + '/adsets', {
-      fields: 'id,effective_status,campaign{effective_status}',
-      limit: 200
-    }, FULL_SCAN_CAP, function (err, data) {
+    // بنجيب كمان مواعيد البداية والنهاية: المجموعة أو الحملة ممكن تكون "نشطة" في الحالة لكن مدتها خلصت
+    // (أو لسه مبدأتش)، فالإعلان مش بيظهر للناس مع إن حالته نشط
+    var build = function (data) {
       var map = {};
       (data || []).forEach(function (as) {
+        var camp = as.campaign || {};
         map[as.id] = {
-          adsetActive: as.effective_status === 'ACTIVE',
-          campaignActive: !as.campaign || as.campaign.effective_status === 'ACTIVE'
+          adsetStatus: as.effective_status || null,
+          adsetStart: as.start_time || null,
+          adsetEnd: as.end_time || null,
+          campaignStatus: camp.effective_status || null,
+          campaignStart: camp.start_time || null,
+          campaignStop: camp.stop_time || null
         };
       });
-      onDone(map);
+      return map;
+    };
+    fetchAllPages('/' + accountId + '/adsets', {
+      fields: 'id,effective_status,start_time,end_time,campaign{effective_status,start_time,stop_time}',
+      limit: 200
+    }, FULL_SCAN_CAP, function (err, data) {
+      if (!err) { onDone(build(data)); return; }
+      fetchAllPages('/' + accountId + '/adsets', { fields: 'id,effective_status,campaign{effective_status}', limit: 200 }, FULL_SCAN_CAP, function (err2, data2) {
+        onDone(build(data2));
+      });
     });
   }
 
@@ -805,7 +883,7 @@
         var reachByAd = {};
         (reachData || []).forEach(function (row) { reachByAd[row.ad_id] = row; });
         var currency = info.currency || null;
-        mergeCandidates(order.map(function (id) { return transformRealAd(adsById[id], insightsByAd[id] || [], adsetStatusMap, days, reachByAd[id], currency); }), 'meta:' + accountId);
+        mergeCandidates(order.map(function (id) { return transformRealAd(adsById[id], insightsByAd[id] || [], adsetStatusMap, days, reachByAd[id], currency, accountInfo['meta:' + accountId]); }), 'meta:' + accountId);
         var notes = [];
         if (adsTruncated) notes.push('تم عرض أول ' + ar(PAGE_SAFETY_CAP) + ' إعلان بس — قولّي لو محتاج نرفع الحد');
         if (err2) notes.push('تعذّر تحميل الإنفاق اليومي: ' + err2.message);
@@ -895,7 +973,11 @@
   //   2) إعلان مبني على بوست موجود → full_picture بتاع البوست (محتاج صلاحية على الصفحة، ولو فشل بنكمّل)
   //   3) احتياطي: image_url / صورة الرابط / غلاف الفيديو / صورة مصغّرة بحجم ١٠٨٠
   // الحقول دي بنطلبها على مراحل: لو Meta رفضت حقل منها، بنرجع لطلب أبسط بدل ما الإعلانات كلها متحمّلش
-  var META_AD_FIELDS = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},';
+  // المجموعة والحملة بحالتهم ومواعيدهم متسحبين مع كل إعلان — أدق من الخريطة المنفصلة لوحدها،
+  // والخريطة بتفضل احتياطي لو الحقول دي اترفضت
+  var META_AD_FIELDS = 'id,name,effective_status,created_time,updated_time,' +
+    'adset{id,name,optimization_goal,effective_status,start_time,end_time},campaign{id,effective_status,start_time,stop_time},';
+  var META_AD_FIELDS_BASIC = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},';
   var META_CREATIVE_FULL = '{title,body,image_url,image_hash,thumbnail_url,video_id,effective_object_story_id,product_set_id,' +
     'asset_feed_spec{images{hash,url}},' +
     'object_story_spec{link_data{link,picture,image_hash,call_to_action,child_attachments{image_hash,picture}},video_data{call_to_action,image_url,image_hash}}}';
@@ -903,12 +985,12 @@
     'object_story_spec{link_data{link,picture,call_to_action},video_data{call_to_action,image_url}}}';
   function fetchMetaAds(accountId, onDone) {
     var attempts = [
-      'creative.thumbnail_width(1080).thumbnail_height(1080)' + META_CREATIVE_FULL,
-      'creative' + META_CREATIVE_FULL,
-      'creative' + META_CREATIVE_BASIC
+      META_AD_FIELDS + 'creative.thumbnail_width(1080).thumbnail_height(1080)' + META_CREATIVE_FULL,
+      META_AD_FIELDS + 'creative' + META_CREATIVE_FULL,
+      META_AD_FIELDS_BASIC + 'creative' + META_CREATIVE_BASIC
     ];
     (function tryNext(i) {
-      fetchAllPages('/' + accountId + '/ads', { fields: META_AD_FIELDS + attempts[i], limit: 100 }, PAGE_SAFETY_CAP, function (err, adsData, truncated) {
+      fetchAllPages('/' + accountId + '/ads', { fields: attempts[i], limit: 100 }, PAGE_SAFETY_CAP, function (err, adsData, truncated) {
         if (err && i < attempts.length - 1) { tryNext(i + 1); return; }
         onDone(err, adsData, truncated);
       });
@@ -975,7 +1057,8 @@
       (feedImage && feedImage.url) || (spec.video_data && spec.video_data.image_url) || creative.thumbnail_url || null;
   }
 
-  function transformRealAd(ad, insightRows, adsetStatusMap, days, reachRow, currency) {
+  function transformRealAd(ad, insightRows, adsetStatusMap, days, reachRow, currency, acct) {
+    var delivery = metaDelivery(ad, adsetStatusMap, acct);
     var creative = ad.creative || {};
     var imageUrl = metaImageUrl(ad);
     var format = creative.video_id ? 'video' : (imageUrl ? 'image' : 'text');
@@ -1046,27 +1129,41 @@
       cpr: cpr,
       roas: roas,
       themeClass: 'pv-t' + (hashCode(ad.id) % 4),
-      active: hierarchyActive(ad, adsetStatusMap),
-      pausedLevel: hierarchyPausedLevel(ad, adsetStatusMap),
+      active: delivery.active,
+      pausedLevel: delivery.level,
       fail: false
     };
   }
 
-  // مش بناخد effective_status الإعلان وحده على الثقة — بنتأكد كمان من المجموعة والحملة،
-  // عن طريق خريطة حالة مستقلة ومؤكدة (adsetStatusMap)، نفس فلسفة الأداة في التحقق مش الثقة العمياء
-  function hierarchyActive(ad, adsetStatusMap) {
-    var adOk = ad.effective_status === 'ACTIVE';
-    var st = ad.adset && adsetStatusMap && adsetStatusMap[ad.adset.id];
-    var adsetOk = !st || st.adsetActive;
-    var campOk = !st || st.campaignActive;
-    return adOk && adsetOk && campOk;
-  }
-  function hierarchyPausedLevel(ad, adsetStatusMap) {
-    var st = ad.adset && adsetStatusMap && adsetStatusMap[ad.adset.id];
-    if (st && !st.campaignActive) return 'campaign';
-    if (st && !st.adsetActive) return 'adset';
-    if (ad.effective_status !== 'ACTIVE') return 'ad';
-    return null;
+  // ---------- حالة التشغيل الفعلية لإعلان Meta ----------
+  // مش بناخد حالة الإعلان وحده على الثقة: الإعلان ممكن يكون "نشط" وهو فعلياً مش بيظهر، لأن:
+  //   - الحملة أو المجموعة الإعلانية متوقفة / متأرشفة / فيها مشكلة
+  //   - مدة الحملة أو المجموعة خلصت، أو لسه مبدأتش
+  //   - الحساب نفسه معطّل / عليه مبلغ مستحق / وصل لحد الصرف
+  //   - الإعلان تحت المراجعة أو مرفوض
+  // بنرجّع { active, level } — level بيحدد سبب الإيقاف اللي بيظهر على الكارت
+  var META_ACCOUNT_BLOCKING = { 2: true, 3: true, 7: true, 100: true, 101: true };
+  function metaDelivery(ad, adsetStatusMap, acct) {
+    var adset = ad.adset || {}, campaign = ad.campaign || {};
+    var st = (adset.id && adsetStatusMap && adsetStatusMap[adset.id]) || {};
+    var campStatus = campaign.effective_status || st.campaignStatus;
+    var adsetStatus = adset.effective_status || st.adsetStatus;
+    var now = Date.now();
+    var time = function (s) { var t = s ? Date.parse(s) : NaN; return isNaN(t) ? null : t; };
+    var off = function (level) { return { active: false, level: level }; };
+
+    if (acct && acct.accountStatus != null && META_ACCOUNT_BLOCKING[Number(acct.accountStatus)]) return off('account');
+    if (acct && Number(acct.spendCap) > 0 && Number(acct.amountSpent) >= Number(acct.spendCap)) return off('account-cap');
+    if (ad.effective_status === 'DISAPPROVED') return off('rejected');
+    if ((campStatus && campStatus !== 'ACTIVE') || ad.effective_status === 'CAMPAIGN_PAUSED') return off('campaign');
+    if ((adsetStatus && adsetStatus !== 'ACTIVE') || ad.effective_status === 'ADSET_PAUSED') return off('adset');
+    var campStop = time(campaign.stop_time || st.campaignStop), adsetEnd = time(adset.end_time || st.adsetEnd);
+    if ((campStop && campStop < now) || (adsetEnd && adsetEnd < now)) return off('ended');
+    var campStart = time(campaign.start_time || st.campaignStart), adsetStart = time(adset.start_time || st.adsetStart);
+    if ((campStart && campStart > now) || (adsetStart && adsetStart > now)) return off('scheduled');
+    if (ad.effective_status === 'PENDING_REVIEW' || ad.effective_status === 'IN_PROCESS') return off('pending');
+    if (ad.effective_status !== 'ACTIVE') return off('ad');
+    return { active: true, level: null };
   }
 
   // ---------- وضع العرض فقط ----------
@@ -1132,11 +1229,28 @@
     return '<div class="preview preview-text"><span class="text-url">' + esc(c.landing !== '—' ? c.landing : '') + '</span><span class="text-headline">' + esc(c.headline) + '</span><span class="text-desc">' + esc(c.desc) + '</span></div>';
   }
 
+  // سبب إن الإعلان مش شغّال — موحّد لكل المنصات
+  var PAUSED_LABELS = {
+    campaign: 'متوقف (الحملة)',
+    adset: 'متوقف (المجموعة الإعلانية)',
+    ad: 'متوقف',
+    ended: 'انتهت مدة الحملة',
+    scheduled: 'مجدول — لسه مبدأش',
+    pending: 'تحت المراجعة',
+    rejected: 'مرفوض',
+    account: 'متوقف (مشكلة في الحساب)',
+    'account-cap': 'متوقف (الحساب وصل لحد الصرف)',
+    'not-eligible': 'غير مؤهل للظهور'
+  };
+  // إعلان كل مستوياته نشطة بس مصرفش ولا جنيه آخر ٣ أيام (أول امبارح وامبارح والنهارده) — عملياً مش شغّال
+  function notDelivering(c) {
+    if (!c.active || (c.daysAgo != null && c.daysAgo < 2)) return false;
+    var d = c.daily || [];
+    return !(d[4] > 0) && !(d[5] > 0) && !(d[6] > 0);
+  }
   function statusLabelOf(c) {
-    if (c.active) return 'نشط';
-    if (c.pausedLevel === 'adset') return 'متوقف (المجموعة)';
-    if (c.pausedLevel === 'campaign') return 'متوقف (الحملة)';
-    return 'متوقف';
+    if (c.active) return notDelivering(c) ? 'نشط — بس مش بيصرف' : 'نشط';
+    return PAUSED_LABELS[c.pausedLevel] || 'متوقف';
   }
 
   function cardChips(c) {
@@ -1183,7 +1297,7 @@
           info +
             '<div class="card-foot">' +
               '<span class="days-badge">' + sinceLabel(c.daysAgo) + '</span>' +
-              '<span class="status-text' + (c.active ? ' on' : '') + '">' + statusLabelOf(c) + '</span>' +
+              '<span class="status-text' + (c.active ? (notDelivering(c) ? ' warn' : ' on') : '') + '">' + statusLabelOf(c) + '</span>' +
             '</div>' +
           '</div>' +
         '</article>'
@@ -1323,11 +1437,9 @@
   }
 
   var expandSeq = 0;
-  var expandedAd = null; // الإعلان المفتوح حالياً في نافذة التفاصيل
   function openExpand(c) {
     var a = adAnalysis(c);
     var h = HEALTH[a.health];
-    expandedAd = c;
     document.getElementById('expandTitle').textContent = c.offer;
     document.getElementById('expandSub').textContent = c.platform + ' · ' + c.placement + ' · ' + statusLabelOf(c) + (c.daysAgo != null ? ' — ' + sinceLabel(c.daysAgo) : '');
     document.getElementById('expandHealth').innerHTML = '<span class="health-badge ' + h.cls + '"><span class="health-dot-inline"></span>' + h.label + '</span>';
@@ -1373,30 +1485,17 @@
     expandOverlay.classList.remove('hidden');
     expandOverlay.querySelector('.expand-card').scrollTop = 0;
 
-    // الوسائط: إعلانات الفيديو بتبدأ بمعاينة Meta (عشان الفيديو يشتغل)، وإعلانات الصور بتبدأ بالصورة نفسها.
-    // معاينة Meta ساعات بتعرض رسالة خطأ منها هي جوه الإطار (بوست محذوف، صفحة مفيش صلاحية عليها،
-    // كتالوج منتجات فاضي)، ومنقدرش نكتشف ده من الكود لأن محتوى الإطار ممنوع علينا نقراه —
-    // عشان كده فيه زرارين يبدّل بيهم المستخدم بين الاتنين بنفسه
-    setMediaMode(c, c.videoId ? 'meta' : 'image');
+    showMedia(c);
   }
 
-  function renderMediaSwitch(c, mode) {
-    var sw = document.getElementById('expandMediaSwitch');
-    if (c.platform !== 'Meta' || typeof FB === 'undefined') { sw.innerHTML = ''; return; }
-    var btn = function (m, label) {
-      return '<button type="button" class="media-switch-btn' + (mode === m ? ' active' : '') + '" data-mode="' + m + '" aria-pressed="' + (mode === m) + '">' + label + '</button>';
-    };
-    sw.innerHTML = '<div class="media-switch-row">' + btn('image', c.videoId ? 'غلاف الفيديو' : 'صورة الإعلان') + btn('meta', 'معاينة Meta') + '</div>' +
-      (mode === 'meta' ? '<div class="media-switch-note">المعاينة جاية من Meta مباشرةً. لو ظهر فيها رسالة خطأ (بوست محذوف، صلاحية، أو كتالوج فاضي)، اختار «' + (c.videoId ? 'غلاف الفيديو' : 'صورة الإعلان') + '».</div>' : '');
-  }
-
-  // كل تغيير في الوسائط بياخد رقم — عشان رد متأخر من Meta لإعلان أو وضع قديم ميكتبش فوق اللي معروض دلوقتي
-  function setMediaMode(c, mode) {
+  // الوسائط: إعلانات الصور بتتعرض بالملف الأصلي للصورة (اللي بيتسحب من مكتبة صور الحساب).
+  // إعلانات الفيديو بتحاول تشغّل الفيديو نفسه عن طريق معاينة Meta، وتفضل على الغلاف لو فشلت.
+  // كل فتح بياخد رقم — عشان رد متأخر من Meta لإعلان قديم ميكتبش فوق الإعلان المفتوح دلوقتي
+  function showMedia(c) {
     var openSeq = ++expandSeq;
     var el = document.getElementById('expandPreview');
     el.innerHTML = previewMarkup(c);
-    renderMediaSwitch(c, mode);
-    if (mode !== 'meta' || c.platform !== 'Meta' || typeof FB === 'undefined') return;
+    if (!c.videoId || c.platform !== 'Meta' || typeof FB === 'undefined') return;
 
     // المحاولة الأولى: Ad Previews API — أداة Meta الرسمية لمعاينة الإعلان كما يظهر فعلياً
     FB.api('/' + c.id + '/previews', { ad_format: 'MOBILE_FEED_STANDARD' }, function (prevResp) {
@@ -1406,8 +1505,6 @@
         el.innerHTML = '<div class="video-embed-wrap">' + previewFrame + '</div>';
         return;
       }
-      // إعلان صورة والمعاينة فشلت: الصورة الثابتة اللي معروضة أصلاً تكفي
-      if (!c.videoId) return;
       // المحاولة الثانية للفيديو: بيانات الفيديو مباشرة (تضمين رسمي، ثم ملف مباشر، ثم رابط خارجي)
       FB.api('/' + c.videoId, { fields: 'embed_html,source,permalink_url,picture' }, function (vidResp) {
         if (openSeq !== expandSeq) return;
@@ -1435,11 +1532,6 @@
     });
   }
 
-  document.getElementById('expandMediaSwitch').addEventListener('click', function (e) {
-    var b = e.target.closest('.media-switch-btn');
-    if (!b || !expandedAd || b.classList.contains('active')) return;
-    setMediaMode(expandedAd, b.dataset.mode);
-  });
   expandClose.addEventListener('click', function () { expandOverlay.classList.add('hidden'); });
   expandOverlay.addEventListener('click', function (e) { if (e.target === expandOverlay) expandOverlay.classList.add('hidden'); });
   document.addEventListener('keydown', function (e) {

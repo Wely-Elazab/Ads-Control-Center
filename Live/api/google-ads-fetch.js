@@ -29,8 +29,14 @@ export default async function handler(req, res) {
   //    بيرجّع بس الإعلانات اللي ليها نشاط، فالإعلان المتوقف اللي مصرفش حاجة كان بيختفي خالص
   // 2) المقاييس اليومية لآخر 7 أيام شاملة النهارده بتوقيت الحساب
   // ملاحظة: metrics.cost_micros بالمايكرو — لازم تُقسم على 1,000,000 عشان توصل للقيمة الفعلية بالعملة
-  const adsQuery = `
-    SELECT
+  // primary_status: حالة التشغيل الفعلية زي عمود Status في Google Ads — بتكشف إعلان/حملة
+  // حالتها ENABLED بس مش شغّالة فعلاً (مدة الحملة خلصت، لسه مبدأتش، أو غير مؤهلة بسبب الدفع/السياسات)
+  const statusFields = `
+      ad_group_ad.primary_status,
+      ad_group.primary_status,
+      campaign.primary_status,`;
+  const adsQuery = (withPrimaryStatus) => `
+    SELECT${withPrimaryStatus ? statusFields : ''}
       ad_group_ad.ad.id,
       ad_group_ad.ad.name,
       ad_group_ad.ad.type,
@@ -67,7 +73,9 @@ export default async function handler(req, res) {
   `;
 
   try {
-    const results = await Promise.all([gaql(opts, adsQuery), gaql(opts, metricsQuery)]);
+    // لو الحساب/الإصدار رفض حقول primary_status، بنرجع للاستعلام العادي بدل ما الإعلانات متحمّلش
+    const adsRows = gaql(opts, adsQuery(true)).catch(function () { return gaql(opts, adsQuery(false)); });
+    const results = await Promise.all([adsRows, gaql(opts, metricsQuery)]);
     res.status(200).json({ ads: results[0], metrics: results[1], range: range });
   } catch (err) {
     res.status(err && err.status ? err.status : 500).json({ error: String(err && err.message ? err.message : err) });
