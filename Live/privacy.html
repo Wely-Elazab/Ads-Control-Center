@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-title-ar="سياسة الخصوصية — Ads Control Center" data-title-en="Privacy Policy — Ads Control Center">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>سياسة الخصوصية — Ads Control Center</title>
+<script src="legal.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="legal.css">
+</head>
+<body>
+
+<header class="legal-bar">
+  <a class="legal-brand" href="/">Ads Control Center</a>
+  <button type="button" class="legal-lang" id="legalLang">English</button>
+</header>
+
+<main class="legal">
+
+<!-- ======================= العربية ======================= -->
+<article class="doc only-ar" lang="ar" dir="rtl">
+  <h1>سياسة الخصوصية</h1>
+  <p class="updated">آخر تحديث: ١٨ سبتمبر ٢٠٢٦</p>
+
+  <p>Ads Control Center («الأداة» أو «نحن») أداة ويب لعرض أداء الحملات الإعلانية وتحليله والتنبيه على ما يحتاج انتباهاً. الأداة حالياً في مرحلة تجريبية، ويديرها فرد (مطوّر مستقل) مقيم في جمهورية مصر العربية. توضّح هذه السياسة البيانات التي تصل إليها الأداة، وكيف تُستخدم، وما الذي لا نفعله بها.</p>
+
+  <div class="summary">
+    <ul>
+      <li>الأداة <strong>للقراءة فقط</strong>: لا تُنشئ إعلانات ولا تعدّلها ولا توقفها، ولا تغيّر أي إعداد في حساباتك الإعلانية.</li>
+      <li><strong>لا نخزّن</strong> بيانات إعلاناتك ولا مفاتيح الدخول (التوكنات) على خوادمنا.</li>
+      <li>لا نبيع بياناتك، ولا نستخدمها في الإعلانات، ولا نشاركها مع أي طرف إلا بالقدر اللازم لتشغيل الأداة.</li>
+      <li>لا نستخدم أدوات تتبّع أو تحليلات للزوار.</li>
+    </ul>
+  </div>
+
+  <h2>١. البيانات التي نصل إليها</h2>
+  <p>عند ربط حسابك الإعلاني، تطلب الأداة إذنك عبر الواجهات البرمجية الرسمية (APIs) لكل منصة:</p>
+  <table>
+    <tr><th>المنصة</th><th>الصلاحية المطلوبة</th></tr>
+    <tr><td>Meta (فيسبوك وإنستغرام)</td><td><code>ads_read</code> و <code>business_management</code></td></tr>
+    <tr><td>Google Ads</td><td>صلاحية Google Ads (<code>adwords</code>)</td></tr>
+    <tr><td>Snapchat</td><td><code>snapchat-marketing-api</code></td></tr>
+    <tr><td>TikTok</td><td>صلاحيات القراءة المعتمدة لتطبيقنا في TikTok for Business</td></tr>
+  </table>
+  <p>ونستخدم هذه الصلاحيات للقراءة فقط، فنقرأ:</p>
+  <ul>
+    <li><strong>بيانات الحساب الإعلاني:</strong> الاسم، والمعرّف، والعملة، والمنطقة الزمنية، وحالة الحساب، وحد الإنفاق.</li>
+    <li><strong>الحملات والمجموعات الإعلانية والإعلانات:</strong> الأسماء، والحالات، وأسباب التوقف، ونصوص الإعلانات وصورها ومعاينات الفيديو، وروابط الوجهة.</li>
+    <li><strong>أرقام الأداء:</strong> الإنفاق، والنتائج والتحويلات وقيمتها، والوصول، ومعدل التكرار.</li>
+  </ul>
+  <p>لا نطلب ولا نصل إلى: كلمات مرورك، أو رسائلك، أو قوائم أصدقائك، أو بيانات العملاء المحتملين (Leads)، أو بيانات الدفع الخاصة بك.</p>
+
+  <h2>٢. كيف نستخدم البيانات</h2>
+  <p>نستخدم البيانات فقط لعرضها لك داخل الأداة: الأرقام، وتقييم أداء كل إعلان، والتنبيهات، والملخصات. لا نستخدمها لأي غرض آخر.</p>
+
+  <h2>٣. أين تُعالَج البيانات وأين تُحفظ</h2>
+  <ul>
+    <li><strong>في متصفحك:</strong> تتم معظم المعالجة (الحسابات والتنبيهات) داخل متصفحك.</li>
+    <li><strong>خوادمنا:</strong> بعض الطلبات لمنصات Google Ads وSnapchat وTikTok تمر عبر دوال خادمية على استضافة Vercel، لأن هذه المنصات تتطلب ذلك (مثل إضافة المفاتيح السرية للتطبيق). هذه الطلبات تمرّ مروراً فقط: لا نحفظ محتواها ولا نسجّله. أما طلبات Meta فتتم مباشرةً من متصفحك إلى Meta.</li>
+    <li><strong>على جهازك:</strong> تُحفظ مفاتيح الدخول (التوكنات) في «مخزن الجلسة» بالمتصفح (sessionStorage) وتُحذف تلقائياً عند إغلاق التبويب. وتُحفظ تفضيلاتك (اللغة، وفترة البيانات، وطريقة العرض، وإعدادات التنبيهات) في «المخزن المحلي» (localStorage)، ولا تحتوي على بيانات شخصية.</li>
+    <li><strong>سجلات تقنية:</strong> قد يحتفظ مزوّد الاستضافة (Vercel) بسجلات تشغيل تقنية قصيرة الأجل، مثل عنوان IP ووقت الطلب ومساره، لأغراض التشغيل والأمان.</li>
+  </ul>
+
+  <h2>٤. ملفات تعريف الارتباط (Cookies)</h2>
+  <p>لا تضع الأداة ملفات تعريف ارتباط خاصة بها. لكن مكتبات تسجيل الدخول من Meta وGoogle قد تضع ملفات تعريف ارتباط لإدارة جلسة الدخول، وتخضع لسياسات هذه الشركات.</p>
+
+  <h2>٥. الأطراف الثالثة</h2>
+  <ul>
+    <li><strong>المنصات الإعلانية التي تربطها</strong> (Meta وGoogle وSnap وTikTok): تخضع بياناتك لديها لسياسات الخصوصية الخاصة بكل منصة.</li>
+    <li><strong>Vercel:</strong> استضافة الأداة وتشغيل الدوال الخادمية.</li>
+    <li><strong>Google Fonts:</strong> تحميل الخطوط، وقد تستقبل عنوان IP الخاص بجهازك أثناء التحميل.</li>
+  </ul>
+  <p>لا نشارك بياناتك مع أي طرف آخر، ولا نبيعها.</p>
+
+  <h2>٦. الالتزام بسياسة بيانات مستخدمي Google API</h2>
+  <p>يلتزم استخدام Ads Control Center للمعلومات التي يتلقاها من واجهات Google البرمجية، ونقلها إلى أي تطبيق آخر، بـ<a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">سياسة بيانات مستخدمي خدمات Google API</a>، بما في ذلك متطلبات الاستخدام المحدود (Limited Use).</p>
+
+  <h2>٧. مدة الاحتفاظ</h2>
+  <p>لا نحتفظ ببيانات إعلاناتك ولا بمفاتيح الدخول على خوادمنا. بيانات الجلسة تُحذف بإغلاق التبويب، والتفضيلات تبقى على جهازك حتى تحذفها.</p>
+
+  <h2>٨. حقوقك وإلغاء الربط</h2>
+  <ul>
+    <li>يمكنك التوقف عن استخدام الأداة في أي وقت بإغلاق التبويب.</li>
+    <li>يمكنك إلغاء صلاحية الأداة نهائياً من إعدادات كل منصة — الخطوات في صفحة <a href="/data-deletion">حذف البيانات</a>.</li>
+    <li>وفقاً للقوانين المعمول بها، ومنها قانون حماية البيانات الشخصية المصري رقم ١٥١ لسنة ٢٠٢٠، لك حق الاطلاع على بياناتك وتصحيحها وحذفها والاعتراض على معالجتها. ولأننا لا نخزّن بياناتك، يكفي عادةً إلغاء الصلاحية وحذف بيانات الموقع من متصفحك. ولأي طلب، راسلنا وسنرد خلال ٣٠ يوماً.</li>
+  </ul>
+
+  <h2>٩. الأمان</h2>
+  <p>نستخدم اتصالاً مشفّراً (HTTPS) وسياسات أمان صارمة للمتصفح، ونستخدم الصلاحيات الممنوحة للقراءة فقط، ولا نحفظ مفاتيح الدخول على خوادمنا. ومع ذلك، لا يوجد نظام آمن بنسبة ١٠٠٪.</p>
+
+  <h2>١٠. الأطفال</h2>
+  <p>الأداة موجّهة للأنشطة التجارية، وليست موجّهة لمن هم دون ١٨ عاماً.</p>
+
+  <h2>١١. نقل البيانات خارج بلدك</h2>
+  <p>الأداة مستضافة لدى Vercel، وقد تمر الطلبات عبر خوادم تقع خارج بلدك.</p>
+
+  <h2>١٢. التغييرات على هذه السياسة</h2>
+  <p>سنحدّث هذه الصفحة عند أي تغيير، مع تعديل تاريخ «آخر تحديث». وقبل أي تغيير جوهري — مثل حفظ بيانات على خوادمنا لإرسال تنبيهات يومية — سنحدّث هذه السياسة ونوضّح التغيير قبل تفعيله.</p>
+
+  <h2>١٣. التواصل</h2>
+  <p>لأي سؤال أو طلب يخص خصوصيتك: <a href="mailto:walid.elazab20@gmail.com">walid.elazab20@gmail.com</a></p>
+</article>
+
+<!-- ======================= English ======================= -->
+<article class="doc only-en" lang="en" dir="ltr">
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: September 18, 2026</p>
+
+  <p>Ads Control Center ("the tool", "we") is a web tool that shows, analyzes and alerts on the performance of ad campaigns. The tool is currently in a trial phase and is operated by an individual (independent developer) based in Egypt. This policy explains what data the tool accesses, how it is used, and what we do not do with it.</p>
+
+  <div class="summary">
+    <ul>
+      <li>The tool is <strong>read-only</strong>: it does not create, edit or pause ads, and does not change any setting in your ad accounts.</li>
+      <li>We <strong>do not store</strong> your ad data or your access tokens on our servers.</li>
+      <li>We do not sell your data, use it for advertising, or share it with anyone beyond what is needed to run the tool.</li>
+      <li>We do not use visitor tracking or analytics tools.</li>
+    </ul>
+  </div>
+
+  <h2>1. Data we access</h2>
+  <p>When you connect an ad account, the tool asks for your permission through each platform's official APIs:</p>
+  <table>
+    <tr><th>Platform</th><th>Permission requested</th></tr>
+    <tr><td>Meta (Facebook &amp; Instagram)</td><td><code>ads_read</code> and <code>business_management</code></td></tr>
+    <tr><td>Google Ads</td><td>Google Ads scope (<code>adwords</code>)</td></tr>
+    <tr><td>Snapchat</td><td><code>snapchat-marketing-api</code></td></tr>
+    <tr><td>TikTok</td><td>The read permissions approved for our app in TikTok for Business</td></tr>
+  </table>
+  <p>We use these permissions for reading only, and read:</p>
+  <ul>
+    <li><strong>Ad account details:</strong> name, ID, currency, time zone, account status and spending limit.</li>
+    <li><strong>Campaigns, ad sets and ads:</strong> names, statuses, stop reasons, ad text, images, video previews and destination links.</li>
+    <li><strong>Performance figures:</strong> spend, results and conversions and their value, reach and frequency.</li>
+  </ul>
+  <p>We do not request or access your passwords, messages, friend lists, lead-form data, or your payment details.</p>
+
+  <h2>2. How we use the data</h2>
+  <p>We use the data only to show it to you inside the tool: figures, a performance rating for each ad, alerts and summaries. We do not use it for any other purpose.</p>
+
+  <h2>3. Where data is processed and stored</h2>
+  <ul>
+    <li><strong>In your browser:</strong> most processing (calculations and alerts) happens inside your browser.</li>
+    <li><strong>Our servers:</strong> some requests to Google Ads, Snapchat and TikTok pass through serverless functions hosted on Vercel, because these platforms require it (for example, to add the app's secret keys). These requests only pass through: we do not store or log their content. Requests to Meta go directly from your browser to Meta.</li>
+    <li><strong>On your device:</strong> access tokens are kept in the browser's session storage and are deleted automatically when you close the tab. Your preferences (language, data period, view, alert settings) are kept in local storage and contain no personal data.</li>
+    <li><strong>Technical logs:</strong> our hosting provider (Vercel) may keep short-lived technical logs, such as IP address, request time and path, for operation and security.</li>
+  </ul>
+
+  <h2>4. Cookies</h2>
+  <p>The tool does not set cookies of its own. The Meta and Google sign-in libraries may set cookies to manage the sign-in session; these are governed by those companies' policies.</p>
+
+  <h2>5. Third parties</h2>
+  <ul>
+    <li><strong>The ad platforms you connect</strong> (Meta, Google, Snap, TikTok): your data with them is governed by each platform's own privacy policy.</li>
+    <li><strong>Vercel:</strong> hosts the tool and runs its serverless functions.</li>
+    <li><strong>Google Fonts:</strong> loads the fonts and may receive your device's IP address while doing so.</li>
+  </ul>
+  <p>We do not share your data with anyone else, and we do not sell it.</p>
+
+  <h2>6. Google API Services User Data Policy</h2>
+  <p>Ads Control Center's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+  <h2>7. Retention</h2>
+  <p>We do not keep your ad data or access tokens on our servers. Session data is deleted when you close the tab; preferences stay on your device until you delete them.</p>
+
+  <h2>8. Your rights and disconnecting</h2>
+  <ul>
+    <li>You can stop using the tool at any time by closing the tab.</li>
+    <li>You can permanently revoke the tool's access in each platform's settings — see the <a href="/data-deletion">Data deletion</a> page for the steps.</li>
+    <li>Under applicable laws, including Egypt's Personal Data Protection Law No. 151 of 2020, you have the right to access, correct and delete your data and to object to its processing. Because we do not store your data, revoking access and clearing this site's data from your browser is usually enough. For any request, email us and we will reply within 30 days.</li>
+  </ul>
+
+  <h2>9. Security</h2>
+  <p>We use encrypted connections (HTTPS) and strict browser security policies, use the permissions you grant for reading only, and never store access tokens on our servers. Still, no system is 100% secure.</p>
+
+  <h2>10. Children</h2>
+  <p>The tool is intended for businesses and is not directed to anyone under 18.</p>
+
+  <h2>11. Data transfers outside your country</h2>
+  <p>The tool is hosted on Vercel, and requests may pass through servers located outside your country.</p>
+
+  <h2>12. Changes to this policy</h2>
+  <p>We will update this page whenever it changes and revise the "Last updated" date. Before any material change — such as storing data on our servers to send daily alerts — we will update this policy and explain the change before it takes effect.</p>
+
+  <h2>13. Contact</h2>
+  <p>For any privacy question or request: <a href="mailto:walid.elazab20@gmail.com">walid.elazab20@gmail.com</a></p>
+</article>
+
+</main>
+
+<footer class="legal-foot">
+  <a href="/"><span class="only-ar">الرجوع للأداة</span><span class="only-en">Back to the tool</span></a>
+  <a href="/terms"><span class="only-ar">شروط الاستخدام</span><span class="only-en">Terms of use</span></a>
+  <a href="/data-deletion"><span class="only-ar">حذف البيانات</span><span class="only-en">Data deletion</span></a>
+</footer>
+
+</body>
+</html>

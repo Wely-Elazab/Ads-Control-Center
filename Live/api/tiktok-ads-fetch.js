@@ -55,9 +55,12 @@ export default async function handler(req, res) {
   // لأن operation_status بيقول بس هل الإعلان نفسه متشغّل يدوياً. لو الحقل اترفض بنرجع للطلب العادي
   const adFields = ['ad_id', 'ad_name', 'operation_status', 'ad_format', 'landing_page_url', 'video_id', 'image_ids', 'ad_text', 'campaign_id', 'adgroup_id', 'create_time', 'modify_time'];
   const adsUrl = function (fields) { return TT_API + '/ad/get/?advertiser_id=' + adv + '&fields=' + encodeURIComponent(JSON.stringify(fields)); };
+  // أسماء الحملة والمجموعة للعرض بالحملات — لو الحقول دي اترفضت بنكمل من غيرها قبل ما نتنازل عن secondary_status
+  const nameFields = ['campaign_name', 'adgroup_name'];
   let ads;
   try {
-    ads = await ttGetAllPages(adsUrl(adFields.concat(['secondary_status'])), headers)
+    ads = await ttGetAllPages(adsUrl(adFields.concat(['secondary_status'], nameFields)), headers)
+      .catch(function () { return ttGetAllPages(adsUrl(adFields.concat(['secondary_status'])), headers); })
       .catch(function () { return ttGetAllPages(adsUrl(adFields), headers); });
   } catch (err) {
     res.status(502).json({ error: String(err && err.message ? err.message : err) });

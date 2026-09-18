@@ -87,10 +87,10 @@ export default async function handler(req, res) {
         fetchListSafe('/campaigns', 'campaigns', 'campaign')
       ]);
       const squads = (squadList || []).map(function (s) {
-        return { id: s.id, status: s.status, campaign_id: s.campaign_id, start_time: s.start_time || null, end_time: s.end_time || null };
+        return { id: s.id, name: s.name || null, status: s.status, campaign_id: s.campaign_id, start_time: s.start_time || null, end_time: s.end_time || null };
       });
       const campaigns = (campaignList || []).map(function (c) {
-        return { id: c.id, status: c.status, start_time: c.start_time || null, end_time: c.end_time || null };
+        return { id: c.id, name: c.name || null, status: c.status, start_time: c.start_time || null, end_time: c.end_time || null };
       });
 
       // نهاية النطاق حصرية: بداية اليوم اللي بعد النهارده

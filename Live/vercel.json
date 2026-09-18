@@ -1,7 +1,10 @@
 {
   "rewrites": [
     { "source": "/", "destination": "/pauseproof-live.html" },
-    { "source": "/index.html", "destination": "/pauseproof-live.html" }
+    { "source": "/index.html", "destination": "/pauseproof-live.html" },
+    { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/terms", "destination": "/terms.html" },
+    { "source": "/data-deletion", "destination": "/data-deletion.html" }
   ],
   "headers": [
     {

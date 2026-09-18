@@ -423,7 +423,8 @@
     if (!googleTokenClient) {
       googleTokenClient = google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
-        scope: 'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email',
+        // صلاحية Google Ads بس — كان فيه طلب للإيميل كمان ومش مستخدم في أي حتة، فاتشال (أقل بيانات = أسهل في التوثيق)
+        scope: 'https://www.googleapis.com/auth/adwords',
         callback: function (tokenResponse) {
           if (tokenResponse && tokenResponse.access_token) {
             googleAccessToken = tokenResponse.access_token;
@@ -604,7 +605,12 @@
         id: id, platform: 'Google Ads', currency: currency || null,
         reviewStatus: approval === 'DISAPPROVED' ? 'disapproved' : ((approval === 'APPROVED_LIMITED' || approval === 'AREA_OF_INTEREST_ONLY') ? 'limited' : null),
         frequency: null,
-        placement: ggPick(row, 'campaign.name') || '—',
+        placement: ggPick(row, 'campaign.name') || ggPick(row, 'adGroup.name') || '—',
+        campaignId: ggPick(row, 'campaign.id') || null,
+        campaignName: ggPick(row, 'campaign.name') || null,
+        adsetName: ggPick(row, 'adGroup.name') || null,
+        adGroupId: ggPick(row, 'adGroup.id') || null,
+        nativeId: ad.id || null,
         format: (ad.type && /VIDEO/i.test(ad.type)) ? 'video' : ((ad.type && /IMAGE/i.test(ad.type)) ? 'image' : 'text'),
         thumbUrl: ggPick(ad, 'imageAd.imageUrl') || null,
         headline: headline, desc: desc, offer: headline, caption: desc || headline,
@@ -863,13 +869,20 @@
       var delivery = snapchatDelivery(ad, squadsById, campaignsById);
       var pRow = periodByAd && (periodByAd[ad.id] || { spend: 0, results: 0, sales: 0 });
       var id = 's-' + ad.id;
+      var squad = squadsById[ad.ad_squad_id] || null;
+      var campaign = squad ? (campaignsById[squad.campaign_id] || null) : null;
       var dailyResults = tracksPurchases ? p.purchases : p.swipes;
       var dailySales = tracksPurchases ? p.sales : p.daily.map(function () { return 0; });
       var spend = r2(p.daily.reduce(function (a, b) { return a + b; }, 0));
       var results = dailyResults.reduce(function (a, b) { return a + b; }, 0);
       var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
       return {
-        id: id, platform: 'Snapchat', placement: 'Discover', currency: currency || null,
+        id: id, platform: 'Snapchat', currency: currency || null,
+        placement: (campaign && campaign.name) || (squad && squad.name) || '—',
+        campaignId: (squad && squad.campaign_id) || null,
+        campaignName: (campaign && campaign.name) || null,
+        adsetName: (squad && squad.name) || null,
+        nativeId: ad.id,
         reviewStatus: /REJECT|DENY/i.test(ad.review_status || '') ? 'disapproved' : null,
         frequency: null,
         format: ad.type && /VIDEO/i.test(ad.type) ? 'video' : (ad.type && /SNAP_AD/i.test(ad.type) ? 'video' : 'image'),
@@ -1045,7 +1058,12 @@
       var spend = daily.reduce(function (a, b) { return a + b; }, 0);
       var results = Math.round(rawResults);
       return {
-        id: id, platform: 'TikTok', placement: 'In-Feed', currency: currency || null,
+        id: id, platform: 'TikTok', currency: currency || null,
+        placement: ad.campaign_name || ad.adgroup_name || '—',
+        campaignId: ad.campaign_id || null,
+        campaignName: ad.campaign_name || null,
+        adsetName: ad.adgroup_name || null,
+        nativeId: ad.ad_id,
         reviewStatus: null, frequency: null,
         format: ad.ad_format && /VIDEO|SINGLE_VIDEO/i.test(ad.ad_format) ? 'video' : 'image',
         thumbUrl: null,
@@ -1318,8 +1336,8 @@
   var META_ISSUES = 'issues_info{error_code,error_summary,error_message,level}';
   var META_AD_FIELDS = 'id,name,effective_status,created_time,updated_time,' + META_ISSUES + ',' +
     'adset{id,name,optimization_goal,effective_status,start_time,end_time,lifetime_budget,budget_remaining,' + META_ISSUES + '},' +
-    'campaign{id,effective_status,start_time,stop_time,' + META_ISSUES + '},';
-  var META_AD_FIELDS_BASIC = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},';
+    'campaign{id,name,effective_status,start_time,stop_time,' + META_ISSUES + '},';
+  var META_AD_FIELDS_BASIC = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},campaign{id,name},';
   var META_CREATIVE_FULL = '{title,body,image_url,image_hash,thumbnail_url,video_id,effective_object_story_id,product_set_id,' +
     'asset_feed_spec{images{hash,url}},' +
     'object_story_spec{link_data{link,picture,image_hash,call_to_action,child_attachments{image_hash,picture}},video_data{call_to_action,image_url,image_hash}}}';
@@ -1463,7 +1481,11 @@
       reviewStatus: META_REVIEW_STATUS[ad.effective_status] || null,
       frequency: reachRow && reachRow.frequency != null ? parseFloat(reachRow.frequency) : null,
       reach: reachRow && reachRow.reach != null ? parseInt(reachRow.reach, 10) : null,
-      placement: (ad.adset && ad.adset.name) || '—',
+      placement: (ad.campaign && ad.campaign.name) || (ad.adset && ad.adset.name) || '—',
+      campaignId: (ad.campaign && ad.campaign.id) || null,
+      campaignName: (ad.campaign && ad.campaign.name) || null,
+      adsetName: (ad.adset && ad.adset.name) || null,
+      nativeId: ad.id,
       format: format,
       duration: format === 'video' ? '' : undefined,
       videoId: creative.video_id || null,
@@ -1678,10 +1700,11 @@
     var a = adAnalysis(c);
     var h = HEALTH[a.health];
     var dot = '<span class="health-dot ' + h.cls + '" title="' + h.label + '"><span class="sr-only">' + h.label + '</span></span>';
+    // ملاحظات "للعلم" (إعلان صغير بالنسبة لحسابه) مبتظهرش على الكارت — بتظهر في التفاصيل بس
     var shown = a.issues.filter(function (i) { return i.level !== 'info'; });
-    var top = shown[0] || a.issues[0];
+    var top = shown[0];
     var issueLine = top
-      ? '<div class="card-issue ' + LEVELS[top.level].cls + '">' + esc(top.title) + (a.issues.length > 1 ? ' <span class="card-issue-more">+' + ar(a.issues.length - 1) + '</span>' : '') + '</div>'
+      ? '<div class="card-issue ' + LEVELS[top.level].cls + '">' + esc(top.title) + (shown.length > 1 ? ' <span class="card-issue-more">+' + ar(shown.length - 1) + '</span>' : '') + '</div>'
       : '';
     var line1 = '<div class="card-line1">' + esc(c.platform) + ' <span style="color:var(--ink-faint);font-weight:400;">·</span> ' + esc(c.placement) + '</div>';
     var name = '<div class="card-name" title="' + esc(c.offer) + '">' + esc(c.offer) + '</div>';
@@ -1709,12 +1732,127 @@
       if (filters.status === 'active' && !c.active) return false;
       if (filters.status === 'paused' && c.active) return false;
       if (filters.health !== 'all' && adAnalysis(c).health !== filters.health) return false;
+      if (filters.campaign && campaignKey(c) !== filters.campaign) return false;
       if (filters.text) {
-        var hay = (c.platform + ' ' + c.placement + ' ' + c.offer + ' ' + (c.headline || '') + ' ' + (c.desc || '') + ' ' + (c.caption || '')).toLowerCase();
+        var hay = (c.platform + ' ' + c.placement + ' ' + (c.adsetName || '') + ' ' + c.offer + ' ' + (c.headline || '') + ' ' + (c.desc || '') + ' ' + (c.caption || '')).toLowerCase();
         if (hay.indexOf(filters.text.toLowerCase()) === -1) return false;
       }
       return true;
     });
+  }
+
+  // ---------- العرض بالحملات ----------
+  // الافتراضي "الإعلانات" (قرار صاحب المنتج)، والاختيار بيتحفظ — اللي بيفضّل الحملات بتفتح له على طول.
+  // الحملة بتتجمع من الإعلانات الظاهرة بعد الفلاتر، فأرقامها بتطابق الفلتر الحالي
+  var VIEW_KEY = 'acc.view.v1';
+  var viewMode = (function () { try { return localStorage.getItem(VIEW_KEY) === 'campaigns' ? 'campaigns' : 'ads'; } catch (e) { return 'ads'; } })();
+  function campaignKey(c) { return (c.source || c.platform) + '|' + (c.campaignId || c.campaignName || '-'); }
+  function groupCampaigns(ads) {
+    var map = {}, list = [];
+    ads.forEach(function (c) {
+      var key = campaignKey(c);
+      var g = map[key];
+      if (!g) {
+        g = map[key] = { key: key, name: c.campaignName, platform: c.platform, currency: c.currency, ads: [],
+          total: candidates.filter(function (x) { return campaignKey(x) === key; }).length };
+        list.push(g);
+      }
+      g.ads.push(c);
+    });
+    list.forEach(function (g) {
+      var spend = 0, sales = 0, results = 0, keys = {}, spend7 = 0, reviewSpend = 0, improveSpend = 0;
+      g.active = 0; g.urgent = 0; g.important = 0; g.health = {};
+      g.ads.forEach(function (c) {
+        var p = periodOf(c), a = adAnalysis(c);
+        spend += p.spend || 0; sales += p.sales || 0;
+        if (p.results != null) { results += p.results; keys[c.resultKey || 'generic'] = true; }
+        if (c.active) g.active++;
+        g.health[a.health] = (g.health[a.health] || 0) + 1;
+        spend7 += c.spend || 0;
+        if (a.health === 'review') reviewSpend += c.spend || 0;
+        if (a.health === 'improve') improveSpend += c.spend || 0;
+      });
+      // عدد التنبيهات من نفس قائمة صفحة التنبيهات (فيها كمان تنبيهات الحساب المربوطة بإعلان، زي تركيز الميزانية) —
+      // عشان الرقم على كارت الحملة يطابق اللي هتلاقيه في التنبيهات
+      var ids = {};
+      g.ads.forEach(function (c) { ids[c.id] = true; });
+      analysis.alerts.forEach(function (al) {
+        if (!al.adId || !ids[al.adId]) return;
+        if (al.level === 'critical') g.urgent++; else if (al.level === 'warning') g.important++;
+      });
+      var resultKeys = Object.keys(keys);
+      g.spend = spend; g.sales = sales;
+      g.resultKey = resultKeys.length === 1 ? resultKeys[0] : null;
+      g.results = resultKeys.length === 1 ? results : null;
+      g.mixedResults = resultKeys.length > 1;
+      g.cpr = (g.results && spend > 0) ? spend / g.results : null;
+      g.roas = (sales > 0 && spend > 0) ? sales / spend : null;
+      // لون الحملة بالفلوس مش بالعدد: لو الإعلانات اللي محتاجة مراجعة واخدة ٣٠٪ أو أكتر من صرفها
+      // (آخر ٧ أيام — نفس فترة التقييم) تبقى حمرا. إعلان صغير عليه مشكلة ميلوّنش الحملة كلها
+      var share = function (x) { return spend7 > 0 ? x / spend7 : 0; };
+      if (!g.active && !g.health.review) g.status = 'inactive';
+      else if (spend7 > 0 ? share(reviewSpend) >= 0.3 : g.health.review) g.status = 'review';
+      else if (spend7 > 0 ? share(reviewSpend + improveSpend) >= 0.3 : g.health.improve) g.status = 'improve';
+      else g.status = 'good';
+      g.newest = Math.min.apply(null, g.ads.map(function (c) { return c.daysAgo == null ? Number.MAX_SAFE_INTEGER : c.daysAgo; }));
+      g.updated = Math.min.apply(null, g.ads.map(function (c) { return c.updatedDaysAgo == null ? Number.MAX_SAFE_INTEGER : c.updatedDaysAgo; }));
+    });
+    return list;
+  }
+  function sortCampaigns(list, key) {
+    var arr = list.slice();
+    if (key === 'launch') arr.sort(function (a, b) { return a.newest - b.newest; });
+    else if (key === 'update') arr.sort(function (a, b) { return a.updated - b.updated; });
+    else if (key === 'spend') arr.sort(function (a, b) { return b.spend - a.spend; });
+    else arr.sort(function (a, b) { return (HEALTH[a.status].order - HEALTH[b.status].order) || (b.urgent - a.urgent) || (b.spend - a.spend); });
+    return arr;
+  }
+  function campaignMarkup(g) {
+    var h = HEALTH[g.status];
+    var name = g.name || t('camp.noName');
+    var count = g.ads.length < g.total
+      ? t('camp.adsOf', { n: ar(g.ads.length), total: ar(g.total), ads: noun(g.total, 'n.ad') })
+      : ar(g.total) + ' ' + noun(g.total, 'n.ad');
+    var chips = '<span class="metric-chip">' + money(g.spend, g.currency) + '</span>';
+    if (g.results != null) chips += '<span class="metric-chip">' + ar(g.results) + ' ' + esc(t((I18N.form(g.results) === 'one' ? 'res1.' : 'res.') + (g.resultKey || 'generic'))) + '</span>';
+    else if (g.mixedResults) chips += '<span class="metric-chip">' + t('camp.mixedResults') + '</span>';
+    if (g.roas != null) chips += '<span class="metric-chip">' + t('chip.roas') + ' ' + roasStr(g.roas) + '</span>';
+    else if (g.cpr != null) chips += '<span class="metric-chip">' + money(g.cpr, g.currency) + ' ' + t('chip.each') + '</span>';
+    var issues = [];
+    if (g.urgent) issues.push('<span class="camp-badge lv-critical">' + t('camp.urgent', { n: ar(g.urgent) }) + '</span>');
+    if (g.important) issues.push('<span class="camp-badge lv-warning">' + t('camp.important', { n: ar(g.important) }) + '</span>');
+    if (!issues.length) issues.push('<span class="camp-badge-none">' + t('camp.noIssues') + '</span>');
+    var ek = esc(g.key);
+    return '<article class="campaign-card ' + h.cls + '" data-campaign="' + ek + '" tabindex="0" role="button" aria-label="' + esc(name) + ' — ' + h.label + '">' +
+        '<div class="camp-top"><span class="health-dot-inline"></span><span class="camp-platform">' + esc(g.platform) + '</span>' +
+          '<span class="camp-active">' + t('camp.activeOf', { a: ar(g.active), n: ar(g.ads.length) }) + '</span></div>' +
+        '<div class="camp-name" title="' + esc(name) + '">' + esc(name) + '</div>' +
+        '<div class="camp-count">' + count + '</div>' +
+        '<div class="card-metrics">' + chips + '</div>' +
+        '<div class="camp-issues">' + issues.join('') + '</div>' +
+        '<div class="camp-open">' + t('camp.showAds') + '</div>' +
+      '</article>';
+  }
+  function setViewMode(mode) {
+    viewMode = mode === 'campaigns' ? 'campaigns' : 'ads';
+    try { localStorage.setItem(VIEW_KEY, viewMode); } catch (e) { /* مش مهم */ }
+    // الرجوع لعرض الحملات بيلغي "إعلانات حملة معيّنة" — عشان تشوف كل الحملات تاني
+    if (viewMode === 'campaigns') filters.campaign = null;
+    render();
+  }
+  document.getElementById('viewSwitch').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-mode]'); if (!b) return;
+    setViewMode(b.dataset.mode);
+  });
+  function openCampaign(el) {
+    var key = el.getAttribute('data-campaign');
+    var g = candidates.filter(function (c) { return campaignKey(c) === key; })[0];
+    filters.campaign = key;
+    filters.campaignName = (g && g.campaignName) || null;
+    // بنعرض إعلانات الحملة من غير ما نغيّر الاختيار المحفوظ — لو كان "الحملات" هيفضل هو اللي يفتح المرة الجاية
+    viewMode = 'ads';
+    render();
+    window.scrollTo({ top: document.getElementById('adsContent').offsetTop - 70, behavior: 'smooth' });
   }
 
   function sortCandidates(list, key) {
@@ -1733,6 +1871,8 @@
 
   function render() {
     runAnalysis();
+    // لو الحملة اللي كنت فاتحها مش موجودة تاني (بدّلت الحساب مثلاً) الفلتر بيتشال لوحده
+    if (filters.campaign && !candidates.some(function (c) { return campaignKey(c) === filters.campaign; })) filters.campaign = null;
     var visible = sortCandidates(visibleCandidates(), filters.sort);
     // شاشة البداية بتظهر بس لما مفيش إعلانات ومفيش تحميل شغّال
     var empty = !candidates.length && !anyLoading();
@@ -1741,10 +1881,19 @@
     if (!candidates.length) {
       if (!anyLoading()) cardGrid.innerHTML = '';
       galleryCount.textContent = anyLoading() ? t('gallery.loading') : t('gallery.login');
+    } else if (viewMode === 'campaigns') {
+      var camps = sortCampaigns(groupCampaigns(visible), filters.sort);
+      cardGrid.innerHTML = camps.length ? camps.map(campaignMarkup).join('') : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
+      galleryCount.textContent = t('gallery.countCampaigns', { n: ar(camps.length), camps: noun(camps.length, 'n.campaign'), m: ar(visible.length), ads: noun(visible.length, 'n.ad') });
     } else {
       cardGrid.innerHTML = visible.length ? visible.map(cardMarkup).join('') : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
       galleryCount.textContent = t('gallery.count', { n: ar(visible.length), total: ar(candidates.length), ads: noun(candidates.length, 'n.ad') });
     }
+    document.querySelectorAll('#viewSwitch [data-mode]').forEach(function (b) {
+      var on = b.dataset.mode === viewMode;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
     renderHealthCounts();
     renderFilterState();
     renderKpis();
@@ -1826,6 +1975,7 @@
       out.push({ key: k, label: label });
     });
     if (filters.text) out.push({ key: 'text', label: t('filters.searchChip', { q: filters.text }) });
+    if (filters.campaign) out.push({ key: 'campaign', label: t('filters.campaignChip', { name: filters.campaignName || t('camp.noName') }) });
     return out;
   }
   function renderFilterState() {
@@ -1839,6 +1989,7 @@
     var btn = e.target.closest('.active-filter'); if (!btn) return;
     var key = btn.dataset.filterKey;
     if (key === 'text') { filters.text = ''; textFilter.value = ''; }
+    else if (key === 'campaign') { filters.campaign = null; }
     else {
       var group = document.querySelector('.filter-group[data-filter="' + key + '"]');
       if (group) setFilterChip(group, 'all'); else filters[key] = 'all';
@@ -1900,12 +2051,48 @@
     '</div>';
   }
 
+  // ---------- فتح الإعلان في المنصة ----------
+  // Meta بس بتسمح برابط مباشر للإعلان نفسه. Google محتاجة رقم داخلي (ocid) مش بيرجع من الـ API،
+  // وSnapchat مالهاش رابط موثّق للحساب — فبنفتح أقرب مكان، ونكتب للمستخدم يدوّر على إيه
+  function formatGoogleId(id) { return /^\d{10}$/.test(id) ? id.slice(0, 3) + '-' + id.slice(3, 6) + '-' + id.slice(6) : id; }
+  function platformLink(c) {
+    var src = c.source || '';
+    var acct = src.slice(src.indexOf(':') + 1);
+    if (c.platform === 'Meta') {
+      return {
+        url: 'https://adsmanager.facebook.com/adsmanager/manage/ads?act=' + encodeURIComponent(acct.replace(/^act_/, '')) +
+          '&selected_ad_ids=' + encodeURIComponent(c.nativeId || c.id),
+        label: t('x.openMeta'), note: ''
+      };
+    }
+    if (c.platform === 'Google Ads') {
+      var q = [];
+      if (c.campaignId) q.push('campaignId=' + encodeURIComponent(c.campaignId));
+      if (c.adGroupId) q.push('adGroupId=' + encodeURIComponent(c.adGroupId));
+      return { url: 'https://ads.google.com/aw/ads' + (q.length ? '?' + q.join('&') : ''), label: t('x.openGoogle'), note: t('x.openGoogleNote', { acct: formatGoogleId(acct) }) };
+    }
+    if (c.platform === 'TikTok') {
+      return { url: 'https://ads.tiktok.com/i18n/perf/adgroup?aadvid=' + encodeURIComponent(acct), label: t('x.openTikTok'), note: t('x.findAdNote', { name: c.offer }) };
+    }
+    if (c.platform === 'Snapchat') {
+      return { url: 'https://ads.snapchat.com/', label: t('x.openSnapchat'), note: t('x.findAdNote', { name: c.offer }) };
+    }
+    return null;
+  }
+
   var expandSeq = 0;
   function openExpand(c) {
     var a = adAnalysis(c);
     var h = HEALTH[a.health];
     document.getElementById('expandTitle').textContent = c.offer;
-    document.getElementById('expandSub').textContent = c.platform + ' · ' + c.placement + ' · ' + statusLabelOf(c) + (c.daysAgo != null ? ' — ' + sinceLabel(c.daysAgo) : '');
+    // الحملة والمجموعة الإعلانية الاتنين — عشان تلاقي الإعلان بسهولة في المنصة
+    var where = [c.campaignName, c.adsetName].filter(Boolean).join(' / ') || c.placement;
+    document.getElementById('expandSub').textContent = c.platform + ' · ' + where + ' · ' + statusLabelOf(c) + (c.daysAgo != null ? ' — ' + sinceLabel(c.daysAgo) : '');
+    var link = platformLink(c);
+    document.getElementById('expandOpen').innerHTML = link
+      ? '<a class="open-platform" href="' + esc(link.url) + '" target="_blank" rel="noopener noreferrer">' + esc(link.label) + ' ↗</a>' +
+        (link.note ? '<div class="open-platform-note">' + esc(link.note) + '</div>' : '')
+      : '';
     document.getElementById('expandHealth').innerHTML = '<span class="health-badge ' + h.cls + '"><span class="health-dot-inline"></span>' + h.label + '</span>';
     // سطر "حالة الظهور": التقييم بتاعنا + سبب المنصة نفسه لو موجود + الحالة الخام —
     // ده اللي بيخلّيك تقارن بسطر واحد مع عمود Delivery في لوحة المنصة
@@ -2041,19 +2228,20 @@
   function findCandidate(id) { return candidates.filter(function (x) { return x.id === id; })[0]; }
 
   // الضغط على أي مكان في الكارت بيفتح التفاصيل
-  cardGrid.addEventListener('click', function (e) {
+  // كارت الحملة بيفتح إعلاناتها، وكارت الإعلان بيفتح تفاصيله
+  function activateCard(e) {
+    var camp = e.target.closest('.campaign-card');
+    if (camp) { openCampaign(camp); return true; }
     var card = e.target.closest('.candidate-card');
-    if (!card) return;
+    if (!card) return false;
     var picked = findCandidate(card.dataset.id);
     if (picked) openExpand(picked);
-  });
+    return true;
+  }
+  cardGrid.addEventListener('click', activateCard);
   cardGrid.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
-    var card = e.target.closest('.candidate-card');
-    if (!card) return;
-    e.preventDefault();
-    var picked = findCandidate(card.dataset.id);
-    if (picked) openExpand(picked);
+    if (e.target.closest('.campaign-card, .candidate-card')) { e.preventDefault(); activateCard(e); }
   });
 
   // ---------- التبويبات: الإعلانات / التنبيهات ----------
@@ -2222,6 +2410,7 @@
   function resetFilterChips() {
     document.querySelectorAll('.filter-group').forEach(function (g) { g.querySelectorAll('.chip').forEach(function (ch) { ch.classList.toggle('active', ch.dataset.value === 'all'); }); });
     filters.platform = 'all'; filters.format = 'all'; filters.status = 'all'; filters.health = 'all'; filters.text = '';
+    filters.campaign = null;
     textFilter.value = '';
   }
 

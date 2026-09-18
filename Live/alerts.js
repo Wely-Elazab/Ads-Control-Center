@@ -17,6 +17,8 @@
 
   var DEFAULT_SETTINGS = {
     learningDays: 3,          // الإعلان الأحدث من كده في فترة تعلّم — منقيّمش أداءه لسه
+    minSpendShare: 0.02,      // حد الإعلان الصغير: التنبيه بيطلع بس لو صرف الإعلان ≥ النسبة دي من صرف الحساب
+                              // (أو ≥ متوسط تكلفة النتيجة الواحدة) — أصغر من كده ملاحظاته "للعلم" بس
     wasteCprMultiple: 2,      // صرف بدون نتائج = الصرف ≥ (المضاعف ده × متوسط تكلفة النتيجة في الحساب)
     roasBreakEven: 1,         // العائد أقل من كده = خسارة
     roasTarget: 3,            // العائد المستهدف
@@ -41,13 +43,13 @@
     calm: {         // تنبيهات أقل — الحاجات الكبيرة بس
       wasteCprMultiple: 3, cprWarnMultiple: 2, cprCriticalMultiple: 3, lowDeliveryRatio: 0.1,
       spikeMultiple: 3, dropRatio: 0.3, frequencyHigh: 8, frequencyWarn: 5,
-      accountSpikeMultiple: 2, accountDropRatio: 0.3, concentrationShare: 0.6
+      accountSpikeMultiple: 2, accountDropRatio: 0.3, concentrationShare: 0.6, minSpendShare: 0.05
     },
     balanced: {},   // القيم الافتراضية
     strict: {       // تنبيهات أكتر — أي انحراف بسيط
       wasteCprMultiple: 1.5, cprWarnMultiple: 1.3, cprCriticalMultiple: 1.7, lowDeliveryRatio: 0.3,
       spikeMultiple: 1.5, dropRatio: 0.6, frequencyHigh: 5, frequencyWarn: 3.5,
-      accountSpikeMultiple: 1.3, accountDropRatio: 0.6, concentrationShare: 0.3
+      accountSpikeMultiple: 1.3, accountDropRatio: 0.6, concentrationShare: 0.3, minSpendShare: 0.01
     }
   };
 
@@ -57,7 +59,7 @@
   // وصف كل إعداد لشاشة الإعدادات — بلغة بزنس (النص نفسه في i18n.js تحت set.<key> و set.<key>.help)
   // kind: multiple (×) / ratio (بيتعرض كنسبة مئوية) / days / times / count
   var SETTINGS_META = [
-    ['learningDays', 'days', 'general'], ['oldAdDays', 'days', 'general'],
+    ['learningDays', 'days', 'general'], ['minSpendShare', 'ratio', 'general'], ['oldAdDays', 'days', 'general'],
     ['wasteCprMultiple', 'multiple', 'waste'], ['cprWarnMultiple', 'multiple', 'waste'], ['cprCriticalMultiple', 'multiple', 'waste'],
     ['roasBreakEven', 'multiple', 'roas'], ['roasTarget', 'multiple', 'roas'],
     ['lowDeliveryRatio', 'ratio', 'spend'], ['spikeMultiple', 'multiple', 'spend'],
@@ -105,11 +107,14 @@
   }
   function any(arr) { return (arr || []).some(function (v) { return v > 0; }); }
 
+  // أي إعداد مش محفوظ بياخد قيمة النمط اللي المستخدم اختاره (مش القيمة الافتراضية) —
+  // عشان إعداد جديد نضيفه بعدين يمشي مع اختيار المستخدم: اللي اختار "هادي" ياخد القيمة الهادية
   function mergeSettings(custom) {
     var s = {};
+    var preset = (custom && PRESETS[custom._preset]) || {};
     Object.keys(DEFAULT_SETTINGS).forEach(function (k) {
       var v = custom && custom[k];
-      s[k] = (typeof v === 'number' && isFinite(v) && v >= 0) ? v : DEFAULT_SETTINGS[k];
+      s[k] = (typeof v === 'number' && isFinite(v) && v >= 0) ? v : (k in preset ? preset[k] : DEFAULT_SETTINGS[k]);
     });
     return s;
   }
@@ -176,6 +181,15 @@
     var historyDays = age != null ? Math.max(1, Math.min(5, age - 1)) : 5;
     var prevSpendAvg = sum(daily, 0, DAY_BEFORE) / historyDays;
 
+    // حد الإعلان الصغير: الإعلان "مهم كفاية" للتنبيه لو تحقق أي شرط من الاتنين —
+    //  - صرفه في آخر ٧ أيام ≥ نسبة من صرف الحساب كله في نفس الفترة
+    //  - أو صرفه ≥ متوسط تكلفة النتيجة الواحدة في الحساب (لنفس نوع النتيجة)
+    // غير كده ملاحظاته بتفضل ظاهرة في تفاصيله، بس كـ"للعلم" من غير ما تبقى تنبيه أو تلوّن الإعلان
+    var adSpend = c.spend || 0;
+    var accountCpr = group && group.results > 0 ? group.avgCpr : null;
+    var material = (acc.total7 > 0 && adSpend / acc.total7 >= s.minSpendShare) || (accountCpr != null && adSpend >= accountCpr);
+    function done() { return finalize(c, material ? issues : issues.map(minor)); }
+
     // 1) الإعلانات المتوقفة: مفيش تنبيهات على الوقوف المقصود. التنبيه بيطلع بس لو الإعلان كان بيصرف
     //    في آخر ٣ أيام ووقف لسبب مش من المعلن (رفض، مشكلة من المنصة، ميزانية خلصت) — ده وقوف مفاجئ
     if (!c.active) {
@@ -195,7 +209,7 @@
             t('al.stopped.d', { name: name, spend: money(spent3), reason: reason }), t('al.stopped.a'), spent3, 'stopped'));
         }
       }
-      return finalize(c, issues);
+      return done();
     }
 
     // 2) ظهور محدود بسبب ملاحظة من المنصة (والإعلان لسه شغّال)
@@ -324,7 +338,17 @@
       }
     }
 
-    return finalize(c, issues);
+    return done();
+  }
+
+  // ملاحظة على إعلان صغير بالنسبة لحسابه: بتفضل ظاهرة في تفاصيله "للعلم"، بس مش تنبيه —
+  // مبتظهرش في صفحة التنبيهات، ومبتلوّنش الإعلان، ومبتدخلش في "الميزانية المعرّضة للهدر"
+  function minor(i) {
+    i.level = 'info';
+    i.minor = true;
+    i.atRisk = false;
+    i.detail += t('al.minorNote');
+    return i;
   }
 
   function finalize(c, issues) {
