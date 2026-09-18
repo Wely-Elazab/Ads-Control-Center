@@ -280,6 +280,16 @@
   .period-custom { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .period-custom .date-input { padding: 8px 10px; font-size: 14px; }
   .period-range { font-size: 12px; color: var(--ink-faint); }
+  .last-updated { font-size: 12px; color: var(--ink-faint); margin-inline-start: auto; }
+  .last-updated:empty { display: none; }
+  .numbers-note { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+  .numbers-note summary { cursor: pointer; color: var(--ink-faint); width: fit-content; }
+  .numbers-note summary:hover { color: var(--ink-soft); }
+  .numbers-note summary:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; border-radius: 4px; }
+  .numbers-note ul { margin: 8px 0 0; padding-inline-start: 20px; line-height: 1.7; }
+  .show-more { grid-column: 1 / -1; justify-self: center; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 22px; font-family: inherit; font-size: 13.5px; font-weight: 600; color: var(--ink); cursor: pointer; }
+  .show-more:hover { border-color: var(--ink-faint); }
+  .show-more:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   .summary-boxes.summary-boxes-3 { grid-template-columns: repeat(3, 1fr); }
   @media (max-width: 520px) { .summary-boxes.summary-boxes-3 { grid-template-columns: 1fr; } }
   .preset-options { display: grid; gap: 8px; padding: 6px 0 10px; }
@@ -489,7 +499,19 @@
           <button type="button" class="ghost-btn" id="periodApply" data-i18n="period.apply">تطبيق</button>
         </span>
         <span class="period-range" id="periodRangeText"></span>
+        <span class="last-updated" id="lastUpdated"></span>
       </div>
+
+      <!-- ليه الأرقام ممكن تختلف عن لوحة المنصة — مقفولة افتراضياً عشان متزحمش الصفحة -->
+      <details class="numbers-note">
+        <summary data-i18n="diff.title">ليه الأرقام ممكن تختلف شوية عن لوحة المنصة؟</summary>
+        <ul>
+          <li data-i18n="diff.today">أرقام النهارده لسه بتتحدّث — المنصة بتحسب الصرف والنتائج على مدار اليوم.</li>
+          <li data-i18n="diff.late">التحويلات بتتسجّل أحياناً متأخرة (لحد ٧ أيام بعد الضغطة)، فأرقام آخر كام يوم ممكن تزيد شوية مع التحديث.</li>
+          <li data-i18n="diff.source">الأرقام جاية من المنصة نفسها بتوقيت الحساب الإعلاني، وفي Meta بنستخدم رقم «النتائج» بتاع Ads Manager نفسه لما يكون متاح.</li>
+          <li data-i18n="diff.compare">عشان تقارن بسرعة: افتح أي إعلان واضغط «افتح في المنصة».</li>
+        </ul>
+      </details>
 
       <div class="kpi-strip" id="kpiStrip"></div>
 

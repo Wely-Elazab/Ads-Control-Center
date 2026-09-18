@@ -70,7 +70,13 @@
     });
   }
 
-  var PAGE_SAFETY_CAP = 800;    // حد أمان لعدد الإعلانات المعروضة من حساب Meta واحد
+  // الإعلانات بتتسحب على دفعتين بالتوازي: الشغّالة (أو اللي عليها ملاحظة) من غير حد عملي، والمتوقفة لحد معيّن.
+  // وبعد ما أرقام الصرف توصل، أي إعلان صرف في الفترة ومكانش في الدفعتين بيتسحب بالـ ID —
+  // فمهما كان الحساب كبير، مفيش إعلان شغّال أو صرف بيضيع (قبل كده كان فيه حد ٨٠٠ إعلان لكل الحساب)
+  var LIVE_STATUSES = ['ACTIVE', 'IN_PROCESS', 'WITH_ISSUES', 'PENDING_REVIEW', 'DISAPPROVED', 'PREAPPROVED', 'PENDING_BILLING_INFO'];
+  var STOPPED_STATUSES = ['PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED'];
+  var LIVE_ADS_CAP = 5000;      // حد أمان بس — حساب فيه أكتر من كده إعلان شغّال في نفس الوقت نادر جداً
+  var PAGE_SAFETY_CAP = 800;    // الإعلانات المتوقفة: كفاية لكل الحسابات العادية
   var FULL_SCAN_CAP = 20000;    // حد أمان أعلى بكتير للبيانات المساعدة (المجموعات والإنفاق اليومي)
                                 // اللي لو اتقطعت بتطلع أرقام وحالات غلط من غير ما حد يلاحظ
 
@@ -134,6 +140,28 @@
       fetchAllPages(path, params, cap, function (err, data, truncated) { resolve({ err: err, data: data || [], truncated: truncated }); });
     });
   }
+  // أرقام الإعلانات مع "results" = رقم Meta نفسها لعمود Results في Ads Manager (بنفس إعدادات الإحالة).
+  // لو الحقل ده اترفض لأي سبب، بنعيد الطلب من غيره ونرجع لطريقتنا (نوع النتيجة من هدف المجموعة)
+  function insightsPromise(accountId, params) {
+    var withResults = {};
+    for (var k in params) withResults[k] = params[k];
+    withResults.fields = params.fields + ',results';
+    return fbPagesPromise('/' + accountId + '/insights', withResults, FULL_SCAN_CAP).then(function (res) {
+      return res.err ? fbPagesPromise('/' + accountId + '/insights', params, FULL_SCAN_CAP) : res;
+    });
+  }
+  // تكملة: إعلانات صرفت في الفترة ومكانتش في الدفعات اللي اتسحبت — بنجيبها بالـ ID (٥٠ في الطلب)
+  function fetchMetaAdsByIds(ids, fields, onDone) {
+    var out = [], chunks = [];
+    for (var i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
+    (function next(i) {
+      if (i >= chunks.length) { onDone(out); return; }
+      FB.api('/', { ids: chunks[i].join(','), fields: fields }, function (resp) {
+        if (resp && !resp.error) Object.keys(resp).forEach(function (id) { if (resp[id] && resp[id].id) out.push(resp[id]); });
+        next(i + 1);
+      });
+    })(0);
+  }
 
   function loadAdsForAccount(accountId) {
     var info = accountInfo['meta:' + accountId] || {};
@@ -149,13 +177,13 @@
     setLoading('meta', true, msg('s.loadingAds', { platform: 'Meta' }));
 
     var adsP = new Promise(function (resolve) {
-      fetchMetaAds(accountId, function (err, data, truncated) { resolve({ err: err, data: data || [], truncated: truncated }); });
+      fetchMetaAds(accountId, function (err, data, truncated, fields) { resolve({ err: err, data: data || [], truncated: truncated, fields: fields }); });
     });
     var adsetsP = new Promise(function (resolve) { loadAdsetStatusMap(accountId, resolve); });
-    var dailyP = fbPagesPromise('/' + accountId + '/insights', {
+    var dailyP = insightsPromise(accountId, {
       level: 'ad', time_increment: 1, time_range: timeRange,
       fields: 'ad_id,date_start,spend,actions,action_values', limit: 500
-    }, FULL_SCAN_CAP);
+    });
     // تكرار الظهور لازم يتحسب على الأسبوع كله مرة واحدة — مينفعش نجمعه من أرقام يومية،
     // لأن نفس الشخص ممكن يتكرر في أكتر من يوم. فشل الطلب ده مش بيوقف التحميل
     var reachP = fbPagesPromise('/' + accountId + '/insights', {
@@ -163,12 +191,12 @@
     }, FULL_SCAN_CAP);
     // مجاميع الفترة المختارة (صف واحد لكل إعلان) — بيتبعت بالتوازي مع الباقي، ومش محتاج لو الفترة آخر ٧ أيام
     var pr = resolvePeriodFor(info.timeZone || BROWSER_TZ);
-    var periodP = pr.isDefault ? Promise.resolve(null) : fbPagesPromise('/' + accountId + '/insights', {
+    var periodP = pr.isDefault ? Promise.resolve(null) : insightsPromise(accountId, {
       level: 'ad', time_range: JSON.stringify({ since: pr.since, until: pr.until }),
       fields: 'ad_id,spend,actions,action_values', limit: 500
-    }, FULL_SCAN_CAP);
+    });
 
-    var order = [], adsById = {}, adsTruncated = false;
+    var order = [], adsById = {}, adsTruncated = false, adFields = null;
     var build = function (insightsByAd, reachByAd, adsetStatusMap, periodByAd) {
       return order.map(function (id) {
         return transformRealAd(adsById[id], (insightsByAd && insightsByAd[id]) || [], adsetStatusMap, days,
@@ -190,6 +218,7 @@
       var ads = r[0], adsetStatusMap = r[1];
       if (ads.err) { setLoading('meta', false, msg('s.adsFailed', { platform: 'Meta', msg: ads.err.message })); return null; }
       adsTruncated = ads.truncated;
+      adFields = ads.fields;
       ads.data.forEach(function (ad) { adsById[ad.id] = ad; order.push(ad.id); });
       if (!order.length) { setLoading('meta', false, msg('s.noAdsMeta')); return null; }
       mergeCandidates(build(null, null, adsetStatusMap), source);
@@ -208,12 +237,36 @@
       return adsetStatusMap;
     });
 
+    // تكملة الإعلانات اللي صرفت ومكانتش في الدفعات (بتحصل بس في الحسابات الكبيرة جداً)
+    var fillMissing = function (daily, periodRes) {
+      var spent = {};
+      [daily, periodRes].forEach(function (res) {
+        if (!res || res.err) return;
+        res.data.forEach(function (row) { if (parseFloat(row.spend || 0) > 0) spent[row.ad_id] = true; });
+      });
+      var missing = Object.keys(spent).filter(function (id) { return !adsById[id]; });
+      if (!missing.length || !adFields) return Promise.resolve();
+      return new Promise(function (resolve) {
+        fetchMetaAdsByIds(missing, adFields, function (extra) {
+          extra.forEach(function (ad) { if (!adsById[ad.id]) { adsById[ad.id] = ad; order.push(ad.id); } });
+          resolveMetaImages(accountId, extra, resolve);
+        });
+      });
+    };
+
     // المرحلة التانية: أرقام الإنفاق والنتائج والتكرار
     Promise.all([stage1, dailyP, reachP, periodP]).then(function (r) {
+      return fillMissing(r[1], r[3]).then(function () { return r; });
+    }).then(function (r) {
       var adsetStatusMap = r[0], daily = r[1], reach = r[2], periodRes = r[3];
       if (!live() || !adsetStatusMap) return;
       var periodByAd = (periodRes && !periodRes.err) ? byAdId(periodRes.data) : null;
       mergeCandidates(build(byAdId(daily.data, true), byAdId(reach.data), adsetStatusMap, periodByAd), source);
+      // الصور الأصلية للإعلانات اللي اتكمّلت بالـ ID
+      candidates.forEach(function (c) {
+        var ad = c.platform === 'Meta' && adsById[c.id];
+        if (ad && ad._fullImage) c.thumbUrl = ad._fullImage;
+      });
       cacheSource(source, candidates.filter(function (c) { return c.source === source; }));
       var notes = [];
       if (periodRes && periodRes.err) notes.push(msg('note.periodFailed'));
@@ -263,6 +316,41 @@
       if (v) return { value: v, key: FALLBACK_ACTION_TYPES[i].key, type: FALLBACK_ACTION_TYPES[i].type, matchedGoal: false };
     }
     return null;
+  }
+  // رقم "النتائج" بتاع Meta نفسها (حقل results في الأرقام) — نفس عمود Results في Ads Manager بالظبط،
+  // وبيغطي حالات طريقتنا مبتفهمهاش (زي مجموعة Conversions بتحسّن على Lead مش Purchase).
+  // شكله: [{ indicator: "actions:offsite_conversion.fb_pixel_purchase", values: [{ value: "12" }] }]
+  // بنقراه بحذر: لو الشكل مختلف أو القيمة مش رقم بنرجّع null ونكمّل بطريقتنا
+  function metaResults(row) {
+    var list = row && row.results;
+    if (!Array.isArray(list) || !list.length || !list[0]) return null;
+    var r = list[0];
+    var raw = Array.isArray(r.values) ? (r.values[0] && r.values[0].value) : (r.value != null ? r.value : r.values);
+    var value = parseFloat(raw);
+    if (!isFinite(value)) return null;
+    var indicator = String(r.indicator || '');
+    var type = indicator.slice(indicator.lastIndexOf(':') + 1) || null;
+    return { value: value, key: resultKeyForType(type), type: type, matchedGoal: true };
+  }
+  // نوع الحدث من Meta → اسم النتيجة بتاعنا (مشتريات، عملاء محتملون...)
+  function resultKeyForType(type) {
+    var s = String(type || '');
+    if (/purchase/.test(s)) return 'purchase';
+    if (/lead/.test(s)) return 'lead';
+    if (/first_reply/.test(s)) return 'reply';
+    if (/messaging|conversation/.test(s)) return 'message';
+    if (/complete_registration/.test(s)) return 'registration';
+    if (/add_to_cart/.test(s)) return 'cart';
+    if (/initiate(d)?_checkout/.test(s)) return 'checkout';
+    if (/landing_page_view/.test(s)) return 'lpv';
+    if (/link_click/.test(s)) return 'click';
+    if (/app_install/.test(s)) return 'install';
+    if (/post_engagement/.test(s)) return 'engagement';
+    if (/video_view|thruplay/.test(s)) return 'video';
+    if (/subscribe/.test(s)) return 'subscribe';
+    if (/contact/.test(s)) return 'contact';
+    if (/^reach$/.test(s)) return 'reach';
+    return 'generic';
   }
   function valueForType(actionsArr, type) {
     if (!actionsArr || !type) return null;
@@ -314,18 +402,45 @@
     'object_story_spec{link_data{link,picture,image_hash,call_to_action,child_attachments{image_hash,picture}},video_data{call_to_action,image_url,image_hash}}}';
   var META_CREATIVE_BASIC = '{title,body,image_url,thumbnail_url,video_id,' +
     'object_story_spec{link_data{link,picture,call_to_action},video_data{call_to_action,image_url}}}';
-  function fetchMetaAds(accountId, onDone) {
-    var attempts = [
-      META_AD_FIELDS + 'creative.thumbnail_width(1080).thumbnail_height(1080)' + META_CREATIVE_FULL,
-      META_AD_FIELDS + 'creative' + META_CREATIVE_FULL,
-      META_AD_FIELDS_BASIC + 'creative' + META_CREATIVE_BASIC
-    ];
+  var META_AD_FIELD_ATTEMPTS = [
+    META_AD_FIELDS + 'creative.thumbnail_width(1080).thumbnail_height(1080)' + META_CREATIVE_FULL,
+    META_AD_FIELDS + 'creative' + META_CREATIVE_FULL,
+    META_AD_FIELDS_BASIC + 'creative' + META_CREATIVE_BASIC
+  ];
+  // طلب الإعلانات بالحقول الكاملة، ولو اترفض بنرجع لحقول أبسط. extra = باراميترات زيادة (زي فلتر الحالة)
+  function fetchAdsWithFields(accountId, extra, cap, onDone) {
     (function tryNext(i) {
-      fetchAllPages('/' + accountId + '/ads', { fields: attempts[i], limit: 100 }, PAGE_SAFETY_CAP, function (err, adsData, truncated) {
-        if (err && i < attempts.length - 1) { tryNext(i + 1); return; }
-        onDone(err, adsData, truncated);
+      var params = { fields: META_AD_FIELD_ATTEMPTS[i], limit: 100 };
+      for (var k in extra) params[k] = extra[k];
+      fetchAllPages('/' + accountId + '/ads', params, cap, function (err, adsData, truncated) {
+        if (err && i < META_AD_FIELD_ATTEMPTS.length - 1) { tryNext(i + 1); return; }
+        onDone(err, adsData, truncated, META_AD_FIELD_ATTEMPTS[i]);
       });
     })(0);
+  }
+  // دفعتين بالتوازي: الشغّالة (من غير حد عملي) + المتوقفة (لحد PAGE_SAFETY_CAP).
+  // لو Meta رفضت فلتر الحالة لأي سبب، بنرجع للطلب القديم الواحد عشان الإعلانات متقفش
+  function fetchMetaAds(accountId, onDone) {
+    var res = [null, null], left = 2;
+    var finish = function () {
+      if (--left) return;
+      var liveRes = res[0], stoppedRes = res[1];
+      if (liveRes.err) {
+        fetchAdsWithFields(accountId, {}, PAGE_SAFETY_CAP, onDone);
+        return;
+      }
+      var seen = {}, all = [];
+      liveRes.data.concat(stoppedRes.err ? [] : stoppedRes.data).forEach(function (ad) {
+        if (!seen[ad.id]) { seen[ad.id] = true; all.push(ad); }
+      });
+      onDone(null, all, !!(liveRes.truncated || stoppedRes.truncated || stoppedRes.err), liveRes.fields);
+    };
+    fetchAdsWithFields(accountId, { effective_status: JSON.stringify(LIVE_STATUSES) }, LIVE_ADS_CAP, function (err, data, truncated, fields) {
+      res[0] = { err: err, data: data || [], truncated: truncated, fields: fields }; finish();
+    });
+    fetchAdsWithFields(accountId, { effective_status: JSON.stringify(STOPPED_STATUSES) }, PAGE_SAFETY_CAP, function (err, data, truncated, fields) {
+      res[1] = { err: err, data: data || [], truncated: truncated, fields: fields }; finish();
+    });
   }
 
   // الـ hash بتاع الصورة الرئيسية للإعلان (أو أول كارت في الإعلان الدوّار)
@@ -401,12 +516,22 @@
     // لو هدف الإعلان معروف، نوع النتيجة معروف حتى لو الإعلان مصرفش ولا يوم
     var goalAction = GOAL_TO_ACTION[goal] && GOAL_TO_ACTION[goal][0];
     var totalResultsVal = 0, resultKey = goalAction ? goalAction.key : null, resultType = goalAction ? goalAction.type : null, matchedGoal = !!goalAction;
+    // لو Meta رجّعت رقم النتائج بتاعها لأي يوم، بنعتمده في كل الأيام (اليوم اللي مفيهوش = صفر) —
+    // من غير ما نخلط بينه وبين طريقتنا، عشان نوع النتيجة ميتغيّرش من يوم ليوم
+    var firstMeta = null;
+    (insightRows || []).some(function (r) { firstMeta = metaResults(r); return !!firstMeta; });
+    if (firstMeta) { resultKey = firstMeta.key; resultType = firstMeta.type; matchedGoal = true; }
+    var resultOfRow = function (row) {
+      if (!firstMeta) return resultForGoal(row.actions, goal);
+      var m = metaResults(row);
+      return m || { value: 0, key: firstMeta.key, type: firstMeta.type, matchedGoal: true };
+    };
     days.forEach(function (day) {
       var row = byDate[day.key];
       var spendVal = row ? r2(parseFloat(row.spend || 0)) : 0;
       daily.push(spendVal);
       if (row) {
-        var found = resultForGoal(row.actions, goal);
+        var found = resultOfRow(row);
         if (found) {
           totalResultsVal += found.value;
           resultKey = found.key; resultType = found.type; matchedGoal = found.matchedGoal;
@@ -429,16 +554,19 @@
     // مصدر واحد بس لقيمة المبيعات: مجموع نفس الأرقام اليومية الظاهرة في الجدول تحت —
     // عشان أي رقم إجمالي معروض يطابق دايماً تفصيله اليومي، من غير أي مصدر ثانٍ يختلف معاه
     var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
-    var results = goal ? Math.round(totalResultsVal) : (totalResultsVal > 0 ? Math.round(totalResultsVal) : null);
+    var results = (goal || firstMeta) ? Math.round(totalResultsVal) : (totalResultsVal > 0 ? Math.round(totalResultsVal) : null);
     var cpr = (results && spend > 0) ? (spend / results) : null;
     var roas = (totalSales > 0 && spend > 0) ? (totalSales / spend) : null;
 
     // أرقام الفترة المختارة — نفس منطق النتيجة (حسب هدف الإعلان) على صف المجموع
     var periodData = null;
     if (periodRow) {
-      var pFound = resultForGoal(periodRow.actions, goal);
+      // نفس القاعدة: رقم Meta لو موجود في الفترة أو في الأسبوع، وإلا طريقتنا
+      var pMeta = metaResults(periodRow);
+      var pFound = pMeta || (firstMeta ? { value: 0, key: firstMeta.key, type: firstMeta.type } : resultForGoal(periodRow.actions, goal));
       var pType = (pFound && pFound.type) || resultType;
       var pResults = pFound ? Math.round(pFound.value) : (goal ? 0 : null);
+      if (pMeta && !firstMeta) { resultKey = pMeta.key; resultType = pMeta.type; }
       var pSales = pType ? valueForType(periodRow.action_values, pType) : null;
       periodData = buildPeriod(parseFloat(periodRow.spend || 0), pResults, pSales || 0);
     }

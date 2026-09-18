@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ads Control Center — الاختبارات</title>
+<!-- صفحة الاختبارات: بتحمّل الصفحة الحقيقية وكود الأداة نفسه، وبتشغّل عليه اختبارات ببيانات تجريبية.
+     مش بتتنشر على الموقع (مستبعدة في .vercelignore) — بتتشغّل محلياً قبل أي رفع -->
+<style>
+  body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; background: #F5F6F2; color: #161A1F; }
+  #testReport { position: fixed; inset: 0; overflow: auto; background: #F5F6F2; z-index: 9999; padding: 20px; }
+  #testReport h1 { font-size: 20px; margin: 0 0 12px; }
+  .t-summary { font-size: 16px; font-weight: 700; padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; }
+  .t-summary.pass { background: #E4F3EF; color: #0E7A63; }
+  .t-summary.fail { background: #FBE7E3; color: #B3311F; }
+  .t-group { font-weight: 700; margin: 14px 0 4px; }
+  .t-row { font-size: 13px; padding: 3px 0; }
+  .t-row.fail { color: #B3311F; font-weight: 600; }
+  .t-row .t-msg { display: block; font-weight: 400; font-family: Consolas, monospace; direction: ltr; text-align: left; margin: 2px 0 4px; }
+</style>
+</head>
+<body>
+<div id="testReport"><h1>الاختبارات</h1><div>جارٍ التشغيل…</div></div>
+<script src="/tests/runner.js"></script>
+</body>
+</html>

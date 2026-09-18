@@ -252,7 +252,9 @@
   // وبيتحدّث في الخلفية بدل ما تقعد مستني قدام شاشة فاضية.
   // المفتاح فيه الفترة كمان — عشان نسخة "آخر ٣٠ يوم" متظهرش مكان "أمس"
   var sourceCache = {};
-  function cacheSource(source, ads) { sourceCache[source + '|' + periodKey()] = ads.slice(); }
+  // بيتنادى بس بعد تحميل ناجح لأي منصة — فهو كمان وقت "آخر تحديث" اللي بيظهر جنب الفترة
+  var lastUpdatedAt = null;
+  function cacheSource(source, ads) { sourceCache[source + '|' + periodKey()] = ads.slice(); lastUpdatedAt = Date.now(); }
   function showCachedWhileLoading(source) {
     var cached = sourceCache[source + '|' + periodKey()];
     if (!cached || !cached.length) return false;

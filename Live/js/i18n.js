@@ -59,6 +59,13 @@
       'period.to.aria': 'إلى تاريخ',
       'period.apply': 'تطبيق',
       'period.pickDates': 'اختار تاريخ البداية والنهاية الأول.',
+      'upd.at': 'آخر تحديث {time}',
+      'more.show': 'عرض {n} كمان',
+      'diff.title': 'ليه الأرقام ممكن تختلف شوية عن لوحة المنصة؟',
+      'diff.today': 'أرقام النهارده لسه بتتحدّث — المنصة بتحسب الصرف والنتائج على مدار اليوم.',
+      'diff.late': 'التحويلات بتتسجّل أحياناً متأخرة (لحد ٧ أيام بعد الضغطة)، فأرقام آخر كام يوم ممكن تزيد شوية مع التحديث.',
+      'diff.source': 'الأرقام جاية من المنصة نفسها بتوقيت الحساب الإعلاني، وفي Meta بنستخدم رقم «النتائج» بتاع Ads Manager نفسه لما يكون متاح.',
+      'diff.compare': 'عشان تقارن بسرعة: افتح أي إعلان واضغط «افتح في المنصة».',
 
       // شريط الأدوات والفلاتر
       'filters.btn': 'الفلاتر',
@@ -123,6 +130,12 @@
       'res.reply': 'ردود أولى بالرسائل', 'res1.reply': 'رد',
       'res.conversion': 'تحويلات', 'res1.conversion': 'تحويل',
       'res.swipe': 'سوايب (نقرات)', 'res1.swipe': 'سوايب',
+      'res.registration': 'تسجيلات', 'res1.registration': 'تسجيل',
+      'res.cart': 'إضافات للسلة', 'res1.cart': 'إضافة للسلة',
+      'res.checkout': 'بدء الدفع', 'res1.checkout': 'بدء دفع',
+      'res.subscribe': 'اشتراكات', 'res1.subscribe': 'اشتراك',
+      'res.contact': 'طلبات تواصل', 'res1.contact': 'طلب تواصل',
+      'res.reach': 'أشخاص وصلهم الإعلان', 'res1.reach': 'شخص',
       'res.generic': 'نتائج', 'res1.generic': 'نتيجة',
 
       // الكروت
@@ -321,7 +334,7 @@
       's.sessionExpired': 'انتهت جلسة {list} — سجّل الدخول تاني لعرض إعلاناتها.',
       'title.metaConnected': 'متصل بحساب Meta — دوس تسجيل الدخول لإضافة منصة تانية',
       'note.periodFailed': 'تعذّر تحميل أرقام الفترة المختارة — المعروض آخر ٧ أيام',
-      'note.adsCapped': 'تم عرض أول {n} {ads} بس — قولّي لو محتاج نرفع الحد',
+      'note.adsCapped': 'الحساب فيه إعلانات متوقفة كتير — معروض كل الإعلانات الشغّالة واللي صرفت، ومن المتوقفة أول {n} {ads} بس',
       'note.dailyFailed': 'تعذّر تحميل الإنفاق اليومي: {msg}',
       'note.dailyTruncated': 'بيانات الإنفاق اتقطعت عند {n} صف — بعض الأرقام ممكن تكون ناقصة',
       'note.spendFailed': 'تعذّر تحميل الإنفاق: {msg}',
@@ -465,6 +478,13 @@
       'period.to.aria': 'To date',
       'period.apply': 'Apply',
       'period.pickDates': 'Pick a start and end date first.',
+      'upd.at': 'Updated {time}',
+      'more.show': 'Show {n} more',
+      'diff.title': 'Why might numbers differ slightly from the platform?',
+      'diff.today': 'Today\'s numbers are still updating — the platform keeps counting spend and results through the day.',
+      'diff.late': 'Conversions are sometimes recorded late (up to 7 days after the click), so the last few days can rise a little when you refresh.',
+      'diff.source': 'Numbers come straight from the platform, in the ad account\'s time zone, and for Meta we use Ads Manager\'s own "Results" figure when it is available.',
+      'diff.compare': 'To compare quickly: open any ad and press "Open in platform".',
 
       'filters.btn': 'Filters',
       'filters.title': 'Ad filters',
@@ -525,6 +545,12 @@
       'res.reply': 'first replies', 'res1.reply': 'reply',
       'res.conversion': 'conversions', 'res1.conversion': 'conversion',
       'res.swipe': 'swipe-ups', 'res1.swipe': 'swipe-up',
+      'res.registration': 'registrations', 'res1.registration': 'registration',
+      'res.cart': 'adds to cart', 'res1.cart': 'add to cart',
+      'res.checkout': 'checkouts started', 'res1.checkout': 'checkout started',
+      'res.subscribe': 'subscriptions', 'res1.subscribe': 'subscription',
+      'res.contact': 'contacts', 'res1.contact': 'contact',
+      'res.reach': 'people reached', 'res1.reach': 'person reached',
       'res.generic': 'results', 'res1.generic': 'result',
 
       'card.staticDesign': 'Static design',
@@ -714,7 +740,7 @@
       's.sessionExpired': 'Your {list} session expired — log in again to see its ads.',
       'title.metaConnected': 'Connected to Meta — press Log in to add another platform',
       'note.periodFailed': 'Couldn\'t load figures for the selected period — showing the last 7 days',
-      'note.adsCapped': 'Only the first {n} {ads} are shown — tell us if you need a higher limit',
+      'note.adsCapped': 'This account has many stopped ads — all running ads and ads with spend are shown, plus only the first {n} stopped {ads}',
       'note.dailyFailed': 'Couldn\'t load daily spend: {msg}',
       'note.dailyTruncated': 'Spend data was cut at {n} rows — some figures may be incomplete',
       'note.spendFailed': 'Couldn\'t load spend: {msg}',
@@ -872,6 +898,11 @@
     apply: apply,
     setLang: setLang,
     get lang() { return lang; },
-    months: function () { return t('months').split(','); }
+    months: function () { return t('months').split(','); },
+    // للاختبارات: المفاتيح الموجودة في لغة ومش موجودة في التانية (المفروض دايماً فاضية)
+    missingKeys: function () {
+      var diff = function (a, b) { return Object.keys(DICT[a]).filter(function (k) { return !(k in DICT[b]); }); };
+      return { missingInEn: diff('ar', 'en'), missingInAr: diff('en', 'ar') };
+    }
   };
 })(window);

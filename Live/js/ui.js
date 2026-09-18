@@ -321,11 +321,22 @@
     return arr;
   }
 
+  // الكروت بتترسم على دفعات (٦٠ كارت) — حساب فيه آلاف الإعلانات كان هيتقّل الصفحة على الموبايل.
+  // الترتيب بالأولوية بيضمن إن اللي محتاج انتباه يبقى في أول دفعة. أي تغيير في الفلتر أو العرض بيرجّع لأول دفعة
+  var RENDER_STEP = 60;
+  var renderLimit = RENDER_STEP, renderSignature = '';
+  function moreButton(shown, total) {
+    if (total <= shown) return '';
+    return '<button type="button" class="show-more" data-show-more>' + t('more.show', { n: ar(Math.min(RENDER_STEP, total - shown)) }) + '</button>';
+  }
+
   function render() {
     runAnalysis();
     // لو الحملة اللي كنت فاتحها مش موجودة تاني (بدّلت الحساب مثلاً) الفلتر بيتشال لوحده
     if (filters.campaign && !candidates.some(function (c) { return campaignKey(c) === filters.campaign; })) filters.campaign = null;
     var visible = sortCandidates(visibleCandidates(), filters.sort);
+    var signature = JSON.stringify([filters, viewMode, periodKey()]);
+    if (signature !== renderSignature) { renderSignature = signature; renderLimit = RENDER_STEP; }
     // شاشة البداية بتظهر بس لما مفيش إعلانات ومفيش تحميل شغّال
     var empty = !candidates.length && !anyLoading();
     document.getElementById('emptyHero').classList.toggle('hidden', !empty);
@@ -335,12 +346,20 @@
       galleryCount.textContent = anyLoading() ? t('gallery.loading') : t('gallery.login');
     } else if (viewMode === 'campaigns') {
       var camps = sortCampaigns(groupCampaigns(visible), filters.sort);
-      cardGrid.innerHTML = camps.length ? camps.map(campaignMarkup).join('') : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
+      cardGrid.innerHTML = camps.length
+        ? camps.slice(0, renderLimit).map(campaignMarkup).join('') + moreButton(renderLimit, camps.length)
+        : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
       galleryCount.textContent = t('gallery.countCampaigns', { n: ar(camps.length), camps: noun(camps.length, 'n.campaign'), m: ar(visible.length), ads: noun(visible.length, 'n.ad') });
     } else {
-      cardGrid.innerHTML = visible.length ? visible.map(cardMarkup).join('') : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
+      cardGrid.innerHTML = visible.length
+        ? visible.slice(0, renderLimit).map(cardMarkup).join('') + moreButton(renderLimit, visible.length)
+        : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
       galleryCount.textContent = t('gallery.count', { n: ar(visible.length), total: ar(candidates.length), ads: noun(candidates.length, 'n.ad') });
     }
+    var upd = document.getElementById('lastUpdated');
+    upd.textContent = lastUpdatedAt && candidates.length
+      ? t('upd.at', { time: new Date(lastUpdatedAt).toLocaleTimeString(isAr() ? 'ar-EG' : 'en-US', { hour: 'numeric', minute: '2-digit' }) })
+      : '';
     document.querySelectorAll('#viewSwitch [data-mode]').forEach(function (b) {
       var on = b.dataset.mode === viewMode;
       b.classList.toggle('active', on);
@@ -723,6 +742,7 @@
   // الضغط على أي مكان في الكارت بيفتح التفاصيل
   // كارت الحملة بيفتح إعلاناتها، وكارت الإعلان بيفتح تفاصيله
   function activateCard(e) {
+    if (e.target.closest('[data-show-more]')) { renderLimit += RENDER_STEP; render(); return true; }
     var camp = e.target.closest('.campaign-card');
     if (camp) { openCampaign(camp); return true; }
     var card = e.target.closest('.candidate-card');
