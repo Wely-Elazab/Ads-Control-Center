@@ -405,10 +405,12 @@
       return;
     }
     setStatus(msg('s.metaOpening'));
+    // ads_read بس: الأداة للقراءة فقط. business_management اتشالت لأنها فيها صلاحية كتابة على أصول البزنس
+    // ومش مستخدمة في أي طلب. لو حساب إعلاني تابع لـ Business Manager مظهرش بعد الشيل، ده السبب
     FB.login(function (response) {
       if (response.authResponse) { loadAdAccounts(); }
       else { setStatus(msg('s.loginCancelled')); }
-    }, { scope: 'ads_read,business_management' });
+    }, { scope: 'ads_read' });
   }
 
   // ---------- Google Identity Services (خطوة تسجيل الدخول فقط دلوقتي) ----------
