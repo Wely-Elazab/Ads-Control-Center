@@ -4,32 +4,49 @@
   var META_APP_ID = "2950488078638871";
   var GRAPH_VERSION = 'v21.0';
 
+  // ---------- اللغة ----------
+  // كل النصوص في i18n.js — t('مفتاح', { متغيرات }). الأرقام العربية (٠١٢) بتظهر في الواجهة العربية بس
+  function t(key, vars) { return window.I18N ? I18N.t(key, vars) : key; }
+  function isAr() { return !window.I18N || I18N.lang === 'ar'; }
+  // كائن بيرجّع النص المترجم وقت القراءة — عشان تغيير اللغة يبان من غير ما نبني الكائنات من الأول
+  function i18nMap(keys) {
+    var o = {};
+    Object.keys(keys).forEach(function (k) {
+      Object.defineProperty(o, k, { enumerable: true, get: function () { return t(keys[k]); } });
+    });
+    return o;
+  }
   var ARABIC_DIGITS = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
-  function ar(n) { return String(n).replace(/[0-9]/g, function (d) { return ARABIC_DIGITS[d]; }); }
+  function ar(n) { return isAr() ? String(n).replace(/[0-9]/g, function (d) { return ARABIC_DIGITS[d]; }) : String(n); }
   function digitsAny(n) { return ar(n); }
+  function decSep() { return isAr() ? '٫' : '.'; }
   // العملة بتيجي من الحساب الإعلاني نفسه — ر.س افتراضياً لو المنصة مرجّعتهاش
   var CURRENCY_LABELS = { SAR: 'ر.س', AED: 'د.إ', EGP: 'ج.م', KWD: 'د.ك', QAR: 'ر.ق', BHD: 'د.ب', OMR: 'ر.ع', JOD: 'د.أ', USD: '$', EUR: '€', GBP: '£' };
-  function currencyLabel(cur) { return CURRENCY_LABELS[cur] || cur || 'ر.س'; }
+  var CURRENCY_SYMBOLS_EN = { USD: '$', EUR: '€', GBP: '£' };
+  function currencyLabel(cur) {
+    if (!isAr()) return CURRENCY_SYMBOLS_EN[cur] || cur || 'SAR';
+    return CURRENCY_LABELS[cur] || cur || 'ر.س';
+  }
   // المبالغ الصغيرة بتتعرض بخانة عشرية (٠٫٤ ر.س) — التقريب كان بيخليها "٠ ر.س" في تنبيه زي "صرف ١ بس"
   function money(n, cur) {
     var v = n || 0;
     var s = (Math.abs(v) > 0 && Math.abs(v) < 10 && Math.round(v) !== v)
-      ? String(Math.round(v * 10) / 10).replace('.', '٫')
-      : Math.round(v).toLocaleString('en-US').replace(/,/g, '٬');
+      ? String(Math.round(v * 10) / 10).replace('.', decSep())
+      : Math.round(v).toLocaleString('en-US').replace(/,/g, isAr() ? '٬' : ',');
     return ar(s) + ' ' + currencyLabel(cur);
   }
   // رقم بخانة عشرية واحدة بالأرقام العربية (مثال: ٢٫٥)
   // الأرقام اليومية بتتخزن بخانتين عشريتين — التقريب لأقرب رقم صحيح بيحصل وقت العرض بس،
   // عشان صرف صغير زي ٠٫٤ ميتحسبش صفر ويبوّظ تنبيهات زي "مصرفش أمس"
   function r2(n) { return Math.round((n || 0) * 100) / 100; }
-  function numAr(n) { var r = Math.round((n || 0) * 10) / 10; return ar(String(r).replace('.', '٫')); }
+  function numAr(n) { var r = Math.round((n || 0) * 10) / 10; return ar(String(r).replace('.', decSep())); }
   function roasStr(r) { if (!r) return '—'; return '×' + numAr(r); }
   function sinceLabel(n) {
     if (n == null) return '';
-    if (n === 0) return 'اليوم';
-    if (n === 1) return 'قبل يوم';
-    if (n === 2) return 'قبل يومين';
-    return 'قبل ' + ar(n) + ' يوماً';
+    if (n === 0) return t('since.today');
+    if (n === 1) return t('since.1');
+    if (n === 2) return t('since.2');
+    return t('since.n', { n: ar(n) });
   }
   // بيرجّع null لو التاريخ مش موجود أو غلط — "٠ يوم" كانت بتتقري غلط إنه اتطلق النهارده
   function daysBetween(dateStr) {
@@ -83,7 +100,7 @@
       return '<iframe src="' + esc(src) + '" style="' + style + '" allowfullscreen="true" allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>';
     } catch (e) { return null; }
   }
-  var AR_MONTHS_SHORT = ['ينا', 'فبر', 'مار', 'أبر', 'ماي', 'يون', 'يول', 'أغس', 'سبت', 'أكت', 'نوف', 'ديس'];
+  function monthsShort() { return window.I18N ? I18N.months() : ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']; }
 
   // ---------- تواريخ بتوقيت الحساب الإعلاني ----------
   // كل منصة بترجّع التواريخ بتوقيت الحساب نفسه، فلازم مفاتيح الأيام عندنا تتحسب بنفس التوقيت —
@@ -105,7 +122,7 @@
     var out = [];
     for (var i = 6; i >= 0; i--) {
       var d = new Date(Date.UTC(p[0], p[1] - 1, p[2] - i));
-      out.push({ key: d.toISOString().slice(0, 10), label: ar(d.getUTCDate()) + ' ' + AR_MONTHS_SHORT[d.getUTCMonth()] });
+      out.push({ key: d.toISOString().slice(0, 10) });
     }
     return out;
   }
@@ -161,10 +178,10 @@
   // التنبيهات مش بتتأثر — بتفضل دايماً على آخر ٧ أيام لأنها عن الوضع الحالي.
   // الفترة بتتحسب بتوقيت كل حساب، بنفس منطق السيرفر (api/_dates.js → resolvePeriod)
   var PERIOD_KEY = 'acc.period.v1';
-  var PERIOD_LABELS = {
-    today: 'النهارده', yesterday: 'أمس', last7: 'آخر ٧ أيام', last14: 'آخر ١٤ يوم', last30: 'آخر ٣٠ يوم',
-    thisMonth: 'الشهر ده', lastMonth: 'الشهر اللي فات', custom: 'فترة مخصصة'
-  };
+  var PERIOD_LABELS = i18nMap({
+    today: 'period.today', yesterday: 'period.yesterday', last7: 'period.last7', last14: 'period.last14', last30: 'period.last30',
+    thisMonth: 'period.thisMonth', lastMonth: 'period.lastMonth', custom: 'period.custom'
+  });
   var PERIOD_MAX_DAYS = 93;
   var period = (function () {
     try {
@@ -192,7 +209,7 @@
     else if (preset === 'lastMonth') { until = shiftKey(today.slice(0, 8) + '01', -1); since = until.slice(0, 8) + '01'; }
     else if (preset === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(period.since || '') && /^\d{4}-\d{2}-\d{2}$/.test(period.until || '')) {
       since = period.since; until = period.until;
-      if (since > until) { var t = since; since = until; until = t; }
+      if (since > until) { var tmp = since; since = until; until = tmp; }
       if (until > today) until = today;
       if (since > until) since = until;
     } else preset = 'last7';
@@ -204,7 +221,7 @@
   function fmtKey(key) {
     if (!key) return '';
     var p = key.split('-').map(Number);
-    return ar(p[2]) + ' ' + AR_MONTHS_SHORT[p[1] - 1];
+    return ar(p[2]) + ' ' + monthsShort()[p[1] - 1];
   }
   function periodLabel() {
     if (period.preset !== 'custom') return PERIOD_LABELS[period.preset];
@@ -244,7 +261,7 @@
   function setLoading(platform, on, text) {
     loadingPlatforms[platform] = !!on;
     document.body.classList.toggle('is-loading', anyLoading());
-    if (text) connectStatus.textContent = text;
+    if (text) setStatus(text);
     // شاشة الانتظار بتظهر بس لما مفيش أي إعلانات معروضة — لو فيه بيانات قديمة بتفضل ظاهرة وهي بتتحدّث
     if (on && !candidates.length) showSkeletons();
   }
@@ -253,11 +270,30 @@
     var html = '';
     for (var i = 0; i < 6; i++) html += one;
     cardGrid.innerHTML = html;
-    galleryCount.textContent = 'جارٍ التحميل…';
+    galleryCount.textContent = t('gallery.loading');
+  }
+  // ---------- رسالة الحالة ----------
+  // الرسالة بتتحفظ كدالة مش كنص — عشان لو المستخدم غيّر اللغة، نفس الرسالة تتكتب باللغة الجديدة
+  var lastStatus = null;
+  function msg(key, vars) {
+    return function () {
+      var v = {};
+      Object.keys(vars || {}).forEach(function (k) {
+        var x = vars[k];
+        v[k] = typeof x === 'number' ? ar(x) : (typeof x === 'function' ? x() : x);
+      });
+      return t(key, v);
+    };
+  }
+  function setStatus(m) {
+    lastStatus = typeof m === 'function' ? m : function () { return String(m); };
+    connectStatus.textContent = lastStatus();
   }
   function connectedText(notes) {
-    return 'متصل — ' + ar(candidates.length) + ' إعلان محمّل إجمالاً عبر كل المنصات المتصلة.' +
-      (notes && notes.length ? ' (' + notes.join('؛ ') + ')' : '');
+    return function () {
+      var n = (notes || []).map(function (x) { return typeof x === 'function' ? x() : x; });
+      return t('s.connected', { n: ar(candidates.length) }) + (n.length ? ' (' + n.join(t('join.sep')) + ')' : '');
+    };
   }
 
   // بيسمح بتحميل أكتر من منصة في نفس الوقت من غير ما نمسح اللي محمّل قبل كده —
@@ -327,14 +363,17 @@
     if (dark) { document.documentElement.removeAttribute('data-theme'); themeToggle.textContent = '☀️'; }
     else { document.documentElement.setAttribute('data-theme', 'dark'); themeToggle.textContent = '🌙'; }
   });
+  // تبديل اللغة: بيترجم الواجهة كلها ويعيد رسم الكروت والتنبيهات بالأرقام والعملة المناسبة.
+  // بيانات الإعلانات نفسها (الأسماء والنصوص) بتفضل بلغتها الأصلية زي ما كتبها المعلن
   langToggle.addEventListener('click', function () {
-    var isEn = document.documentElement.lang === 'en';
-    document.documentElement.lang = isEn ? 'ar' : 'en';
-    document.documentElement.dir = isEn ? 'rtl' : 'ltr';
-    langToggle.textContent = isEn ? 'EN' : 'العربية';
-    // ملاحظة: هذه النسخة التجريبية تبدّل اتجاه الواجهة فقط. بيانات الإعلانات نفسها
-    // تُعرض بلغتها الأصلية كما أدخلها المعلن، ولا تُترجم تلقائياً.
+    I18N.setLang(isAr() ? 'en' : 'ar');
+    closeOverlays();
+    syncPeriodUi();
+    render();
+    if (lastStatus) connectStatus.textContent = lastStatus();
   });
+  // ترجمة نصوص الصفحة الثابتة للغة المحفوظة (لو المستخدم كان مختار الإنجليزي قبل كده)
+  if (window.I18N) I18N.apply(document);
 
   // ---------- Facebook SDK ----------
   // أي كود محتاج FB قبل ما الـ SDK يخلص تحميل (زي استرجاع الجلسة) بيستنى هنا
@@ -373,13 +412,13 @@
 
   function loginWithMeta() {
     if (typeof FB === 'undefined') {
-      connectStatus.textContent = 'الـ SDK لسه بيتحمّل، جرّب تاني خلال ثانية.';
+      setStatus(msg('s.metaSdkLoading'));
       return;
     }
-    connectStatus.textContent = 'جارٍ فتح نافذة تسجيل الدخول بحساب Meta…';
+    setStatus(msg('s.metaOpening'));
     FB.login(function (response) {
       if (response.authResponse) { loadAdAccounts(); }
-      else { connectStatus.textContent = 'تم إلغاء تسجيل الدخول.'; }
+      else { setStatus(msg('s.loginCancelled')); }
     }, { scope: 'ads_read,business_management' });
   }
 
@@ -389,7 +428,7 @@
   var googleTokenClient = null;
   function loginWithGoogle() {
     if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-      connectStatus.textContent = 'مكتبة Google لسه بتتحمّل، جرّب تاني خلال ثانية.';
+      setStatus(msg('s.googleSdkLoading'));
       return;
     }
     if (!googleTokenClient) {
@@ -400,10 +439,10 @@
           if (tokenResponse && tokenResponse.access_token) {
             googleAccessToken = tokenResponse.access_token;
             rememberToken('google', googleAccessToken, tokenResponse.expires_in);
-            connectStatus.textContent = 'تم تسجيل الدخول بحساب Google \u2713 — جارٍ تحميل حساباتك الإعلانية…';
+            setStatus(msg('s.googleLoggedIn'));
             loadGoogleAccounts();
           } else {
-            connectStatus.textContent = 'تعذّر تسجيل الدخول بحساب Google.';
+            setStatus(msg('s.googleLoginFailed'));
           }
         }
       });
@@ -419,24 +458,24 @@
       body: JSON.stringify({ accessToken: googleAccessToken })
     }).then(function (r) { return r.json(); }).then(function (data) {
       if (!data || data.error || !data.accounts) {
-        connectStatus.textContent = 'تعذّر تحميل حسابات Google Ads (' + (data && data.error ? (data.error.message || data.error) : 'تأكد من إعداد الخادم الخلفي') + ').';
+        setStatus(msg('s.googleAccountsFailed', { msg: data && data.error ? (data.error.message || data.error) : msg('s.checkBackend') }));
         return;
       }
       // السيرفر بيرجّع حسابات العملاء بس (من غير حسابات Manager) ومع كل واحد الـ loginCustomerId بتاعه
       var accounts = data.accounts;
       if (!accounts.length) {
-        connectStatus.textContent = 'تم تسجيل الدخول، لكن مفيش حسابات Google Ads مفعّلة (غير Manager) متاحة لهذا الحساب.';
+        setStatus(msg('s.googleNoAccounts'));
         return;
       }
       accounts.forEach(function (a) { accountInfo['google:' + a.id] = a; });
       setPlatformOptions('google', accounts.map(function (a) {
         return { value: a.id, label: 'Google Ads — ' + a.name + (a.name !== a.id ? ' (' + a.id + ')' : '') };
       }));
-      connectStatus.textContent = 'تم العثور على ' + ar(accounts.length) + ' حساب Google Ads — اختر واحد من القائمة.';
+      setStatus(msg('s.accountsFound', { n: accounts.length, platform: 'Google Ads' }));
       loadGoogleAdsForAccount(accounts[0].id);
       accountSelect.value = accounts[0].id;
     }).catch(function (err) {
-      connectStatus.textContent = 'تعذّر الاتصال بالخادم الخلفي (' + err.message + '). تأكد إن ملفات /api اتنشرت على Vercel صح.';
+      setStatus(msg('s.backendFailed', { msg: err.message }));
     });
   }
 
@@ -444,7 +483,7 @@
     var info = accountInfo['google:' + customerId] || {};
     var token = beginLoad('google');
     showCachedWhileLoading('google:' + customerId);
-    setLoading('google', true, 'جارٍ تحميل إعلانات Google Ads…');
+    setLoading('google', true, msg('s.loadingAds', { platform: 'Google Ads' }));
     fetch('/api/google-ads-fetch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -454,11 +493,11 @@
     }).then(function (r) { return r.json(); }).then(function (payload) {
       if (!isCurrentLoad('google', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (!payload || payload.error) {
-        setLoading('google', false, 'تعذّر تحميل إعلانات Google Ads (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').');
+        setLoading('google', false, msg('s.adsFailed', { platform: 'Google Ads', msg: payload && payload.error ? payload.error : msg('s.unexpected') }));
         return;
       }
       if (!payload.ads || !payload.ads.length) {
-        setLoading('google', false, 'الاتصال نجح لكن مفيش إعلانات (غير محذوفة) في هذا الحساب.');
+        setLoading('google', false, msg('s.noAdsGoogle'));
         return;
       }
       var googleCandidates = transformGoogleRows(payload.ads, payload.metrics || [], daysFromRange(payload.range), info.currency, payload.periodMetrics);
@@ -469,7 +508,7 @@
       render();
     }).catch(function (err) {
       if (!isCurrentLoad('google', token)) return;
-      setLoading('google', false, 'تعذّر تحميل إعلانات Google Ads (' + err.message + ').');
+      setLoading('google', false, msg('s.adsFailed', { platform: 'Google Ads', msg: err.message }));
     });
   }
 
@@ -552,7 +591,7 @@
       var id = 'g-' + key;
       var pRow = periodByKey && (periodByKey[key] || { spend: 0, results: 0, sales: 0 });
       var headline = (ggPick(ad, 'responsiveSearchAd.headlines.0.text')) ||
-        (ggPick(ad, 'expandedTextAd.headlinePart1')) || ad.name || ('إعلان Google #' + ad.id);
+        (ggPick(ad, 'expandedTextAd.headlinePart1')) || ad.name || ('Google #' + ad.id);
       var desc = (ggPick(ad, 'responsiveSearchAd.descriptions.0.text')) ||
         (ggPick(ad, 'expandedTextAd.description')) || '';
       var adStatus = ggPick(row, 'adGroupAd.status'), agStatus = ggPick(row, 'adGroup.status'), campStatus = ggPick(row, 'campaign.status');
@@ -584,10 +623,10 @@
         landing: (ad.finalUrls && ad.finalUrls[0]) || '—', landingKind: 'website',
         // Google Ads API مش بيرجّع تاريخ إنشاء الإعلان — null أصدق من صفر
         daysAgo: null, updatedDaysAgo: null,
-        daily: daily, dailyResults: dailyResults, dailySales: dailySales, dailyDates: days.map(function (d) { return d.label; }),
+        daily: daily, dailyResults: dailyResults, dailySales: dailySales, dailyDates: days.map(function (d) { return d.key; }),
         spend: spend,
         results: totalResults > 0 ? totalResults : 0,
-        resultLabel: 'تحويلات',
+        resultKey: 'conversion',
         cpr: (totalResults && spend > 0) ? (spend / totalResults) : null,
         roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null,
         themeClass: 'pv-t' + (hashCode(id) % 4),
@@ -606,14 +645,14 @@
 
   // بيحمّل *كل* الحسابات الإعلانية مش أول صفحة بس (Meta بترجّع ٢٥ حساب في الصفحة افتراضياً)
   function loadAdAccounts(onlyRefreshId) {
-    connectStatus.textContent = 'جارٍ تحميل الحسابات الإعلانية…';
+    setStatus(msg('s.metaAccountsLoading'));
     fetchAllPages('/me/adaccounts', { fields: META_ACCOUNT_FIELDS, limit: 100 }, FULL_SCAN_CAP, function (err, data) {
       if (err) {
-        connectStatus.textContent = 'تعذّر تحميل الحسابات — تأكد إن حسابك عنده صلاحية على حساب إعلاني واحد على الأقل.';
+        setStatus(msg('s.metaAccountsFailed'));
         return;
       }
       if (!data || !data.length) {
-        connectStatus.textContent = 'مفيش حسابات إعلانية مرتبطة بحسابك.';
+        setStatus(msg('s.metaNoAccounts'));
         return;
       }
       data.forEach(function (a) {
@@ -623,7 +662,7 @@
         };
       });
       setPlatformOptions('meta', data.map(function (a) { return { value: a.id, label: 'Meta — ' + a.name }; }));
-      document.getElementById('tConnectTitle').textContent = 'متصل بحساب Meta — دوس تسجيل الدخول لإضافة منصة تانية';
+      document.getElementById('tConnectTitle').textContent = t('title.metaConnected');
       // بعد استرجاع الجلسة بنحدّث بيانات الحساب (حالته وحد الصرف) الأول، وبعدين نحمّل نفس الحساب المحفوظ
       var target = (onlyRefreshId && accountInfo['meta:' + onlyRefreshId]) ? onlyRefreshId : data[0].id;
       accountSelect.value = target;
@@ -691,7 +730,7 @@
 
   function exchangeSnapchatCode(code) {
     var redirectUri = window.location.origin + window.location.pathname;
-    connectStatus.textContent = 'جارٍ إتمام تسجيل الدخول بحساب Snapchat…';
+    setStatus(msg('s.finishingLogin', { platform: 'Snapchat' }));
     fetch('/api/snapchat-token', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: code, redirectUri: redirectUri })
@@ -699,13 +738,13 @@
       if (data && data.access_token) {
         snapchatAccessToken = data.access_token;
         rememberToken('snapchat', snapchatAccessToken, data.expires_in);
-        connectStatus.textContent = 'تم تسجيل الدخول بحساب Snapchat ✓ — جارٍ تحميل الحسابات الإعلانية…';
+        setStatus(msg('s.snapLoggedIn'));
         loadSnapchatAccounts();
       } else {
-        connectStatus.textContent = 'تعذّر إتمام تسجيل الدخول بحساب Snapchat (' + (data && data.error ? data.error : 'خطأ غير معروف') + ').';
+        setStatus(msg('s.loginFailed', { platform: 'Snapchat', msg: data && data.error ? data.error : msg('s.unknownError') }));
       }
     }).catch(function (err) {
-      connectStatus.textContent = 'تعذّر الاتصال بالخادم الخلفي لـ Snapchat (' + err.message + ').';
+      setStatus(msg('s.backendPlatformFailed', { platform: 'Snapchat', msg: err.message }));
     });
   }
 
@@ -723,46 +762,46 @@
         });
       });
       if (!accounts.length) {
-        connectStatus.textContent = 'تم تسجيل الدخول، لكن مفيش حسابات إعلانية ظاهرة على Snapchat لهذا الحساب.';
+        setStatus(msg('s.snapNoAccounts'));
         return;
       }
       setPlatformOptions('snapchat', accounts.map(function (a) { return { value: a.id, label: 'Snapchat — ' + (a.name || a.id) }; }));
-      connectStatus.textContent = 'تم العثور على ' + ar(accounts.length) + ' حساب Snapchat — اختر واحد من القائمة.';
+      setStatus(msg('s.accountsFound', { n: accounts.length, platform: 'Snapchat' }));
       loadSnapchatAdsForAccount(accounts[0].id);
       accountSelect.value = accounts[0].id;
     }).catch(function (err) {
-      connectStatus.textContent = 'تعذّر تحميل حسابات Snapchat (' + err.message + ').';
+      setStatus(msg('s.accountsLoadFailed', { platform: 'Snapchat', msg: err.message }));
     });
   }
 
   function loadSnapchatAdsForAccount(adAccountId) {
     var token = beginLoad('snapchat');
     showCachedWhileLoading('snapchat:' + adAccountId);
-    setLoading('snapchat', true, 'جارٍ تحميل إعلانات Snapchat…');
+    setLoading('snapchat', true, msg('s.loadingAds', { platform: 'Snapchat' }));
     fetch('/api/snapchat-ads-fetch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accessToken: snapchatAccessToken, action: 'ads', adAccountId: adAccountId, clientTz: BROWSER_TZ, period: period })
     }).then(function (r) { return r.json(); }).then(function (payload) {
       if (!isCurrentLoad('snapchat', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (!payload || payload.error) {
-        setLoading('snapchat', false, 'تعذّر تحميل إعلانات Snapchat (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').');
+        setLoading('snapchat', false, msg('s.adsFailed', { platform: 'Snapchat', msg: payload && payload.error ? payload.error : msg('s.unexpected') }));
         return;
       }
       var adsList = payload.ads || [];
       var statsList = (payload.stats && payload.stats.timeseries_stats) || [];
       if (!adsList.length) {
-        setLoading('snapchat', false, 'الاتصال نجح لكن مفيش إعلانات راجعة لهذا الحساب.');
+        setLoading('snapchat', false, msg('s.noAds'));
         return;
       }
       var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns, payload.periodStats);
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
       cacheSource('snapchat:' + adAccountId, snapCandidates);
       selectedIds = {};
-      setLoading('snapchat', false, connectedText(payload.statsError ? ['تعذّر تحميل الإنفاق: ' + payload.statsError] : []));
+      setLoading('snapchat', false, connectedText(payload.statsError ? [msg('note.spendFailed', { msg: payload.statsError })] : []));
       render();
     }).catch(function (err) {
       if (!isCurrentLoad('snapchat', token)) return;
-      setLoading('snapchat', false, 'تعذّر تحميل إعلانات Snapchat (' + err.message + ').');
+      setLoading('snapchat', false, msg('s.adsFailed', { platform: 'Snapchat', msg: err.message }));
     });
   }
 
@@ -848,13 +887,13 @@
         frequency: null,
         format: ad.type && /VIDEO/i.test(ad.type) ? 'video' : (ad.type && /SNAP_AD/i.test(ad.type) ? 'video' : 'image'),
         thumbUrl: null,
-        headline: ad.name || ('إعلان Snapchat #' + ad.id), desc: '',
+        headline: ad.name || ('Snapchat #' + ad.id), desc: '',
         offer: ad.name || id, caption: ad.name || '',
         landing: '—', landingKind: null,
         daysAgo: ad.created_at ? daysBetween(ad.created_at) : null,
         updatedDaysAgo: ad.updated_at ? daysBetween(ad.updated_at) : null,
-        daily: p.daily, dailySales: dailySales, dailyResults: dailyResults, dailyDates: days.map(function (d) { return d.label; }),
-        spend: spend, results: results, resultLabel: tracksPurchases ? 'مشتريات' : 'سوايب (نقرات)',
+        daily: p.daily, dailySales: dailySales, dailyResults: dailyResults, dailyDates: days.map(function (d) { return d.key; }),
+        spend: spend, results: results, resultKey: tracksPurchases ? 'purchase' : 'swipe',
         cpr: (results && spend) ? (spend / results) : null,
         roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null,
         themeClass: 'pv-t' + (hashCode(id) % 4),
@@ -874,10 +913,10 @@
     if (state.indexOf('snapchat') !== 0) return;
     window.history.replaceState({}, document.title, window.location.pathname);
     var oauthError = oauthErrorFromUrl(params);
-    if (oauthError) { connectStatus.textContent = 'Snapchat رفض تسجيل الدخول (' + oauthError + ').'; return; }
+    if (oauthError) { setStatus(msg('s.oauthRejected', { platform: 'Snapchat', msg: oauthError })); return; }
     if (!code) return;
     if (!consumeOauthState('snapchat', state)) {
-      connectStatus.textContent = 'تعذّر إتمام تسجيل الدخول بحساب Snapchat — رابط الرجوع مش مطابق للجلسة. ابدأ تسجيل الدخول من الأول.';
+      setStatus(msg('s.oauthMismatch', { platform: 'Snapchat' }));
       return;
     }
     exchangeSnapchatCode(code);
@@ -900,7 +939,7 @@
   }
 
   function exchangeTikTokCode(authCode) {
-    connectStatus.textContent = 'جارٍ إتمام تسجيل الدخول بحساب TikTok…';
+    setStatus(msg('s.finishingLogin', { platform: 'TikTok' }));
     fetch('/api/tiktok-token', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ authCode: authCode })
@@ -911,37 +950,37 @@
         rememberToken('tiktok', tiktokAccessToken, null); // توكن TikTok Marketing API طويل الأجل (لحد ما يتلغى)
         var ids = payload.advertiser_ids || [];
         if (!ids.length) {
-          connectStatus.textContent = 'تم تسجيل الدخول بحساب TikTok ✓ — لكن مفيش حسابات إعلانية (Advertiser IDs) ظاهرة لهذا التطبيق بعد.';
+          setStatus(msg('s.tiktokNoAdvertisers'));
           return;
         }
         setPlatformOptions('tiktok', ids.map(function (id) { return { value: id, label: 'TikTok Ads — ' + id }; }));
-        connectStatus.textContent = 'تم تسجيل الدخول بحساب TikTok ✓ — اختر حساب من القائمة.';
+        setStatus(msg('s.tiktokPick'));
         loadTikTokAdsForAdvertiser(ids[0]);
         accountSelect.value = ids[0];
       } else {
-        connectStatus.textContent = 'تعذّر إتمام تسجيل الدخول بحساب TikTok (' + ((data && (data.error || data.message)) || 'خطأ غير معروف') + ').';
+        setStatus(msg('s.loginFailed', { platform: 'TikTok', msg: (data && (data.error || data.message)) || msg('s.unknownError') }));
       }
     }).catch(function (err) {
-      connectStatus.textContent = 'تعذّر الاتصال بالخادم الخلفي لـ TikTok (' + err.message + ').';
+      setStatus(msg('s.backendPlatformFailed', { platform: 'TikTok', msg: err.message }));
     });
   }
 
   function loadTikTokAdsForAdvertiser(advertiserId) {
     var token = beginLoad('tiktok');
     showCachedWhileLoading('tiktok:' + advertiserId);
-    setLoading('tiktok', true, 'جارٍ تحميل إعلانات TikTok…');
+    setLoading('tiktok', true, msg('s.loadingAds', { platform: 'TikTok' }));
     fetch('/api/tiktok-ads-fetch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accessToken: tiktokAccessToken, advertiserId: advertiserId, clientTz: BROWSER_TZ, period: period })
     }).then(function (r) { return r.json(); }).then(function (payload) {
       if (!isCurrentLoad('tiktok', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (!payload || payload.error) {
-        setLoading('tiktok', false, 'تعذّر تحميل إعلانات TikTok (' + (payload && payload.error ? payload.error : 'رد غير متوقع من الخادم') + ').');
+        setLoading('tiktok', false, msg('s.adsFailed', { platform: 'TikTok', msg: payload && payload.error ? payload.error : msg('s.unexpected') }));
         return;
       }
       var adsList = payload.ads || [];
       if (!adsList.length) {
-        setLoading('tiktok', false, 'الاتصال نجح لكن مفيش إعلانات راجعة لهذا الحساب (تأكد من مستوى موافقة التطبيق).');
+        setLoading('tiktok', false, msg('s.noAdsTikTok'));
         return;
       }
       // اسم الحساب الحقيقي بدل الرقم لو رجع
@@ -954,11 +993,11 @@
       mergeCandidates(tiktokCandidates, 'tiktok:' + advertiserId);
       cacheSource('tiktok:' + advertiserId, tiktokCandidates);
       selectedIds = {};
-      setLoading('tiktok', false, connectedText(payload.reportError ? ['تعذّر تحميل الإنفاق: ' + payload.reportError] : []));
+      setLoading('tiktok', false, connectedText(payload.reportError ? [msg('note.spendFailed', { msg: payload.reportError })] : []));
       render();
     }).catch(function (err) {
       if (!isCurrentLoad('tiktok', token)) return;
-      setLoading('tiktok', false, 'تعذّر تحميل إعلانات TikTok (' + err.message + ').');
+      setLoading('tiktok', false, msg('s.adsFailed', { platform: 'TikTok', msg: err.message }));
     });
   }
 
@@ -1020,13 +1059,13 @@
         reviewStatus: null, frequency: null,
         format: ad.ad_format && /VIDEO|SINGLE_VIDEO/i.test(ad.ad_format) ? 'video' : 'image',
         thumbUrl: null,
-        headline: ad.ad_name || ('إعلان TikTok #' + ad.ad_id), desc: ad.ad_text || '',
+        headline: ad.ad_name || ('TikTok #' + ad.ad_id), desc: ad.ad_text || '',
         offer: ad.ad_name || id, caption: ad.ad_text || ad.ad_name || '',
         landing: ad.landing_page_url || '—', landingKind: ad.landing_page_url ? 'website' : null,
         daysAgo: ad.create_time ? daysBetween(tiktokTime(ad.create_time)) : null,
         updatedDaysAgo: ad.modify_time ? daysBetween(tiktokTime(ad.modify_time)) : null,
-        daily: daily, dailySales: daily.map(function () { return 0; }), dailyResults: dailyResults, dailyDates: days.map(function (d) { return d.label; }),
-        spend: spend, results: results, resultLabel: 'تحويلات', cpr: (results && spend) ? (spend / results) : null, roas: null,
+        daily: daily, dailySales: daily.map(function () { return 0; }), dailyResults: dailyResults, dailyDates: days.map(function (d) { return d.key; }),
+        spend: spend, results: results, resultKey: 'conversion', cpr: (results && spend) ? (spend / results) : null, roas: null,
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active, pausedLevel: delivery.level,
         deliveryReason: null, platformStatus: ad.secondary_status || ad.operation_status || null,
@@ -1043,10 +1082,10 @@
     if (state.indexOf('tiktok') !== 0) return;
     window.history.replaceState({}, document.title, window.location.pathname);
     var oauthError = oauthErrorFromUrl(params);
-    if (oauthError) { connectStatus.textContent = 'TikTok رفض تسجيل الدخول (' + oauthError + ').'; return; }
+    if (oauthError) { setStatus(msg('s.oauthRejected', { platform: 'TikTok', msg: oauthError })); return; }
     if (!authCode) return;
     if (!consumeOauthState('tiktok', state)) {
-      connectStatus.textContent = 'تعذّر إتمام تسجيل الدخول بحساب TikTok — رابط الرجوع مش مطابق للجلسة. ابدأ تسجيل الدخول من الأول.';
+      setStatus(msg('s.oauthMismatch', { platform: 'TikTok' }));
       return;
     }
     exchangeTikTokCode(authCode);
@@ -1128,7 +1167,7 @@
     var live = function () { return isCurrentLoad('meta', token); };
 
     showCachedWhileLoading(source, 'Meta');
-    setLoading('meta', true, 'جارٍ تحميل إعلانات Meta…');
+    setLoading('meta', true, msg('s.loadingAds', { platform: 'Meta' }));
 
     var adsP = new Promise(function (resolve) {
       fetchMetaAds(accountId, function (err, data, truncated) { resolve({ err: err, data: data || [], truncated: truncated }); });
@@ -1170,14 +1209,14 @@
     var stage1 = Promise.all([adsP, adsetsP]).then(function (r) {
       if (!live()) return null;
       var ads = r[0], adsetStatusMap = r[1];
-      if (ads.err) { setLoading('meta', false, 'تعذّر تحميل إعلانات Meta (' + ads.err.message + ').'); return null; }
+      if (ads.err) { setLoading('meta', false, msg('s.adsFailed', { platform: 'Meta', msg: ads.err.message })); return null; }
       adsTruncated = ads.truncated;
       ads.data.forEach(function (ad) { adsById[ad.id] = ad; order.push(ad.id); });
-      if (!order.length) { setLoading('meta', false, 'الاتصال نجح لكن مفيش إعلانات في الحساب ده.'); return null; }
+      if (!order.length) { setLoading('meta', false, msg('s.noAdsMeta')); return null; }
       mergeCandidates(build(null, null, adsetStatusMap), source);
       selectedIds = {};
       render();
-      setLoading('meta', true, 'ظهرت ' + ar(order.length) + ' إعلان — جارٍ تحميل أرقام الإنفاق…');
+      setLoading('meta', true, msg('s.metaShown', { n: order.length }));
       // الصور الأصلية بتتحمّل بالتوازي، وأول ما توصل بنحدّث الكروت
       resolveMetaImages(accountId, ads.data, function () {
         if (!live()) return;
@@ -1199,10 +1238,10 @@
       mergeCandidates(build(byAdId(daily.data, true), byAdId(reach.data), adsetStatusMap, periodByAd), source);
       cacheSource(source, candidates.filter(function (c) { return c.source === source; }));
       var notes = [];
-      if (periodRes && periodRes.err) notes.push('تعذّر تحميل أرقام الفترة المختارة — المعروض آخر ٧ أيام');
-      if (adsTruncated) notes.push('تم عرض أول ' + ar(PAGE_SAFETY_CAP) + ' إعلان بس — قولّي لو محتاج نرفع الحد');
-      if (daily.err) notes.push('تعذّر تحميل الإنفاق اليومي: ' + daily.err.message);
-      else if (daily.truncated) notes.push('بيانات الإنفاق اتقطعت عند ' + ar(FULL_SCAN_CAP) + ' صف — بعض الأرقام ممكن تكون ناقصة');
+      if (periodRes && periodRes.err) notes.push(msg('note.periodFailed'));
+      if (adsTruncated) notes.push(msg('note.adsCapped', { n: PAGE_SAFETY_CAP }));
+      if (daily.err) notes.push(msg('note.dailyFailed', { msg: daily.err.message }));
+      else if (daily.truncated) notes.push(msg('note.dailyTruncated', { n: FULL_SCAN_CAP }));
       setLoading('meta', false, connectedText(notes));
       render();
     });
@@ -1211,25 +1250,25 @@
   // خريطة هدف المجموعة الإعلانية (optimization_goal) إلى نوع الحدث اللي المفروض
   // Meta نفسها تعرضه كـ"النتائج" لهذا الإعلان بالذات — نفس منطق عمود Results في Ads Manager تقريباً
   var GOAL_TO_ACTION = {
-    'OFFSITE_CONVERSIONS': [{ type: 'omni_purchase', label: 'مشتريات' }, { type: 'purchase', label: 'مشتريات' }],
-    'ONSITE_CONVERSIONS': [{ type: 'omni_purchase', label: 'مشتريات' }, { type: 'purchase', label: 'مشتريات' }],
-    'OFFSITE_CONVERSIONS_LEAD': [{ type: 'onsite_conversion.lead_grouped', label: 'عملاء محتملون' }, { type: 'lead', label: 'عملاء محتملون' }],
-    'LEAD_GENERATION': [{ type: 'onsite_conversion.lead_grouped', label: 'عملاء محتملون' }, { type: 'lead', label: 'عملاء محتملون' }],
-    'QUALITY_LEAD': [{ type: 'onsite_conversion.lead_grouped', label: 'عملاء محتملون' }, { type: 'lead', label: 'عملاء محتملون' }],
-    'CONVERSATIONS': [{ type: 'onsite_conversion.messaging_conversation_started_7d', label: 'محادثات واتساب' }],
-    'LINK_CLICKS': [{ type: 'link_click', label: 'نقرات على الرابط' }],
-    'LANDING_PAGE_VIEWS': [{ type: 'landing_page_view', label: 'زيارات الصفحة المقصودة' }],
-    'APP_INSTALLS': [{ type: 'mobile_app_install', label: 'تثبيتات التطبيق' }],
-    'POST_ENGAGEMENT': [{ type: 'post_engagement', label: 'تفاعل مع المنشور' }],
-    'THRUPLAY': [{ type: 'video_view', label: 'مشاهدات الفيديو' }],
-    'REPLIES': [{ type: 'onsite_conversion.messaging_first_reply', label: 'ردود أولى بالرسائل' }]
+    'OFFSITE_CONVERSIONS': [{ type: 'omni_purchase', key: 'purchase' }, { type: 'purchase', key: 'purchase' }],
+    'ONSITE_CONVERSIONS': [{ type: 'omni_purchase', key: 'purchase' }, { type: 'purchase', key: 'purchase' }],
+    'OFFSITE_CONVERSIONS_LEAD': [{ type: 'onsite_conversion.lead_grouped', key: 'lead' }, { type: 'lead', key: 'lead' }],
+    'LEAD_GENERATION': [{ type: 'onsite_conversion.lead_grouped', key: 'lead' }, { type: 'lead', key: 'lead' }],
+    'QUALITY_LEAD': [{ type: 'onsite_conversion.lead_grouped', key: 'lead' }, { type: 'lead', key: 'lead' }],
+    'CONVERSATIONS': [{ type: 'onsite_conversion.messaging_conversation_started_7d', key: 'message' }],
+    'LINK_CLICKS': [{ type: 'link_click', key: 'click' }],
+    'LANDING_PAGE_VIEWS': [{ type: 'landing_page_view', key: 'lpv' }],
+    'APP_INSTALLS': [{ type: 'mobile_app_install', key: 'install' }],
+    'POST_ENGAGEMENT': [{ type: 'post_engagement', key: 'engagement' }],
+    'THRUPLAY': [{ type: 'video_view', key: 'video' }],
+    'REPLIES': [{ type: 'onsite_conversion.messaging_first_reply', key: 'reply' }]
   };
   // احتياطي عام فقط لو هدف المجموعة الإعلانية غير معروف أو غير موجود في الخريطة أعلاه
   var FALLBACK_ACTION_TYPES = [
-    { type: 'omni_purchase', label: 'مشتريات' }, { type: 'purchase', label: 'مشتريات' },
-    { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'محادثات واتساب' },
-    { type: 'onsite_conversion.lead_grouped', label: 'عملاء محتملون' }, { type: 'lead', label: 'عملاء محتملون' },
-    { type: 'link_click', label: 'نقرات على الرابط' }
+    { type: 'omni_purchase', key: 'purchase' }, { type: 'purchase', key: 'purchase' },
+    { type: 'onsite_conversion.messaging_conversation_started_7d', key: 'message' },
+    { type: 'onsite_conversion.lead_grouped', key: 'lead' }, { type: 'lead', key: 'lead' },
+    { type: 'link_click', key: 'click' }
   ];
 
   // بيرجع دايماً قيمة (حتى لو صفر) للحدث المرتبط فعلياً بهدف الإعلان — مش بيقفز لمقياس تاني
@@ -1239,11 +1278,11 @@
     if (candidates) {
       var c = candidates[0];
       var found = valueForType(actionsArr, c.type);
-      return { value: found || 0, label: c.label, type: c.type, matchedGoal: true };
+      return { value: found || 0, key: c.key, type: c.type, matchedGoal: true };
     }
     for (var i = 0; i < FALLBACK_ACTION_TYPES.length; i++) {
       var v = valueForType(actionsArr, FALLBACK_ACTION_TYPES[i].type);
-      if (v) return { value: v, label: FALLBACK_ACTION_TYPES[i].label, type: FALLBACK_ACTION_TYPES[i].type, matchedGoal: false };
+      if (v) return { value: v, key: FALLBACK_ACTION_TYPES[i].key, type: FALLBACK_ACTION_TYPES[i].type, matchedGoal: false };
     }
     return null;
   }
@@ -1383,7 +1422,7 @@
     var daily = [], dailySales = [], dailyResultsArr = [];
     // لو هدف الإعلان معروف، نوع النتيجة معروف حتى لو الإعلان مصرفش ولا يوم
     var goalAction = GOAL_TO_ACTION[goal] && GOAL_TO_ACTION[goal][0];
-    var totalResultsVal = 0, resultLabel = goalAction ? goalAction.label : null, resultType = goalAction ? goalAction.type : null, matchedGoal = !!goalAction;
+    var totalResultsVal = 0, resultKey = goalAction ? goalAction.key : null, resultType = goalAction ? goalAction.type : null, matchedGoal = !!goalAction;
     days.forEach(function (day) {
       var row = byDate[day.key];
       var spendVal = row ? r2(parseFloat(row.spend || 0)) : 0;
@@ -1392,7 +1431,7 @@
         var found = resultForGoal(row.actions, goal);
         if (found) {
           totalResultsVal += found.value;
-          resultLabel = found.label; resultType = found.type; matchedGoal = found.matchedGoal;
+          resultKey = found.key; resultType = found.type; matchedGoal = found.matchedGoal;
           dailyResultsArr.push(Math.round(found.value));
         } else { dailyResultsArr.push(0); }
         var salesVal = resultType ? valueForType(row.action_values, resultType) : null;
@@ -1401,7 +1440,7 @@
         dailyResultsArr.push(0); dailySales.push(0);
       }
     });
-    var dailyDates = days.map(function (d) { return d.label; });
+    var dailyDates = days.map(function (d) { return d.key; });
     var spend = daily.reduce(function (a, b) { return a + b; }, 0);
     // تحقق أخير: لو الإعلان صرف النهارده فهو بيظهر فعلاً، مهما كانت الملاحظة اللي رجعت من المنصة —
     // الصرف دليل عملي أقوى من أي وصف. الملاحظة بتفضل ظاهرة في التفاصيل
@@ -1454,7 +1493,7 @@
       dailyDates: dailyDates,
       spend: spend,
       results: results,
-      resultLabel: resultLabel,
+      resultKey: resultKey,
       resultMatchedGoal: matchedGoal,
       cpr: cpr,
       roas: roas,
@@ -1542,17 +1581,17 @@
 
   // ---------- التقييم والتنبيهات (المحرك نفسه في alerts.js) ----------
   var HEALTH = {
-    review: { label: 'يحتاج مراجعة', cls: 'h-review', order: 0 },
-    improve: { label: 'يحتاج تحسين', cls: 'h-improve', order: 1 },
-    good: { label: 'جيد', cls: 'h-good', order: 2 },
-    inactive: { label: 'غير فعال', cls: 'h-inactive', order: 3 }
+    review: { get label() { return t('health.review'); }, cls: 'h-review', order: 0 },
+    improve: { get label() { return t('health.improve'); }, cls: 'h-improve', order: 1 },
+    good: { get label() { return t('health.good'); }, cls: 'h-good', order: 2 },
+    inactive: { get label() { return t('health.inactive'); }, cls: 'h-inactive', order: 3 }
   };
   // مستويات التنبيه: عاجل (محتاج تدخّل) / مهم (تابعه) / فرصة — مستوى "للعلم" اتشال لأنه ضوضاء
   var LEVELS = {
-    critical: { label: 'عاجل', cls: 'lv-critical' },
-    warning: { label: 'مهم', cls: 'lv-warning' },
-    opportunity: { label: 'فرصة', cls: 'lv-opportunity' },
-    info: { label: 'للعلم', cls: 'lv-info' }  // احتياطي لو محرك التنبيهات رجّع المستوى ده
+    critical: { get label() { return t('level.critical'); }, cls: 'lv-critical' },
+    warning: { get label() { return t('level.warning'); }, cls: 'lv-warning' },
+    opportunity: { get label() { return t('level.opportunity'); }, cls: 'lv-opportunity' },
+    info: { get label() { return t('level.info'); }, cls: 'lv-info' }  // احتياطي لو محرك التنبيهات رجّع المستوى ده
   };
 
   // إعدادات حدود التنبيهات بتتحفظ في متصفح المستخدم نفسه
@@ -1596,30 +1635,15 @@
     }
     if (c.format === 'image') {
       if (thumb) { return '<div class="preview"' + bgStyle + '></div>'; }
-      return '<div class="preview preview-image ' + c.themeClass + '"><span class="format-badge">تصميم ثابت</span></div>';
+      return '<div class="preview preview-image ' + c.themeClass + '"><span class="format-badge">' + t('card.staticDesign') + '</span></div>';
     }
     return '<div class="preview preview-text"><span class="text-url">' + esc(c.landing !== '—' ? c.landing : '') + '</span><span class="text-headline">' + esc(c.headline) + '</span><span class="text-desc">' + esc(c.desc) + '</span></div>';
   }
 
   // سبب إن الإعلان مش شغّال — موحّد لكل المنصات
-  var PAUSED_LABELS = {
-    campaign: 'متوقف (الحملة)',
-    adset: 'متوقف (المجموعة الإعلانية)',
-    ad: 'متوقف',
-    ended: 'انتهت مدة الحملة',
-    scheduled: 'مجدول — لسه مبدأش',
-    pending: 'تحت المراجعة',
-    rejected: 'مرفوض',
-    account: 'متوقف (مشكلة في الحساب)',
-    'account-cap': 'متوقف (الحساب وصل لحد الصرف)',
-    'not-eligible': 'غير مؤهل للظهور',
-    budget: 'ميزانية المجموعة خلصت',
-    // دول بييجوا من سبب صريح بترجّعه المنصة نفسها (issues_info)
-    issue: 'مش بيظهر — سبب من المنصة',
-    'ad-issue': 'مش بيظهر — مشكلة في الإعلان',
-    'adset-issue': 'مش بيظهر — مشكلة في المجموعة الإعلانية',
-    'campaign-issue': 'مش بيظهر — مشكلة في الحملة'
-  };
+  // (issue / ad-issue / adset-issue / campaign-issue بييجوا من سبب صريح بترجّعه المنصة نفسها — issues_info)
+  var PAUSED_LABELS = i18nMap(['campaign', 'adset', 'ad', 'ended', 'scheduled', 'pending', 'rejected', 'account', 'account-cap',
+    'not-eligible', 'budget', 'issue', 'ad-issue', 'adset-issue', 'campaign-issue'].reduce(function (o, k) { o[k] = 'st.' + k; return o; }, {}));
   // إعلان كل مستوياته نشطة بس مصرفش ولا جنيه آخر ٣ أيام (أول امبارح وامبارح والنهارده) — عملياً مش شغّال
   function notDelivering(c) {
     if (!c.active || (c.daysAgo != null && c.daysAgo < 2)) return false;
@@ -1627,9 +1651,11 @@
     return !(d[4] > 0) && !(d[5] > 0) && !(d[6] > 0);
   }
   function statusLabelOf(c) {
-    if (c.active) return notDelivering(c) ? 'نشط — بس مش بيصرف' : 'نشط';
-    return PAUSED_LABELS[c.pausedLevel] || 'متوقف';
+    if (c.active) return notDelivering(c) ? t('st.activeNoSpend') : t('st.active');
+    return PAUSED_LABELS[c.pausedLevel] || t('st.paused');
   }
+  // اسم نوع النتيجة (مشتريات، محادثات...) بلغة الواجهة
+  function resultLabelOf(c) { return t('res.' + (c.resultKey || 'generic')); }
 
   function cardChips(c) {
     // الأرقام للفترة المختارة. تلوين المشكلة (اللي جاي من تنبيهات آخر ٧ أيام) بيظهر بس لما الفترة
@@ -1637,23 +1663,23 @@
     var p = periodOf(c);
     var hl = function (metric) { return period.preset === 'last7' ? mv(c, metric) : ''; };
     var tip = ' — ' + periodLabel();
-    var chips = '<span class="metric-chip' + hl('spend') + '" title="الإنفاق' + tip + '">' + money(p.spend, c.currency) + '</span>';
+    var chips = '<span class="metric-chip' + hl('spend') + '" title="' + t('chip.spend') + tip + '">' + money(p.spend, c.currency) + '</span>';
     if (p.results != null) {
-      chips += '<span class="metric-chip' + hl('results') + '" title="النتائج' + tip + '">' + ar(p.results) + ' ' + esc(c.resultLabel || 'نتائج') + '</span>';
+      chips += '<span class="metric-chip' + hl('results') + '" title="' + t('chip.results') + tip + '">' + ar(p.results) + ' ' + esc(resultLabelOf(c)) + '</span>';
     }
     var showRoas = p.roas != null || hl('roas');
     if (showRoas) {
-      chips += '<span class="metric-chip' + hl('roas') + '" title="كل ١ بيتصرف بيرجع كام مبيعات' + tip + '">عائد ' + roasStr(p.roas) + '</span>';
+      chips += '<span class="metric-chip' + hl('roas') + '" title="' + t('chip.roasTip') + tip + '">' + t('chip.roas') + ' ' + roasStr(p.roas) + '</span>';
     }
     // تكلفة النتيجة بتظهر لو مفيش عائد نعرضه، أو لو هي نفسها المشكلة
     if (p.cpr != null && (!showRoas || hl('cpr'))) {
-      chips += '<span class="metric-chip' + hl('cpr') + '" title="تكلفة النتيجة الواحدة' + tip + '">' + money(p.cpr, c.currency) + ' للواحد</span>';
+      chips += '<span class="metric-chip' + hl('cpr') + '" title="' + t('chip.cprTip') + tip + '">' + money(p.cpr, c.currency) + ' ' + t('chip.each') + '</span>';
     }
     if (c.frequency != null && mv(c, 'frequency')) {
-      chips += '<span class="metric-chip' + mv(c, 'frequency') + '" title="متوسط مرات ظهور الإعلان لنفس الشخص">تكرار ' + numAr(c.frequency) + '</span>';
+      chips += '<span class="metric-chip' + mv(c, 'frequency') + '" title="' + t('chip.freqTip') + '">' + t('chip.freq') + ' ' + numAr(c.frequency) + '</span>';
     }
     if (mv(c, 'delivery') && !mv(c, 'spend')) {
-      chips += '<span class="metric-chip' + mv(c, 'delivery') + '">وصول ضعيف</span>';
+      chips += '<span class="metric-chip' + mv(c, 'delivery') + '">' + t('chip.weakDelivery') + '</span>';
     }
     return chips;
   }
@@ -1744,10 +1770,10 @@
     document.getElementById('adsContent').classList.toggle('hidden', empty);
     if (!candidates.length) {
       if (!anyLoading()) cardGrid.innerHTML = '';
-      galleryCount.textContent = anyLoading() ? 'جارٍ التحميل…' : 'سجّل الدخول لعرض إعلاناتك';
+      galleryCount.textContent = anyLoading() ? t('gallery.loading') : t('gallery.login');
     } else {
-      cardGrid.innerHTML = visible.length ? visible.map(cardMarkup).join('') : '<div class="empty-state" style="grid-column:1/-1">لا توجد إعلانات مطابقة للفلتر الحالي</div>';
-      galleryCount.textContent = 'عرض ' + ar(visible.length) + ' من ' + ar(candidates.length) + ' إعلاناً حقيقياً';
+      cardGrid.innerHTML = visible.length ? visible.map(cardMarkup).join('') : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
+      galleryCount.textContent = t('gallery.count', { n: ar(visible.length), total: ar(candidates.length) });
     }
     renderHealthCounts();
     renderFilterState();
@@ -1800,7 +1826,7 @@
     applyPeriod({ preset: periodSelect.value });
   });
   document.getElementById('periodApply').addEventListener('click', function () {
-    if (!dateFrom.value || !dateTo.value) { connectStatus.textContent = 'اختار تاريخ البداية والنهاية الأول.'; return; }
+    if (!dateFrom.value || !dateTo.value) { setStatus(msg('period.pickDates')); return; }
     applyPeriod({ preset: 'custom', since: dateFrom.value, until: dateTo.value });
   });
   syncPeriodUi();
@@ -1821,9 +1847,9 @@
 
   // وصف كل فلتر شغّال — بيظهر كشرائح فوق الإعلانات، والضغط على أي واحدة بيلغيها
   var FILTER_LABELS = {
-    health: { review: 'يحتاج مراجعة', improve: 'يحتاج تحسين', good: 'جيد', inactive: 'غير فعال' },
-    status: { active: 'نشط فقط', paused: 'متوقف فقط' },
-    format: { video: 'فيديو', image: 'تصميم', text: 'نص' }
+    health: i18nMap({ review: 'health.review', improve: 'health.improve', good: 'health.good', inactive: 'health.inactive' }),
+    status: i18nMap({ active: 'filters.activeOnly', paused: 'filters.pausedOnly' }),
+    format: i18nMap({ video: 'format.video', image: 'format.image', text: 'format.text' })
   };
   function activeFilterList() {
     var out = [];
@@ -1832,7 +1858,7 @@
       var label = (FILTER_LABELS[k] && FILTER_LABELS[k][filters[k]]) || filters[k];
       out.push({ key: k, label: label });
     });
-    if (filters.text) out.push({ key: 'text', label: 'بحث: ' + filters.text });
+    if (filters.text) out.push({ key: 'text', label: t('filters.searchChip', { q: filters.text }) });
     return out;
   }
   function renderFilterState() {
@@ -1874,23 +1900,23 @@
       return '<div class="kpi' + (cls || '') + '"><div class="kpi-label">' + label + '</div><div class="kpi-value">' + value + '</div></div>';
     };
     strip.innerHTML =
-      box('الإنفاق — ' + periodLabel(), joinMoney(spendByCur)) +
-      box('النتائج — ' + periodLabel(), ar(resultsTotal)) +
-      box('معرّض للهدر — آخر يومين', joinMoney(atRisk), ' kpi-risk') +
-      box('إعلانات تحتاج مراجعة', ar(review), review ? ' kpi-review' : '');
+      box(t('kpi.spend', { p: periodLabel() }), joinMoney(spendByCur)) +
+      box(t('kpi.results', { p: periodLabel() }), ar(resultsTotal)) +
+      box(t('kpi.atRisk'), joinMoney(atRisk), ' kpi-risk') +
+      box(t('kpi.review'), ar(review), review ? ' kpi-review' : '');
   }
 
   function updateSelectionSummary() {
     var selected = candidates.filter(function (c) { return selectedIds[c.id]; });
     var visibleNow = visibleCandidates();
     var unselectedVisible = visibleNow.filter(function (c) { return !selectedIds[c.id]; }).length;
-    selectionSummary.textContent = 'محدد: ' + ar(selected.length) + ' · غير محدد من الظاهر: ' + ar(unselectedVisible);
+    selectionSummary.textContent = t('demo.selected', { n: ar(selected.length), m: ar(unselectedVisible) });
     var toStop = selected.filter(function (c) { return c.active; }).length;
     var toResume = selected.filter(function (c) { return !c.active; }).length;
-    if (!selected.length) { stopSelectedBtn.disabled = true; stopSelectedBtn.textContent = 'إيقاف المحدد الآن'; }
-    else if (toStop > 0 && toResume === 0) { stopSelectedBtn.disabled = false; stopSelectedBtn.textContent = 'إيقاف المحدد الآن (توضيحي)'; }
-    else if (toResume > 0 && toStop === 0) { stopSelectedBtn.disabled = false; stopSelectedBtn.textContent = 'تشغيل المحدد الآن (توضيحي)'; }
-    else { stopSelectedBtn.disabled = false; stopSelectedBtn.textContent = 'تنفيذ التغييرات (توضيحي)'; }
+    if (!selected.length) { stopSelectedBtn.disabled = true; stopSelectedBtn.textContent = t('demo.stopNow'); }
+    else if (toStop > 0 && toResume === 0) { stopSelectedBtn.disabled = false; stopSelectedBtn.textContent = t('demo.stopNowDemo'); }
+    else if (toResume > 0 && toStop === 0) { stopSelectedBtn.disabled = false; stopSelectedBtn.textContent = t('demo.resumeNowDemo'); }
+    else { stopSelectedBtn.disabled = false; stopSelectedBtn.textContent = t('demo.applyDemo'); }
   }
 
   document.querySelectorAll('.filter-group').forEach(function (group) {
@@ -1918,7 +1944,7 @@
 
   function metricBox(label, value, extraCls) { return '<div class="metric-box' + (extraCls || '') + '"><div class="metric-label">' + label + '</div><div class="metric-value">' + value + '</div></div>'; }
 
-  var DEST_LABELS = { whatsapp: 'رابط واتساب', messenger: 'رابط ماسنجر', website: 'الصفحة المقصودة' };
+  var DEST_LABELS = i18nMap({ whatsapp: 'dest.whatsapp', messenger: 'dest.messenger', website: 'dest.website' });
 
   function issueMarkup(i) {
     return '<div class="issue-item ' + LEVELS[i.level].cls + '">' +
@@ -1939,15 +1965,15 @@
     // ده اللي بيخلّيك تقارن بسطر واحد مع عمود Delivery في لوحة المنصة
     var statusBits = [statusLabelOf(c)];
     if (c.deliveryReason) statusBits.push(c.deliveryReason);
-    if (c.platformStatus) statusBits.push('حالة المنصة: ' + c.platformStatus);
+    if (c.platformStatus) statusBits.push(t('x.platformStatus', { s: c.platformStatus }));
     document.getElementById('expandStatus').innerHTML =
-      '<span class="status-line-label">الظهور</span><span class="status-line-value">' + esc(statusBits.join(' — ')) + '</span>';
+      '<span class="status-line-label">' + t('x.delivery') + '</span><span class="status-line-value">' + esc(statusBits.join(' — ')) + '</span>';
     document.getElementById('expandIssues').innerHTML = a.issues.length
       ? a.issues.map(issueMarkup).join('')
-      : (c.active ? '<div class="issue-none">مفيش ملاحظات على الإعلان ده حالياً.</div>' : '');
-    document.getElementById('expandCaption').textContent = c.caption || c.headline || '(بدون نص)';
+      : (c.active ? '<div class="issue-none">' + t('x.noIssues') + '</div>' : '');
+    document.getElementById('expandCaption').textContent = c.caption || c.headline || t('x.noText');
 
-    var destLabel = DEST_LABELS[c.landingKind] || 'الوجهة';
+    var destLabel = DEST_LABELS[c.landingKind] || t('dest.default');
     // الرابط بيبقى قابل للضغط بس لو http/https — غير كده بيتعرض كنص عادي
     var landingHref = safeUrl(c.landing);
     var landingInner = landingHref
@@ -1961,28 +1987,28 @@
     var p = periodOf(c);
     var hl = function (metric) { return period.preset === 'last7' ? mv(c, metric) : ''; };
     var pl = ' (' + periodLabel() + ')';
-    var resultsLabelTxt = p.results != null ? ('النتائج — ' + esc(c.resultLabel || 'نتائج') + pl) : 'النتائج' + pl;
+    var resultsLabelTxt = p.results != null ? (t('x.results') + ' — ' + esc(resultLabelOf(c)) + pl) : t('x.results') + pl;
     var boxes =
-      metricBox('الإنفاق' + pl, money(p.spend, cur), hl('spend') || hl('delivery')) +
-      metricBox(resultsLabelTxt, p.results != null ? ar(p.results) : '— (لا توجد بيانات تحويل لهذا الإعلان)', hl('results')) +
-      metricBox('تكلفة النتيجة الواحدة', p.cpr != null ? money(p.cpr, cur) : '—', hl('cpr')) +
-      metricBox('العائد (كل ١ بيرجع)', roasStr(p.roas), hl('roas'));
-    if (c.frequency != null) boxes += metricBox('تكرار الظهور لنفس الشخص (آخر ٧ أيام)', numAr(c.frequency) + ' مرة', mv(c, 'frequency'));
-    boxes += metricBox('قيمة المبيعات' + pl, p.sales > 0 ? money(p.sales, cur) : '— (بدون قيمة مالية مرتبطة بالنتائج)');
+      metricBox(t('x.spend') + pl, money(p.spend, cur), hl('spend') || hl('delivery')) +
+      metricBox(resultsLabelTxt, p.results != null ? ar(p.results) : t('x.noConversions'), hl('results')) +
+      metricBox(t('x.cpr'), p.cpr != null ? money(p.cpr, cur) : '—', hl('cpr')) +
+      metricBox(t('x.roas'), roasStr(p.roas), hl('roas'));
+    if (c.frequency != null) boxes += metricBox(t('x.freq'), numAr(c.frequency) + ' ' + t('x.times'), mv(c, 'frequency'));
+    boxes += metricBox(t('x.sales') + pl, p.sales > 0 ? money(p.sales, cur) : t('x.noSales'));
     document.getElementById('expandMetrics').innerHTML = boxes;
 
     // السلسلة الثانية: مبيعات فعلية لو موجودة، وإلا عدد النتائج (حسب هدف الإعلان نفسه) كبديل مفيد
     var secondSeries = hasSales ? c.dailySales : c.dailyResults;
-    var secondRowLabel = hasSales ? 'المبيعات (' + currencyLabel(cur) + ')' : ('النتائج' + (c.resultLabel ? ' — ' + esc(c.resultLabel) : ''));
-    document.getElementById('legendSalesLabel').textContent = hasSales ? 'المبيعات' : 'النتائج';
+    var secondRowLabel = hasSales ? t('x.salesRow', { cur: currencyLabel(cur) }) : (t('x.results') + (c.resultKey ? ' — ' + esc(resultLabelOf(c)) : ''));
+    document.getElementById('legendSalesLabel').textContent = hasSales ? t('x.salesLegend') : t('x.resultsLegend');
     // عمود "أمس" متعلّم — أغلب التنبيهات مبنية عليه، وعمود النهارده يوم لسه مخلصش
     var colCls = function (i) { return i === 5 ? ' class="col-yesterday"' : (i === 6 ? ' class="col-today"' : ''); };
-    var headerCells = c.dailyDates.map(function (dt, i) { return '<th' + colCls(i) + '>' + (i === 5 ? 'أمس' : (i === 6 ? 'اليوم' : dt)) + '</th>'; }).join('');
+    var headerCells = c.dailyDates.map(function (dt, i) { return '<th' + colCls(i) + '>' + (i === 5 ? t('x.yesterday') : (i === 6 ? t('x.today') : fmtKey(dt))) + '</th>'; }).join('');
     var spendCells = c.daily.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + digitsAny(Math.round(v)) + '</span></td>'; }).join('');
     var secondCells = secondSeries.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + digitsAny(Math.round(v)) + '</span></td>'; }).join('');
     document.getElementById('expandChart').innerHTML =
       '<div class="daily-table-wrap"><table class="daily-table"><thead><tr><th></th>' + headerCells + '</tr></thead>' +
-      '<tbody><tr><td>الإنفاق (' + currencyLabel(cur) + ')</td>' + spendCells + '</tr>' +
+      '<tbody><tr><td>' + t('x.spendRow', { cur: currencyLabel(cur) }) + '</td>' + spendCells + '</tr>' +
       '<tr><td>' + secondRowLabel + '</td>' + secondCells + '</tr></tbody></table></div>';
 
     expandOverlay.classList.remove('hidden');
@@ -2042,13 +2068,13 @@
         }
         var permalink = vidResp && vidResp.permalink_url && safeUrl('https://www.facebook.com' + vidResp.permalink_url);
         var linkHtml = permalink
-          ? '<a class="video-fallback-link" href="' + esc(permalink) + '" target="_blank" rel="noopener noreferrer">🔗 فتح الفيديو الأصلي على Meta</a>'
+          ? '<a class="video-fallback-link" href="' + esc(permalink) + '" target="_blank" rel="noopener noreferrer">' + t('x.openVideo') + '</a>'
           : '';
         if (mediaHtml || linkHtml) {
           el.innerHTML = mediaHtml + linkHtml;
           fitEmbeds(el);
         } else {
-          el.innerHTML += '<div class="video-fallback-note">تعذّر جلب الفيديو لهذا الإعلان (قد يحتاج صلاحية إضافية على التطبيق).</div>';
+          el.innerHTML += '<div class="video-fallback-note">' + t('x.videoFailed') + '</div>';
         }
       });
     });
@@ -2056,12 +2082,14 @@
 
   expandClose.addEventListener('click', function () { expandOverlay.classList.add('hidden'); });
   expandOverlay.addEventListener('click', function (e) { if (e.target === expandOverlay) expandOverlay.classList.add('hidden'); });
-  document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
+  function closeOverlays() {
     expandOverlay.classList.add('hidden');
     settingsOverlay.classList.add('hidden');
     platformOverlay.classList.add('hidden');
     closeFilters();
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeOverlays();
   });
 
   function findCandidate(id) { return candidates.filter(function (x) { return x.id === id; })[0]; }
@@ -2152,7 +2180,7 @@
 
     if (!candidates.length) {
       alertsSummaryEl.innerHTML = '';
-      alertsListEl.innerHTML = '<div class="empty-state">سجّل الدخول وحمّل حساب إعلاني عشان تظهر التنبيهات هنا.</div>';
+      alertsListEl.innerHTML = '<div class="empty-state">' + t('alerts.loginFirst') + '</div>';
       return;
     }
 
@@ -2163,11 +2191,11 @@
         '<span class="summary-count">' + ar(count) + '</span><span class="summary-label">' + label + '</span></button>';
     };
     alertsSummaryEl.innerHTML =
-      '<div class="summary-risk"><span class="summary-risk-label">ميزانية معرّضة للهدر (صرف بدون نتائج أو بخسارة)</span><span class="summary-risk-value">' + atRisk + '</span></div>' +
+      '<div class="summary-risk"><span class="summary-risk-label">' + t('alerts.atRisk') + '</span><span class="summary-risk-value">' + atRisk + '</span></div>' +
       '<div class="summary-boxes summary-boxes-3">' +
-        box('critical', 'lv-critical', s.levels.critical, 'عاجل — محتاج تدخّل') +
-        box('warning', 'lv-warning', s.levels.warning, 'مهم — تابعه') +
-        box('opportunity', 'lv-opportunity', s.levels.opportunity, 'فرص للنمو') +
+        box('critical', 'lv-critical', s.levels.critical, t('alerts.boxUrgent')) +
+        box('warning', 'lv-warning', s.levels.warning, t('alerts.boxImportant')) +
+        box('opportunity', 'lv-opportunity', s.levels.opportunity, t('alerts.boxOpp')) +
       '</div>';
 
     var list = analysis.alerts.filter(function (a) {
@@ -2176,7 +2204,7 @@
     });
     alertsListEl.innerHTML = list.length
       ? list.map(alertMarkup).join('')
-      : '<div class="empty-state">' + (alertsLevelFilter === 'urgent' ? 'مفيش حاجة عاجلة حالياً — إعلاناتك ماشية كويس.' : 'مفيش تنبيهات من النوع ده حالياً.') + '</div>';
+      : '<div class="empty-state">' + (alertsLevelFilter === 'urgent' ? t('alerts.noneUrgent') : t('alerts.noneType')) + '</div>';
   }
 
   alertsSummaryEl.addEventListener('click', function (e) {
@@ -2198,12 +2226,12 @@
   // الشاشة الأساسية: نمط جاهز + العائد المستهدف + فترة التعلّم. باقي الحدود تحت "إعدادات متقدمة"
   var settingsOverlay = document.getElementById('settingsOverlay');
   var settingsForm = document.getElementById('settingsForm');
-  var SETTING_UNITS = { multiple: '×', ratio: '٪', days: 'يوم', times: 'مرة', count: 'نتيجة' };
+  var SETTING_UNITS = i18nMap({ multiple: 'unit.multiple', ratio: 'unit.ratio', days: 'unit.days', times: 'unit.times', count: 'unit.count' });
   var MAIN_SETTINGS = { roasTarget: true, learningDays: true };
   var PRESET_LABELS = {
-    calm: { name: 'هادي', help: 'تنبيهات أقل — الحاجات الكبيرة بس' },
-    balanced: { name: 'متوازن', help: 'الافتراضي — مناسب لأغلب الحسابات' },
-    strict: { name: 'صارم', help: 'تنبيهات أكتر — أي انحراف بسيط' }
+    calm: i18nMap({ name: 'preset.calm', help: 'preset.calm.help' }),
+    balanced: i18nMap({ name: 'preset.balanced', help: 'preset.balanced.help' }),
+    strict: i18nMap({ name: 'preset.strict', help: 'preset.strict.help' })
   };
 
   function settingRow(m, value) {
@@ -2216,12 +2244,12 @@
   function renderSettingsForm() {
     var current = PauseProofAlerts.mergeSettings(alertSettings);
     var preset = alertSettings._preset || 'balanced';
-    var presetHtml = '<fieldset class="settings-group"><legend>حساسية التنبيهات</legend><div class="preset-options">' +
+    var presetHtml = '<fieldset class="settings-group"><legend>' + t('settings.sensitivity') + '</legend><div class="preset-options">' +
       Object.keys(PRESET_LABELS).map(function (p) {
         return '<label class="preset-option"><input type="radio" name="_preset" value="' + p + '"' + (p === preset ? ' checked' : '') + '>' +
           '<span class="preset-name">' + PRESET_LABELS[p].name + '</span><span class="preset-help">' + PRESET_LABELS[p].help + '</span></label>';
       }).join('') + '</div></fieldset>';
-    var mainHtml = '<fieldset class="settings-group"><legend>أهداف البزنس</legend>' +
+    var mainHtml = '<fieldset class="settings-group"><legend>' + t('settings.goals') + '</legend>' +
       PauseProofAlerts.SETTINGS_META.filter(function (m) { return MAIN_SETTINGS[m.key]; }).map(function (m) { return settingRow(m, current[m.key]); }).join('') +
       '</fieldset>';
     var groups = {};
@@ -2229,7 +2257,7 @@
       if (MAIN_SETTINGS[m.key]) return;
       (groups[m.group] = groups[m.group] || []).push(m);
     });
-    var advancedHtml = '<details class="settings-advanced"><summary>إعدادات متقدمة (كل الحدود بالتفصيل)</summary>' +
+    var advancedHtml = '<details class="settings-advanced"><summary>' + t('settings.advanced') + '</summary>' +
       Object.keys(groups).map(function (g) {
         return '<fieldset class="settings-group"><legend>' + esc(g) + '</legend>' + groups[g].map(function (m) { return settingRow(m, current[m.key]); }).join('') + '</fieldset>';
       }).join('') + '</details>';
@@ -2270,7 +2298,7 @@
     var saved = storeAlertSettings(alertSettings);
     settingsOverlay.classList.add('hidden');
     render();
-    if (!saved) connectStatus.textContent = 'اتطبقت الإعدادات، بس المتصفح مش سامح بحفظها — هترجع للافتراضي لو قفلت الصفحة.';
+    if (!saved) setStatus(msg('settings.notSaved'));
   });
 
   // ملاحظة صريحة: التبديل هنا توضيحي (simulated) — بيحاكي نفس تسلسل الإرسال والتحقق
@@ -2278,11 +2306,11 @@
   function toggleOne(c, btnEl) {
     btnEl.disabled = true;
     if (c.active) {
-      setBadge(c.id, 'sending', 'جارٍ الإرسال (توضيحي)…');
-      setTimeout(function () { setBadge(c.id, 'confirmed-off', 'متوقف — توضيحي'); c.active = false; btnEl.disabled = false; }, 700);
+      setBadge(c.id, 'sending', t('demo.sending'));
+      setTimeout(function () { setBadge(c.id, 'confirmed-off', t('demo.pausedDemo')); c.active = false; btnEl.disabled = false; }, 700);
     } else {
-      setBadge(c.id, 'activating', 'جارٍ التفعيل (توضيحي)…');
-      setTimeout(function () { setBadge(c.id, 'confirmed-on', 'نشط — توضيحي'); c.active = true; btnEl.disabled = false; }, 700);
+      setBadge(c.id, 'activating', t('demo.activating'));
+      setTimeout(function () { setBadge(c.id, 'confirmed-on', t('demo.activeDemo')); c.active = true; btnEl.disabled = false; }, 700);
     }
   }
 
@@ -2300,32 +2328,32 @@
     var toStop = selected.filter(function (c) { return c.active; });
     var toResume = selected.filter(function (c) { return !c.active; });
     stopSelectedBtn.disabled = true;
-    stopSelectedBtn.textContent = 'جارٍ التنفيذ (توضيحي)…';
+    stopSelectedBtn.textContent = t('demo.executing');
     var startTime = performance.now();
     var doneCount = 0, total = selected.length;
     function checkAllDone() {
       if (doneCount === total) {
         var elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
-        stopSelectedBtn.textContent = 'تم (توضيحي) ✓';
-        proofTime.textContent = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        stopSelectedBtn.textContent = t('demo.done');
+        proofTime.textContent = new Date().toLocaleTimeString(isAr() ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         var parts = [];
-        if (toStop.length) parts.push(ar(toStop.length) + ' نسخة (توضيحي) تم إيقافها');
-        if (toResume.length) parts.push(ar(toResume.length) + ' نسخة (توضيحي) تم تشغيلها');
+        if (toStop.length) parts.push(t('demo.stoppedN', { n: ar(toStop.length) }));
+        if (toResume.length) parts.push(t('demo.resumedN', { n: ar(toResume.length) }));
         proofStatus.textContent = parts.join(' + ');
-        proofDuration.textContent = elapsed + ' ثانية';
-        proofIncident.textContent = 'هذا تقرير توضيحي — لا يعكس أمراً حقيقياً أُرسل إلى Meta بعد.';
+        proofDuration.textContent = t('demo.seconds', { n: ar(elapsed) });
+        proofIncident.textContent = t('demo.incident');
         proofReport.classList.remove('hidden');
       }
     }
     selected.forEach(function (c, i) {
       var baseDelay = 250 + i * 220;
       setTimeout(function () {
-        if (c.active) { setBadge(c.id, 'sending', 'جارٍ الإرسال (توضيحي)…'); }
-        else { setBadge(c.id, 'activating', 'جارٍ التفعيل (توضيحي)…'); }
+        if (c.active) { setBadge(c.id, 'sending', t('demo.sending')); }
+        else { setBadge(c.id, 'activating', t('demo.activating')); }
       }, baseDelay);
       setTimeout(function () {
-        if (c.active) { setBadge(c.id, 'confirmed-off', 'متوقف — توضيحي'); c.active = false; }
-        else { setBadge(c.id, 'confirmed-on', 'نشط — توضيحي'); c.active = true; }
+        if (c.active) { setBadge(c.id, 'confirmed-off', t('demo.pausedDemo')); c.active = false; }
+        else { setBadge(c.id, 'confirmed-on', t('demo.activeDemo')); c.active = true; }
         doneCount++; checkAllDone();
       }, baseDelay + 650);
     });
@@ -2377,14 +2405,14 @@
           if (resp && resp.status === 'connected') { loadAdAccounts(active.meta); return; }
           delete activeSources.meta;
           setPlatformOptions('meta', []);
-          connectStatus.textContent = 'انتهت جلسة Meta — سجّل الدخول تاني لعرض إعلاناتها.';
+          setStatus(msg('s.metaExpired'));
         });
       });
     });
     saveSession();
 
     if (expired.length) {
-      connectStatus.textContent = 'انتهت جلسة ' + expired.map(function (p) { return PLATFORM_NAMES[p] || p; }).join(' و') + ' — سجّل الدخول تاني لعرض إعلاناتها.';
+      setStatus(msg('s.sessionExpired', { list: function () { return expired.map(function (p) { return PLATFORM_NAMES[p] || p; }).join(t('join.and')); } }));
     }
   }
   restoreSession(savedSession);

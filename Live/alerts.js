@@ -51,38 +51,34 @@
     }
   };
 
-  // وصف كل إعداد لشاشة الإعدادات — بلغة بزنس
+  // النصوص كلها من i18n.js — عشان التنبيهات تطلع بلغة الواجهة
+  var t = function (k, v) { return global.I18N ? global.I18N.t(k, v) : k; };
+
+  // وصف كل إعداد لشاشة الإعدادات — بلغة بزنس (النص نفسه في i18n.js تحت set.<key> و set.<key>.help)
   // kind: multiple (×) / ratio (بيتعرض كنسبة مئوية) / days / times / count
   var SETTINGS_META = [
-    { key: 'learningDays', kind: 'days', group: 'عام', label: 'فترة التعلّم للإعلان الجديد', help: 'الإعلانات الأحدث من كده مش هنحكم على أداءها لسه — المنصات بتحتاج كام يوم تتعلّم.' },
-    { key: 'oldAdDays', kind: 'days', group: 'عام', label: 'الإعلان يعتبر قديم بعد', help: 'بنستخدمها مع تكرار الظهور لاكتشاف زهق الجمهور.' },
-    { key: 'wasteCprMultiple', kind: 'multiple', group: 'الهدر', label: 'صرف بدون نتائج', help: 'ننبّه لو الإعلان صرف في آخر يومين أكتر من المضاعف ده من متوسط تكلفة النتيجة في حسابك، من غير ولا نتيجة.' },
-    { key: 'cprWarnMultiple', kind: 'multiple', group: 'الهدر', label: 'تكلفة النتيجة مرتفعة (تحسين)', help: 'تكلفة النتيجة في الإعلان مقارنة بمتوسط حسابك.' },
-    { key: 'cprCriticalMultiple', kind: 'multiple', group: 'الهدر', label: 'تكلفة النتيجة مرتفعة جداً (مراجعة)', help: 'تكلفة النتيجة في الإعلان مقارنة بمتوسط حسابك.' },
-    { key: 'roasBreakEven', kind: 'multiple', group: 'العائد', label: 'حد الخسارة', help: 'لو كل ١ بيتصرف بيرجع أقل من كده مبيعات، الإعلان بيخسر.' },
-    { key: 'roasTarget', kind: 'multiple', group: 'العائد', label: 'العائد المستهدف', help: 'كل ١ بيتصرف المفروض يرجع كام مبيعات.' },
-    { key: 'lowDeliveryRatio', kind: 'ratio', group: 'الصرف', label: 'وصول ضعيف', help: 'إعلان فعّال صرف أمس أقل من النسبة دي من متوسطه اليومي.' },
-    { key: 'spikeMultiple', kind: 'multiple', group: 'الصرف', label: 'صرف أعلى من المعتاد', help: 'إعلان صرف أمس أكتر من المضاعف ده من متوسطه، من غير ما النتائج تزيد بنفس النسبة.' },
-    { key: 'dropRatio', kind: 'ratio', group: 'النتائج', label: 'انخفاض النتائج', help: 'نتائج أمس أقل من النسبة دي من متوسطها اليومي مع نفس مستوى الصرف.' },
-    { key: 'scaleMinResults', kind: 'count', group: 'الفرص', label: 'أقل عدد نتائج لفرصة زيادة الاستثمار', help: 'عدد النتائج أمس.' },
-    { key: 'scaleCprRatio', kind: 'ratio', group: 'الفرص', label: 'تكلفة النتيجة في الفرصة', help: 'تكلفة النتيجة أمس أقل من النسبة دي من متوسط حسابك.' },
-    { key: 'frequencyWarn', kind: 'times', group: 'الجمهور', label: 'بداية زهق الجمهور (مع إعلان قديم)', help: 'متوسط عدد مرات ظهور الإعلان لنفس الشخص في آخر ٧ أيام.' },
-    { key: 'frequencyHigh', kind: 'times', group: 'الجمهور', label: 'الجمهور زهق من الإعلان', help: 'متوسط عدد مرات ظهور الإعلان لنفس الشخص في آخر ٧ أيام.' },
-    { key: 'accountSpikeMultiple', kind: 'multiple', group: 'الحساب', label: 'إنفاق الحساب زاد فجأة', help: 'إجمالي صرف الحساب أمس مقارنة بمتوسطه اليومي.' },
-    { key: 'accountDropRatio', kind: 'ratio', group: 'الحساب', label: 'إنفاق الحساب قلّ فجأة', help: 'إجمالي صرف الحساب أمس مقارنة بمتوسطه اليومي.' },
-    { key: 'concentrationShare', kind: 'ratio', group: 'الحساب', label: 'تركيز الميزانية في إعلان واحد', help: 'إعلان واحد أداؤه أقل من المتوسط واخد النسبة دي أو أكتر من صرف الحساب.' }
-  ];
+    ['learningDays', 'days', 'general'], ['oldAdDays', 'days', 'general'],
+    ['wasteCprMultiple', 'multiple', 'waste'], ['cprWarnMultiple', 'multiple', 'waste'], ['cprCriticalMultiple', 'multiple', 'waste'],
+    ['roasBreakEven', 'multiple', 'roas'], ['roasTarget', 'multiple', 'roas'],
+    ['lowDeliveryRatio', 'ratio', 'spend'], ['spikeMultiple', 'multiple', 'spend'],
+    ['dropRatio', 'ratio', 'results'],
+    ['scaleMinResults', 'count', 'opps'], ['scaleCprRatio', 'ratio', 'opps'],
+    ['frequencyWarn', 'times', 'audience'], ['frequencyHigh', 'times', 'audience'],
+    ['accountSpikeMultiple', 'multiple', 'account'], ['accountDropRatio', 'ratio', 'account'], ['concentrationShare', 'ratio', 'account']
+  ].map(function (m) {
+    return {
+      key: m[0], kind: m[1],
+      get group() { return t('setgroup.' + m[2]); },
+      get label() { return t('set.' + m[0]); },
+      get help() { return t('set.' + m[0] + '.help'); }
+    };
+  });
 
   var LEVEL_RANK = { critical: 3, warning: 2, info: 1, opportunity: 0 };
 
-  // صيغة المفرد لكل نوع نتيجة — عشان الجمل تبقى طبيعية ("تكلفة عملية الشراء الواحدة" مش "تكلفة الـمشتريات")
-  var SINGULAR = {
-    'مشتريات': 'عملية شراء', 'عملاء محتملون': 'عميل محتمل', 'محادثات واتساب': 'محادثة',
-    'نقرات على الرابط': 'نقرة', 'زيارات الصفحة المقصودة': 'زيارة', 'تثبيتات التطبيق': 'تثبيت',
-    'تفاعل مع المنشور': 'تفاعل', 'مشاهدات الفيديو': 'مشاهدة', 'ردود أولى بالرسائل': 'رد',
-    'تحويلات': 'تحويل', 'سوايب (نقرات)': 'سوايب'
-  };
-  function singularOf(label) { return SINGULAR[label] || 'نتيجة'; }
+  // اسم نوع النتيجة (جمع) وصيغة المفرد — عشان الجمل تبقى طبيعية ("تكلفة عملية الشراء الواحدة" مش "تكلفة الـمشتريات")
+  function pluralOf(key) { return t('res.' + (key || 'generic')); }
+  function singularOf(key) { return t('res1.' + (key || 'generic')); }
 
   function sum(arr, from, to) {
     var s = 0;
@@ -115,8 +111,8 @@
       total7 += c.spend || 0;
       if (c.active) activeCount++;
       if (any(c.dailySales)) hasSales = true;
-      if (c.results == null || !c.resultLabel) return;
-      var g = byLabel[c.resultLabel] || (byLabel[c.resultLabel] = { spend: 0, results: 0, adsWithResults: 0 });
+      if (c.results == null || !c.resultKey) return;
+      var g = byLabel[c.resultKey] || (byLabel[c.resultKey] = { spend: 0, results: 0, adsWithResults: 0 });
       g.spend += c.spend || 0;
       g.results += c.results || 0;
       if (c.results > 0) g.adsWithResults++;
@@ -143,12 +139,12 @@
 
   function evaluateAd(c, acc, s, fmt) {
     var issues = [];
-    var name = '«' + (c.offer || c.headline || c.id) + '»';
+    var name = t('al.name', { name: c.offer || c.headline || c.id });
     var cur = c.currency;
     var money = function (n) { return fmt.money(n, cur); };
-    var label = c.resultLabel || 'نتائج';
-    var one = singularOf(c.resultLabel);
-    var group = c.resultLabel ? acc.byLabel[c.resultLabel] : null;
+    var label = pluralOf(c.resultKey);
+    var one = singularOf(c.resultKey);
+    var group = c.resultKey ? acc.byLabel[c.resultKey] : null;
     // متوسط الحساب يبقى له معنى بس لو فيه أكتر من إعلان جاب نتائج من نفس النوع
     var avgCpr = group && group.adsWithResults >= 2 ? group.avgCpr : null;
     var age = c.daysAgo;
@@ -166,34 +162,30 @@
     //    الاستثناء الوحيد: إعلان كان شغّال وبيصرف في آخر ٣ أيام والمنصة رفضته — ده توقف مفاجئ مش مقصود
     if (!c.active) {
       if (c.reviewStatus === 'disapproved' && sum(daily, 3, TODAY) > 0) {
-        issues.push(makeIssue('critical', ['status'], 'إعلان شغّال اترفض ووقف',
-          'المنصة رفضت ' + name + ' بعد ما كان شغّال وصرف ' + money(sum(daily, 3, TODAY)) + ' في آخر ٣ أيام، فوقف عن الظهور.',
-          'اطلب من مسؤول الإعلانات يراجع سبب الرفض ويعدّل الإعلان أو يستبدله.'));
+        issues.push(makeIssue('critical', ['status'], t('al.rejected.t'),
+          t('al.rejected.d', { name: name, spend: money(sum(daily, 3, TODAY)) }),
+          t('al.rejected.a')));
       }
       return finalize(c, issues);
     }
 
     // 2) ظهور محدود بسبب ملاحظة من المنصة (والإعلان لسه شغّال)
     if (c.reviewStatus === 'limited') {
-      issues.push(makeIssue('warning', ['status', 'delivery'], 'ظهور محدود بسبب سياسات المنصة',
-        'المنصة بتعرض ' + name + ' لعدد محدود من الناس بسبب ملاحظة على محتواه.',
-        'اسأل مسؤول الإعلانات عن الملاحظة — تعديل بسيط ممكن يرجّع الوصول الطبيعي.'));
+      issues.push(makeIssue('warning', ['status', 'delivery'], t('al.limited.t'),
+        t('al.limited.d', { name: name }), t('al.limited.a')));
     }
 
     // 3) وصول ضعيف أو متوقف رغم إن الإعلان فعّال
     if (age == null || age >= 2) {
       if (spendY === 0 && prevSpendAvg > 0) {
-        issues.push(makeIssue('warning', ['delivery', 'spend'], 'إعلان فعّال لكنه مصرفش أمس',
-          name + ' فعّال، لكنه مصرفش أي حاجة أمس مع إن متوسط صرفه ' + money(prevSpendAvg) + ' في اليوم — يعني مش بيظهر للناس.',
-          'اسأل مسؤول الإعلانات: هل الميزانية خلصت، أو الجمهور ضيق، أو فيه مشكلة في المزايدة؟'));
+        issues.push(makeIssue('warning', ['delivery', 'spend'], t('al.noSpendY.t'),
+          t('al.noSpendY.d', { name: name, avg: money(prevSpendAvg) }), t('al.noSpendY.a')));
       } else if (spendY > 0 && prevSpendAvg > 0 && spendY < prevSpendAvg * s.lowDeliveryRatio) {
-        issues.push(makeIssue('warning', ['delivery', 'spend'], 'إعلان فعّال لكن وصوله ضعيف',
-          name + ' فعّال، لكنه صرف أمس ' + money(spendY) + ' بس، مقابل متوسط ' + money(prevSpendAvg) + ' في اليوم قبلها — يعني بيوصل لعدد قليل جداً من الناس.',
-          'اسأل مسؤول الإعلانات عن السبب: ميزانية، جمهور، أو ملاحظة من المنصة.'));
+        issues.push(makeIssue('warning', ['delivery', 'spend'], t('al.weak.t'),
+          t('al.weak.d', { name: name, spend: money(spendY), avg: money(prevSpendAvg) }), t('al.weak.a')));
       } else if (c.spend === 0 && prevSpendAvg === 0) {
-        issues.push(makeIssue('warning', ['delivery', 'spend'], 'إعلان فعّال لكنه مصرفش خالص',
-          name + ' فعّال لكنه مصرفش أي حاجة في آخر ٧ أيام.',
-          'لو الإعلان المفروض يكون شغّال، راجع مع مسؤول الإعلانات ليه مش بيظهر.'));
+        issues.push(makeIssue('warning', ['delivery', 'spend'], t('al.noSpend7.t'),
+          t('al.noSpend7.d', { name: name }), t('al.noSpend7.a')));
       }
     }
 
@@ -207,36 +199,33 @@
         : ((!accountHasResults && acc.avgAdSpend2 > 0) ? acc.avgAdSpend2 : null);
       if (res2 === 0 && spend2 > 0 && threshold) {
         var wasteDetail = avgCpr
-          ? name + ' صرف ' + money(spend2) + ' خلال آخر يومين بدون أي ' + label + '. متوسط تكلفة كل ' + one + ' في حسابك ' + money(avgCpr) +
-              '، يعني الصرف ده كان المفروض يجيب حوالي ' + fmt.int(Math.max(1, spend2 / avgCpr)) + ' ' + label + '.'
-          : name + ' صرف ' + money(spend2) + ' خلال آخر يومين بدون أي ' + label + '، ومفيش ولا إعلان في الحساب جاب نتيجة في نفس الفترة.';
+          ? t('al.waste.d', { name: name, spend: money(spend2), label: label, one: one, avg: money(avgCpr), expected: fmt.int(Math.max(1, spend2 / avgCpr)) })
+          : t('al.waste.dNoAvg', { name: name, spend: money(spend2), label: label });
         if (spend2 >= threshold) {
           wasteRaised = true;
-          issues.push(makeIssue('critical', ['spend', 'results'], 'صرف بدون نتائج', wasteDetail,
-            'راجع مع مسؤول الإعلانات: الإعلان محتاج تعديل أو إيقاف عشان الميزانية دي متتهدرش.', spend2, 'waste', true));
+          issues.push(makeIssue('critical', ['spend', 'results'], t('al.waste.t'), wasteDetail,
+            t('al.waste.a'), spend2, 'waste', true));
         } else if (spend2 >= threshold / 2) {
           wasteRaised = true;
-          issues.push(makeIssue('warning', ['spend', 'results'], 'صرف بدون نتائج لحد دلوقتي', wasteDetail,
-            'تابعه النهارده — لو فضل كده هيتحول لهدر في الميزانية.', spend2, 'waste-early'));
+          issues.push(makeIssue('warning', ['spend', 'results'], t('al.wasteEarly.t'), wasteDetail,
+            t('al.wasteEarly.a'), spend2, 'waste-early'));
         }
       }
 
       // 5) العائد (بس للإعلانات اللي بتسجّل قيمة مبيعات)
       if (acc.hasSales && any(sales) && spendY > 0 && (!avgCpr || spendY >= avgCpr * 0.5) && !(salesY === 0 && wasteRaised)) {
         var roasY = salesY / spendY;
-        var roasText = 'كل ١ ' + fmt.currencyLabel(cur) + ' اتصرف رجّع ' + fmt.num(roasY) + ' ' + fmt.currencyLabel(cur);
+        var roasText = t('al.roasText', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: fmt.num(roasY) });
+        var roasVars = { name: name, spend: money(spendY), sales: money(salesY), roasText: roasText, target: fmt.num(s.roasTarget) };
         if (roasY < s.roasBreakEven) {
-          issues.push(makeIssue('critical', ['roas', 'spend'], 'الإعلان بيخسر',
-            name + ' صرف أمس ' + money(spendY) + ' ورجّع مبيعات ' + money(salesY) + ' بس — ' + roasText + '، يعني أقل من التكلفة.',
-            'الإعلان ده بيخسر فلوس حالياً — ناقش مع مسؤول الإعلانات تعديله أو تقليل ميزانيته.', spendY - salesY, 'loss', true));
+          issues.push(makeIssue('critical', ['roas', 'spend'], t('al.loss.t'), t('al.loss.d', roasVars),
+            t('al.loss.a'), spendY - salesY, 'loss', true));
         } else if (roasY < s.roasTarget) {
-          issues.push(makeIssue('warning', ['roas'], 'عائد أقل من المستهدف',
-            name + ' صرف أمس ' + money(spendY) + ' ورجّع مبيعات ' + money(salesY) + ' — ' + roasText + '، والمستهدف ' + fmt.num(s.roasTarget) + '.',
-            'فيه عائد لكنه ضعيف — تحسين الإعلان أو الصفحة المقصودة أو الاستهداف ممكن يرفعه.', 0));
+          issues.push(makeIssue('warning', ['roas'], t('al.lowRoas.t'), t('al.lowRoas.d', roasVars),
+            t('al.lowRoas.a'), 0));
         } else if (roasY >= s.roasTarget * 1.5) {
-          issues.push(makeIssue('opportunity', ['roas'], 'عائد ممتاز',
-            name + ' صرف أمس ' + money(spendY) + ' ورجّع مبيعات ' + money(salesY) + ' — ' + roasText + '، أعلى بكتير من المستهدف.',
-            'من أربح إعلاناتك حالياً — ممكن تناقش مع مسؤول الإعلانات زيادة ميزانيته تدريجياً.', 0, 'roas-great'));
+          issues.push(makeIssue('opportunity', ['roas'], t('al.greatRoas.t'), t('al.greatRoas.d', roasVars),
+            t('al.greatRoas.a'), 0, 'roas-great'));
         }
       }
 
@@ -245,10 +234,10 @@
         var ratio = c.cpr / avgCpr;
         if (ratio >= s.cprWarnMultiple) {
           var critical = ratio >= s.cprCriticalMultiple;
-          var oldNote = age != null && age >= s.oldAdDays ? ' (والإعلان شغّال من ' + fmt.int(age) + ' يوم)' : '';
-          issues.push(makeIssue(critical ? 'critical' : 'warning', ['cpr'], 'تكلفة ' + label + ' عالية',
-            'كل ' + one + ' في ' + name + ' بتتكلف ' + money(c.cpr) + oldNote + ' — أعلى بـ ' + fmt.int((ratio - 1) * 100) + '٪ من متوسط حسابك (' + money(avgCpr) + ').',
-            'فيه إعلانات تانية بتجيب نفس النتيجة بتكلفة أقل — ممكن نقل جزء من الميزانية ليها.',
+          var oldNote = age != null && age >= s.oldAdDays ? t('al.cpr.old', { days: fmt.int(age) }) : '';
+          issues.push(makeIssue(critical ? 'critical' : 'warning', ['cpr'], t('al.cpr.t', { label: label, one1: one }),
+            t('al.cpr.d', { one: one, name: name, cpr: money(c.cpr), old: oldNote, pct: fmt.int((ratio - 1) * 100), avg: money(avgCpr) }),
+            t('al.cpr.a'),
             c.spend - c.results * avgCpr));
         }
       }
@@ -257,9 +246,9 @@
       var prevResAvg = sum(results, 1, DAY_BEFORE) / 4;
       var prevSpend4 = sum(daily, 1, DAY_BEFORE) / 4;
       if (!wasteRaised && prevResAvg >= 2 && prevSpend4 > 0 && spendY >= prevSpend4 * 0.7 && resY <= prevResAvg * s.dropRatio) {
-        issues.push(makeIssue('warning', ['results'], 'نتائج أقل من المعتاد',
-          name + ' جاب أمس ' + fmt.int(resY) + ' ' + label + ' بس، مقابل متوسط ' + fmt.num(prevResAvg) + ' في اليوم، مع إن الصرف تقريباً بنفس المعدل.',
-          'ممكن الجمهور بدأ يزهق أو فيه مشكلة في الموقع أو رقم التواصل — تابعه النهارده.'));
+        issues.push(makeIssue('warning', ['results'], t('al.drop.t'),
+          t('al.drop.d', { name: name, n: fmt.int(resY), label: label, avg: fmt.num(prevResAvg) }),
+          t('al.drop.a')));
       }
     }
 
@@ -269,9 +258,9 @@
     if (!learning && !wasteRaised && priorSpendDays >= 3 && prevSpendAvg > 0 && spendY >= prevSpendAvg * s.spikeMultiple) {
       var yCpr = resY > 0 ? spendY / resY : null;
       if (!avgCpr || yCpr == null || yCpr > avgCpr) {
-        issues.push(makeIssue('warning', ['spend'], 'صرف أعلى من المعتاد',
-          name + ' صرف أمس ' + money(spendY) + ' — حوالي ' + fmt.num(spendY / prevSpendAvg) + ' أضعاف متوسطه اليومي (' + money(prevSpendAvg) + ')، من غير ما النتائج تتحسن بنفس النسبة.',
-          'اتأكد إن زيادة الميزانية مقصودة وإن النتائج هتزيد معاها.', spendY - prevSpendAvg));
+        issues.push(makeIssue('warning', ['spend'], t('al.spike.t'),
+          t('al.spike.d', { name: name, spend: money(spendY), x: fmt.num(spendY / prevSpendAvg), avg: money(prevSpendAvg) }),
+          t('al.spike.a'), spendY - prevSpendAvg));
       }
     }
 
@@ -280,11 +269,9 @@
       var isOld = age != null && age >= s.oldAdDays;
       if (c.frequency >= s.frequencyHigh || (isOld && c.frequency >= s.frequencyWarn)) {
         var hurting = avgCpr && c.cpr != null && c.cpr >= avgCpr * s.cprWarnMultiple;
-        issues.push(makeIssue(hurting ? 'critical' : 'warning', ['frequency'], 'الجمهور زهق من الإعلان',
-          'نفس الشخص شاف ' + name + ' حوالي ' + fmt.num(c.frequency) + ' مرات في المتوسط خلال آخر ٧ أيام' +
-            (isOld ? '، والإعلان شغّال من ' + fmt.int(age) + ' يوم' : '') +
-            '. تكرار نفس الإعلان بيخلّي الناس تتجاهله والتكلفة تزيد.',
-          'وقت مناسب لتجديد الإعلان (صورة أو فيديو أو نص جديد) أو توسيع الجمهور.'));
+        issues.push(makeIssue(hurting ? 'critical' : 'warning', ['frequency'], t('al.fatigue.t'),
+          t('al.fatigue.d', { name: name, f: fmt.num(c.frequency), old: isOld ? t('al.fatigue.old', { days: fmt.int(age) }) : '' }),
+          t('al.fatigue.a')));
       }
     }
 
@@ -298,12 +285,12 @@
         issues.forEach(function (i, idx) { if (i.code === 'roas-great') greatIdx = idx; });
         var roasNote = '';
         if (greatIdx !== -1) {
-          roasNote = ' وكمان كل ١ ' + fmt.currencyLabel(cur) + ' اتصرف أمس رجّع ' + fmt.num(salesY / spendY) + ' ' + fmt.currencyLabel(cur) + ' مبيعات.';
+          roasNote = t('al.scale.note', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: fmt.num(salesY / spendY) });
           issues.splice(greatIdx, 1);
         }
-        issues.push(makeIssue('opportunity', ['results', 'cpr', 'roas'], 'فرصة لزيادة الاستثمار',
-          name + ' جاب أمس ' + fmt.int(resY) + ' ' + label + ' بتكلفة ' + money(cprY) + ' لكل ' + one + ' — أرخص بـ ' + fmt.int((1 - cprY / avgCpr) * 100) + '٪ من متوسط حسابك (' + money(avgCpr) + ').' + roasNote,
-          'من أفضل إعلاناتك حالياً — ممكن تناقش مع مسؤول الإعلانات زيادة ميزانيته تدريجياً.', 0, 'scale'));
+        issues.push(makeIssue('opportunity', ['results', 'cpr', 'roas'], t('al.scale.t'),
+          t('al.scale.d', { name: name, n: fmt.int(resY), label: label, cpr: money(cprY), one1: one, pct: fmt.int((1 - cprY / avgCpr) * 100), avg: money(avgCpr), note: roasNote }),
+          t('al.scale.a'), 0, 'scale'));
       }
     }
 
@@ -330,15 +317,8 @@
     return { health: health, issues: issues, metricLevels: metricLevels };
   }
 
-  var META_ACCOUNT_STATUS = {
-    2: 'الحساب معطّل من Meta — الإعلانات مش هتشتغل.',
-    3: 'فيه مبلغ مستحق لم يُدفع — الإعلانات ممكن تقف في أي وقت.',
-    7: 'الحساب تحت مراجعة من Meta — الإعلانات ممكن تتأثر.',
-    8: 'فيه تسوية دفع معلّقة على الحساب.',
-    9: 'الحساب في فترة سماح بسبب مشكلة في الدفع — الإعلانات هتقف لو ماتحلّتش.',
-    100: 'الحساب في طريقه للإغلاق.',
-    101: 'الحساب مقفول.'
-  };
+  // حالات حساب Meta اللي فيها مشكلة — النص في i18n.js تحت acct.<رقم الحالة>
+  var META_ACCOUNT_STATUS = { 2: 1, 3: 1, 7: 1, 8: 1, 9: 1, 100: 1, 101: 1 };
 
   function evaluateAccount(source, ads, acc, meta, s, fmt) {
     var alerts = [];
@@ -347,37 +327,35 @@
     var accName = (meta && meta.label) || source;
 
     if (meta && meta.metaAccountStatus != null && meta.metaAccountStatus !== 1) {
-      alerts.push(makeIssue('critical', ['account'], 'مشكلة في حساب الإعلانات',
-        META_ACCOUNT_STATUS[meta.metaAccountStatus] || 'فيه مشكلة في حالة الحساب.',
-        'ادخل على إعدادات الدفع والحساب في Meta Business Suite أو تواصل مع مسؤول الإعلانات فوراً.'));
+      alerts.push(makeIssue('critical', ['account'], t('al.acct.t'),
+        t(META_ACCOUNT_STATUS[meta.metaAccountStatus] ? 'acct.' + meta.metaAccountStatus : 'acct.other'),
+        t('al.acct.a')));
     }
 
     if (meta && meta.spendCapReached) {
-      alerts.push(makeIssue('critical', ['account'], 'الحساب وصل للحد الأقصى للصرف',
-        accName + ' وصل لحد الصرف المحدد عليه، ولما ده بيحصل Meta بتوقف كل إعلانات الحساب.',
-        'ارفع حد الصرف أو صفّره من إعدادات الحساب في Meta Business Suite لو عايز الإعلانات تكمل.'));
+      alerts.push(makeIssue('critical', ['account'], t('al.cap.t'),
+        t('al.cap.d', { acc: accName }), t('al.cap.a')));
     }
 
     var spendY = acc.spendByDay[YESTERDAY];
     var prevAvg = sum(acc.spendByDay, 0, DAY_BEFORE) / 5;
     if (prevAvg > 0) {
       if (spendY === 0) {
-        alerts.push(makeIssue('critical', ['account'], 'الحساب مصرفش خالص أمس',
-          'مفيش ولا إعلان في ' + accName + ' وصل للناس أمس، مع إن متوسط صرف الحساب ' + money(prevAvg) + ' في اليوم.',
-          'اتأكد من وسيلة الدفع وحالة الحملات مع مسؤول الإعلانات — كل يوم وقوف معناه مبيعات ضايعة.'));
+        alerts.push(makeIssue('critical', ['account'], t('al.acctZero.t'),
+          t('al.acctZero.d', { acc: accName, avg: money(prevAvg) }), t('al.acctZero.a')));
       } else if (spendY >= prevAvg * s.accountSpikeMultiple) {
         // الزيادة بتتنبّه بس لو النتائج مازادتش معاها — زيادة مفيدة مش حاجة عاجلة
         var resPrev = sum(acc.resultsByDay, 0, DAY_BEFORE) / 5, resY = acc.resultsByDay[YESTERDAY];
         var resultsKeptUp = resPrev > 0 && resY / resPrev >= (spendY / prevAvg) * 0.8;
         if (!resultsKeptUp) {
-          alerts.push(makeIssue('warning', ['account'], 'إنفاق الحساب زاد فجأة',
-            'إجمالي صرف ' + accName + ' أمس ' + money(spendY) + ' مقابل متوسط ' + money(prevAvg) + ' في اليوم (+' + fmt.int((spendY / prevAvg - 1) * 100) + '٪)، والنتائج مازادتش بنفس النسبة.',
-            'اتأكد مع مسؤول الإعلانات إن زيادة الميزانية مقصودة.', spendY - prevAvg));
+          alerts.push(makeIssue('warning', ['account'], t('al.acctSpike.t'),
+            t('al.acctSpike.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), pct: fmt.int((spendY / prevAvg - 1) * 100) }),
+            t('al.acctSpike.a'), spendY - prevAvg));
         }
       } else if (spendY <= prevAvg * s.accountDropRatio) {
-        alerts.push(makeIssue('warning', ['account'], 'إنفاق الحساب قلّ فجأة',
-          'إجمالي صرف ' + accName + ' أمس ' + money(spendY) + ' بس، مقابل متوسط ' + money(prevAvg) + ' في اليوم (−' + fmt.int((1 - spendY / prevAvg) * 100) + '٪).',
-          'ممكن إعلانات مهمة وقفت أو فيه مشكلة دفع — راجع مع مسؤول الإعلانات.'));
+        alerts.push(makeIssue('warning', ['account'], t('al.acctDrop.t'),
+          t('al.acctDrop.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), pct: fmt.int((1 - spendY / prevAvg) * 100) }),
+          t('al.acctDrop.a')));
       }
     }
 
@@ -386,13 +364,13 @@
       ads.forEach(function (c) {
         var share = (c.spend || 0) / acc.total7;
         if (share < s.concentrationShare || !c.active) return;
-        var g = c.resultLabel ? acc.byLabel[c.resultLabel] : null;
+        var g = c.resultKey ? acc.byLabel[c.resultKey] : null;
         var avgCpr = g && g.adsWithResults >= 2 ? g.avgCpr : null;
         var weak = c.results === 0 || (avgCpr && c.cpr != null && c.cpr > avgCpr * 1.2);
         if (!weak) return;
-        var concentration = makeIssue('warning', ['account'], 'الميزانية متركزة في إعلان أداؤه أقل',
-          '«' + (c.offer || c.id) + '» واخد ' + fmt.int(share * 100) + '٪ من صرف ' + accName + ' في آخر ٧ أيام (' + money(c.spend) + ')، ونتائجه أقل من متوسط الحساب.',
-          'توزيع الميزانية على الإعلانات الأفضل أداءً ممكن يجيب نتائج أكتر بنفس المبلغ.');
+        var concentration = makeIssue('warning', ['account'], t('al.conc.t'),
+          t('al.conc.d', { name: t('al.name', { name: c.offer || c.id }), pct: fmt.int(share * 100), acc: accName, spend: money(c.spend) }),
+          t('al.conc.a'));
         concentration.adId = c.id;
         concentration.adName = c.offer || c.headline || c.id;
         alerts.push(concentration);
