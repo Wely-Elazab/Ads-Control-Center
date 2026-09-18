@@ -254,9 +254,6 @@
   .alerts-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .alerts-heading { font-size: 18px; margin: 0 0 4px; }
   .alerts-sub { margin: 0; font-size: 12.5px; color: var(--ink-soft); max-width: 62ch; line-height: 1.6; }
-  .summary-risk { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; margin-bottom: 10px; }
-  .summary-risk-label { font-size: 13px; color: var(--ink-soft); }
-  .summary-risk-value { font-size: 20px; font-weight: 700; color: var(--alert); }
   .summary-boxes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px; }
   @media (min-width: 640px) { .summary-boxes { grid-template-columns: repeat(4, 1fr); } }
   .summary-box { text-align: start; background: var(--card); border: 1px solid var(--line); border-inline-start: 4px solid var(--lv); border-radius: 12px; padding: 12px 14px; cursor: pointer; font-family: inherit; color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
@@ -361,6 +358,28 @@
   .kpi-value { font-size: 18px; font-weight: 700; }
   .kpi.kpi-risk .kpi-value { color: var(--alert); }
   .kpi.kpi-review .kpi-value { color: var(--alert); }
+  .kpi-link { font-family: inherit; color: inherit; text-align: start; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
+  .kpi-link:hover { border-color: var(--ink-faint); box-shadow: 0 2px 8px rgba(22,26,31,0.06); }
+  .kpi-link:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .kpi-link .kpi-label::after { content: ' ›'; }
+  html[dir="rtl"] .kpi-link .kpi-label::after { content: ' ‹'; }
+
+  /* ---------- أهم التنبيهات فوق الإعلانات ---------- */
+  .top-alerts { margin: 0 0 14px; }
+  .top-alerts:empty { display: none; }
+  .top-alerts-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .top-alerts-title { font-size: 14px; font-weight: 700; }
+  .top-alerts-all { background: none; border: none; font-family: inherit; font-size: 12.5px; font-weight: 600; color: var(--verified); cursor: pointer; padding: 4px 0; }
+  .top-alert { display: flex; align-items: center; gap: 10px; width: 100%; text-align: start; font-family: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-inline-start: 4px solid var(--lv); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; cursor: pointer; }
+  .top-alert:hover { box-shadow: 0 2px 8px rgba(22,26,31,0.06); }
+  .top-alert:focus-visible, .top-alerts-all:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .top-alert-level { flex-shrink: 0; font-size: 11px; font-weight: 700; color: var(--lv); background: var(--lv-bg); padding: 2px 9px; border-radius: 999px; }
+  .top-alert-text { display: flex; flex-direction: column; min-width: 0; }
+  .top-alert-title { font-size: 13.5px; font-weight: 600; }
+  .top-alert-src { font-size: 12px; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .top-alerts-ok { font-size: 13px; color: var(--verified); background: var(--verified-bg); border-radius: 10px; padding: 9px 12px; }
+  .risk-filter { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--alert-bg); color: var(--alert); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; font-weight: 600; }
+  .risk-filter-clear { background: none; border: 1px solid currentColor; color: inherit; border-radius: 8px; padding: 5px 10px; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 
   /* ---------- شريط الأدوات فوق الإعلانات ---------- */
   .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -474,6 +493,8 @@
 
       <div class="kpi-strip" id="kpiStrip"></div>
 
+      <div class="top-alerts" id="topAlerts"></div>
+
       <div class="toolbar">
         <div class="view-switch" id="viewSwitch" role="group" aria-label="طريقة العرض" data-i18n-aria="view.aria">
           <button type="button" class="view-switch-btn active" data-mode="ads" aria-pressed="true" data-i18n="view.ads">الإعلانات</button>
@@ -498,7 +519,7 @@
         <span><span class="chip-dot h-review"></span><span data-i18n="health.review">يحتاج مراجعة</span></span>
         <span><span class="chip-dot h-improve"></span><span data-i18n="health.improve">يحتاج تحسين</span></span>
         <span><span class="chip-dot h-good"></span><span data-i18n="health.good">جيد</span></span>
-        <span><span class="chip-dot h-inactive"></span><span data-i18n="health.inactive">غير فعال</span></span>
+        <span><span class="chip-dot h-inactive"></span><span data-i18n="health.inactive">متوقف</span></span>
       </div>
 
       <div class="card-grid" id="cardGrid"></div>
@@ -538,13 +559,13 @@
     </div>
     <div class="drawer-body" id="filterBar">
       <div class="filter-row">
-        <span class="filter-label" id="tLblHealth" data-i18n="filters.health">تقييم الأداء</span>
+        <span class="filter-label" id="tLblHealth" data-i18n="filters.status">الحالة</span>
         <div class="filter-group" data-filter="health">
           <button class="chip active" data-value="all" data-i18n="filters.all">الكل</button>
           <button class="chip" data-value="review"><span class="chip-dot h-review"></span><span data-i18n="health.review">يحتاج مراجعة</span> <span class="chip-count" data-health-count="review"></span></button>
           <button class="chip" data-value="improve"><span class="chip-dot h-improve"></span><span data-i18n="health.improve">يحتاج تحسين</span> <span class="chip-count" data-health-count="improve"></span></button>
           <button class="chip" data-value="good"><span class="chip-dot h-good"></span><span data-i18n="health.good">جيد</span> <span class="chip-count" data-health-count="good"></span></button>
-          <button class="chip" data-value="inactive"><span class="chip-dot h-inactive"></span><span data-i18n="health.inactive">غير فعال</span> <span class="chip-count" data-health-count="inactive"></span></button>
+          <button class="chip" data-value="stopped"><span class="chip-dot h-inactive"></span><span data-i18n="health.inactive">متوقف</span> <span class="chip-count" data-health-count="stopped"></span></button>
         </div>
       </div>
       <div class="filter-row">
@@ -555,14 +576,6 @@
           <button class="chip" data-value="Google Ads">Google Ads</button>
           <button class="chip" data-value="TikTok">TikTok</button>
           <button class="chip" data-value="Snapchat">Snapchat</button>
-        </div>
-      </div>
-      <div class="filter-row">
-        <span class="filter-label" id="tLblStatus" data-i18n="filters.status">الحالة</span>
-        <div class="filter-group" data-filter="status">
-          <button class="chip active" data-value="all" data-i18n="filters.all">الكل</button>
-          <button class="chip" data-value="active" data-i18n="filters.activeOnly">نشط فقط</button>
-          <button class="chip" data-value="paused" data-i18n="filters.pausedOnly">متوقف فقط</button>
         </div>
       </div>
       <div class="filter-row">

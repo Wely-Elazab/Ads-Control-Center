@@ -132,7 +132,8 @@
 
   var candidates = [];
   // الترتيب الافتراضي "الأولوية": الإعلانات اللي محتاجة انتباه تظهر الأول
-  var filters = { platform: 'all', format: 'all', status: 'all', health: 'all', text: '', sort: 'priority' };
+  // فلتر الحالة واحد: يحتاج مراجعة / يحتاج تحسين / جيد / متوقف (كان فلترين متداخلين: الحالة + تقييم الأداء)
+  var filters = { platform: 'all', format: 'all', health: 'all', text: '', sort: 'priority' };
 
   // ---------- حفظ الجلسة ----------
   // Snapchat وTikTok بيعملوا إعادة توجيه للصفحة كلها، فكل اللي في الذاكرة كان بيضيع
@@ -1655,14 +1656,10 @@
   // (issue / ad-issue / adset-issue / campaign-issue بييجوا من سبب صريح بترجّعه المنصة نفسها — issues_info)
   var PAUSED_LABELS = i18nMap(['campaign', 'adset', 'ad', 'ended', 'scheduled', 'pending', 'rejected', 'account', 'account-cap',
     'not-eligible', 'budget', 'issue', 'ad-issue', 'adset-issue', 'campaign-issue'].reduce(function (o, k) { o[k] = 'st.' + k; return o; }, {}));
-  // إعلان كل مستوياته نشطة بس مصرفش ولا جنيه آخر ٣ أيام (أول امبارح وامبارح والنهارده) — عملياً مش شغّال
-  function notDelivering(c) {
-    if (!c.active || (c.daysAgo != null && c.daysAgo < 2)) return false;
-    var d = c.daily || [];
-    return !(d[4] > 0) && !(d[5] > 0) && !(d[6] > 0);
-  }
+  // الحالة هنا هي حالة المنصة نفسها (عشان تطابق عمود Delivery في لوحتها). "نشط بس مش بيصرف" مش حالة —
+  // دي ملاحظة، وبتظهر مرة واحدة كتنبيه ("إعلان فعّال لكنه مصرفش أمس") بدل ما تتكرر على الكارت
   function statusLabelOf(c) {
-    if (c.active) return notDelivering(c) ? t('st.activeNoSpend') : t('st.active');
+    if (c.active) return t('st.active');
     return PAUSED_LABELS[c.pausedLevel] || t('st.paused');
   }
   // اسم نوع النتيجة (مشتريات، محادثات...) بلغة الواجهة
@@ -1680,13 +1677,13 @@
     if (p.results != null) {
       chips += '<span class="metric-chip' + hl('results') + '" title="' + t('chip.results') + tip + '">' + ar(p.results) + ' ' + esc(resultNounOf(c, p.results)) + '</span>';
     }
-    var showRoas = p.roas != null || hl('roas');
-    if (showRoas) {
-      chips += '<span class="metric-chip' + hl('roas') + '" title="' + t('chip.roasTip') + tip + '">' + t('chip.roas') + ' ' + roasStr(p.roas) + '</span>';
+    // تكلفة النتيجة (زي تكلفة الطلب CPO) والعائد (ROAS) الاتنين بيظهروا لو موجودين — كل واحد بيجاوب سؤال مختلف:
+    // التكلفة مقارنةً بهامش ربحك، والعائد مقارنةً بالمبيعات
+    if (p.cpr != null) {
+      chips += '<span class="metric-chip' + hl('cpr') + '" title="' + t('chip.cprTip') + tip + '">' + money(p.cpr, c.currency) + ' / ' + esc(resultNounOf(c, 1)) + '</span>';
     }
-    // تكلفة النتيجة بتظهر لو مفيش عائد نعرضه، أو لو هي نفسها المشكلة
-    if (p.cpr != null && (!showRoas || hl('cpr'))) {
-      chips += '<span class="metric-chip' + hl('cpr') + '" title="' + t('chip.cprTip') + tip + '">' + money(p.cpr, c.currency) + ' ' + t('chip.each') + '</span>';
+    if (p.roas != null || hl('roas')) {
+      chips += '<span class="metric-chip' + hl('roas') + '" title="' + t('chip.roasTip') + tip + '">' + t('chip.roas') + ' ' + roasStr(p.roas) + '</span>';
     }
     if (c.frequency != null && mv(c, 'frequency')) {
       chips += '<span class="metric-chip' + mv(c, 'frequency') + '" title="' + t('chip.freqTip') + '">' + t('chip.freq') + ' ' + numAr(c.frequency) + '</span>';
@@ -1719,7 +1716,7 @@
         info +
           '<div class="card-foot">' +
             '<span class="days-badge">' + sinceLabel(c.daysAgo) + '</span>' +
-            '<span class="status-text' + (c.active ? (notDelivering(c) ? ' warn' : ' on') : '') + '">' + statusLabelOf(c) + '</span>' +
+            '<span class="status-text' + (c.active ? ' on' : '') + '">' + statusLabelOf(c) + '</span>' +
           '</div>' +
         '</div>' +
       '</article>'
@@ -1731,9 +1728,9 @@
     return candidates.filter(function (c) {
       if (filters.platform !== 'all' && c.platform !== filters.platform) return false;
       if (filters.format !== 'all' && c.format !== filters.format) return false;
-      if (filters.status === 'active' && !c.active) return false;
-      if (filters.status === 'paused' && c.active) return false;
-      if (filters.health !== 'all' && adAnalysis(c).health !== filters.health) return false;
+      // «متوقف» = كل الإعلانات المتوقفة. الإعلان اللي وقف فجأة وعليه تنبيه عاجل بيظهر كمان تحت «يحتاج مراجعة»
+      if (filters.health === 'stopped') { if (c.active) return false; }
+      else if (filters.health !== 'all' && adAnalysis(c).health !== filters.health) return false;
       if (filters.campaign && campaignKey(c) !== filters.campaign) return false;
       if (filters.text) {
         var hay = (c.platform + ' ' + c.placement + ' ' + (c.adsetName || '') + ' ' + c.offer + ' ' + (c.headline || '') + ' ' + (c.desc || '') + ' ' + (c.caption || '')).toLowerCase();
@@ -1818,8 +1815,8 @@
     var chips = '<span class="metric-chip">' + money(g.spend, g.currency) + '</span>';
     if (g.results != null) chips += '<span class="metric-chip">' + ar(g.results) + ' ' + esc(t((I18N.form(g.results) === 'one' ? 'res1.' : 'res.') + (g.resultKey || 'generic'))) + '</span>';
     else if (g.mixedResults) chips += '<span class="metric-chip">' + t('camp.mixedResults') + '</span>';
-    if (g.roas != null) chips += '<span class="metric-chip">' + t('chip.roas') + ' ' + roasStr(g.roas) + '</span>';
-    else if (g.cpr != null) chips += '<span class="metric-chip">' + money(g.cpr, g.currency) + ' ' + t('chip.each') + '</span>';
+    if (g.cpr != null) chips += '<span class="metric-chip" title="' + t('chip.cprTip') + '">' + money(g.cpr, g.currency) + ' / ' + esc(t('res1.' + (g.resultKey || 'generic'))) + '</span>';
+    if (g.roas != null) chips += '<span class="metric-chip" title="' + t('chip.roasTip') + '">' + t('chip.roas') + ' ' + roasStr(g.roas) + '</span>';
     var issues = [];
     if (g.urgent) issues.push('<span class="camp-badge lv-critical">' + t('camp.urgent', { n: ar(g.urgent) }) + '</span>');
     if (g.important) issues.push('<span class="camp-badge lv-warning">' + t('camp.important', { n: ar(g.important) }) + '</span>');
@@ -1899,15 +1896,18 @@
     renderHealthCounts();
     renderFilterState();
     renderKpis();
+    renderTopAlerts();
     renderAlerts();
   }
 
-  // عدد الإعلانات في كل تقييم — بيظهر جنب كل اختيار في فلتر "تقييم الأداء"
+  // عدد الإعلانات في كل اختيار — بيظهر جنبه في فلتر "الحالة".
+  // "متوقف" = كل المتوقف، فالإعلان اللي وقف فجأة بيتعد فيها وفي "يحتاج مراجعة" الاتنين
   function renderHealthCounts() {
     var counts = analysis.summary.health;
+    var stopped = candidates.filter(function (c) { return !c.active; }).length;
     document.querySelectorAll('[data-health-count]').forEach(function (el) {
       var k = el.getAttribute('data-health-count');
-      el.textContent = candidates.length ? ar(counts[k] || 0) : '';
+      el.textContent = candidates.length ? ar(k === 'stopped' ? stopped : (counts[k] || 0)) : '';
     });
   }
 
@@ -1965,13 +1965,12 @@
 
   // وصف كل فلتر شغّال — بيظهر كشرائح فوق الإعلانات، والضغط على أي واحدة بيلغيها
   var FILTER_LABELS = {
-    health: i18nMap({ review: 'health.review', improve: 'health.improve', good: 'health.good', inactive: 'health.inactive' }),
-    status: i18nMap({ active: 'filters.activeOnly', paused: 'filters.pausedOnly' }),
+    health: i18nMap({ review: 'health.review', improve: 'health.improve', good: 'health.good', stopped: 'health.inactive' }),
     format: i18nMap({ video: 'format.video', image: 'format.image', text: 'format.text' })
   };
   function activeFilterList() {
     var out = [];
-    ['health', 'status', 'format', 'platform'].forEach(function (k) {
+    ['health', 'format', 'platform'].forEach(function (k) {
       if (filters[k] === 'all') return;
       var label = (FILTER_LABELS[k] && FILTER_LABELS[k][filters[k]]) || filters[k];
       out.push({ key: k, label: label });
@@ -2016,15 +2015,54 @@
     };
     var atRisk = analysis.summary.atRisk;
     var review = analysis.summary.health.review;
-    var box = function (label, value, cls) {
-      return '<div class="kpi' + (cls || '') + '"><div class="kpi-label">' + label + '</div><div class="kpi-value">' + value + '</div></div>';
+    var hasRisk = Object.keys(atRisk).some(function (k) { return atRisk[k] > 0; });
+    // action: الرقم بيبقى زرار — "معرّض للهدر" بيفتح التنبيهات اللي وراه، و"تحتاج مراجعة" بيفلتر الإعلانات دي
+    var box = function (label, value, cls, action) {
+      var inner = '<div class="kpi-label">' + label + '</div><div class="kpi-value">' + value + '</div>';
+      return action
+        ? '<button type="button" class="kpi kpi-link' + (cls || '') + '" data-kpi="' + action + '">' + inner + '</button>'
+        : '<div class="kpi' + (cls || '') + '">' + inner + '</div>';
     };
     strip.innerHTML =
       box(t('kpi.spend', { p: periodLabel() }), joinMoney(spendByCur)) +
       box(t('kpi.results', { p: periodLabel() }), ar(resultsTotal)) +
-      box(t('kpi.atRisk'), joinMoney(atRisk), ' kpi-risk') +
-      box(t('kpi.review'), ar(review), review ? ' kpi-review' : '');
+      box(t('kpi.atRisk'), joinMoney(atRisk), ' kpi-risk', hasRisk ? 'risk' : null) +
+      box(t('kpi.review'), ar(review), review ? ' kpi-review' : '', review ? 'review' : null);
   }
+  document.getElementById('kpiStrip').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-kpi]'); if (!b) return;
+    if (b.dataset.kpi === 'risk') { openAlertsView('risk'); return; }
+    var group = document.querySelector('.filter-group[data-filter="health"]');
+    if (group) setFilterChip(group, 'review');
+    // بنعرض الإعلانات من غير ما نغيّر طريقة العرض المحفوظة
+    viewMode = 'ads';
+    render();
+  });
+
+  // ---------- أهم التنبيهات فوق الإعلانات ----------
+  // أهم ٣ تنبيهات (عاجل ثم مهم) بتظهر في صفحة الإعلانات نفسها — عشان متعتمدش على إن حد يفتح تبويب التنبيهات
+  function renderTopAlerts() {
+    var el = document.getElementById('topAlerts');
+    if (!candidates.length) { el.innerHTML = ''; return; }
+    var list = analysis.alerts.filter(function (a) { return a.level === 'critical' || a.level === 'warning'; });
+    if (!list.length) { el.innerHTML = '<div class="top-alerts-ok">✓ ' + t('top.none') + '</div>'; return; }
+    el.innerHTML =
+      '<div class="top-alerts-head"><span class="top-alerts-title">' + t('top.title') + '</span>' +
+        '<button type="button" class="top-alerts-all" data-go-alerts>' + t('top.all', { n: ar(list.length) }) + '</button></div>' +
+      list.slice(0, 3).map(function (a) {
+        var target = a.adId && findCandidate(a.adId) ? ' data-ad-id="' + esc(a.adId) + '"' : ' data-go-alerts';
+        var src = a.adName ? (a.platform || '') + ' · ' + a.adName : (a.accountName || a.platform || '');
+        return '<button type="button" class="top-alert ' + LEVELS[a.level].cls + '"' + target + '>' +
+          '<span class="top-alert-level">' + LEVELS[a.level].label + '</span>' +
+          '<span class="top-alert-text"><span class="top-alert-title">' + esc(a.title) + '</span>' +
+          '<span class="top-alert-src">' + esc(src) + '</span></span></button>';
+      }).join('');
+  }
+  document.getElementById('topAlerts').addEventListener('click', function (e) {
+    var ad = e.target.closest('[data-ad-id]');
+    if (ad) { var c = findCandidate(ad.getAttribute('data-ad-id')); if (c) openExpand(c); return; }
+    if (e.target.closest('[data-go-alerts]')) openAlertsView('urgent');
+  });
 
   document.querySelectorAll('.filter-group').forEach(function (group) {
     group.addEventListener('click', function (e) {
@@ -2257,7 +2295,12 @@
     document.getElementById('viewAds').classList.toggle('hidden', view !== 'ads');
     document.getElementById('viewAlerts').classList.toggle('hidden', view !== 'alerts');
   }
-  viewTabs.forEach(function (t) { t.addEventListener('click', function () { showView(t.dataset.view); }); });
+  // فتح تبويب التنبيهات من فوق بيرجّعه للعرض العادي (العاجل + المهم)، حتى لو كان متفلتر قبل كده
+  viewTabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      if (tab.dataset.view === 'alerts') openAlertsView('urgent'); else showView(tab.dataset.view);
+    });
+  });
 
 
   // ---------- صفحة التنبيهات ----------
@@ -2292,14 +2335,20 @@
       return;
     }
 
-    var atRiskKeys = Object.keys(s.atRisk);
-    var atRisk = atRiskKeys.length ? atRiskKeys.map(function (cur) { return money(s.atRisk[cur], cur || null); }).join(' + ') : money(0);
     var box = function (key, cls, count, label) {
       return '<button type="button" class="summary-box ' + cls + (alertsLevelFilter === key ? ' active' : '') + '" data-level="' + key + '">' +
         '<span class="summary-count">' + ar(count) + '</span><span class="summary-label">' + label + '</span></button>';
     };
-    alertsSummaryEl.innerHTML =
-      '<div class="summary-risk"><span class="summary-risk-label">' + t('alerts.atRisk') + '</span><span class="summary-risk-value">' + atRisk + '</span></div>' +
+    // رقم "الميزانية المعرّضة للهدر" مكانه فوق صفحة الإعلانات بس. لما تدوس عليه بيجيبك هنا
+    // والقايمة متفلترة على التنبيهات اللي وراه، ومعاها شريط يوضّح ده ويرجّعك للعرض العادي
+    var riskBar = '';
+    if (alertsLevelFilter === 'risk') {
+      var riskKeys = Object.keys(s.atRisk).filter(function (k) { return s.atRisk[k] > 0; });
+      var riskText = riskKeys.length ? riskKeys.map(function (cur) { return money(s.atRisk[cur], cur || null); }).join(' + ') : money(0);
+      riskBar = '<div class="risk-filter"><span>' + t('alerts.riskShowing', { amount: riskText }) + '</span>' +
+        '<button type="button" class="risk-filter-clear" data-level="urgent">' + t('alerts.showAll') + '</button></div>';
+    }
+    alertsSummaryEl.innerHTML = riskBar +
       '<div class="summary-boxes summary-boxes-3">' +
         box('critical', 'lv-critical', s.levels.critical, t('alerts.boxUrgent')) +
         box('warning', 'lv-warning', s.levels.warning, t('alerts.boxImportant')) +
@@ -2308,6 +2357,7 @@
 
     var list = analysis.alerts.filter(function (a) {
       if (alertsLevelFilter === 'urgent') return a.level === 'critical' || a.level === 'warning';
+      if (alertsLevelFilter === 'risk') return a.atRisk && a.amount > 0;
       return a.level === alertsLevelFilter;
     });
     alertsListEl.innerHTML = list.length
@@ -2316,11 +2366,18 @@
   }
 
   alertsSummaryEl.addEventListener('click', function (e) {
-    var b = e.target.closest('.summary-box'); if (!b) return;
+    var b = e.target.closest('.summary-box, .risk-filter-clear'); if (!b) return;
     // الضغط على نفس المربع تاني بيرجّع للعرض الافتراضي (العاجل + المهم)
     alertsLevelFilter = alertsLevelFilter === b.dataset.level ? 'urgent' : b.dataset.level;
     renderAlerts();
   });
+  // فتح صفحة التنبيهات على نوع معيّن (من "أهم التنبيهات" أو من رقم الهدر)
+  function openAlertsView(level) {
+    alertsLevelFilter = level || 'urgent';
+    showView('alerts');
+    renderAlerts();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
   function openAlertAd(e) {
     var item = e.target.closest('.alert-item.clickable'); if (!item) return;
     if (e.type === 'keydown') { if (e.key !== 'Enter' && e.key !== ' ') return; e.preventDefault(); }
@@ -2411,7 +2468,7 @@
 
   function resetFilterChips() {
     document.querySelectorAll('.filter-group').forEach(function (g) { g.querySelectorAll('.chip').forEach(function (ch) { ch.classList.toggle('active', ch.dataset.value === 'all'); }); });
-    filters.platform = 'all'; filters.format = 'all'; filters.status = 'all'; filters.health = 'all'; filters.text = '';
+    filters.platform = 'all'; filters.format = 'all'; filters.health = 'all'; filters.text = '';
     filters.campaign = null;
     textFilter.value = '';
   }
