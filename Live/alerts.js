@@ -79,6 +79,24 @@
   // اسم نوع النتيجة (جمع) وصيغة المفرد — عشان الجمل تبقى طبيعية ("تكلفة عملية الشراء الواحدة" مش "تكلفة الـمشتريات")
   function pluralOf(key) { return t('res.' + (key || 'generic')); }
   function singularOf(key) { return t('res1.' + (key || 'generic')); }
+  // اسم النتيجة مظبوط على العدد: "١ عملية شراء" / "٥ مشتريات" / "1 purchase" / "3 purchases"
+  function countOf(n, key) {
+    var one = global.I18N ? global.I18N.form(n) === 'one' : n === 1;
+    return one ? singularOf(key) : pluralOf(key);
+  }
+  function dayWord(n) { return global.I18N ? global.I18N.noun(n, 'n.day') : ''; }
+
+  // أسباب الوقوف اللي مش بقصد (المنصة أو الحساب وقّفوا الإعلان مش المعلن) — دي بس اللي بيطلع عليها تنبيه
+  // لإعلان متوقف. الوقوف المقصود (إيقاف يدوي، انتهاء المدة، مجدول) مفيش عليه تنبيهات.
+  // "تحت المراجعة" مش هنا: غالباً مؤقت وبسبب تعديل عمله المعلن نفسه.
+  var UNINTENDED_STOP = {
+    rejected: 'critical', 'not-eligible': 'critical',
+    issue: 'critical', 'ad-issue': 'critical', 'adset-issue': 'critical', 'campaign-issue': 'critical',
+    budget: 'warning'   // ميزانية إجمالية خلصت — كتير بتبقى مخططة، فـ"مهم" مش "عاجل"
+  };
+  // مشاكل الحساب بتوقف كل إعلاناته مرة واحدة — بتطلع تنبيه واحد على مستوى الحساب مش تنبيه لكل إعلان
+  var ACCOUNT_STOP = { account: true, 'account-cap': true };
+  function recentSpend(c) { return sum(c.daily || [], 3, TODAY); }
 
   function sum(arr, from, to) {
     var s = 0;
@@ -158,13 +176,24 @@
     var historyDays = age != null ? Math.max(1, Math.min(5, age - 1)) : 5;
     var prevSpendAvg = sum(daily, 0, DAY_BEFORE) / historyDays;
 
-    // 1) الإعلانات غير الفعّالة: مفيش تنبيهات عليها — مش بتصرف، فمفيش حاجة عاجلة تخصّ صاحب البزنس.
-    //    الاستثناء الوحيد: إعلان كان شغّال وبيصرف في آخر ٣ أيام والمنصة رفضته — ده توقف مفاجئ مش مقصود
+    // 1) الإعلانات المتوقفة: مفيش تنبيهات على الوقوف المقصود. التنبيه بيطلع بس لو الإعلان كان بيصرف
+    //    في آخر ٣ أيام ووقف لسبب مش من المعلن (رفض، مشكلة من المنصة، ميزانية خلصت) — ده وقوف مفاجئ
     if (!c.active) {
-      if (c.reviewStatus === 'disapproved' && sum(daily, 3, TODAY) > 0) {
-        issues.push(makeIssue('critical', ['status'], t('al.rejected.t'),
-          t('al.rejected.d', { name: name, spend: money(sum(daily, 3, TODAY)) }),
-          t('al.rejected.a')));
+      var stopLevel = UNINTENDED_STOP[c.pausedLevel] || (c.reviewStatus === 'disapproved' ? 'critical' : null);
+      var spent3 = recentSpend(c);
+      if (stopLevel && spent3 > 0) {
+        if (c.pausedLevel === 'rejected' || c.reviewStatus === 'disapproved') {
+          issues.push(makeIssue('critical', ['status'], t('al.rejected.t'),
+            t('al.rejected.d', { name: name, spend: money(spent3) }), t('al.rejected.a'), spent3, 'stopped'));
+        } else if (c.pausedLevel === 'budget') {
+          issues.push(makeIssue('warning', ['status'], t('al.budgetDone.t'),
+            t('al.budgetDone.d', { name: name, spend: money(spent3) }), t('al.budgetDone.a'), spent3, 'stopped'));
+        } else {
+          // السبب: وصفنا للحالة + سبب المنصة الحرفي لو رجّعته (عشان مسؤول الإعلانات يعرف يدوّر عليه)
+          var reason = t('why.' + c.pausedLevel) + (c.deliveryReason ? ' (' + t('al.name', { name: c.deliveryReason }) + ')' : '');
+          issues.push(makeIssue(stopLevel, ['status'], t('al.stopped.t'),
+            t('al.stopped.d', { name: name, spend: money(spent3), reason: reason }), t('al.stopped.a'), spent3, 'stopped'));
+        }
       }
       return finalize(c, issues);
     }
@@ -199,7 +228,8 @@
         : ((!accountHasResults && acc.avgAdSpend2 > 0) ? acc.avgAdSpend2 : null);
       if (res2 === 0 && spend2 > 0 && threshold) {
         var wasteDetail = avgCpr
-          ? t('al.waste.d', { name: name, spend: money(spend2), label: label, one: one, avg: money(avgCpr), expected: fmt.int(Math.max(1, spend2 / avgCpr)) })
+          ? t('al.waste.d', { name: name, spend: money(spend2), label: label, one: one, avg: money(avgCpr),
+              expected: fmt.int(Math.max(1, spend2 / avgCpr)), labelExp: countOf(Math.round(Math.max(1, spend2 / avgCpr)), c.resultKey) })
           : t('al.waste.dNoAvg', { name: name, spend: money(spend2), label: label });
         if (spend2 >= threshold) {
           wasteRaised = true;
@@ -234,7 +264,7 @@
         var ratio = c.cpr / avgCpr;
         if (ratio >= s.cprWarnMultiple) {
           var critical = ratio >= s.cprCriticalMultiple;
-          var oldNote = age != null && age >= s.oldAdDays ? t('al.cpr.old', { days: fmt.int(age) }) : '';
+          var oldNote = age != null && age >= s.oldAdDays ? t('al.cpr.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '';
           issues.push(makeIssue(critical ? 'critical' : 'warning', ['cpr'], t('al.cpr.t', { label: label, one1: one }),
             t('al.cpr.d', { one: one, name: name, cpr: money(c.cpr), old: oldNote, pct: fmt.int((ratio - 1) * 100), avg: money(avgCpr) }),
             t('al.cpr.a'),
@@ -247,7 +277,7 @@
       var prevSpend4 = sum(daily, 1, DAY_BEFORE) / 4;
       if (!wasteRaised && prevResAvg >= 2 && prevSpend4 > 0 && spendY >= prevSpend4 * 0.7 && resY <= prevResAvg * s.dropRatio) {
         issues.push(makeIssue('warning', ['results'], t('al.drop.t'),
-          t('al.drop.d', { name: name, n: fmt.int(resY), label: label, avg: fmt.num(prevResAvg) }),
+          t('al.drop.d', { name: name, n: fmt.int(resY), label: countOf(resY, c.resultKey), avg: fmt.num(prevResAvg) }),
           t('al.drop.a')));
       }
     }
@@ -270,7 +300,7 @@
       if (c.frequency >= s.frequencyHigh || (isOld && c.frequency >= s.frequencyWarn)) {
         var hurting = avgCpr && c.cpr != null && c.cpr >= avgCpr * s.cprWarnMultiple;
         issues.push(makeIssue(hurting ? 'critical' : 'warning', ['frequency'], t('al.fatigue.t'),
-          t('al.fatigue.d', { name: name, f: fmt.num(c.frequency), old: isOld ? t('al.fatigue.old', { days: fmt.int(age) }) : '' }),
+          t('al.fatigue.d', { name: name, f: fmt.num(c.frequency), old: isOld ? t('al.fatigue.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '' }),
           t('al.fatigue.a')));
       }
     }
@@ -289,7 +319,7 @@
           issues.splice(greatIdx, 1);
         }
         issues.push(makeIssue('opportunity', ['results', 'cpr', 'roas'], t('al.scale.t'),
-          t('al.scale.d', { name: name, n: fmt.int(resY), label: label, cpr: money(cprY), one1: one, pct: fmt.int((1 - cprY / avgCpr) * 100), avg: money(avgCpr), note: roasNote }),
+          t('al.scale.d', { name: name, n: fmt.int(resY), label: countOf(resY, c.resultKey), cpr: money(cprY), one1: one, pct: fmt.int((1 - cprY / avgCpr) * 100), avg: money(avgCpr), note: roasNote }),
           t('al.scale.a'), 0, 'scale'));
       }
     }
@@ -300,8 +330,9 @@
   function finalize(c, issues) {
     var worst = issues.reduce(function (m, i) { return Math.max(m, LEVEL_RANK[i.level]); }, -1);
     var health;
-    if (c.reviewStatus === 'disapproved') health = 'review';
-    else if (!c.active) health = 'inactive';
+    // الإعلان المتوقف بيبقى "يحتاج مراجعة" بس لو عليه تنبيه عاجل (وقف فجأة وهو بيصرف) —
+    // إعلان مرفوض من شهور ومحدش بيصرف عليه مش محتاج حاجة، فبيفضل "غير فعال"
+    if (!c.active) health = worst === LEVEL_RANK.critical ? 'review' : 'inactive';
     else if (worst === LEVEL_RANK.critical) health = 'review';
     else if (worst === LEVEL_RANK.warning) health = 'improve';
     else health = 'good';
@@ -337,10 +368,24 @@
         t('al.cap.d', { acc: accName }), t('al.cap.a')));
     }
 
+    // إعلانات كانت بتصرف ووقفت بسبب مشكلة في الحساب — تنبيه واحد للحساب كله.
+    // لو فيه تنبيه حالة الحساب أو حد الصرف فوق، هو نفسه اللي بيشرح السبب فمش بنكرر
+    var acctStopped = ads.filter(function (c) { return !c.active && ACCOUNT_STOP[c.pausedLevel] && recentSpend(c) > 0; });
+    if (acctStopped.length && !alerts.length) {
+      var n = acctStopped.length;
+      alerts.push(makeIssue('critical', ['account'], t('al.acctStopped.t'),
+        t('al.acctStopped.d', { n: fmt.int(n), ads: global.I18N ? global.I18N.noun(n, 'n.ad') : '', acc: accName }),
+        t('al.acctStopped.a')));
+    }
+
     var spendY = acc.spendByDay[YESTERDAY];
     var prevAvg = sum(acc.spendByDay, 0, DAY_BEFORE) / 5;
     if (prevAvg > 0) {
-      if (spendY === 0) {
+      // لو فيه تنبيه حساب عاجل فوق (دفع، حد صرف، إعلانات وقفت) فهو اللي بيفسّر الوقوف ده — منكررش
+      var acctAlreadyFlagged = alerts.length > 0;
+      if (spendY === 0 && acctAlreadyFlagged) {
+        // مفيش تنبيه تاني
+      } else if (spendY === 0) {
         alerts.push(makeIssue('critical', ['account'], t('al.acctZero.t'),
           t('al.acctZero.d', { acc: accName, avg: money(prevAvg) }), t('al.acctZero.a')));
       } else if (spendY >= prevAvg * s.accountSpikeMultiple) {

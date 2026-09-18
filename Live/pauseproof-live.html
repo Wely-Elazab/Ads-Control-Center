@@ -65,31 +65,20 @@
   .text-filter { flex: 1 1 220px; }
   .date-range { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .date-sep { font-size: 12.5px; color: var(--ink-faint); }
-  .text-filter:focus-visible, .chip:focus-visible, .stop-btn:focus-visible, .ghost-btn:focus-visible, .date-input:focus-visible, .sort-select:focus-visible, .text-btn:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .text-filter:focus-visible, .chip:focus-visible, .stop-btn:focus-visible, .ghost-btn:focus-visible, .date-input:focus-visible, .sort-select:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 
   .gallery-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
   .gallery-count { font-size: 13px; color: var(--ink-soft); }
-  .gallery-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .selection-summary { font-size: 12.5px; color: var(--ink-soft); white-space: nowrap; }
-  .text-btn { background: none; border: none; font-size: 12.5px; color: var(--ink-soft); text-decoration: underline; cursor: pointer; font-family: inherit; padding: 6px 0; white-space: nowrap; }
-  .text-btn:hover { color: var(--ink); }
   .stop-btn { background: var(--verified); color: #fff; border: none; border-radius: 10px; padding: 14px 22px; font-size: 14.5px; font-weight: 600; font-family: inherit; cursor: pointer; transition: filter .15s ease, transform .1s ease; white-space: nowrap; }
   .stop-btn:hover:not(:disabled) { filter: brightness(0.92); }
   .stop-btn:active:not(:disabled) { transform: scale(0.98); }
   .stop-btn:disabled { background: var(--ink-faint); cursor: default; }
 
-  .alert-banner { display: flex; align-items: center; gap: 10px; background: var(--alert-bg); color: var(--alert); border: 1px solid rgba(179,49,31,0.25); border-radius: var(--radius); padding: 13px 16px; margin-bottom: 16px; font-size: 14px; font-weight: 500; }
-  .alert-icon { width: 20px; height: 20px; border-radius: 50%; background: var(--alert); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
   .empty-state { text-align: center; padding: 40px 20px; color: var(--ink-faint); font-size: 13.5px; background: var(--card); border: 1px dashed var(--line); border-radius: var(--radius); }
 
   .card-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 20px; }
   @media (min-width: 480px) { .card-grid { grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); } }
   .candidate-card { position: relative; display: block; border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
-  .candidate-card.selected { border-color: var(--verified); box-shadow: 0 0 0 1px var(--verified); }
-  .check-wrap { position: absolute; top: 8px; inset-inline-end: 8px; z-index: 2; width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,0.92); display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
-  [data-theme="dark"] .check-wrap { background: rgba(29,33,41,0.9); }
-  .card-check { width: 20px; height: 20px; accent-color: var(--verified); cursor: pointer; margin: 0; }
-  .preview-trigger { display: block; cursor: zoom-in; }
   .preview { position: relative; height: 126px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
   .preview::after { content: ''; position: absolute; width: 90px; height: 90px; border-radius: 50%; background: rgba(255,255,255,0.4); filter: blur(16px); top: -18px; inset-inline-end: -18px; }
   .pv-t0 { background: linear-gradient(150deg, #E1F0EA 0%, #AEDBC7 55%, #78BFA3 100%); }
@@ -110,28 +99,6 @@
   .metric-chip { font-size: 11px; font-weight: 600; color: var(--ink-soft); background: var(--paper); border: 1px solid var(--line); padding: 3px 9px; border-radius: 6px; }
   .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
   .days-badge { font-size: 11px; color: var(--ink-faint); font-weight: 500; }
-
-  .state-switch { display: inline-flex; align-items: center; gap: 7px; background: none; border: none; padding: 6px 2px; margin: -6px -2px; font-family: inherit; cursor: pointer; }
-  .state-switch:disabled { cursor: default; opacity: .65; }
-  .state-switch:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; border-radius: 8px; }
-  .switch-track { position: relative; width: 32px; height: 18px; border-radius: 999px; background: var(--ink-faint); transition: background .2s ease; flex-shrink: 0; }
-  .switch-track.on { background: var(--verified); }
-  .switch-track.pulse-neutral { animation: swpulse .9s ease-in-out infinite; }
-  .switch-track.pulse-red { background: var(--alert); animation: swpulse .7s ease-in-out infinite; }
-  @keyframes swpulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
-  .switch-thumb { position: absolute; top: 2px; inset-inline-start: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: inset-inline-start .2s ease; }
-  .switch-track.on .switch-thumb { inset-inline-start: 16px; }
-  .switch-label { font-size: 11.5px; font-weight: 600; color: var(--ink-soft); }
-
-  .proof-report { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-  .proof-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px dashed var(--line); }
-  .proof-title { font-weight: 700; font-size: 15.5px; }
-  .proof-time { font-size: 12.5px; color: var(--ink-faint); }
-  .proof-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 11px; }
-  .proof-line { display: flex; justify-content: space-between; gap: 16px; font-size: 14px; }
-  .proof-line > span:first-child { color: var(--ink-soft); flex-shrink: 0; }
-  .proof-line > span:last-child { font-weight: 500; }
-  .proof-actions { display: flex; gap: 10px; padding: 16px 20px; border-top: 1px solid var(--line); flex-wrap: wrap; }
   .ghost-btn { background: transparent; border: 1px solid var(--line); color: var(--ink); border-radius: 9px; padding: 11px 16px; font-size: 13.5px; font-weight: 500; font-family: inherit; cursor: pointer; }
   .ghost-btn:hover { border-color: var(--ink-faint); background: var(--paper); }
 
@@ -186,9 +153,6 @@
 
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-  /* ---------- وضع العرض فقط: أدوات الإيقاف/التحديد مخفية ---------- */
-  .view-only .action-only, .view-only .check-wrap { display: none !important; }
-  .view-only .candidate-card, .view-only .preview-trigger { cursor: pointer; }
   .candidate-card:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   .ghost-btn:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 
@@ -403,7 +367,7 @@
     .expand-card { max-width: 100%; border-radius: 18px 18px 0 0; max-height: 85vh; }
   }
   @media print {
-    .topbar, .connect-panel, .filter-toggle, .filter-bar, .gallery-actions, .proof-actions, #alertBanner, .check-wrap, .view-tabs, #openSettingsBtn { display: none !important; }
+    .appbar, .status-strip, .period-custom, .toolbar, .drawer, .expand-overlay, #openSettingsBtn { display: none !important; }
   }
   @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 </style>
@@ -488,12 +452,6 @@
         </select>
         <span class="toolbar-spacer"></span>
         <span class="gallery-count" id="galleryCount">سجّل الدخول لعرض إعلاناتك</span>
-        <div class="gallery-actions action-only">
-          <button type="button" class="text-btn" id="selectAllBtn" data-i18n="demo.selectAll">تحديد كل الظاهر</button>
-          <button type="button" class="text-btn" id="clearSelBtn" data-i18n="demo.clearSel">إلغاء التحديد</button>
-          <span class="selection-summary" id="selectionSummary">محدد: ٠</span>
-          <button id="stopSelectedBtn" class="stop-btn" disabled data-i18n="demo.stopNow">إيقاف المحدد الآن</button>
-        </div>
       </div>
 
       <div class="active-filters" id="activeFilters"></div>
@@ -505,27 +463,7 @@
         <span><span class="chip-dot h-inactive"></span><span data-i18n="health.inactive">غير فعال</span></span>
       </div>
 
-      <div id="alertBanner" class="alert-banner hidden" role="status" aria-live="polite">
-        <span class="alert-icon">!</span>
-        <span id="alertText"></span>
-      </div>
-
       <div class="card-grid" id="cardGrid"></div>
-
-      <section id="proofReport" class="proof-report hidden action-only">
-        <div class="proof-head">
-          <span class="proof-title" data-i18n="demo.proofTitle">تقرير الإثبات (توضيحي)</span>
-          <span class="proof-time mono" id="proofTime">—</span>
-        </div>
-        <div class="proof-body">
-          <div class="proof-line"><span data-i18n="demo.proofStatus">حالة التنفيذ</span><span id="proofStatus">—</span></div>
-          <div class="proof-line"><span data-i18n="demo.proofDuration">مدة التنفيذ</span><span class="mono" id="proofDuration">—</span></div>
-          <div class="proof-line"><span data-i18n="demo.proofNote">ملاحظة</span><span id="proofIncident">—</span></div>
-        </div>
-        <div class="proof-actions">
-          <button id="printBtn" class="ghost-btn" data-i18n="demo.print">طباعة / تحميل التقرير</button>
-        </div>
-      </section>
     </div>
   </div>
 

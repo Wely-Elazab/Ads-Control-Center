@@ -8,6 +8,8 @@
   // كل النصوص في i18n.js — t('مفتاح', { متغيرات }). الأرقام العربية (٠١٢) بتظهر في الواجهة العربية بس
   function t(key, vars) { return window.I18N ? I18N.t(key, vars) : key; }
   function isAr() { return !window.I18N || I18N.lang === 'ar'; }
+  // اسم مع عدد بالصيغة الصح في كل لغة ("٥ إعلانات" / "١٥ إعلان" / "1 ad")
+  function noun(n, base) { return I18N.noun(n, base); }
   // كائن بيرجّع النص المترجم وقت القراءة — عشان تغيير اللغة يبان من غير ما نبني الكائنات من الأول
   function i18nMap(keys) {
     var o = {};
@@ -46,7 +48,7 @@
     if (n === 0) return t('since.today');
     if (n === 1) return t('since.1');
     if (n === 2) return t('since.2');
-    return t('since.n', { n: ar(n) });
+    return t('since.n.' + I18N.form(n), { n: ar(n) });
   }
   // بيرجّع null لو التاريخ مش موجود أو غلط — "٠ يوم" كانت بتتقري غلط إنه اتطلق النهارده
   function daysBetween(dateStr) {
@@ -131,7 +133,6 @@
   var candidates = [];
   // الترتيب الافتراضي "الأولوية": الإعلانات اللي محتاجة انتباه تظهر الأول
   var filters = { platform: 'all', format: 'all', status: 'all', health: 'all', text: '', sort: 'priority' };
-  var selectedIds = {};
 
   // ---------- حفظ الجلسة ----------
   // Snapchat وTikTok بيعملوا إعادة توجيه للصفحة كلها، فكل اللي في الذاكرة كان بيضيع
@@ -292,7 +293,7 @@
   function connectedText(notes) {
     return function () {
       var n = (notes || []).map(function (x) { return typeof x === 'function' ? x() : x; });
-      return t('s.connected', { n: ar(candidates.length) }) + (n.length ? ' (' + n.join(t('join.sep')) + ')' : '');
+      return t('s.connected', { n: ar(candidates.length), ads: noun(candidates.length, 'n.ad') }) + (n.length ? ' (' + n.join(t('join.sep')) + ')' : '');
     };
   }
 
@@ -341,22 +342,10 @@
   var dateTo = document.getElementById('dateTo');
   var sortSelect = document.getElementById('sortSelect');
   var galleryCount = document.getElementById('galleryCount');
-  var selectionSummary = document.getElementById('selectionSummary');
-  var stopSelectedBtn = document.getElementById('stopSelectedBtn');
-  var alertBanner = document.getElementById('alertBanner');
-  var alertText = document.getElementById('alertText');
   var cardGrid = document.getElementById('cardGrid');
-  var proofReport = document.getElementById('proofReport');
-  var proofTime = document.getElementById('proofTime');
-  var proofStatus = document.getElementById('proofStatus');
-  var proofDuration = document.getElementById('proofDuration');
-  var proofIncident = document.getElementById('proofIncident');
-  var printBtn = document.getElementById('printBtn');
   var resetAllBtn = document.getElementById('resetAllBtn');
   var expandOverlay = document.getElementById('expandOverlay');
   var expandClose = document.getElementById('expandClose');
-  var selectAllBtn = document.getElementById('selectAllBtn');
-  var clearSelBtn = document.getElementById('clearSelBtn');
 
   themeToggle.addEventListener('click', function () {
     var dark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -471,7 +460,7 @@
       setPlatformOptions('google', accounts.map(function (a) {
         return { value: a.id, label: 'Google Ads — ' + a.name + (a.name !== a.id ? ' (' + a.id + ')' : '') };
       }));
-      setStatus(msg('s.accountsFound', { n: accounts.length, platform: 'Google Ads' }));
+      setStatus(msg('s.accountsFound', { n: accounts.length, accounts: function () { return noun(accounts.length, 'n.account'); }, platform: 'Google Ads' }));
       loadGoogleAdsForAccount(accounts[0].id);
       accountSelect.value = accounts[0].id;
     }).catch(function (err) {
@@ -503,7 +492,6 @@
       var googleCandidates = transformGoogleRows(payload.ads, payload.metrics || [], daysFromRange(payload.range), info.currency, payload.periodMetrics);
       mergeCandidates(googleCandidates, 'google:' + customerId);
       cacheSource('google:' + customerId, googleCandidates);
-      selectedIds = {};
       setLoading('google', false, connectedText());
       render();
     }).catch(function (err) {
@@ -766,7 +754,7 @@
         return;
       }
       setPlatformOptions('snapchat', accounts.map(function (a) { return { value: a.id, label: 'Snapchat — ' + (a.name || a.id) }; }));
-      setStatus(msg('s.accountsFound', { n: accounts.length, platform: 'Snapchat' }));
+      setStatus(msg('s.accountsFound', { n: accounts.length, accounts: function () { return noun(accounts.length, 'n.account'); }, platform: 'Snapchat' }));
       loadSnapchatAdsForAccount(accounts[0].id);
       accountSelect.value = accounts[0].id;
     }).catch(function (err) {
@@ -796,7 +784,6 @@
       var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns, payload.periodStats);
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
       cacheSource('snapchat:' + adAccountId, snapCandidates);
-      selectedIds = {};
       setLoading('snapchat', false, connectedText(payload.statsError ? [msg('note.spendFailed', { msg: payload.statsError })] : []));
       render();
     }).catch(function (err) {
@@ -992,7 +979,6 @@
       var tiktokCandidates = transformTikTokAds(adsList, payload.report || [], daysFromRange(payload.range), payload.advertiser && payload.advertiser.currency, payload.periodReport);
       mergeCandidates(tiktokCandidates, 'tiktok:' + advertiserId);
       cacheSource('tiktok:' + advertiserId, tiktokCandidates);
-      selectedIds = {};
       setLoading('tiktok', false, connectedText(payload.reportError ? [msg('note.spendFailed', { msg: payload.reportError })] : []));
       render();
     }).catch(function (err) {
@@ -1012,11 +998,15 @@
     if (!s) return { active: true, level: null };
     if (/CAMPAIGN/.test(s) && /DISABLE|DELETE/.test(s)) return off('campaign');
     if (/ADGROUP/.test(s) && /DISABLE|DELETE/.test(s)) return off('adset');
-    if (/TIME_DONE|END/.test(s)) return off('ended');
+    // (^|_)END عشان كلمة زي SUSPEND متتقريش "انتهى"
+    if (/TIME_DONE|(^|_)END(ED)?($|_)/.test(s)) return off('ended');
     if (/NOT_START/.test(s)) return off('scheduled');
     if (/AUDIT_DENY|REJECT/.test(s)) return off('rejected');
+    // رصيد الحساب خلص = مشكلة حساب. أما BUDGET_EXCEED فمعناها إن ميزانية اليوم اتصرفت —
+    // ده سلوك طبيعي والإعلان بيرجع يشتغل بكرة، فمش بنعتبره متوقف
+    if (/BALANCE/.test(s)) return off('account');
+    if (/BUDGET_EXCEED/.test(s)) return { active: true, level: null };
     if (/AUDIT/.test(s)) return off('pending');
-    if (/BALANCE|BUDGET_EXCEED/.test(s)) return off('account-cap');
     if (/DELIVERY_OK|LEARN/.test(s)) return { active: true, level: null };
     return off('not-eligible');
   }
@@ -1214,9 +1204,8 @@
       ads.data.forEach(function (ad) { adsById[ad.id] = ad; order.push(ad.id); });
       if (!order.length) { setLoading('meta', false, msg('s.noAdsMeta')); return null; }
       mergeCandidates(build(null, null, adsetStatusMap), source);
-      selectedIds = {};
       render();
-      setLoading('meta', true, msg('s.metaShown', { n: order.length }));
+      setLoading('meta', true, msg('s.metaShown', { n: order.length, ads: function () { return noun(order.length, 'n.ad'); } }));
       // الصور الأصلية بتتحمّل بالتوازي، وأول ما توصل بنحدّث الكروت
       resolveMetaImages(accountId, ads.data, function () {
         if (!live()) return;
@@ -1239,7 +1228,7 @@
       cacheSource(source, candidates.filter(function (c) { return c.source === source; }));
       var notes = [];
       if (periodRes && periodRes.err) notes.push(msg('note.periodFailed'));
-      if (adsTruncated) notes.push(msg('note.adsCapped', { n: PAGE_SAFETY_CAP }));
+      if (adsTruncated) notes.push(msg('note.adsCapped', { n: PAGE_SAFETY_CAP, ads: function () { return noun(PAGE_SAFETY_CAP, 'n.ad'); } }));
       if (daily.err) notes.push(msg('note.dailyFailed', { msg: daily.err.message }));
       else if (daily.truncated) notes.push(msg('note.dailyTruncated', { n: FULL_SCAN_CAP }));
       setLoading('meta', false, connectedText(notes));
@@ -1571,13 +1560,11 @@
     return { active: true, level: null, reason: null };
   }
 
-  // ---------- وضع العرض فقط ----------
+  // ---------- عرض فقط ----------
   // المرحلة الأولى: الأداة للعرض والتحليل والتنبيه بس، من غير أي إجراء على الإعلانات — عشان قرارات
   // صاحب البزنس متتعارضش مع اختبارات مسؤول الإعلانات أو الوكالة.
-  // أدوات الإيقاف/التشغيل التوضيحية (المفتاح، التحديد، "إيقاف المحدد"، تقرير الإثبات) مخفية بس،
-  // وكودها لسه موجود تحت — لو اتفعّلت في مرحلة لاحقة يكفي نخلّي ACTIONS_ENABLED = true
-  var ACTIONS_ENABLED = false;
-  document.body.classList.toggle('view-only', !ACTIONS_ENABLED);
+  // أدوات الإيقاف التوضيحية اتشالت: الإيقاف الحقيقي هيتبني من الأول في مرحلة لاحقة
+  // (صلاحية ads_management + مراجعة Meta، تنفيذ من السيرفر، سجل بمين عمل إيه، وتأكيد من المنصة)
 
   // ---------- التقييم والتنبيهات (المحرك نفسه في alerts.js) ----------
   var HEALTH = {
@@ -1656,6 +1643,8 @@
   }
   // اسم نوع النتيجة (مشتريات، محادثات...) بلغة الواجهة
   function resultLabelOf(c) { return t('res.' + (c.resultKey || 'generic')); }
+  // نفس الاسم بس مظبوط على العدد: "١ عملية شراء" / "٥ مشتريات" / "1 purchase"
+  function resultNounOf(c, n) { return t((I18N.form(n) === 'one' ? 'res1.' : 'res.') + (c.resultKey || 'generic')); }
 
   function cardChips(c) {
     // الأرقام للفترة المختارة. تلوين المشكلة (اللي جاي من تنبيهات آخر ٧ أيام) بيظهر بس لما الفترة
@@ -1665,7 +1654,7 @@
     var tip = ' — ' + periodLabel();
     var chips = '<span class="metric-chip' + hl('spend') + '" title="' + t('chip.spend') + tip + '">' + money(p.spend, c.currency) + '</span>';
     if (p.results != null) {
-      chips += '<span class="metric-chip' + hl('results') + '" title="' + t('chip.results') + tip + '">' + ar(p.results) + ' ' + esc(resultLabelOf(c)) + '</span>';
+      chips += '<span class="metric-chip' + hl('results') + '" title="' + t('chip.results') + tip + '">' + ar(p.results) + ' ' + esc(resultNounOf(c, p.results)) + '</span>';
     }
     var showRoas = p.roas != null || hl('roas');
     if (showRoas) {
@@ -1698,36 +1687,17 @@
     var name = '<div class="card-name" title="' + esc(c.offer) + '">' + esc(c.offer) + '</div>';
     var info = '<div class="card-info">' + line1 + name + issueLine + '<div class="card-metrics">' + cardChips(c) + '</div>';
 
-    if (!ACTIONS_ENABLED) {
-      return (
-        '<article class="candidate-card ' + h.cls + '" id="card-' + eid + '" data-id="' + eid + '" tabindex="0" role="button" aria-label="' + esc(c.offer) + ' — ' + h.label + '">' +
-          dot +
-          '<span class="preview-trigger" data-id="' + eid + '">' + previewMarkup(c) + '</span>' +
-          info +
-            '<div class="card-foot">' +
-              '<span class="days-badge">' + sinceLabel(c.daysAgo) + '</span>' +
-              '<span class="status-text' + (c.active ? (notDelivering(c) ? ' warn' : ' on') : '') + '">' + statusLabelOf(c) + '</span>' +
-            '</div>' +
-          '</div>' +
-        '</article>'
-      );
-    }
-
-    // وضع الإجراءات (مرحلة لاحقة) — نفس الكارت القديم بالتحديد والمفتاح
-    var checked = selectedIds[c.id] ? ' checked' : '';
-    var selCls = selectedIds[c.id] ? ' selected' : '';
     return (
-      '<label class="candidate-card ' + h.cls + selCls + '" id="card-' + eid + '">' +
+      '<article class="candidate-card ' + h.cls + '" id="card-' + eid + '" data-id="' + eid + '" tabindex="0" role="button" aria-label="' + esc(c.offer) + ' — ' + h.label + '">' +
         dot +
-        '<span class="check-wrap"><input type="checkbox" class="card-check" data-id="' + eid + '"' + checked + '></span>' +
-        '<span class="preview-trigger" data-id="' + eid + '">' + previewMarkup(c) + '</span>' +
+        previewMarkup(c) +
         info +
           '<div class="card-foot">' +
             '<span class="days-badge">' + sinceLabel(c.daysAgo) + '</span>' +
-            '<button type="button" class="state-switch" id="badge-' + eid + '" data-id="' + eid + '"><span class="switch-track' + (c.active ? ' on' : '') + '"><span class="switch-thumb"></span></span><span class="switch-label">' + statusLabelOf(c) + '</span></button>' +
+            '<span class="status-text' + (c.active ? (notDelivering(c) ? ' warn' : ' on') : '') + '">' + statusLabelOf(c) + '</span>' +
           '</div>' +
         '</div>' +
-      '</label>'
+      '</article>'
     );
   }
 
@@ -1773,13 +1743,12 @@
       galleryCount.textContent = anyLoading() ? t('gallery.loading') : t('gallery.login');
     } else {
       cardGrid.innerHTML = visible.length ? visible.map(cardMarkup).join('') : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
-      galleryCount.textContent = t('gallery.count', { n: ar(visible.length), total: ar(candidates.length) });
+      galleryCount.textContent = t('gallery.count', { n: ar(visible.length), total: ar(candidates.length), ads: noun(candidates.length, 'n.ad') });
     }
     renderHealthCounts();
     renderFilterState();
     renderKpis();
     renderAlerts();
-    if (ACTIONS_ENABLED) updateSelectionSummary();
   }
 
   // عدد الإعلانات في كل تقييم — بيظهر جنب كل اختيار في فلتر "تقييم الأداء"
@@ -1791,8 +1760,6 @@
     });
   }
 
-  selectAllBtn.addEventListener('click', function () { visibleCandidates().forEach(function (c) { selectedIds[c.id] = true; }); render(); });
-  clearSelBtn.addEventListener('click', function () { selectedIds = {}; render(); });
 
   // ---------- اختيار فترة البيانات ----------
   var periodSelect = document.getElementById('periodSelect');
@@ -1906,19 +1873,6 @@
       box(t('kpi.review'), ar(review), review ? ' kpi-review' : '');
   }
 
-  function updateSelectionSummary() {
-    var selected = candidates.filter(function (c) { return selectedIds[c.id]; });
-    var visibleNow = visibleCandidates();
-    var unselectedVisible = visibleNow.filter(function (c) { return !selectedIds[c.id]; }).length;
-    selectionSummary.textContent = t('demo.selected', { n: ar(selected.length), m: ar(unselectedVisible) });
-    var toStop = selected.filter(function (c) { return c.active; }).length;
-    var toResume = selected.filter(function (c) { return !c.active; }).length;
-    if (!selected.length) { stopSelectedBtn.disabled = true; stopSelectedBtn.textContent = t('demo.stopNow'); }
-    else if (toStop > 0 && toResume === 0) { stopSelectedBtn.disabled = false; stopSelectedBtn.textContent = t('demo.stopNowDemo'); }
-    else if (toResume > 0 && toStop === 0) { stopSelectedBtn.disabled = false; stopSelectedBtn.textContent = t('demo.resumeNowDemo'); }
-    else { stopSelectedBtn.disabled = false; stopSelectedBtn.textContent = t('demo.applyDemo'); }
-  }
-
   document.querySelectorAll('.filter-group').forEach(function (group) {
     group.addEventListener('click', function (e) {
       var btn = e.target.closest('.chip'); if (!btn) return;
@@ -1933,14 +1887,6 @@
   textFilter.addEventListener('input', function () { filters.text = textFilter.value; render(); });
   sortSelect.addEventListener('change', function () { filters.sort = sortSelect.value; render(); });
 
-  cardGrid.addEventListener('change', function (e) {
-    if (e.target.classList.contains('card-check')) {
-      var id = e.target.dataset.id;
-      if (e.target.checked) selectedIds[id] = true; else delete selectedIds[id];
-      e.target.closest('.candidate-card').classList.toggle('selected', e.target.checked);
-      updateSelectionSummary();
-    }
-  });
 
   function metricBox(label, value, extraCls) { return '<div class="metric-box' + (extraCls || '') + '"><div class="metric-label">' + label + '</div><div class="metric-value">' + value + '</div></div>'; }
 
@@ -2094,43 +2040,15 @@
 
   function findCandidate(id) { return candidates.filter(function (x) { return x.id === id; })[0]; }
 
-  function setBadge(id, state, label) {
-    var el = document.getElementById('badge-' + id);
-    if (!el) return;
-    var track = el.querySelector('.switch-track');
-    track.className = 'switch-track';
-    if (state === 'active' || state === 'confirmed-on') track.classList.add('on');
-    else if (state === 'sending' || state === 'activating' || state === 'retry') track.classList.add('pulse-neutral');
-    else if (state === 'alert') track.classList.add('pulse-red');
-    el.querySelector('.switch-label').textContent = label;
-  }
-
+  // الضغط على أي مكان في الكارت بيفتح التفاصيل
   cardGrid.addEventListener('click', function (e) {
-    if (!ACTIONS_ENABLED) {
-      // وضع العرض: الضغط على أي مكان في الكارت بيفتح التفاصيل
-      var card = e.target.closest('.candidate-card');
-      if (!card) return;
-      var picked = findCandidate(card.dataset.id);
-      if (picked) openExpand(picked);
-      return;
-    }
-    var trigger = e.target.closest('.preview-trigger');
-    if (trigger) {
-      e.preventDefault(); e.stopPropagation();
-      var c = findCandidate(trigger.dataset.id);
-      if (c) openExpand(c);
-      return;
-    }
-    var sw = e.target.closest('.state-switch');
-    if (sw) {
-      e.preventDefault(); e.stopPropagation();
-      if (sw.disabled) return;
-      var c2 = findCandidate(sw.dataset.id);
-      if (c2) toggleOne(c2, sw);
-    }
+    var card = e.target.closest('.candidate-card');
+    if (!card) return;
+    var picked = findCandidate(card.dataset.id);
+    if (picked) openExpand(picked);
   });
   cardGrid.addEventListener('keydown', function (e) {
-    if (ACTIONS_ENABLED || (e.key !== 'Enter' && e.key !== ' ')) return;
+    if (e.key !== 'Enter' && e.key !== ' ') return;
     var card = e.target.closest('.candidate-card');
     if (!card) return;
     e.preventDefault();
@@ -2301,65 +2219,12 @@
     if (!saved) setStatus(msg('settings.notSaved'));
   });
 
-  // ملاحظة صريحة: التبديل هنا توضيحي (simulated) — بيحاكي نفس تسلسل الإرسال والتحقق
-  // اللي هيحصل فعلياً في النسخة المنتَجة، لكنه معمول عليه ما زال، ما بيبعتش أمر حقيقي لـ Meta.
-  function toggleOne(c, btnEl) {
-    btnEl.disabled = true;
-    if (c.active) {
-      setBadge(c.id, 'sending', t('demo.sending'));
-      setTimeout(function () { setBadge(c.id, 'confirmed-off', t('demo.pausedDemo')); c.active = false; btnEl.disabled = false; }, 700);
-    } else {
-      setBadge(c.id, 'activating', t('demo.activating'));
-      setTimeout(function () { setBadge(c.id, 'confirmed-on', t('demo.activeDemo')); c.active = true; btnEl.disabled = false; }, 700);
-    }
-  }
-
   function resetFilterChips() {
     document.querySelectorAll('.filter-group').forEach(function (g) { g.querySelectorAll('.chip').forEach(function (ch) { ch.classList.toggle('active', ch.dataset.value === 'all'); }); });
     filters.platform = 'all'; filters.format = 'all'; filters.status = 'all'; filters.health = 'all'; filters.text = '';
     textFilter.value = '';
   }
 
-  function runExecute() {
-    resetFilterChips();
-    render();
-    var selected = candidates.filter(function (c) { return selectedIds[c.id]; });
-    if (!selected.length) return;
-    var toStop = selected.filter(function (c) { return c.active; });
-    var toResume = selected.filter(function (c) { return !c.active; });
-    stopSelectedBtn.disabled = true;
-    stopSelectedBtn.textContent = t('demo.executing');
-    var startTime = performance.now();
-    var doneCount = 0, total = selected.length;
-    function checkAllDone() {
-      if (doneCount === total) {
-        var elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
-        stopSelectedBtn.textContent = t('demo.done');
-        proofTime.textContent = new Date().toLocaleTimeString(isAr() ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        var parts = [];
-        if (toStop.length) parts.push(t('demo.stoppedN', { n: ar(toStop.length) }));
-        if (toResume.length) parts.push(t('demo.resumedN', { n: ar(toResume.length) }));
-        proofStatus.textContent = parts.join(' + ');
-        proofDuration.textContent = t('demo.seconds', { n: ar(elapsed) });
-        proofIncident.textContent = t('demo.incident');
-        proofReport.classList.remove('hidden');
-      }
-    }
-    selected.forEach(function (c, i) {
-      var baseDelay = 250 + i * 220;
-      setTimeout(function () {
-        if (c.active) { setBadge(c.id, 'sending', t('demo.sending')); }
-        else { setBadge(c.id, 'activating', t('demo.activating')); }
-      }, baseDelay);
-      setTimeout(function () {
-        if (c.active) { setBadge(c.id, 'confirmed-off', t('demo.pausedDemo')); c.active = false; }
-        else { setBadge(c.id, 'confirmed-on', t('demo.activeDemo')); c.active = true; }
-        doneCount++; checkAllDone();
-      }, baseDelay + 650);
-    });
-  }
-  stopSelectedBtn.addEventListener('click', runExecute);
-  printBtn.addEventListener('click', function () { window.print(); });
   // إعادة تحميل كل الحسابات المحمّلة من كل المنصات (مش Meta بس)
   resetAllBtn.addEventListener('click', function () {
     Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); });
