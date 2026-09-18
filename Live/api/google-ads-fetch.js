@@ -3,7 +3,7 @@
 // بيستخدم نفس متغيّر البيئة GOOGLE_ADS_DEVELOPER_TOKEN
 
 import { gaql } from './_google.js';
-import { last7DaysRange } from './_dates.js';
+import { last7DaysRange, resolvePeriod } from './_dates.js';
 import { guardRequest } from './_cors.js';
 import { verifyGoogleToken } from './_verify.js';
 
@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { accessToken, customerId, loginCustomerId, timeZone, clientTz } = req.body || {};
+  const { accessToken, customerId, loginCustomerId, timeZone, clientTz, period } = req.body || {};
   if (!accessToken || !customerId) {
     res.status(400).json({ error: 'accessToken و customerId مطلوبين في جسم الطلب.' });
     return;
@@ -27,6 +27,8 @@ export default async function handler(req, res) {
   if (!verified.ok) { res.status(403).json({ error: verified.error }); return; }
 
   const range = last7DaysRange(timeZone || clientTz);
+  // الفترة اللي المستخدم اختارها للأرقام (الصرف والنتائج) — التنبيهات بتفضل على آخر ٧ أيام دايماً
+  const periodRange = resolvePeriod(period, timeZone || clientTz);
   const opts = { developerToken, accessToken, customerId, loginCustomerId };
 
   // استعلامين منفصلين عن قصد:
@@ -81,8 +83,15 @@ export default async function handler(req, res) {
   try {
     // لو الحساب/الإصدار رفض حقول primary_status، بنرجع للاستعلام العادي بدل ما الإعلانات متحمّلش
     const adsRows = gaql(opts, adsQuery(true)).catch(function () { return gaql(opts, adsQuery(false)); });
-    const results = await Promise.all([adsRows, gaql(opts, metricsQuery)]);
-    res.status(200).json({ ads: results[0], metrics: results[1], range: range });
+    // مجاميع الفترة المختارة: صف واحد لكل إعلان (من غير تقسيم بالأيام). آخر ٧ أيام مش محتاجة طلب إضافي
+    const periodQuery = `
+      SELECT ad_group.id, ad_group_ad.ad.id, metrics.cost_micros, metrics.conversions, metrics.conversions_value
+      FROM ad_group_ad
+      WHERE segments.date BETWEEN '${periodRange.since}' AND '${periodRange.until}'
+    `;
+    const periodRows = periodRange.isDefault ? Promise.resolve(null) : gaql(opts, periodQuery).catch(function () { return null; });
+    const results = await Promise.all([adsRows, gaql(opts, metricsQuery), periodRows]);
+    res.status(200).json({ ads: results[0], metrics: results[1], periodMetrics: results[2], range: range, period: periodRange });
   } catch (err) {
     res.status(err && err.status ? err.status : 500).json({ error: String(err && err.message ? err.message : err) });
   }

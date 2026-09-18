@@ -23,7 +23,7 @@
   // عشان صرف صغير زي ٠٫٤ ميتحسبش صفر ويبوّظ تنبيهات زي "مصرفش أمس"
   function r2(n) { return Math.round((n || 0) * 100) / 100; }
   function numAr(n) { var r = Math.round((n || 0) * 10) / 10; return ar(String(r).replace('.', '٫')); }
-  function roasStr(r) { if (!r) return '—'; return '\u00D7' + ar(Math.round(r * 10) / 10); }
+  function roasStr(r) { if (!r) return '—'; return '×' + numAr(r); }
   function sinceLabel(n) {
     if (n == null) return '';
     if (n === 0) return 'اليوم';
@@ -113,7 +113,7 @@
 
   var candidates = [];
   // الترتيب الافتراضي "الأولوية": الإعلانات اللي محتاجة انتباه تظهر الأول
-  var filters = { platform: 'all', format: 'all', status: 'all', health: 'all', text: '', dateFrom: '', dateTo: '', sort: 'priority' };
+  var filters = { platform: 'all', format: 'all', status: 'all', health: 'all', text: '', sort: 'priority' };
   var selectedIds = {};
 
   // ---------- حفظ الجلسة ----------
@@ -156,13 +156,83 @@
   function beginLoad(platform) { loadSeq[platform] = (loadSeq[platform] || 0) + 1; return loadSeq[platform]; }
   function isCurrentLoad(platform, token) { return loadSeq[platform] === token; }
 
+  // ---------- فترة البيانات ----------
+  // زي اختيار التاريخ في المنصات: الفترة بتحدد أرقام الصرف والنتائج والعائد اللي بتظهر لكل إعلان.
+  // التنبيهات مش بتتأثر — بتفضل دايماً على آخر ٧ أيام لأنها عن الوضع الحالي.
+  // الفترة بتتحسب بتوقيت كل حساب، بنفس منطق السيرفر (api/_dates.js → resolvePeriod)
+  var PERIOD_KEY = 'acc.period.v1';
+  var PERIOD_LABELS = {
+    today: 'النهارده', yesterday: 'أمس', last7: 'آخر ٧ أيام', last14: 'آخر ١٤ يوم', last30: 'آخر ٣٠ يوم',
+    thisMonth: 'الشهر ده', lastMonth: 'الشهر اللي فات', custom: 'فترة مخصصة'
+  };
+  var PERIOD_MAX_DAYS = 93;
+  var period = (function () {
+    try {
+      var p = JSON.parse(localStorage.getItem(PERIOD_KEY) || 'null');
+      if (p && PERIOD_LABELS[p.preset]) return p;
+    } catch (e) { /* تخزين مقفول */ }
+    return { preset: 'last7' };
+  })();
+  function savePeriod() { try { localStorage.setItem(PERIOD_KEY, JSON.stringify(period)); } catch (e) { /* مش مهم */ } }
+  function shiftKey(key, d) {
+    var p = key.split('-').map(Number);
+    return new Date(Date.UTC(p[0], p[1] - 1, p[2] + d)).toISOString().slice(0, 10);
+  }
+  function keyDiffDays(a, b) {
+    var pa = a.split('-').map(Number), pb = b.split('-').map(Number);
+    return Math.round((Date.UTC(pb[0], pb[1] - 1, pb[2]) - Date.UTC(pa[0], pa[1] - 1, pa[2])) / 86400000);
+  }
+  function resolvePeriodFor(tz) {
+    var today = todayKeyInTz(tz), since = shiftKey(today, -6), until = today, preset = period.preset;
+    if (preset === 'today') since = today;
+    else if (preset === 'yesterday') since = until = shiftKey(today, -1);
+    else if (preset === 'last14') since = shiftKey(today, -13);
+    else if (preset === 'last30') since = shiftKey(today, -29);
+    else if (preset === 'thisMonth') since = today.slice(0, 8) + '01';
+    else if (preset === 'lastMonth') { until = shiftKey(today.slice(0, 8) + '01', -1); since = until.slice(0, 8) + '01'; }
+    else if (preset === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(period.since || '') && /^\d{4}-\d{2}-\d{2}$/.test(period.until || '')) {
+      since = period.since; until = period.until;
+      if (since > until) { var t = since; since = until; until = t; }
+      if (until > today) until = today;
+      if (since > until) since = until;
+    } else preset = 'last7';
+    if (keyDiffDays(since, until) > PERIOD_MAX_DAYS - 1) since = shiftKey(until, -(PERIOD_MAX_DAYS - 1));
+    return { preset: preset, since: since, until: until, isDefault: preset === 'last7' };
+  }
+  function periodKey() { return period.preset === 'custom' ? 'custom:' + period.since + ':' + period.until : period.preset; }
+  // تاريخ بشكل مقروء: "٣ سبت"
+  function fmtKey(key) {
+    if (!key) return '';
+    var p = key.split('-').map(Number);
+    return ar(p[2]) + ' ' + AR_MONTHS_SHORT[p[1] - 1];
+  }
+  function periodLabel() {
+    if (period.preset !== 'custom') return PERIOD_LABELS[period.preset];
+    return fmtKey(period.since) + ' — ' + fmtKey(period.until);
+  }
+  // أرقام الإعلان في الفترة المختارة — لو الفترة هي آخر ٧ أيام بتتحسب من البيانات الأسبوعية نفسها
+  function periodOf(c) {
+    if (c.period) return c.period;
+    var sales = (c.dailySales || []).reduce(function (a, b) { return a + b; }, 0);
+    return { spend: c.spend || 0, results: c.results, sales: sales, cpr: c.cpr, roas: c.roas };
+  }
+  function buildPeriod(spend, results, sales) {
+    spend = r2(spend || 0); sales = r2(sales || 0);
+    return {
+      spend: spend, results: results, sales: sales,
+      cpr: (results && spend > 0) ? spend / results : null,
+      roas: (sales > 0 && spend > 0) ? sales / spend : null
+    };
+  }
+
   // ---------- التحميل: نسخة محفوظة + حالة واضحة ----------
   // آخر تحميل لكل حساب بيتحفظ في الذاكرة، فلما ترجع لحساب فتحته قبل كده بيظهر فوراً
-  // وبيتحدّث في الخلفية بدل ما تقعد مستني قدام شاشة فاضية
+  // وبيتحدّث في الخلفية بدل ما تقعد مستني قدام شاشة فاضية.
+  // المفتاح فيه الفترة كمان — عشان نسخة "آخر ٣٠ يوم" متظهرش مكان "أمس"
   var sourceCache = {};
-  function cacheSource(source, ads) { sourceCache[source] = ads.slice(); }
+  function cacheSource(source, ads) { sourceCache[source + '|' + periodKey()] = ads.slice(); }
   function showCachedWhileLoading(source) {
-    var cached = sourceCache[source];
+    var cached = sourceCache[source + '|' + periodKey()];
     if (!cached || !cached.length) return false;
     mergeCandidates(cached, source);
     render();
@@ -233,7 +303,6 @@
   var textFilter = document.getElementById('textFilter');
   var dateFrom = document.getElementById('dateFrom');
   var dateTo = document.getElementById('dateTo');
-  var clearDates = document.getElementById('clearDates');
   var sortSelect = document.getElementById('sortSelect');
   var galleryCount = document.getElementById('galleryCount');
   var selectionSummary = document.getElementById('selectionSummary');
@@ -380,7 +449,7 @@
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         accessToken: googleAccessToken, customerId: customerId,
-        loginCustomerId: info.loginCustomerId, timeZone: info.timeZone, clientTz: BROWSER_TZ
+        loginCustomerId: info.loginCustomerId, timeZone: info.timeZone, clientTz: BROWSER_TZ, period: period
       })
     }).then(function (r) { return r.json(); }).then(function (payload) {
       if (!isCurrentLoad('google', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
@@ -392,7 +461,7 @@
         setLoading('google', false, 'الاتصال نجح لكن مفيش إعلانات (غير محذوفة) في هذا الحساب.');
         return;
       }
-      var googleCandidates = transformGoogleRows(payload.ads, payload.metrics || [], daysFromRange(payload.range), info.currency);
+      var googleCandidates = transformGoogleRows(payload.ads, payload.metrics || [], daysFromRange(payload.range), info.currency, payload.periodMetrics);
       mergeCandidates(googleCandidates, 'google:' + customerId);
       cacheSource('google:' + customerId, googleCandidates);
       selectedIds = {};
@@ -450,7 +519,7 @@
 
   // adRows: كل الإعلانات بحالتها (من غير تاريخ) — metricRows: صف لكل إعلان × يوم فيه نشاط
   // المفتاح adGroupId-adId لأن نفس الإعلان ممكن يتكرر في أكتر من مجموعة إعلانية
-  function transformGoogleRows(adRows, metricRows, days, currency) {
+  function transformGoogleRows(adRows, metricRows, days, currency, periodRows) {
     var byDate = {};
     metricRows.forEach(function (row) {
       var key = ggPick(row, 'adGroup.id') + '-' + ggPick(row, 'adGroupAd.ad.id');
@@ -464,10 +533,24 @@
         sales: r2(parseFloat(m.conversionsValue || 0))
       };
     });
+    // مجاميع الفترة المختارة (لو مش آخر ٧ أيام) — صف واحد لكل إعلان، ممكن يتكرر لو فيه أكتر من صفحة
+    var periodByKey = null;
+    if (Array.isArray(periodRows)) {
+      periodByKey = {};
+      periodRows.forEach(function (row) {
+        var k = ggPick(row, 'adGroup.id') + '-' + ggPick(row, 'adGroupAd.ad.id');
+        var m = row.metrics || {};
+        var acc = periodByKey[k] || (periodByKey[k] = { spend: 0, results: 0, sales: 0 });
+        acc.spend += parseInt(m.costMicros || 0, 10) / 1000000;
+        acc.results += parseFloat(m.conversions || 0);
+        acc.sales += parseFloat(m.conversionsValue || 0);
+      });
+    }
     return adRows.map(function (row) {
       var ad = ggPick(row, 'adGroupAd.ad') || {};
       var key = ggPick(row, 'adGroup.id') + '-' + ad.id;
       var id = 'g-' + key;
+      var pRow = periodByKey && (periodByKey[key] || { spend: 0, results: 0, sales: 0 });
       var headline = (ggPick(ad, 'responsiveSearchAd.headlines.0.text')) ||
         (ggPick(ad, 'expandedTextAd.headlinePart1')) || ad.name || ('إعلان Google #' + ad.id);
       var desc = (ggPick(ad, 'responsiveSearchAd.descriptions.0.text')) ||
@@ -512,6 +595,7 @@
         pausedLevel: delivery.level,
         deliveryReason: delivery.reason || null,
         platformStatus: ggPick(row, 'adGroupAd.primaryStatus') || adStatus || null,
+        period: pRow ? buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales) : null,
         _resourceName: row.adGroupAd && row.adGroupAd.resourceName,
         fail: false
       };
@@ -657,7 +741,7 @@
     setLoading('snapchat', true, 'جارٍ تحميل إعلانات Snapchat…');
     fetch('/api/snapchat-ads-fetch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accessToken: snapchatAccessToken, action: 'ads', adAccountId: adAccountId, clientTz: BROWSER_TZ })
+      body: JSON.stringify({ accessToken: snapchatAccessToken, action: 'ads', adAccountId: adAccountId, clientTz: BROWSER_TZ, period: period })
     }).then(function (r) { return r.json(); }).then(function (payload) {
       if (!isCurrentLoad('snapchat', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (!payload || payload.error) {
@@ -670,7 +754,7 @@
         setLoading('snapchat', false, 'الاتصال نجح لكن مفيش إعلانات راجعة لهذا الحساب.');
         return;
       }
-      var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns);
+      var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns, payload.periodStats);
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
       cacheSource('snapchat:' + adAccountId, snapCandidates);
       selectedIds = {};
@@ -701,7 +785,7 @@
     return { active: true, level: null };
   }
 
-  function transformSnapchatAds(adsList, statsList, days, currency, squads, campaigns) {
+  function transformSnapchatAds(adsList, statsList, days, currency, squads, campaigns, periodStats) {
     var squadsById = {}, campaignsById = {};
     (squads || []).forEach(function (s) { squadsById[s.id] = s; });
     (campaigns || []).forEach(function (c) { campaignsById[c.id] = c; });
@@ -732,9 +816,26 @@
     // لو الحساب بيسجّل مشتريات (Snap Pixel) نعتبرها النتيجة لكل إعلاناته، وإلا نرجع للسوايب —
     // قرار واحد على مستوى الحساب عشان المقارنة بين الإعلانات تفضل عادلة
     var tracksPurchases = parsed.some(function (p) { return p.purchases.some(function (v) { return v > 0; }); });
+    // مجاميع الفترة المختارة (granularity=TOTAL) — رقم واحد لكل إعلان جوه breakdown_stats.ad
+    var periodByAd = null;
+    if (periodStats) {
+      periodByAd = {};
+      (periodStats.total_stats || periodStats.timeseries_stats || []).forEach(function (entry) {
+        var ts = entry.total_stat || entry.timeseries_stat || entry;
+        ((ts.breakdown_stats && ts.breakdown_stats.ad) || []).forEach(function (b) {
+          var st = b.stats || {};
+          periodByAd[b.id] = {
+            spend: parseFloat(st.spend || 0) / 1000000,
+            results: tracksPurchases ? parseFloat(st.conversion_purchases || 0) : parseFloat(st.swipes || 0),
+            sales: tracksPurchases ? parseFloat(st.conversion_purchases_value || 0) / 1000000 : 0
+          };
+        });
+      });
+    }
     return parsed.map(function (p) {
       var ad = p.ad;
       var delivery = snapchatDelivery(ad, squadsById, campaignsById);
+      var pRow = periodByAd && (periodByAd[ad.id] || { spend: 0, results: 0, sales: 0 });
       var id = 's-' + ad.id;
       var dailyResults = tracksPurchases ? p.purchases : p.swipes;
       var dailySales = tracksPurchases ? p.sales : p.daily.map(function () { return 0; });
@@ -759,6 +860,7 @@
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active, pausedLevel: delivery.level,
         deliveryReason: null, platformStatus: ad.status || null,
+        period: pRow ? buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales) : null,
         fail: false
       };
     });
@@ -830,7 +932,7 @@
     setLoading('tiktok', true, 'جارٍ تحميل إعلانات TikTok…');
     fetch('/api/tiktok-ads-fetch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accessToken: tiktokAccessToken, advertiserId: advertiserId, clientTz: BROWSER_TZ })
+      body: JSON.stringify({ accessToken: tiktokAccessToken, advertiserId: advertiserId, clientTz: BROWSER_TZ, period: period })
     }).then(function (r) { return r.json(); }).then(function (payload) {
       if (!isCurrentLoad('tiktok', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
       if (!payload || payload.error) {
@@ -848,7 +950,7 @@
           if (o.dataset.platform === 'tiktok' && o.value === String(advertiserId)) o.textContent = 'TikTok Ads — ' + payload.advertiser.name;
         });
       }
-      var tiktokCandidates = transformTikTokAds(adsList, payload.report || [], daysFromRange(payload.range), payload.advertiser && payload.advertiser.currency);
+      var tiktokCandidates = transformTikTokAds(adsList, payload.report || [], daysFromRange(payload.range), payload.advertiser && payload.advertiser.currency, payload.periodReport);
       mergeCandidates(tiktokCandidates, 'tiktok:' + advertiserId);
       cacheSource('tiktok:' + advertiserId, tiktokCandidates);
       selectedIds = {};
@@ -880,7 +982,7 @@
     return off('not-eligible');
   }
 
-  function transformTikTokAds(adsList, reportList, days, currency) {
+  function transformTikTokAds(adsList, reportList, days, currency, periodReport) {
     var statsByAd = {};
     reportList.forEach(function (row) {
       var dims = row.dimensions || {};
@@ -888,9 +990,21 @@
       if (!statsByAd[dims.ad_id]) statsByAd[dims.ad_id] = {};
       statsByAd[dims.ad_id][(dims.stat_time_day || '').slice(0, 10)] = row.metrics || {};
     });
+    // مجاميع الفترة المختارة — تقرير من غير تقسيم بالأيام، صف لكل إعلان
+    var periodByAd = null;
+    if (Array.isArray(periodReport)) {
+      periodByAd = {};
+      periodReport.forEach(function (row) {
+        var id = row.dimensions && row.dimensions.ad_id;
+        if (!id) return;
+        var m = row.metrics || {};
+        periodByAd[id] = { spend: parseFloat(m.spend || 0), results: parseFloat(m.conversion || 0), sales: 0 };
+      });
+    }
     return adsList.map(function (ad) {
       var id = 't-' + ad.ad_id;
       var delivery = tiktokDelivery(ad);
+      var pRow = periodByAd && (periodByAd[ad.ad_id] || { spend: 0, results: 0, sales: 0 });
       var byDay = statsByAd[ad.ad_id] || {};
       var daily = [], dailyResults = [], rawResults = 0;
       days.forEach(function (day) {
@@ -916,6 +1030,7 @@
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active, pausedLevel: delivery.level,
         deliveryReason: null, platformStatus: ad.secondary_status || ad.operation_status || null,
+        period: pRow ? buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales) : null,
         fail: false
       };
     });
@@ -1028,12 +1143,18 @@
     var reachP = fbPagesPromise('/' + accountId + '/insights', {
       level: 'ad', time_range: timeRange, fields: 'ad_id,frequency,reach,impressions', limit: 500
     }, FULL_SCAN_CAP);
+    // مجاميع الفترة المختارة (صف واحد لكل إعلان) — بيتبعت بالتوازي مع الباقي، ومش محتاج لو الفترة آخر ٧ أيام
+    var pr = resolvePeriodFor(info.timeZone || BROWSER_TZ);
+    var periodP = pr.isDefault ? Promise.resolve(null) : fbPagesPromise('/' + accountId + '/insights', {
+      level: 'ad', time_range: JSON.stringify({ since: pr.since, until: pr.until }),
+      fields: 'ad_id,spend,actions,action_values', limit: 500
+    }, FULL_SCAN_CAP);
 
     var order = [], adsById = {}, adsTruncated = false;
-    var build = function (insightsByAd, reachByAd, adsetStatusMap) {
+    var build = function (insightsByAd, reachByAd, adsetStatusMap, periodByAd) {
       return order.map(function (id) {
         return transformRealAd(adsById[id], (insightsByAd && insightsByAd[id]) || [], adsetStatusMap, days,
-          reachByAd && reachByAd[id], info.currency || null, accountInfo[source]);
+          reachByAd && reachByAd[id], info.currency || null, accountInfo[source], periodByAd ? (periodByAd[id] || {}) : null);
       });
     };
     var byAdId = function (rows, multi) {
@@ -1071,12 +1192,14 @@
     });
 
     // المرحلة التانية: أرقام الإنفاق والنتائج والتكرار
-    Promise.all([stage1, dailyP, reachP]).then(function (r) {
-      var adsetStatusMap = r[0], daily = r[1], reach = r[2];
+    Promise.all([stage1, dailyP, reachP, periodP]).then(function (r) {
+      var adsetStatusMap = r[0], daily = r[1], reach = r[2], periodRes = r[3];
       if (!live() || !adsetStatusMap) return;
-      mergeCandidates(build(byAdId(daily.data, true), byAdId(reach.data), adsetStatusMap), source);
+      var periodByAd = (periodRes && !periodRes.err) ? byAdId(periodRes.data) : null;
+      mergeCandidates(build(byAdId(daily.data, true), byAdId(reach.data), adsetStatusMap, periodByAd), source);
       cacheSource(source, candidates.filter(function (c) { return c.source === source; }));
       var notes = [];
+      if (periodRes && periodRes.err) notes.push('تعذّر تحميل أرقام الفترة المختارة — المعروض آخر ٧ أيام');
       if (adsTruncated) notes.push('تم عرض أول ' + ar(PAGE_SAFETY_CAP) + ' إعلان بس — قولّي لو محتاج نرفع الحد');
       if (daily.err) notes.push('تعذّر تحميل الإنفاق اليومي: ' + daily.err.message);
       else if (daily.truncated) notes.push('بيانات الإنفاق اتقطعت عند ' + ar(FULL_SCAN_CAP) + ' صف — بعض الأرقام ممكن تكون ناقصة');
@@ -1248,7 +1371,7 @@
       (feedImage && feedImage.url) || (spec.video_data && spec.video_data.image_url) || creative.thumbnail_url || null;
   }
 
-  function transformRealAd(ad, insightRows, adsetStatusMap, days, reachRow, currency, acct) {
+  function transformRealAd(ad, insightRows, adsetStatusMap, days, reachRow, currency, acct, periodRow) {
     var delivery = metaDelivery(ad, adsetStatusMap, acct);
     var creative = ad.creative || {};
     var imageUrl = metaImageUrl(ad);
@@ -1293,6 +1416,16 @@
     var cpr = (results && spend > 0) ? (spend / results) : null;
     var roas = (totalSales > 0 && spend > 0) ? (totalSales / spend) : null;
 
+    // أرقام الفترة المختارة — نفس منطق النتيجة (حسب هدف الإعلان) على صف المجموع
+    var periodData = null;
+    if (periodRow) {
+      var pFound = resultForGoal(periodRow.actions, goal);
+      var pType = (pFound && pFound.type) || resultType;
+      var pResults = pFound ? Math.round(pFound.value) : (goal ? 0 : null);
+      var pSales = pType ? valueForType(periodRow.action_values, pType) : null;
+      periodData = buildPeriod(parseFloat(periodRow.spend || 0), pResults, pSales || 0);
+    }
+
     var dest = destinationInfo(creative);
 
     return {
@@ -1330,6 +1463,7 @@
       pausedLevel: delivery.level,
       deliveryReason: delivery.reason || null,
       platformStatus: ad.effective_status || null,
+      period: periodData,
       fail: false
     };
   }
@@ -1413,11 +1547,12 @@
     good: { label: 'جيد', cls: 'h-good', order: 2 },
     inactive: { label: 'غير فعال', cls: 'h-inactive', order: 3 }
   };
+  // مستويات التنبيه: عاجل (محتاج تدخّل) / مهم (تابعه) / فرصة — مستوى "للعلم" اتشال لأنه ضوضاء
   var LEVELS = {
-    critical: { label: 'يحتاج مراجعة', cls: 'lv-critical' },
-    warning: { label: 'يحتاج تحسين', cls: 'lv-warning' },
+    critical: { label: 'عاجل', cls: 'lv-critical' },
+    warning: { label: 'مهم', cls: 'lv-warning' },
     opportunity: { label: 'فرصة', cls: 'lv-opportunity' },
-    info: { label: 'للعلم', cls: 'lv-info' }
+    info: { label: 'للعلم', cls: 'lv-info' }  // احتياطي لو محرك التنبيهات رجّع المستوى ده
   };
 
   // إعدادات حدود التنبيهات بتتحفظ في متصفح المستخدم نفسه
@@ -1497,17 +1632,22 @@
   }
 
   function cardChips(c) {
-    var chips = '<span class="metric-chip' + mv(c, 'spend') + '" title="الإنفاق — آخر ٧ أيام">' + money(c.spend, c.currency) + '</span>';
-    if (c.results != null) {
-      chips += '<span class="metric-chip' + mv(c, 'results') + '" title="النتائج — آخر ٧ أيام">' + ar(c.results) + ' ' + esc(c.resultLabel || 'نتائج') + '</span>';
+    // الأرقام للفترة المختارة. تلوين المشكلة (اللي جاي من تنبيهات آخر ٧ أيام) بيظهر بس لما الفترة
+    // هي نفسها آخر ٧ أيام — عشان رقم ٣٠ يوم ميتلوّنش أحمر بسبب حاجة حصلت أمس بس
+    var p = periodOf(c);
+    var hl = function (metric) { return period.preset === 'last7' ? mv(c, metric) : ''; };
+    var tip = ' — ' + periodLabel();
+    var chips = '<span class="metric-chip' + hl('spend') + '" title="الإنفاق' + tip + '">' + money(p.spend, c.currency) + '</span>';
+    if (p.results != null) {
+      chips += '<span class="metric-chip' + hl('results') + '" title="النتائج' + tip + '">' + ar(p.results) + ' ' + esc(c.resultLabel || 'نتائج') + '</span>';
     }
-    var showRoas = c.roas != null || mv(c, 'roas');
+    var showRoas = p.roas != null || hl('roas');
     if (showRoas) {
-      chips += '<span class="metric-chip' + mv(c, 'roas') + '" title="كل ١ بيتصرف بيرجع كام مبيعات">عائد ' + roasStr(c.roas) + '</span>';
+      chips += '<span class="metric-chip' + hl('roas') + '" title="كل ١ بيتصرف بيرجع كام مبيعات' + tip + '">عائد ' + roasStr(p.roas) + '</span>';
     }
     // تكلفة النتيجة بتظهر لو مفيش عائد نعرضه، أو لو هي نفسها المشكلة
-    if (c.cpr != null && (!showRoas || mv(c, 'cpr'))) {
-      chips += '<span class="metric-chip' + mv(c, 'cpr') + '" title="تكلفة النتيجة الواحدة">' + money(c.cpr, c.currency) + ' للواحد</span>';
+    if (p.cpr != null && (!showRoas || hl('cpr'))) {
+      chips += '<span class="metric-chip' + hl('cpr') + '" title="تكلفة النتيجة الواحدة' + tip + '">' + money(p.cpr, c.currency) + ' للواحد</span>';
     }
     if (c.frequency != null && mv(c, 'frequency')) {
       chips += '<span class="metric-chip' + mv(c, 'frequency') + '" title="متوسط مرات ظهور الإعلان لنفس الشخص">تكرار ' + numAr(c.frequency) + '</span>';
@@ -1565,7 +1705,6 @@
     );
   }
 
-  function getLaunchDate(c) { var d = new Date(); d.setDate(d.getDate() - c.daysAgo); d.setHours(0, 0, 0, 0); return d; }
 
   function visibleCandidates() {
     return candidates.filter(function (c) {
@@ -1574,10 +1713,6 @@
       if (filters.status === 'active' && !c.active) return false;
       if (filters.status === 'paused' && c.active) return false;
       if (filters.health !== 'all' && adAnalysis(c).health !== filters.health) return false;
-      // تاريخ الإطلاق غير معروف (زي Google Ads) — منقدرش نأكد إنه جوه النطاق، فمنعرضوش مع فلتر تاريخ
-      if ((filters.dateFrom || filters.dateTo) && c.daysAgo == null) return false;
-      if (filters.dateFrom) { var from = new Date(filters.dateFrom); from.setHours(0, 0, 0, 0); if (getLaunchDate(c) < from) return false; }
-      if (filters.dateTo) { var to = new Date(filters.dateTo); to.setHours(23, 59, 59, 999); if (getLaunchDate(c) > to) return false; }
       if (filters.text) {
         var hay = (c.platform + ' ' + c.placement + ' ' + c.offer + ' ' + (c.headline || '') + ' ' + (c.desc || '') + ' ' + (c.caption || '')).toLowerCase();
         if (hay.indexOf(filters.text.toLowerCase()) === -1) return false;
@@ -1592,11 +1727,11 @@
     var age = function (v) { return v == null ? Number.MAX_SAFE_INTEGER : v; };
     if (key === 'priority') {
       // الأهم أولاً: يحتاج مراجعة ← يحتاج تحسين ← جيد ← غير فعال، وجوه كل مجموعة الأعلى إنفاقاً
-      arr.sort(function (a, b) { return (HEALTH[adAnalysis(a).health].order - HEALTH[adAnalysis(b).health].order) || (b.spend - a.spend); });
+      arr.sort(function (a, b) { return (HEALTH[adAnalysis(a).health].order - HEALTH[adAnalysis(b).health].order) || (periodOf(b).spend - periodOf(a).spend); });
     }
     else if (key === 'launch') arr.sort(function (a, b) { return age(a.daysAgo) - age(b.daysAgo); });
     else if (key === 'update') arr.sort(function (a, b) { return age(a.updatedDaysAgo) - age(b.updatedDaysAgo); });
-    else if (key === 'spend') arr.sort(function (a, b) { return b.spend - a.spend; });
+    else if (key === 'spend') arr.sort(function (a, b) { return periodOf(b).spend - periodOf(a).spend; });
     return arr;
   }
 
@@ -1633,6 +1768,43 @@
   selectAllBtn.addEventListener('click', function () { visibleCandidates().forEach(function (c) { selectedIds[c.id] = true; }); render(); });
   clearSelBtn.addEventListener('click', function () { selectedIds = {}; render(); });
 
+  // ---------- اختيار فترة البيانات ----------
+  var periodSelect = document.getElementById('periodSelect');
+  var periodCustom = document.getElementById('periodCustom');
+  function syncPeriodUi() {
+    periodSelect.value = period.preset;
+    periodCustom.classList.toggle('hidden', period.preset !== 'custom');
+    var today = todayKeyInTz(BROWSER_TZ);
+    dateFrom.max = today; dateTo.max = today;
+    if (period.preset === 'custom') { dateFrom.value = period.since || ''; dateTo.value = period.until || ''; }
+    var r = resolvePeriodFor(BROWSER_TZ);
+    document.getElementById('periodRangeText').textContent = r.since === r.until ? fmtKey(r.since) : fmtKey(r.since) + ' — ' + fmtKey(r.until);
+  }
+  // تغيير الفترة بيعيد تحميل كل الحسابات المتصلة بالأرقام الجديدة (ولو فيه نسخة محفوظة للفترة دي بتظهر فوراً)
+  function applyPeriod(next) {
+    period = next;
+    savePeriod();
+    syncPeriodUi();
+    Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); });
+    render();
+  }
+  periodSelect.addEventListener('change', function () {
+    if (periodSelect.value === 'custom') {
+      // الفترة المخصصة بتستنى زرار "تطبيق" — عشان متعملش تحميل مع كل تاريخ بتغيّره
+      periodCustom.classList.remove('hidden');
+      var r = resolvePeriodFor(BROWSER_TZ);
+      if (!dateFrom.value) dateFrom.value = r.since;
+      if (!dateTo.value) dateTo.value = r.until;
+      return;
+    }
+    applyPeriod({ preset: periodSelect.value });
+  });
+  document.getElementById('periodApply').addEventListener('click', function () {
+    if (!dateFrom.value || !dateTo.value) { connectStatus.textContent = 'اختار تاريخ البداية والنهاية الأول.'; return; }
+    applyPeriod({ preset: 'custom', since: dateFrom.value, until: dateTo.value });
+  });
+  syncPeriodUi();
+
   // ---------- درج الفلاتر ----------
   var filterDrawer = document.getElementById('filterDrawer');
   function openFilters() { filterDrawer.classList.remove('hidden'); document.body.style.overflow = 'hidden'; }
@@ -1643,7 +1815,6 @@
   filterDrawer.addEventListener('click', function (e) { if (e.target.hasAttribute('data-close-drawer')) closeFilters(); });
   document.getElementById('clearFiltersBtn').addEventListener('click', function () {
     resetFilterChips();
-    dateFrom.value = ''; dateTo.value = ''; filters.dateFrom = ''; filters.dateTo = '';
     render();
   });
   document.getElementById('heroLoginBtn').addEventListener('click', function () { platformOverlay.classList.remove('hidden'); });
@@ -1662,8 +1833,6 @@
       out.push({ key: k, label: label });
     });
     if (filters.text) out.push({ key: 'text', label: 'بحث: ' + filters.text });
-    if (filters.dateFrom) out.push({ key: 'dateFrom', label: 'من ' + filters.dateFrom });
-    if (filters.dateTo) out.push({ key: 'dateTo', label: 'إلى ' + filters.dateTo });
     return out;
   }
   function renderFilterState() {
@@ -1677,8 +1846,6 @@
     var btn = e.target.closest('.active-filter'); if (!btn) return;
     var key = btn.dataset.filterKey;
     if (key === 'text') { filters.text = ''; textFilter.value = ''; }
-    else if (key === 'dateFrom') { filters.dateFrom = ''; dateFrom.value = ''; }
-    else if (key === 'dateTo') { filters.dateTo = ''; dateTo.value = ''; }
     else {
       var group = document.querySelector('.filter-group[data-filter="' + key + '"]');
       if (group) setFilterChip(group, 'all'); else filters[key] = 'all';
@@ -1693,8 +1860,9 @@
     // المجاميع بتتحسب لكل عملة على حدة — جمع ريال مع دولار يطلع رقم بلا معنى
     var spendByCur = {}, resultsTotal = 0;
     candidates.forEach(function (c) {
-      spendByCur[c.currency || ''] = (spendByCur[c.currency || ''] || 0) + (c.spend || 0);
-      resultsTotal += c.results || 0;
+      var p = periodOf(c);
+      spendByCur[c.currency || ''] = (spendByCur[c.currency || ''] || 0) + (p.spend || 0);
+      resultsTotal += p.results || 0;
     });
     var joinMoney = function (map) {
       var keys = Object.keys(map).filter(function (k) { return map[k] > 0; });
@@ -1706,9 +1874,9 @@
       return '<div class="kpi' + (cls || '') + '"><div class="kpi-label">' + label + '</div><div class="kpi-value">' + value + '</div></div>';
     };
     strip.innerHTML =
-      box('الإنفاق — آخر ٧ أيام', joinMoney(spendByCur)) +
-      box('النتائج — آخر ٧ أيام', ar(resultsTotal)) +
-      box('ميزانية معرّضة للهدر', joinMoney(atRisk), ' kpi-risk') +
+      box('الإنفاق — ' + periodLabel(), joinMoney(spendByCur)) +
+      box('النتائج — ' + periodLabel(), ar(resultsTotal)) +
+      box('معرّض للهدر — آخر يومين', joinMoney(atRisk), ' kpi-risk') +
       box('إعلانات تحتاج مراجعة', ar(review), review ? ' kpi-review' : '');
   }
 
@@ -1737,9 +1905,6 @@
     filters[group.dataset.filter] = value;
   }
   textFilter.addEventListener('input', function () { filters.text = textFilter.value; render(); });
-  dateFrom.addEventListener('change', function () { filters.dateFrom = dateFrom.value; render(); });
-  dateTo.addEventListener('change', function () { filters.dateTo = dateTo.value; render(); });
-  clearDates.addEventListener('click', function () { dateFrom.value = ''; dateTo.value = ''; filters.dateFrom = ''; filters.dateTo = ''; render(); });
   sortSelect.addEventListener('change', function () { filters.sort = sortSelect.value; render(); });
 
   cardGrid.addEventListener('change', function (e) {
@@ -1792,14 +1957,18 @@
 
     var cur = c.currency;
     var hasSales = c.dailySales.some(function (v) { return v > 0; });
-    var resultsLabelTxt = c.results != null ? ('النتائج (' + esc(c.resultLabel || 'نتائج') + ')') : 'النتائج';
+    // مربعات الأرقام للفترة المختارة. التلوين بيظهر بس لو الفترة آخر ٧ أيام (نفس فترة التنبيهات)
+    var p = periodOf(c);
+    var hl = function (metric) { return period.preset === 'last7' ? mv(c, metric) : ''; };
+    var pl = ' (' + periodLabel() + ')';
+    var resultsLabelTxt = p.results != null ? ('النتائج — ' + esc(c.resultLabel || 'نتائج') + pl) : 'النتائج' + pl;
     var boxes =
-      metricBox('الإنفاق (٧ أيام)', money(c.spend, cur), mv(c, 'spend') || mv(c, 'delivery')) +
-      metricBox(resultsLabelTxt, c.results != null ? ar(c.results) : '— (لا توجد بيانات تحويل لهذا الإعلان)', mv(c, 'results')) +
-      metricBox('تكلفة النتيجة الواحدة', c.cpr != null ? money(c.cpr, cur) : '—', mv(c, 'cpr')) +
-      metricBox('العائد (كل ١ بيرجع)', roasStr(c.roas), mv(c, 'roas'));
-    if (c.frequency != null) boxes += metricBox('تكرار الظهور لنفس الشخص', numAr(c.frequency) + ' مرة', mv(c, 'frequency'));
-    boxes += metricBox('قيمة المبيعات', hasSales ? money(c.dailySales.reduce(function (x, y) { return x + y; }, 0), cur) : '— (بدون قيمة مالية مرتبطة بالنتائج)');
+      metricBox('الإنفاق' + pl, money(p.spend, cur), hl('spend') || hl('delivery')) +
+      metricBox(resultsLabelTxt, p.results != null ? ar(p.results) : '— (لا توجد بيانات تحويل لهذا الإعلان)', hl('results')) +
+      metricBox('تكلفة النتيجة الواحدة', p.cpr != null ? money(p.cpr, cur) : '—', hl('cpr')) +
+      metricBox('العائد (كل ١ بيرجع)', roasStr(p.roas), hl('roas'));
+    if (c.frequency != null) boxes += metricBox('تكرار الظهور لنفس الشخص (آخر ٧ أيام)', numAr(c.frequency) + ' مرة', mv(c, 'frequency'));
+    boxes += metricBox('قيمة المبيعات' + pl, p.sales > 0 ? money(p.sales, cur) : '— (بدون قيمة مالية مرتبطة بالنتائج)');
     document.getElementById('expandMetrics').innerHTML = boxes;
 
     // السلسلة الثانية: مبيعات فعلية لو موجودة، وإلا عدد النتائج (حسب هدف الإعلان نفسه) كبديل مفيد
@@ -1954,8 +2123,10 @@
   }
   viewTabs.forEach(function (t) { t.addEventListener('click', function () { showView(t.dataset.view); }); });
 
+
   // ---------- صفحة التنبيهات ----------
-  var alertsLevelFilter = 'all';
+  // الافتراضي "urgent" = العاجل والمهم مع بعض — دول اللي محتاجين قرار. الفرص في قسم لوحدها
+  var alertsLevelFilter = 'urgent';
   var alertsSummaryEl = document.getElementById('alertsSummary');
   var alertsListEl = document.getElementById('alertsList');
   var alertsTabCount = document.getElementById('alertsTabCount');
@@ -1975,8 +2146,8 @@
 
   function renderAlerts() {
     var s = analysis.summary;
-    var urgent = s.levels.critical + s.levels.warning;
-    alertsTabCount.textContent = urgent ? ar(urgent) : '';
+    // الرقم على التبويب = العاجل بس — الحاجة اللي محتاجة تدخّل النهارده
+    alertsTabCount.textContent = s.levels.critical ? ar(s.levels.critical) : '';
     alertsTabCount.classList.toggle('has-critical', s.levels.critical > 0);
 
     if (!candidates.length) {
@@ -1987,28 +2158,31 @@
 
     var atRiskKeys = Object.keys(s.atRisk);
     var atRisk = atRiskKeys.length ? atRiskKeys.map(function (cur) { return money(s.atRisk[cur], cur || null); }).join(' + ') : money(0);
-    var box = function (level, count, label) {
-      return '<button type="button" class="summary-box ' + LEVELS[level].cls + (alertsLevelFilter === level ? ' active' : '') + '" data-level="' + level + '">' +
+    var box = function (key, cls, count, label) {
+      return '<button type="button" class="summary-box ' + cls + (alertsLevelFilter === key ? ' active' : '') + '" data-level="' + key + '">' +
         '<span class="summary-count">' + ar(count) + '</span><span class="summary-label">' + label + '</span></button>';
     };
     alertsSummaryEl.innerHTML =
       '<div class="summary-risk"><span class="summary-risk-label">ميزانية معرّضة للهدر (صرف بدون نتائج أو بخسارة)</span><span class="summary-risk-value">' + atRisk + '</span></div>' +
-      '<div class="summary-boxes">' +
-        box('critical', s.levels.critical, 'يحتاج مراجعة') +
-        box('warning', s.levels.warning, 'يحتاج تحسين') +
-        box('opportunity', s.levels.opportunity, 'فرص') +
-        box('info', s.levels.info, 'للعلم') +
+      '<div class="summary-boxes summary-boxes-3">' +
+        box('critical', 'lv-critical', s.levels.critical, 'عاجل — محتاج تدخّل') +
+        box('warning', 'lv-warning', s.levels.warning, 'مهم — تابعه') +
+        box('opportunity', 'lv-opportunity', s.levels.opportunity, 'فرص للنمو') +
       '</div>';
 
-    var list = analysis.alerts.filter(function (a) { return alertsLevelFilter === 'all' || a.level === alertsLevelFilter; });
+    var list = analysis.alerts.filter(function (a) {
+      if (alertsLevelFilter === 'urgent') return a.level === 'critical' || a.level === 'warning';
+      return a.level === alertsLevelFilter;
+    });
     alertsListEl.innerHTML = list.length
       ? list.map(alertMarkup).join('')
-      : '<div class="empty-state">' + (alertsLevelFilter === 'all' ? 'مفيش تنبيهات حالياً — أداء إعلاناتك ماشي كويس.' : 'مفيش تنبيهات من النوع ده حالياً.') + '</div>';
+      : '<div class="empty-state">' + (alertsLevelFilter === 'urgent' ? 'مفيش حاجة عاجلة حالياً — إعلاناتك ماشية كويس.' : 'مفيش تنبيهات من النوع ده حالياً.') + '</div>';
   }
 
   alertsSummaryEl.addEventListener('click', function (e) {
     var b = e.target.closest('.summary-box'); if (!b) return;
-    alertsLevelFilter = alertsLevelFilter === b.dataset.level ? 'all' : b.dataset.level;
+    // الضغط على نفس المربع تاني بيرجّع للعرض الافتراضي (العاجل + المهم)
+    alertsLevelFilter = alertsLevelFilter === b.dataset.level ? 'urgent' : b.dataset.level;
     renderAlerts();
   });
   function openAlertAd(e) {
@@ -2021,24 +2195,57 @@
   alertsListEl.addEventListener('keydown', openAlertAd);
 
   // ---------- إعدادات التنبيهات ----------
+  // الشاشة الأساسية: نمط جاهز + العائد المستهدف + فترة التعلّم. باقي الحدود تحت "إعدادات متقدمة"
   var settingsOverlay = document.getElementById('settingsOverlay');
   var settingsForm = document.getElementById('settingsForm');
   var SETTING_UNITS = { multiple: '×', ratio: '٪', days: 'يوم', times: 'مرة', count: 'نتيجة' };
+  var MAIN_SETTINGS = { roasTarget: true, learningDays: true };
+  var PRESET_LABELS = {
+    calm: { name: 'هادي', help: 'تنبيهات أقل — الحاجات الكبيرة بس' },
+    balanced: { name: 'متوازن', help: 'الافتراضي — مناسب لأغلب الحسابات' },
+    strict: { name: 'صارم', help: 'تنبيهات أكتر — أي انحراف بسيط' }
+  };
+
+  function settingRow(m, value) {
+    var shown = m.kind === 'ratio' ? Math.round(value * 100) : value;
+    var step = m.kind === 'multiple' ? '0.1' : '1';
+    return '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(m.label) + '</span><span class="setting-help">' + esc(m.help) + '</span></span>' +
+      '<span class="setting-input"><input type="number" inputmode="decimal" min="0" step="' + step + '" name="' + m.key + '" value="' + shown + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
+  }
 
   function renderSettingsForm() {
     var current = PauseProofAlerts.mergeSettings(alertSettings);
+    var preset = alertSettings._preset || 'balanced';
+    var presetHtml = '<fieldset class="settings-group"><legend>حساسية التنبيهات</legend><div class="preset-options">' +
+      Object.keys(PRESET_LABELS).map(function (p) {
+        return '<label class="preset-option"><input type="radio" name="_preset" value="' + p + '"' + (p === preset ? ' checked' : '') + '>' +
+          '<span class="preset-name">' + PRESET_LABELS[p].name + '</span><span class="preset-help">' + PRESET_LABELS[p].help + '</span></label>';
+      }).join('') + '</div></fieldset>';
+    var mainHtml = '<fieldset class="settings-group"><legend>أهداف البزنس</legend>' +
+      PauseProofAlerts.SETTINGS_META.filter(function (m) { return MAIN_SETTINGS[m.key]; }).map(function (m) { return settingRow(m, current[m.key]); }).join('') +
+      '</fieldset>';
     var groups = {};
-    PauseProofAlerts.SETTINGS_META.forEach(function (m) { (groups[m.group] = groups[m.group] || []).push(m); });
-    settingsForm.innerHTML = Object.keys(groups).map(function (g) {
-      return '<fieldset class="settings-group"><legend>' + esc(g) + '</legend>' + groups[g].map(function (m) {
-        var v = current[m.key];
-        var shown = m.kind === 'ratio' ? Math.round(v * 100) : v;
-        var step = m.kind === 'multiple' ? '0.1' : '1';
-        return '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(m.label) + '</span><span class="setting-help">' + esc(m.help) + '</span></span>' +
-          '<span class="setting-input"><input type="number" inputmode="decimal" min="0" step="' + step + '" name="' + m.key + '" value="' + shown + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
-      }).join('') + '</fieldset>';
-    }).join('');
+    PauseProofAlerts.SETTINGS_META.forEach(function (m) {
+      if (MAIN_SETTINGS[m.key]) return;
+      (groups[m.group] = groups[m.group] || []).push(m);
+    });
+    var advancedHtml = '<details class="settings-advanced"><summary>إعدادات متقدمة (كل الحدود بالتفصيل)</summary>' +
+      Object.keys(groups).map(function (g) {
+        return '<fieldset class="settings-group"><legend>' + esc(g) + '</legend>' + groups[g].map(function (m) { return settingRow(m, current[m.key]); }).join('') + '</fieldset>';
+      }).join('') + '</details>';
+    settingsForm.innerHTML = presetHtml + mainHtml + advancedHtml;
   }
+
+  // اختيار نمط بيملّي الحدود المتقدمة بقيمه على طول (والمستخدم يقدر يعدّل بعدها)
+  settingsForm.addEventListener('change', function (e) {
+    if (e.target.name !== '_preset') return;
+    var values = PauseProofAlerts.presetSettings(e.target.value);
+    PauseProofAlerts.SETTINGS_META.forEach(function (m) {
+      if (MAIN_SETTINGS[m.key]) return;
+      var input = settingsForm.querySelector('[name="' + m.key + '"]');
+      if (input) input.value = m.kind === 'ratio' ? Math.round(values[m.key] * 100) : values[m.key];
+    });
+  });
 
   document.getElementById('openSettingsBtn').addEventListener('click', function () { renderSettingsForm(); settingsOverlay.classList.remove('hidden'); });
   document.getElementById('settingsClose').addEventListener('click', function () { settingsOverlay.classList.add('hidden'); });
@@ -2050,7 +2257,8 @@
     render();
   });
   document.getElementById('settingsSave').addEventListener('click', function () {
-    var next = {};
+    var picked = settingsForm.querySelector('[name="_preset"]:checked');
+    var next = { _preset: picked ? picked.value : 'balanced' };
     PauseProofAlerts.SETTINGS_META.forEach(function (m) {
       var input = settingsForm.querySelector('[name="' + m.key + '"]');
       if (!input) return;
@@ -2086,7 +2294,6 @@
 
   function runExecute() {
     resetFilterChips();
-    dateFrom.value = ''; dateTo.value = ''; filters.dateFrom = ''; filters.dateTo = '';
     render();
     var selected = candidates.filter(function (c) { return selectedIds[c.id]; });
     if (!selected.length) return;

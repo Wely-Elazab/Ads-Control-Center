@@ -1,5 +1,5 @@
 // =====================================================================
-// PauseProof — محرك التنبيهات والتقييم
+// Ads Control Center — محرك التنبيهات والتقييم
 // =====================================================================
 // بياخد الإعلانات المحمّلة (بنفس الشكل اللي app.js بيبنيه) ويرجّع:
 //   - تقييم كل إعلان: review (يحتاج مراجعة) / improve (يحتاج تحسين) / good (جيد) / inactive (غير فعال)
@@ -33,6 +33,22 @@
     accountSpikeMultiple: 1.5,
     accountDropRatio: 0.5,
     concentrationShare: 0.4   // إعلان واحد واخد النسبة دي أو أكتر من ميزانية الحساب
+  };
+
+  // ٣ أنماط جاهزة بدل ما صاحب البزنس يظبط ١٧ رقم: كل نمط بيغيّر حساسية التنبيهات مع بعض.
+  // العائد المستهدف وفترة التعلّم مش جوه الأنماط — دول قرارات بزنس بتتحدد لوحدها
+  var PRESETS = {
+    calm: {         // تنبيهات أقل — الحاجات الكبيرة بس
+      wasteCprMultiple: 3, cprWarnMultiple: 2, cprCriticalMultiple: 3, lowDeliveryRatio: 0.1,
+      spikeMultiple: 3, dropRatio: 0.3, frequencyHigh: 8, frequencyWarn: 5,
+      accountSpikeMultiple: 2, accountDropRatio: 0.3, concentrationShare: 0.6
+    },
+    balanced: {},   // القيم الافتراضية
+    strict: {       // تنبيهات أكتر — أي انحراف بسيط
+      wasteCprMultiple: 1.5, cprWarnMultiple: 1.3, cprCriticalMultiple: 1.7, lowDeliveryRatio: 0.3,
+      spikeMultiple: 1.5, dropRatio: 0.6, frequencyHigh: 5, frequencyWarn: 3.5,
+      accountSpikeMultiple: 1.3, accountDropRatio: 0.6, concentrationShare: 0.3
+    }
   };
 
   // وصف كل إعداد لشاشة الإعدادات — بلغة بزنس
@@ -146,38 +162,22 @@
     var historyDays = age != null ? Math.max(1, Math.min(5, age - 1)) : 5;
     var prevSpendAvg = sum(daily, 0, DAY_BEFORE) / historyDays;
 
-    // 1) حالة المراجعة من المنصة — مهمة سواء الإعلان فعّال أو لا
-    if (c.reviewStatus === 'disapproved') {
-      issues.push(makeIssue('critical', ['status'], 'إعلان مرفوض من المنصة',
-        'المنصة رفضت ' + name + '، فمش هيظهر للناس لحد ما يتعدّل.',
-        'اطلب من مسؤول الإعلانات يراجع سبب الرفض ويعدّل الإعلان أو يستبدله.'));
-    } else if (c.reviewStatus === 'limited') {
+    // 1) الإعلانات غير الفعّالة: مفيش تنبيهات عليها — مش بتصرف، فمفيش حاجة عاجلة تخصّ صاحب البزنس.
+    //    الاستثناء الوحيد: إعلان كان شغّال وبيصرف في آخر ٣ أيام والمنصة رفضته — ده توقف مفاجئ مش مقصود
+    if (!c.active) {
+      if (c.reviewStatus === 'disapproved' && sum(daily, 3, TODAY) > 0) {
+        issues.push(makeIssue('critical', ['status'], 'إعلان شغّال اترفض ووقف',
+          'المنصة رفضت ' + name + ' بعد ما كان شغّال وصرف ' + money(sum(daily, 3, TODAY)) + ' في آخر ٣ أيام، فوقف عن الظهور.',
+          'اطلب من مسؤول الإعلانات يراجع سبب الرفض ويعدّل الإعلان أو يستبدله.'));
+      }
+      return finalize(c, issues);
+    }
+
+    // 2) ظهور محدود بسبب ملاحظة من المنصة (والإعلان لسه شغّال)
+    if (c.reviewStatus === 'limited') {
       issues.push(makeIssue('warning', ['status', 'delivery'], 'ظهور محدود بسبب سياسات المنصة',
         'المنصة بتعرض ' + name + ' لعدد محدود من الناس بسبب ملاحظة على محتواه.',
         'اسأل مسؤول الإعلانات عن الملاحظة — تعديل بسيط ممكن يرجّع الوصول الطبيعي.'));
-    }
-
-    // 2) إعلان غير فعّال: التنبيه الوحيد المفيد إنه وقف مؤخراً
-    if (!c.active) {
-      var recentSpend = sum(daily, 3, YESTERDAY);
-      // (الإعلان غير فعّال دلوقتي — فأي صرف في آخر ٣ أيام معناه إنه كان شغّال ووقف قريب)
-      var stoppedRecently = recentSpend > 0 && (spendY === 0 || !(daily[TODAY] > 0) || (c.updatedDaysAgo != null && c.updatedDaysAgo <= 1));
-      if (stoppedRecently) {
-        var STOP_REASONS = {
-          campaign: ' (الحملة كلها متوقفة)', adset: ' (المجموعة الإعلانية متوقفة)',
-          ended: ' لأن مدة الحملة انتهت', account: ' بسبب مشكلة في حساب الإعلانات',
-          'account-cap': ' لأن الحساب وصل للحد الأقصى للصرف', rejected: ' لأن المنصة رفضته',
-          pending: ' لأنه رجع تحت المراجعة', 'not-eligible': ' لأنه بقى غير مؤهل للظهور'
-        };
-        var where = STOP_REASONS[c.pausedLevel] || '';
-        var wasGood = avgCpr && c.results > 0 && c.cpr != null && c.cpr <= avgCpr;
-        issues.push(makeIssue(wasGood ? 'warning' : 'info', ['status'], 'إعلان توقف مؤخراً',
-          name + ' اتوقف' + where + ' بعد ما صرف ' + money(recentSpend) + ' في آخر ٣ أيام' +
-            (c.results > 0 ? ' وجاب ' + fmt.int(c.results) + ' ' + label + ' خلال الأسبوع.' : '.'),
-          wasGood ? 'أداؤه كان أفضل من متوسط حسابك — اتأكد إن الإيقاف مقصود.' : 'لو الإيقاف مقصود، مفيش حاجة مطلوبة.',
-          0));
-      }
-      return finalize(c, issues);
     }
 
     // 3) وصول ضعيف أو متوقف رغم إن الإعلان فعّال
@@ -366,13 +366,14 @@
           'مفيش ولا إعلان في ' + accName + ' وصل للناس أمس، مع إن متوسط صرف الحساب ' + money(prevAvg) + ' في اليوم.',
           'اتأكد من وسيلة الدفع وحالة الحملات مع مسؤول الإعلانات — كل يوم وقوف معناه مبيعات ضايعة.'));
       } else if (spendY >= prevAvg * s.accountSpikeMultiple) {
+        // الزيادة بتتنبّه بس لو النتائج مازادتش معاها — زيادة مفيدة مش حاجة عاجلة
         var resPrev = sum(acc.resultsByDay, 0, DAY_BEFORE) / 5, resY = acc.resultsByDay[YESTERDAY];
         var resultsKeptUp = resPrev > 0 && resY / resPrev >= (spendY / prevAvg) * 0.8;
-        alerts.push(makeIssue(resultsKeptUp ? 'info' : 'warning', ['account'], 'إنفاق الحساب زاد فجأة',
-          'إجمالي صرف ' + accName + ' أمس ' + money(spendY) + ' مقابل متوسط ' + money(prevAvg) + ' في اليوم (+' + fmt.int((spendY / prevAvg - 1) * 100) + '٪)' +
-            (resultsKeptUp ? '، والنتائج زادت معاه.' : '، والنتائج مازادتش بنفس النسبة.'),
-          resultsKeptUp ? 'الزيادة شكلها مفيدة — اتأكد بس إنها ضمن الميزانية المخططة.' : 'اتأكد مع مسؤول الإعلانات إن زيادة الميزانية مقصودة.',
-          resultsKeptUp ? 0 : spendY - prevAvg));
+        if (!resultsKeptUp) {
+          alerts.push(makeIssue('warning', ['account'], 'إنفاق الحساب زاد فجأة',
+            'إجمالي صرف ' + accName + ' أمس ' + money(spendY) + ' مقابل متوسط ' + money(prevAvg) + ' في اليوم (+' + fmt.int((spendY / prevAvg - 1) * 100) + '٪)، والنتائج مازادتش بنفس النسبة.',
+            'اتأكد مع مسؤول الإعلانات إن زيادة الميزانية مقصودة.', spendY - prevAvg));
+        }
       } else if (spendY <= prevAvg * s.accountDropRatio) {
         alerts.push(makeIssue('warning', ['account'], 'إنفاق الحساب قلّ فجأة',
           'إجمالي صرف ' + accName + ' أمس ' + money(spendY) + ' بس، مقابل متوسط ' + money(prevAvg) + ' في اليوم (−' + fmt.int((1 - spendY / prevAvg) * 100) + '٪).',
@@ -444,8 +445,19 @@
     return { byAd: byAd, alerts: alerts, summary: summary, settings: s };
   }
 
+  // بيرجّع إعدادات نمط معيّن كاملة (الافتراضي + تعديلات النمط)
+  function presetSettings(name) {
+    var out = {};
+    Object.keys(DEFAULT_SETTINGS).forEach(function (k) { out[k] = DEFAULT_SETTINGS[k]; });
+    var p = PRESETS[name] || {};
+    Object.keys(p).forEach(function (k) { out[k] = p[k]; });
+    return out;
+  }
+
   global.PauseProofAlerts = {
     DEFAULT_SETTINGS: DEFAULT_SETTINGS,
+    PRESETS: PRESETS,
+    presetSettings: presetSettings,
     SETTINGS_META: SETTINGS_META,
     mergeSettings: mergeSettings,
     analyze: analyze

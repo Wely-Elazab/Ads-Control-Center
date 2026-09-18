@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>PauseProof — Live</title>
+<title>Ads Control Center</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -278,6 +278,20 @@
 
   /* ---------- إعدادات التنبيهات ---------- */
   .settings-card { max-width: 580px; }
+  .period-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .period-label { font-size: 12.5px; color: var(--ink-soft); font-weight: 600; }
+  .period-custom { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .period-custom .date-input { padding: 8px 10px; font-size: 14px; }
+  .period-range { font-size: 12px; color: var(--ink-faint); }
+  .summary-boxes.summary-boxes-3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 520px) { .summary-boxes.summary-boxes-3 { grid-template-columns: 1fr; } }
+  .preset-options { display: grid; gap: 8px; padding: 6px 0 10px; }
+  .preset-option { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
+  .preset-option input { grid-row: span 2; accent-color: var(--verified); width: 18px; height: 18px; }
+  .preset-name { font-size: 13.5px; font-weight: 700; }
+  .preset-help { font-size: 11.5px; color: var(--ink-soft); }
+  .settings-advanced { margin-top: 14px; }
+  .settings-advanced summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink-soft); padding: 8px 0; }
   .settings-group { border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px 2px; margin: 14px 0 0; }
   .settings-group legend { font-size: 12px; font-weight: 700; color: var(--ink-soft); padding: 0 6px; }
   .setting-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px dashed var(--line); }
@@ -397,7 +411,7 @@
 <header class="appbar">
   <div class="appbar-inner">
     <div class="brand">
-      <div class="brand-mark">PauseProof</div>
+      <div class="brand-mark">Ads Control Center</div>
       <div class="brand-tag" id="tBrandTag">تنبيهات تحمي ميزانيتك الإعلانية</div>
     </div>
     <nav class="view-tabs" role="tablist" aria-label="أقسام الصفحة">
@@ -429,12 +443,35 @@
 
     <section class="hero hidden" id="emptyHero">
       <h2>اربط حسابك الإعلاني وشوف كل إعلاناتك في مكان واحد</h2>
-      <p>PauseProof أداة عرض وتحليل وتنبيه فقط — بتقراً إعلاناتك وبتنبّهك على اللي بيهدر ميزانيتك، ومش بتغيّر أي حاجة في حسابك. القرار دايماً ليك ولمسؤول الإعلانات.</p>
+      <p>Ads Control Center أداة عرض وتحليل وتنبيه فقط — بتقرا إعلاناتك وبتنبّهك على اللي بيهدر ميزانيتك، ومش بتغيّر أي حاجة في حسابك. القرار دايماً ليك ولمسؤول الإعلانات.</p>
       <button type="button" class="stop-btn" id="heroLoginBtn">اربط حسابك الإعلاني</button>
       <div class="hero-platforms"><span>Meta</span><span>·</span><span>Google Ads</span><span>·</span><span>Snapchat</span><span>·</span><span>TikTok</span></div>
     </section>
 
     <div id="adsContent">
+      <!-- فترة البيانات: بتتحكم في أرقام الصرف والنتائج لكل إعلان — زي اختيار التاريخ في المنصات نفسها.
+           التنبيهات بتفضل دايماً على آخر ٧ أيام لأنها عن الوضع الحالي -->
+      <div class="period-bar">
+        <span class="period-label">فترة البيانات</span>
+        <select id="periodSelect" class="sort-select" aria-label="فترة البيانات">
+          <option value="today">النهارده</option>
+          <option value="yesterday">أمس</option>
+          <option value="last7">آخر ٧ أيام</option>
+          <option value="last14">آخر ١٤ يوم</option>
+          <option value="last30">آخر ٣٠ يوم</option>
+          <option value="thisMonth">الشهر ده</option>
+          <option value="lastMonth">الشهر اللي فات</option>
+          <option value="custom">فترة مخصصة…</option>
+        </select>
+        <span class="period-custom hidden" id="periodCustom">
+          <input type="date" id="dateFrom" class="date-input" aria-label="من تاريخ">
+          <span class="date-sep">إلى</span>
+          <input type="date" id="dateTo" class="date-input" aria-label="إلى تاريخ">
+          <button type="button" class="ghost-btn" id="periodApply">تطبيق</button>
+        </span>
+        <span class="period-range" id="periodRangeText"></span>
+      </div>
+
       <div class="kpi-strip" id="kpiStrip"></div>
 
       <div class="toolbar">
@@ -444,7 +481,7 @@
         <select id="sortSelect" class="sort-select" aria-label="ترتيب الإعلانات">
           <option value="priority">الأولوية (المشاكل أولاً)</option>
           <option value="launch">الأحدث إطلاقاً</option>
-          <option value="update">آخر تحديث</option>
+          <option value="update">آخر تعديل على الإعلان</option>
           <option value="spend">الأعلى إنفاقاً</option>
         </select>
         <span class="toolbar-spacer"></span>
@@ -553,15 +590,6 @@
       <div class="filter-row">
         <span class="filter-label" id="tLblSearch">بحث</span>
         <input type="text" id="textFilter" class="text-filter" placeholder="اسم الإعلان، أو أي كلمة موجودة فيه">
-      </div>
-      <div class="filter-row">
-        <span class="filter-label" id="tLblDate">تاريخ الإطلاق</span>
-        <div class="date-range">
-          <input type="date" id="dateFrom" class="date-input" aria-label="من تاريخ">
-          <span class="date-sep" id="tDateSep">إلى</span>
-          <input type="date" id="dateTo" class="date-input" aria-label="إلى تاريخ">
-          <button type="button" class="chip" id="clearDates">مسح التاريخ</button>
-        </div>
       </div>
     </div>
     <div class="drawer-foot">

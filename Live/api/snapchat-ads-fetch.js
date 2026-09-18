@@ -2,7 +2,7 @@
 // المسار النهائي: https://<مشروعك>.vercel.app/api/snapchat-ads-fetch
 // بيستقبل action='accounts' لجلب قائمة الحسابات، أو action='ads' لجلب إعلانات حساب معيّن
 
-import { last7DaysRange, shiftDateKey, tzOffsetString } from './_dates.js';
+import { last7DaysRange, shiftDateKey, tzOffsetString, resolvePeriod } from './_dates.js';
 import { guardRequest } from './_cors.js';
 
 const SNAP_API = 'https://adsapi.snapchat.com/v1';
@@ -15,7 +15,7 @@ function snapError(data, status) {
 export default async function handler(req, res) {
   if (!guardRequest(req, res)) return;
 
-  const { accessToken, action, adAccountId, clientTz } = req.body || {};
+  const { accessToken, action, adAccountId, clientTz, period } = req.body || {};
   if (!accessToken || !action) {
     res.status(400).json({ error: 'accessToken و action مطلوبين في جسم الطلب.' });
     return;
@@ -98,10 +98,10 @@ export default async function handler(req, res) {
       const endKey = shiftDateKey(range.until, 1);
       const startTime = range.since + 'T00:00:00.000' + tzOffsetString(range.since, tz);
       const endTime = endKey + 'T00:00:00.000' + tzOffsetString(endKey, tz);
-      const fetchStats = async function (fields) {
+      const fetchStats = async function (fields, granularity, from, to) {
         const statsUrl = accountPath + '/stats' +
-          '?granularity=DAY&breakdown=ad&fields=' + fields +
-          '&start_time=' + encodeURIComponent(startTime) + '&end_time=' + encodeURIComponent(endTime);
+          '?granularity=' + granularity + '&breakdown=ad&fields=' + fields +
+          '&start_time=' + encodeURIComponent(from) + '&end_time=' + encodeURIComponent(to);
         const r = await fetch(statsUrl, { headers: headers });
         const data = await r.json().catch(function () { return null; });
         const error = (!r.ok || (data && data.request_status === 'ERROR')) ? snapError(data, r.status) : null;
@@ -109,10 +109,24 @@ export default async function handler(req, res) {
       };
       // بنطلب المشتريات وقيمتها (من Snap Pixel) عشان تنبيهات العائد والصرف بدون طلبات.
       // لو الحساب مش بيدعمها ورفض الطلب، بنرجع للإنفاق والسوايب بس بدل ما نخسر الإنفاق كله
-      let stats = await fetchStats('spend,swipes,impressions,conversion_purchases,conversion_purchases_value');
-      if (stats.error) stats = await fetchStats('spend,swipes,impressions');
+      const FIELDS_FULL = 'spend,swipes,impressions,conversion_purchases,conversion_purchases_value';
+      const FIELDS_BASIC = 'spend,swipes,impressions';
+      let stats = await fetchStats(FIELDS_FULL, 'DAY', startTime, endTime);
+      if (stats.error) stats = await fetchStats(FIELDS_BASIC, 'DAY', startTime, endTime);
       const statsData = stats.data;
       const statsError = stats.error;
+
+      // مجاميع الفترة المختارة (TOTAL = رقم واحد لكل إعلان). آخر ٧ أيام مش محتاجة طلب إضافي
+      const periodRange = resolvePeriod(period, tz);
+      let periodStats = null;
+      if (!periodRange.isDefault) {
+        const pEnd = shiftDateKey(periodRange.until, 1);
+        const pFrom = periodRange.since + 'T00:00:00.000' + tzOffsetString(periodRange.since, tz);
+        const pTo = pEnd + 'T00:00:00.000' + tzOffsetString(pEnd, tz);
+        let p = await fetchStats(FIELDS_FULL, 'TOTAL', pFrom, pTo);
+        if (p.error) p = await fetchStats(FIELDS_BASIC, 'TOTAL', pFrom, pTo);
+        periodStats = p.error ? null : p.data;
+      }
 
       res.status(200).json({
         ads: ads,
@@ -120,6 +134,8 @@ export default async function handler(req, res) {
         campaigns: campaignList ? campaigns : null,
         stats: statsError ? null : statsData,
         statsError: statsError,
+        periodStats: periodStats,
+        period: periodRange,
         range: range,
         account: acc ? { timezone: acc.timezone || null, currency: acc.currency || null } : null
       });

@@ -1,7 +1,7 @@
 // نفس مجلد /api
 // المسار النهائي: https://<مشروعك>.vercel.app/api/tiktok-ads-fetch
 
-import { last7DaysRange } from './_dates.js';
+import { last7DaysRange, resolvePeriod } from './_dates.js';
 import { guardRequest } from './_cors.js';
 
 const TT_API = 'https://business-api.tiktok.com/open_api/v1.3';
@@ -32,7 +32,7 @@ async function ttGetAllPages(baseUrl, headers) {
 export default async function handler(req, res) {
   if (!guardRequest(req, res)) return;
 
-  const { accessToken, advertiserId, clientTz } = req.body || {};
+  const { accessToken, advertiserId, clientTz, period } = req.body || {};
   if (!accessToken || !advertiserId) {
     res.status(400).json({ error: 'accessToken و advertiserId مطلوبين في جسم الطلب.' });
     return;
@@ -78,5 +78,18 @@ export default async function handler(req, res) {
     reportError = String(err && err.message ? err.message : err);
   }
 
-  res.status(200).json({ ads: ads, report: report, reportError: reportError, range: range, advertiser: advertiser });
+  // مجاميع الفترة المختارة: تقرير من غير تقسيم بالأيام (صف لكل إعلان). آخر ٧ أيام مش محتاجة طلب إضافي
+  const periodRange = resolvePeriod(period, (advertiser && advertiser.timezone) || clientTz);
+  let periodReport = null;
+  if (!periodRange.isDefault) {
+    try {
+      periodReport = await ttGetAllPages(TT_API + '/report/integrated/get/?advertiser_id=' + adv +
+        '&report_type=BASIC&data_level=AUCTION_AD&service_type=AUCTION' +
+        '&dimensions=' + encodeURIComponent(JSON.stringify(['ad_id'])) +
+        '&metrics=' + encodeURIComponent(JSON.stringify(['spend', 'conversion'])) +
+        '&start_date=' + periodRange.since + '&end_date=' + periodRange.until, headers);
+    } catch (err) { periodReport = null; }
+  }
+
+  res.status(200).json({ ads: ads, report: report, reportError: reportError, periodReport: periodReport, period: periodRange, range: range, advertiser: advertiser });
 }

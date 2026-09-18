@@ -27,7 +27,7 @@ export async function verifyGoogleToken(accessToken) {
     if (!r.ok || !info) {
       result = { ok: false, error: 'توكن Google غير صالح أو منتهي — سجّل الدخول تاني.' };
     } else if (info.azp !== clientId && info.aud !== clientId) {
-      result = { ok: false, error: 'التوكن ده مش صادر لتطبيق PauseProof.' };
+      result = { ok: false, error: 'التوكن ده مش صادر لتطبيق Ads Control Center.' };
     } else if (!String(info.scope || '').includes('adwords')) {
       result = { ok: false, error: 'التوكن ده مالوش صلاحية Google Ads.' };
     } else {
