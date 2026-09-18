@@ -4,12 +4,25 @@
 export const GOOGLE_ADS_API = 'https://googleads.googleapis.com/v24';
 
 // رسالة الخطأ الحقيقية من Google بدل ما تتخبّى ورا "مفيش بيانات"
-export function googleErrorMessage(data, status) {
+function firstDetail(data) {
   const e = Array.isArray(data) ? (data[0] && data[0].error) : (data && data.error);
-  if (!e) return 'HTTP ' + status;
-  const detail = e.details && e.details[0] && e.details[0].errors && e.details[0].errors[0];
-  if (detail && detail.message) return detail.message;
-  return e.message || ('HTTP ' + status);
+  const detail = e && e.details && e.details[0] && e.details[0].errors && e.details[0].errors[0];
+  return { e: e, detail: detail };
+}
+export function googleErrorMessage(data, status) {
+  const f = firstDetail(data);
+  if (!f.e) return 'HTTP ' + status;
+  if (f.detail && f.detail.message) return f.detail.message;
+  return f.e.message || ('HTTP ' + status);
+}
+// كود الخطأ نفسه (زي CUSTOMER_NOT_ENABLED) — عشان نفرّق "حساب مقفول" عن عطل حقيقي
+// errorCode بيجي كده: { "authorizationError": "CUSTOMER_NOT_ENABLED" }
+export function googleErrorCode(data) {
+  const f = firstDetail(data);
+  const code = f.detail && f.detail.errorCode;
+  if (!code || typeof code !== 'object') return null;
+  const key = Object.keys(code)[0];
+  return key ? String(code[key]) : null;
 }
 
 // أرقام حسابات Google أرقام بس — بننضّفها من أي حاجة تانية عشان محدش يقدر يحقن مسار في الرابط
@@ -22,9 +35,10 @@ export function cleanCustomerId(id) {
 export function googleHeaders(developerToken, accessToken, loginCustomerId) {
   const headers = {
     'Content-Type': 'application/json',
-    'developer-token': developerToken,
     'Authorization': 'Bearer ' + accessToken
   };
+  // اختياري من سبتمبر ٢٠٢٦ (Google بقت بتتجاهله) — بيتبعت بس لو متضبط
+  if (developerToken) headers['developer-token'] = developerToken;
   const login = cleanCustomerId(loginCustomerId);
   if (login) headers['login-customer-id'] = login;
   return headers;
@@ -47,6 +61,7 @@ export async function gaql(opts, query) {
   if (!response.ok) {
     const err = new Error(googleErrorMessage(data, response.status));
     err.status = response.status;
+    err.code = googleErrorCode(data);
     throw err;
   }
   let rows = [];

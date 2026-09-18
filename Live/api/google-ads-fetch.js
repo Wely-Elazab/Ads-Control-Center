@@ -1,6 +1,7 @@
 // نفس مجلد /api بتاع google-list-accounts.js
-// المسار النهائي: https://<مشروعك>.vercel.app/api/google-ads-fetch
-// بيستخدم نفس متغيّر البيئة GOOGLE_ADS_DEVELOPER_TOKEN
+// المسار النهائي: https://<مشروعك>/api/google-ads-fetch
+// GOOGLE_ADS_DEVELOPER_TOKEN اختياري: من ٩ سبتمبر ٢٠٢٦ Google بتحدد الصلاحية من مشروع Google Cloud
+// اللي طلع منه مفتاح الدخول، والـ developer token لو اتبعت بيتجاهل (بنسيبه لو موجود للتوافق)
 
 import { gaql } from './_google.js';
 import { last7DaysRange, resolvePeriod } from './_dates.js';
@@ -10,11 +11,7 @@ import { verifyGoogleToken } from './_verify.js';
 export default async function handler(req, res) {
   if (!guardRequest(req, res)) return;
 
-  const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
-  if (!developerToken) {
-    res.status(500).json({ error: 'GOOGLE_ADS_DEVELOPER_TOKEN غير مضبوط في إعدادات Vercel (Environment Variables).' });
-    return;
-  }
+  const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || null;
 
   const { accessToken, customerId, loginCustomerId, timeZone, clientTz, period } = req.body || {};
   if (!accessToken || !customerId) {

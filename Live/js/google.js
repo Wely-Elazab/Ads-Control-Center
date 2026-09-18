@@ -55,17 +55,22 @@
         setStatus(msg('s.googleAccountsFailed', { msg: data && data.error ? (data.error.message || data.error) : msg('s.checkBackend') }));
         return;
       }
-      // السيرفر بيرجّع حسابات العملاء بس (من غير حسابات Manager) ومع كل واحد الـ loginCustomerId بتاعه
+      // السيرفر بيرجّع حسابات العملاء بس (من غير حسابات Manager) ومع كل واحد الـ loginCustomerId بتاعه.
+      // inactive = حسابات مقفولة أو إعدادها ما خلصش على Google Ads — مش عطل في الأداة، فبنقول رقمها بالظبط
       var accounts = data.accounts;
+      var inactive = (data.inactive || []).map(formatGoogleId);
+      var inactiveList = function () { return inactive.slice(0, 5).join(isAr() ? '، ' : ', ') + (inactive.length > 5 ? ' …' : ''); };
       if (!accounts.length) {
-        setStatus(msg('s.googleNoAccounts'));
+        setStatus(inactive.length ? msg('s.googleInactiveOnly', { ids: inactiveList }) : msg('s.googleNoAccounts'));
         return;
       }
       accounts.forEach(function (a) { accountInfo['google:' + a.id] = a; });
       setPlatformOptions('google', accounts.map(function (a) {
         return { value: a.id, label: 'Google Ads — ' + a.name + (a.name !== a.id ? ' (' + a.id + ')' : '') };
       }));
-      setStatus(msg('s.accountsFound', { n: accounts.length, accounts: function () { return noun(accounts.length, 'n.account'); }, platform: 'Google Ads' }));
+      var found = msg('s.accountsFound', { n: accounts.length, accounts: function () { return noun(accounts.length, 'n.account'); }, platform: 'Google Ads' });
+      var skipped = inactive.length ? msg('s.googleSkippedInactive', { ids: inactiveList }) : null;
+      setStatus(skipped ? function () { return found() + ' ' + skipped(); } : found);
       loadGoogleAdsForAccount(accounts[0].id);
       accountSelect.value = accounts[0].id;
     }).catch(function (err) {

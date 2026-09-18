@@ -11,6 +11,20 @@
     try { fn(); results.push({ group: group, name: name, ok: true }); }
     catch (e) { results.push({ group: group, name: name, ok: false, msg: e && e.message ? e.message : String(e) }); }
   }
+  // اختبارات محتاجة تستنى (طلبات شبكة وهمية أو ملفات السيرفر) — بتشتغل بالدور بعد الاختبارات العادية
+  var asyncQueue = [];
+  function testAsync(name, fn) { asyncQueue.push({ group: group, name: name, fn: fn }); }
+  function runAsync() {
+    return asyncQueue.reduce(function (p, item) {
+      return p.then(function () {
+        resetState();
+        return Promise.resolve().then(item.fn).then(
+          function () { results.push({ group: item.group, name: item.name, ok: true }); },
+          function (e) { results.push({ group: item.group, name: item.name, ok: false, msg: e && e.message ? e.message : String(e) }); });
+      });
+    }, Promise.resolve());
+  }
+  function tick() { return new Promise(function (r) { setTimeout(r, 0); }); }
   function eq(actual, expected, what) {
     var a = JSON.stringify(actual), b = JSON.stringify(expected);
     if (a !== b) throw new Error((what ? what + ': ' : '') + 'expected ' + b + ' but got ' + a);
@@ -405,7 +419,40 @@
     });
   });
 
+  describe('Google Ads — الحسابات', function () {
+    testAsync('السيرفر بيطلع كود الخطأ من رد Google', function () {
+      return import('/api/_google.js').then(function (g) {
+        var payload = { error: { message: 'x', details: [{ errors: [{ errorCode: { authorizationError: 'CUSTOMER_NOT_ENABLED' }, message: 'not enabled' }] }] } };
+        eq(g.googleErrorCode(payload), 'CUSTOMER_NOT_ENABLED');
+        eq(g.googleErrorMessage(payload, 403), 'not enabled');
+        eq(g.googleErrorCode({}), null);
+      });
+    });
+    testAsync('الـ developer token اختياري (Google بقت بتتجاهله)', function () {
+      return import('/api/_google.js').then(function (g) {
+        ok(!('developer-token' in g.googleHeaders(null, 'tok', null)), 'no header when missing');
+        eq(g.googleHeaders('dev', 'tok', '123-456-7890')['login-customer-id'], '1234567890');
+      });
+    });
+    testAsync('حساب مقفول بس = رسالة واضحة برقمه (مش "خطأ")', function () {
+      var realFetch = window.fetch;
+      window.fetch = function () {
+        return Promise.resolve({ json: function () { return Promise.resolve({ accounts: [], errors: [], inactive: ['1234567890'] }); } });
+      };
+      googleAccessToken = 'test';
+      loadGoogleAccounts();
+      return tick().then(tick).then(function () {
+        window.fetch = realFetch;
+        var text = document.getElementById('connectStatus').textContent;
+        ok(text.indexOf('123-456-7890') > -1, 'shows the account id: ' + text);
+        ok(text.indexOf(t('s.googleAccountsFailed', { msg: '' }).slice(0, 10)) === -1, 'not shown as a failure');
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+  });
+
   // ---------- التقرير ----------
+  runAsync().then(finish);
+  function finish() {
   resetState();
   candidates = []; render();
   window.__restoreStorage();
@@ -421,4 +468,5 @@
       (r.ok ? '' : '<span class="t-msg">' + esc(r.msg) + '</span>') + '</div>';
   });
   document.getElementById('testReport').innerHTML = html;
+  }
 })();
