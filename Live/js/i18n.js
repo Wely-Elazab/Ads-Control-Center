@@ -294,7 +294,9 @@
       'pf.meta': 'فيسبوك وإنستغرام — متصل وشغّال',
       'pf.google': 'الإعلانات والإنفاق اليومي — بما فيها حسابات MCC',
       'pf.snapchat': 'الإعلانات والإنفاق — والمشتريات لو Snap Pixel مركّب',
-      'pf.tiktok': 'تسجيل الدخول شغّال — البيانات تحتاج موافقة Business Center',
+      'pf.tiktok': 'قريباً',
+      'pf.soonShort': '(قريباً)',
+      's.tiktokSoon': 'ربط TikTok هيتوفر قريباً.',
 
       // رسائل الاتصال والتحميل
       's.notConnected': 'غير متصل — دوس تسجيل الدخول للبدء',
@@ -705,7 +707,9 @@
       'pf.meta': 'Facebook & Instagram — connected and working',
       'pf.google': 'Ads and daily spend — including MCC accounts',
       'pf.snapchat': 'Ads and spend — plus purchases if the Snap Pixel is installed',
-      'pf.tiktok': 'Login works — data needs Business Center approval',
+      'pf.tiktok': 'Coming soon',
+      'pf.soonShort': '(coming soon)',
+      's.tiktokSoon': 'TikTok connection is coming soon.',
 
       's.notConnected': 'Not connected — press Log in to start',
       's.connected': 'Connected — {n} {ads} loaded across all connected platforms.',

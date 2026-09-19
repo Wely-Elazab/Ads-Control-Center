@@ -11,8 +11,13 @@
   // !!! هام: عدّل بالـ App ID بتاعك من TikTok for Business !!!
   var TIKTOK_APP_ID = "7682985212271314962";
   var tiktokAccessToken = null;
+  // TikTok مقفول مؤقتاً ("قريباً") لحد ما حساب المطوّر Business يتسجّل بإيميل الدومين والتطبيق يتوافق عليه.
+  // الزرار في نافذة المنصات disabled، والدالة نفسها بترفض كمان لو حد فعّل الزرار من أدوات المتصفح.
+  // لإعادة التفعيل: خلّيها true، وشيل disabled و"soon" من زرار platformTikTok في الصفحة
+  var TIKTOK_ENABLED = false;
 
   function loginWithTikTok() {
+    if (!TIKTOK_ENABLED) { setStatus(msg('s.tiktokSoon')); return; }
     platformOverlay.classList.add('hidden');
     var redirectUri = window.location.origin + window.location.pathname;
     var authUrl = 'https://business-api.tiktok.com/portal/auth' +

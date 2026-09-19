@@ -1,2 +1,11 @@
 # صفحة الاختبارات بتتشغّل محلياً بس — مش بتتنشر على الموقع
 tests
+
+# صفحة الأسعار مخفية مؤقتاً — الملفات فاضلة في الكود بس مش بتتنشر.
+# /pricing بيتحوّل للصفحة الرئيسية (vercel.json → redirects). لإعادتها: شيل السطور دي،
+# وارجع الـ rewrite بتاع /pricing، وشيل hidden من روابط الأسعار وعلامات التعليق من بنود الشروط
+/pricing.html
+/pricing.css
+/js/pricing.js
+/api/discount.js
+/api/_discounts.js

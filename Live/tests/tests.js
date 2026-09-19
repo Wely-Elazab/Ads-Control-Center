@@ -451,6 +451,28 @@
     });
   });
 
+  describe('مخفي مؤقتاً', function () {
+    test('روابط صفحة الأسعار مخفية في الأداة', function () {
+      var links = document.querySelectorAll('#appUnderTest a[href="/pricing"]');
+      ok(links.length >= 2, 'links still exist (for easy restore)');
+      ok(Array.prototype.every.call(links, function (a) { return a.closest('[hidden]'); }), 'all pricing links hidden');
+    });
+    test('TikTok «قريباً» ومقفول في نافذة تسجيل الدخول', function () {
+      var btn = document.getElementById('platformTikTok');
+      ok(btn.disabled && btn.classList.contains('soon'), 'disabled + soon');
+      eq(btn.querySelector('.platform-item-sub').textContent, t('pf.tiktok'));
+      eq(t('pf.tiktok'), 'قريباً');
+      ok(document.querySelector('#appUnderTest .chip[data-value="TikTok"]').hasAttribute('hidden'), 'TikTok filter chip hidden');
+    });
+    test('تسجيل دخول TikTok مبيبدأش حتى لو اتنادى', function () {
+      eq(TIKTOK_ENABLED, false);
+      var before = location.href;
+      loginWithTikTok();
+      eq(location.href, before);
+      eq(document.getElementById('connectStatus').textContent, t('s.tiktokSoon'));
+    });
+  });
+
   describe('أكواد الخصم (السيرفر)', function () {
     testAsync('قراءة الأكواد من متغيّر البيئة', function () {
       return import('/api/_discounts.js').then(function (d) {

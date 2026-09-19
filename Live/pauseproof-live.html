@@ -26,7 +26,7 @@
   html[lang="en"] body { font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; }
   .mono { font-family: 'IBM Plex Mono', 'Courier New', monospace; }
   .wrap { max-width: 980px; margin: 0 auto; padding: 22px 16px 84px; }
-  .hidden { display: none !important; }
+  .hidden, [hidden] { display: none !important; }
   .fade-out { opacity: 0; transform: translateY(-6px); }
 
   .topbar { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
@@ -476,8 +476,9 @@
       <h2 data-i18n="hero.title">اربط حسابك الإعلاني وشوف كل إعلاناتك في مكان واحد</h2>
       <p data-i18n="hero.body">Ads Control Center أداة عرض وتحليل وتنبيه فقط — بتقرا إعلاناتك وبتنبّهك على اللي بيهدر ميزانيتك، ومش بتغيّر أي حاجة في حسابك. القرار دايماً ليك ولمسؤول الإعلانات.</p>
       <button type="button" class="stop-btn" id="heroLoginBtn" data-i18n="hero.cta">اربط حسابك الإعلاني</button>
-      <p class="hero-pricing"><a href="/pricing" data-i18n="hero.pricing">الأسعار — وجرّب ١٤ يوم مجاناً</a></p>
-      <div class="hero-platforms"><span>Meta</span><span>·</span><span>Google Ads</span><span>·</span><span>Snapchat</span><span>·</span><span>TikTok</span></div>
+      <!-- صفحة الأسعار مخفية مؤقتاً: لإعادتها شيل hidden هنا وفي رابط الفوتر، وراجع .vercelignore و vercel.json -->
+      <p class="hero-pricing" hidden><a href="/pricing" data-i18n="hero.pricing">الأسعار — وجرّب ١٤ يوم مجاناً</a></p>
+      <div class="hero-platforms"><span>Meta</span><span>·</span><span>Google Ads</span><span>·</span><span>Snapchat</span><span>·</span><span>TikTok <span data-i18n="pf.soonShort">(قريباً)</span></span></div>
     </section>
 
     <div id="adsContent">
@@ -569,7 +570,7 @@
       <a href="/privacy" data-i18n="footer.privacy">سياسة الخصوصية</a>
       <a href="/terms" data-i18n="footer.terms">شروط الاستخدام</a>
       <a href="/data-deletion" data-i18n="footer.deletion">حذف البيانات</a>
-      <a href="/pricing" data-i18n="footer.pricing">الأسعار</a>
+      <a href="/pricing" data-i18n="footer.pricing" hidden>الأسعار</a>
     </nav>
   </footer>
 
@@ -600,7 +601,7 @@
           <button class="chip active" data-value="all" data-i18n="filters.all">الكل</button>
           <button class="chip" data-value="Meta">Meta</button>
           <button class="chip" data-value="Google Ads">Google Ads</button>
-          <button class="chip" data-value="TikTok">TikTok</button>
+          <button class="chip" data-value="TikTok" hidden>TikTok</button>
           <button class="chip" data-value="Snapchat">Snapchat</button>
         </div>
       </div>
@@ -644,7 +645,8 @@
           <span class="platform-item-name">Snapchat Ads</span>
           <span class="platform-item-sub" data-i18n="pf.snapchat">الإعلانات والإنفاق — والمشتريات لو Snap Pixel مركّب</span>
         </button>
-        <button type="button" class="platform-item" id="platformTikTok">
+        <!-- TikTok «قريباً»: مقفول لحد ما حساب TikTok Business يجهز (راجع TIKTOK_ENABLED في js/tiktok.js) -->
+        <button type="button" class="platform-item soon" id="platformTikTok" disabled aria-disabled="true">
           <span class="platform-item-name">TikTok Ads</span>
           <span class="platform-item-sub" data-i18n="pf.tiktok">تسجيل الدخول شغّال — البيانات تحتاج موافقة Business Center</span>
         </button>
