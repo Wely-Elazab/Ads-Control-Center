@@ -6,7 +6,7 @@
 // 3) بيمنع تحميل مكتبات Meta وGoogle (مش محتاجينها، والاختبارات بتشتغل من غير نت)
 // 4) بيحمّل ملفات الأداة بنفس ترتيب الموقع، وبعدين tests.js
 (function () {
-  var KEYS_LOCAL = ['acc.lang', 'acc.period.v1', 'acc.view.v1', 'pauseproof.alertSettings.v1'];
+  var KEYS_LOCAL = ['acc.lang', 'acc.period.v1', 'acc.view.v1', 'acc.lastAccount.v1', 'pauseproof.alertSettings.v1'];
   var KEYS_SESSION = ['pauseproof.session.v1', 'pauseproof.oauthState'];
   var backup = { local: {}, session: {} };
   KEYS_LOCAL.forEach(function (k) { backup.local[k] = localStorage.getItem(k); localStorage.removeItem(k); });

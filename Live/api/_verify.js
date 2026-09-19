@@ -25,7 +25,8 @@ export async function verifyGoogleToken(accessToken) {
     const r = await fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(accessToken));
     const info = await r.json().catch(function () { return null; });
     if (!r.ok || !info) {
-      result = { ok: false, error: 'توكن Google غير صالح أو منتهي — سجّل الدخول تاني.' };
+      // auth = الجلسة انتهت (مش خطأ) — الملفات بترجّعها 401 والواجهة بتعرض «ربط تاني»
+      result = { ok: false, auth: true, error: 'توكن Google غير صالح أو منتهي — سجّل الدخول تاني.' };
     } else if (info.azp !== clientId && info.aud !== clientId) {
       result = { ok: false, error: 'التوكن ده مش صادر لتطبيق Ads Control Center.' };
     } else if (!String(info.scope || '').includes('adwords')) {

@@ -49,16 +49,25 @@
 
   var META_ACCOUNT_FIELDS = 'id,name,account_status,timezone_name,currency,spend_cap,amount_spent';
 
+  // خطأ 190 (أو 102) = جلسة فيسبوك انتهت أو اتلغت — العميل محتاج يربط تاني بس، مش عطل
+  function isMetaAuthError(err) { return !!err && (Number(err.code) === 190 || Number(err.code) === 102); }
+
   // بيحمّل *كل* الحسابات الإعلانية مش أول صفحة بس (Meta بترجّع ٢٥ حساب في الصفحة افتراضياً)
   function loadAdAccounts(onlyRefreshId) {
     setStatus(msg('s.metaAccountsLoading'));
     fetchAllPages('/me/adaccounts', { fields: META_ACCOUNT_FIELDS, limit: 100 }, FULL_SCAN_CAP, function (err, data) {
       if (err) {
-        setStatus(msg('s.metaAccountsFailed'));
+        if (isMetaAuthError(err)) { markExpired('meta'); return; }
+        var failMsg = msg('s.metaAccountsFailed');
+        setPlatformState('meta', { kind: 'error', msg: failMsg });
+        setStatus(failMsg);
+        render();
         return;
       }
       if (!data || !data.length) {
+        setPlatformState('meta', { kind: 'noAccounts', msg: msg('s.metaNoAccounts') });
         setStatus(msg('s.metaNoAccounts'));
+        render();
         return;
       }
       data.forEach(function (a) {
@@ -69,8 +78,11 @@
       });
       setPlatformOptions('meta', data.map(function (a) { return { value: a.id, label: 'Meta — ' + a.name }; }));
       document.getElementById('tConnectTitle').textContent = t('title.metaConnected');
-      // بعد استرجاع الجلسة بنحدّث بيانات الحساب (حالته وحد الصرف) الأول، وبعدين نحمّل نفس الحساب المحفوظ
-      var target = (onlyRefreshId && accountInfo['meta:' + onlyRefreshId]) ? onlyRefreshId : data[0].id;
+      // بعد استرجاع الجلسة بنحدّث بيانات الحساب (حالته وحد الصرف) الأول، وبعدين نحمّل نفس الحساب المحفوظ.
+      // غير كده: آخر حساب اختاره العميل ← أول حساب شغّال (account_status = 1) — مش أول حساب في القايمة
+      // (كان ممكن يبقى حساب مقفول من سنين، فالعميل يلاقي الأداة فاضية)
+      var target = (onlyRefreshId && accountInfo['meta:' + onlyRefreshId]) ? onlyRefreshId
+        : pickAccount('meta', data, function (a) { return Number(a.account_status) === 1; });
       accountSelect.value = target;
       loadAdsForAccount(target);
     });
@@ -178,6 +190,13 @@
     var days = last7Days(todayKeyInTz(info.timeZone || BROWSER_TZ));
     var timeRange = JSON.stringify({ since: days[0].key, until: days[days.length - 1].key });
     var live = function () { return isCurrentLoad('meta', token); };
+    // لو حساب مختلف: إعلانات الحساب القديم بتتشال فوراً (مش بتفضل ظاهرة لو الجديد فاضي أو فشل)
+    selectSource('meta', accountId);
+    var fail = function (m) {
+      setPlatformState('meta', { kind: 'error', msg: m });
+      setLoading('meta', false, m);
+      render();
+    };
 
     showCachedWhileLoading(source, 'Meta');
     setLoading('meta', true, msg('s.loadingAds', { platform: 'Meta' }));
@@ -222,11 +241,20 @@
     var stage1 = Promise.all([adsP, adsetsP]).then(function (r) {
       if (!live()) return null;
       var ads = r[0], adsetStatusMap = r[1];
-      if (ads.err) { setLoading('meta', false, msg('s.adsFailed', { platform: 'Meta', msg: ads.err.message })); return null; }
+      if (ads.err) {
+        if (isMetaAuthError(ads.err)) markExpired('meta');
+        else fail(msg('s.adsFailed', { platform: 'Meta', msg: ads.err.message }));
+        return null;
+      }
       adsTruncated = ads.truncated;
       adFields = ads.fields;
       ads.data.forEach(function (ad) { adsById[ad.id] = ad; order.push(ad.id); });
-      if (!order.length) { setLoading('meta', false, msg('s.noAdsMeta')); return null; }
+      if (!order.length) {
+        setPlatformState('meta', { kind: 'empty' });
+        setLoading('meta', false, msg('s.noAdsMeta'));
+        render();
+        return null;
+      }
       mergeCandidates(build(null, null, adsetStatusMap), source);
       render();
       setLoading('meta', true, msg('s.metaShown', { n: order.length, ads: function () { return noun(order.length, 'n.ad'); } }));
@@ -279,8 +307,13 @@
       if (adsTruncated) notes.push(msg('note.adsCapped', { n: PAGE_SAFETY_CAP, ads: function () { return noun(PAGE_SAFETY_CAP, 'n.ad'); } }));
       if (daily.err) notes.push(msg('note.dailyFailed', { msg: daily.err.message }));
       else if (daily.truncated) notes.push(msg('note.dailyTruncated', { n: FULL_SCAN_CAP }));
+      setPlatformState('meta', null);
       setLoading('meta', false, connectedText(notes));
       render();
+    }).catch(function (err) {
+      // أي خطأ مش متوقع (بيانات بشكل غريب من Meta مثلاً) — قبل كده مؤشر التحميل كان بيفضل يلف على طول
+      if (!live()) return;
+      fail(msg('s.adsFailed', { platform: 'Meta', msg: (err && err.message) || String(err) }));
     });
   }
 

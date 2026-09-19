@@ -38,6 +38,155 @@
     if (opt) loadSource(opt.dataset.platform, opt.value);
   });
 
+  // ---------- انتهاء الجلسة، إعادة المحاولة، والفصل ----------
+  // الجلسة انتهت (Google بعد ساعة تقريباً، Snapchat بعد نص ساعة، أو Meta لو الجلسة اتلغت):
+  // بنقول كده بوضوح وبنسيب زرار «ربط تاني». الإعلانات اللي ظاهرة بتفضل زي ما هي لحد ما يربط
+  function markExpired(platform) {
+    delete sessionTokens[platform];
+    if (platform === 'google') googleAccessToken = null;
+    else if (platform === 'snapchat') snapchatAccessToken = null;
+    else if (platform === 'tiktok') tiktokAccessToken = null;
+    saveSession();
+    setPlatformState(platform, { kind: 'expired' });
+    setLoading(platform, false, msg('s.platformExpired', { platform: PLATFORM_NAMES[platform] }), { reconnect: platform });
+    render();
+  }
+  function reconnectPlatform(platform) {
+    platformOverlay.classList.add('hidden');
+    if (platform === 'meta') loginWithMeta();
+    else if (platform === 'google') loginWithGoogle();
+    else if (platform === 'snapchat') loginWithSnapchat();
+    else if (platform === 'tiktok') loginWithTikTok();
+  }
+  // «حاول تاني»: نفس الحساب لو معروف، أو قائمة الحسابات من الأول، أو ربط تاني لو مفيش جلسة
+  function retryPlatform(platform) {
+    if (activeSources[platform]) { loadSource(platform, activeSources[platform]); return; }
+    if (platform === 'meta' && typeof FB !== 'undefined') { loadAdAccounts(); return; }
+    if (platform === 'google' && validToken(sessionTokens.google)) { loadGoogleAccounts(); return; }
+    if (platform === 'snapchat' && validToken(sessionTokens.snapchat)) { loadSnapchatAccounts(); return; }
+    reconnectPlatform(platform);
+  }
+  // فصل منصة = تسجيل خروج من الأداة بس: بيمسح إعلاناتها وحساباتها ومفتاح الدخول وآخر حساب محفوظ
+  // من المتصفح ده. العميل بيفضل داخل على فيسبوك/Google نفسهم (مش شغلنا نخرّجه منهم)
+  function disconnectPlatform(platform, quiet) {
+    beginLoad(platform); // أي رد لسه جاي من المنصة دي بيتجاهل
+    loadingPlatforms[platform] = false;
+    document.body.classList.toggle('is-loading', anyLoading());
+    candidates = candidates.filter(function (c) { return platformOfSource(c.source) !== platform; });
+    delete activeSources[platform];
+    delete sessionTokens[platform];
+    if (platform === 'google') googleAccessToken = null;
+    else if (platform === 'snapchat') snapchatAccessToken = null;
+    else if (platform === 'tiktok') tiktokAccessToken = null;
+    Object.keys(accountInfo).forEach(function (k) { if (k.indexOf(platform + ':') === 0) delete accountInfo[k]; });
+    Object.keys(sourceCache).forEach(function (k) { if (k.indexOf(platform + ':') === 0) delete sourceCache[k]; });
+    setPlatformState(platform, null);
+    forgetAccount(platform);
+    setPlatformOptions(platform, []); // بيحفظ الجلسة كمان
+    if (!quiet) setStatus(msg('s.disconnected', { platform: PLATFORM_NAMES[platform] }));
+    render();
+  }
+  function disconnectAll() {
+    PLATFORMS.forEach(function (p) { disconnectPlatform(p, true); });
+    try { sessionStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(OAUTH_STATE_KEY); } catch (e) { /* مقفول */ }
+    lastUpdatedAt = null;
+    document.getElementById('tConnectTitle').textContent = t('status.title');
+    setStatus(msg('s.disconnectedAll'));
+    render();
+  }
+  // اسم الحساب المعروض حالياً من منصة (من غير "Meta — " اللي في أول اسم الاختيار)
+  function accountLabel(platform) {
+    var id = activeSources[platform];
+    var o = (platformOptions[platform] || []).filter(function (x) { return x.value === id; })[0];
+    return o ? String(o.label).replace(/^[^—]*—\s*/, '') : '';
+  }
+
+  // نافذة المنصات: جنب كل منصة متصلة «متصل — اسم الحساب» وزرار «فصل»، وتحتهم «فصل كل الحسابات».
+  // زرار الشريط اللي فوق بيبقى «حساباتك» بدل «تسجيل الدخول» لما يكون فيه منصة متصلة
+  var disconnectAllBtn = document.getElementById('disconnectAll');
+  function renderPlatformPanel() {
+    PLATFORMS.forEach(function (p) {
+      var row = document.querySelector('.platform-row[data-platform="' + p + '"]');
+      if (!row) return;
+      var on = isConnected(p);
+      var st = row.querySelector('[data-platform-status]');
+      var btn = row.querySelector('[data-disconnect]');
+      if (st) {
+        var expired = platformState[p] && platformState[p].kind === 'expired';
+        var label = accountLabel(p);
+        st.textContent = !on ? '' : expired ? t('pf.expired') : (label ? t('pf.connectedTo', { account: label }) : t('pf.connected'));
+        st.classList.toggle('expired', !!expired);
+        st.hidden = !on;
+      }
+      if (btn) {
+        btn.hidden = !on;
+        btn.setAttribute('aria-label', t('pf.disconnectAria', { platform: PLATFORM_NAMES[p] }));
+      }
+    });
+    var any = PLATFORMS.some(isConnected);
+    if (disconnectAllBtn) disconnectAllBtn.hidden = !any;
+    loginMenuBtn.setAttribute('data-i18n', any ? 'btn.accounts' : 'btn.login');
+    loginMenuBtn.textContent = t(any ? 'btn.accounts' : 'btn.login');
+  }
+  platformOverlay.addEventListener('click', function (e) {
+    var d = e.target.closest('[data-disconnect]');
+    if (d) { disconnectPlatform(d.getAttribute('data-disconnect')); return; }
+    if (e.target.closest('#disconnectAll')) { disconnectAll(); platformOverlay.classList.add('hidden'); }
+  });
+  if (statusReconnect) {
+    statusReconnect.addEventListener('click', function () {
+      var p = statusReconnect.getAttribute('data-reconnect');
+      if (p) reconnectPlatform(p);
+    });
+  }
+
+  // ---------- كروت الحالة: جلسة انتهت / فشل التحميل / حساب فاضي / مفيش حسابات ----------
+  // قبل كده العميل المربوط كان بيشوف شاشة «اربط حسابك» تاني، والخطأ في سطر صغير فوق
+  function renderLoadStates(empty, connectedAny) {
+    var el = document.getElementById('loadStates');
+    if (!el) return;
+    var fn = function (m) { return typeof m === 'function' ? m() : (m || ''); };
+    var button = function (action, p, label, primary) {
+      return '<button type="button" class="' + (primary ? 'stop-btn' : 'ghost-btn') + ' ls-btn" data-ls-action="' + action + '" data-platform="' + p + '">' + esc(label) + '</button>';
+    };
+    // الأهم فوق: جلسة انتهت ← فشل ← مفيش حسابات ← حساب فاضي
+    var RANK = { expired: 0, error: 1, noAccounts: 2, empty: 3 };
+    var rank = function (p) { var k = platformState[p].kind; return k in RANK ? RANK[k] : 9; };
+    var shown = PLATFORMS.filter(function (p) { return platformState[p] && !loadingPlatforms[p]; })
+      .sort(function (a, b) { return rank(a) - rank(b); });
+    var cards = shown.map(function (p) {
+      var s = platformState[p], name = PLATFORM_NAMES[p], title, body, actions;
+      if (s.kind === 'expired') {
+        title = t('ls.expired.t', { platform: name }); body = t('ls.expired.d');
+        actions = button('reconnect', p, t('btn.reconnect'), true);
+      } else if (s.kind === 'error') {
+        title = t('ls.error.t', { platform: name }); body = fn(s.msg);
+        actions = button('retry', p, t('btn.retry'), true);
+      } else if (s.kind === 'noAccounts') {
+        title = t('ls.noAccounts.t', { platform: name }); body = fn(s.msg);
+        actions = '<a class="ls-link" href="/help#accounts">' + esc(t('ls.noAccounts.a')) + '</a>';
+      } else {
+        var acct = accountLabel(p);
+        title = t('ls.empty.t', { platform: name }); body = (acct ? acct + ' — ' : '') + t('ls.empty.d');
+        actions = button('add', p, t('ls.addPlatform'), false);
+      }
+      return '<div class="load-state ls-' + s.kind + '"><div class="ls-title">' + esc(title) + '</div>' +
+        '<div class="ls-body">' + esc(body) + '</div><div class="ls-actions">' + actions + '</div></div>';
+    });
+    // متصل بس مفيش حساب معروض ولا مشكلة معروفة — نوجّهه يختار حساب
+    if (!cards.length && empty && connectedAny) {
+      cards.push('<div class="load-state ls-pick"><div class="ls-title">' + esc(t('ls.pick.t')) + '</div><div class="ls-body">' + esc(t('ls.pick.d')) + '</div></div>');
+    }
+    el.innerHTML = cards.join('');
+  }
+  document.getElementById('loadStates').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-ls-action]'); if (!b) return;
+    var p = b.getAttribute('data-platform'), action = b.getAttribute('data-ls-action');
+    if (action === 'reconnect') reconnectPlatform(p);
+    else if (action === 'retry') retryPlatform(p);
+    else platformOverlay.classList.remove('hidden');
+  });
+
   // ---------- عرض فقط ----------
   // المرحلة الأولى: الأداة للعرض والتحليل والتنبيه بس، من غير أي إجراء على الإعلانات — عشان قرارات
   // صاحب البزنس متتعارضش مع اختبارات مسؤول الإعلانات أو الوكالة.
@@ -344,10 +493,14 @@
     var visible = sortCandidates(visibleCandidates(), filters.sort);
     var signature = JSON.stringify([filters, viewMode, periodKey()]);
     if (signature !== renderSignature) { renderSignature = signature; renderLimit = RENDER_STEP; }
-    // شاشة البداية بتظهر بس لما مفيش إعلانات ومفيش تحميل شغّال
+    // شاشة البداية («اربط حسابك») بتظهر بس لما مفيش أي منصة متصلة. لو متصل ومفيش إعلانات
+    // (حساب فاضي، فشل، أو جلسة انتهت) بيظهر كارت الحالة بدالها
     var empty = !candidates.length && !anyLoading();
-    document.getElementById('emptyHero').classList.toggle('hidden', !empty);
+    var connectedAny = PLATFORMS.some(isConnected);
+    document.getElementById('emptyHero').classList.toggle('hidden', !empty || connectedAny);
     document.getElementById('adsContent').classList.toggle('hidden', empty);
+    renderLoadStates(empty, connectedAny);
+    renderPlatformPanel();
     if (!candidates.length) {
       if (!anyLoading()) cardGrid.innerHTML = '';
       galleryCount.textContent = anyLoading() ? t('gallery.loading') : t('gallery.login');

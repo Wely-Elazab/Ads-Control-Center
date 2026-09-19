@@ -56,6 +56,7 @@
   }
 
   function loadTikTokAdsForAdvertiser(advertiserId) {
+    selectSource('tiktok', advertiserId);
     var token = beginLoad('tiktok');
     showCachedWhileLoading('tiktok:' + advertiserId);
     setLoading('tiktok', true, msg('s.loadingAds', { platform: 'TikTok' }));
@@ -174,20 +175,22 @@
   }
 
   // لو رجعنا من TikTok بـ ?auth_code=... في الرابط، كمّل تسجيل الدخول تلقائياً
+  // بترجّع true لو بدأت تكمّل تسجيل دخول (نفس فكرة Snapchat)
   function checkTikTokRedirect() {
     // TikTok مقفول («قريباً») — أي رابط رجوع منه بيتجاهل، عشان محدش يقدر يستخدمه كباب خلفي لتسجيل دخول
-    if (!TIKTOK_ENABLED) return;
+    if (!TIKTOK_ENABLED) return false;
     var params = new URLSearchParams(window.location.search);
     var authCode = params.get('auth_code') || params.get('code');
     var state = params.get('state') || '';
-    if (state.indexOf('tiktok') !== 0) return;
+    if (state.indexOf('tiktok') !== 0) return false;
     window.history.replaceState({}, document.title, window.location.pathname);
     var oauthError = oauthErrorFromUrl(params);
-    if (oauthError) { setStatus(msg('s.oauthRejected', { platform: 'TikTok', msg: oauthError })); return; }
-    if (!authCode) return;
+    if (oauthError) { setStatus(msg('s.oauthRejected', { platform: 'TikTok', msg: oauthError })); return false; }
+    if (!authCode) return false;
     if (!consumeOauthState('tiktok', state)) {
       setStatus(msg('s.oauthMismatch', { platform: 'TikTok' }));
-      return;
+      return false;
     }
     exchangeTikTokCode(authCode);
+    return true;
   }

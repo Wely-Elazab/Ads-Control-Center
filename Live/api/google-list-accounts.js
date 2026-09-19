@@ -29,7 +29,8 @@ export default async function handler(req, res) {
 
   // التوكن لازم يكون صادر لتطبيقنا — من غير كده أي حد يستهلك حصة Developer Token بتاعنا
   const verified = await verifyGoogleToken(accessToken);
-  if (!verified.ok) { res.status(403).json({ error: verified.error }); return; }
+  // توكن منتهي = 401 (الواجهة بتعرض «ربط تاني»)، توكن مش لتطبيقنا = 403
+  if (!verified.ok) { res.status(verified.auth ? 401 : 403).json({ error: verified.error, code: verified.auth ? 'AUTH' : 'FORBIDDEN' }); return; }
 
   try {
     const response = await fetch(GOOGLE_ADS_API + '/customers:listAccessibleCustomers', {

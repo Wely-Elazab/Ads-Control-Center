@@ -385,6 +385,32 @@
   .kpi.kpi-multi .kpi-value { font-size: 14.5px; line-height: 1.55; }
   .kpi-line { display: block; }
   .kpi-more { display: block; font-size: 12px; font-weight: 500; color: var(--ink-faint); }
+  /* ---------- كروت الحالة (جلسة انتهت / فشل / حساب فاضي) وزرار «ربط تاني» ---------- */
+  .load-states { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+  .load-states:empty { display: none; }
+  .load-state { background: var(--card); border: 1px solid var(--line); border-inline-start: 4px solid var(--ink-faint); border-radius: 12px; padding: 14px 16px; }
+  .load-state.ls-expired { border-inline-start-color: var(--pending); background: var(--pending-bg); }
+  .load-state.ls-error { border-inline-start-color: var(--alert); }
+  .load-state.ls-noAccounts, .load-state.ls-empty, .load-state.ls-pick { border-inline-start-color: var(--ink-faint); }
+  .ls-title { font-size: 14.5px; font-weight: 700; margin-bottom: 4px; }
+  .ls-body { font-size: 13px; line-height: 1.7; color: var(--ink-soft); overflow-wrap: anywhere; }
+  .ls-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .ls-actions:empty { display: none; }
+  .ls-btn { padding: 10px 16px; font-size: 13.5px; }
+  .ls-link { font-size: 13px; font-weight: 600; color: var(--verified); }
+  .status-action { border: 1px solid var(--verified); background: var(--verified-bg); color: var(--verified); border-radius: 8px; padding: 4px 10px; font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .status-action:focus-visible, .ls-link:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+
+  /* ---------- نافذة المنصات: متصل + فصل ---------- */
+  .platform-row { display: flex; gap: 8px; align-items: stretch; }
+  .platform-row .platform-item { flex: 1 1 auto; min-width: 0; }
+  .platform-item-status { font-size: 12px; font-weight: 600; color: var(--verified); overflow-wrap: anywhere; }
+  .platform-item-status.expired { color: var(--pending); }
+  .platform-disconnect { flex-shrink: 0; border: 1px solid var(--line); background: var(--card); color: var(--alert); border-radius: 12px; padding: 0 14px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .platform-disconnect:hover { border-color: var(--alert); }
+  .platform-disconnect:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .disconnect-all { width: 100%; margin-top: 12px; color: var(--alert); }
+
   /* كارت حملة Performance Max (Google مبترجّعش إعلاناتها منفصلة) */
   .preview-campaign .format-badge { background: var(--verified-bg); color: var(--verified); }
   .kpi.kpi-review .kpi-value { color: var(--alert); }
@@ -489,6 +515,8 @@
     <a href="/help" id="statusHelpLink" data-i18n="help.steps">خطوات الربط</a>
     <a href="mailto:walid.elazab20@gmail.com" data-join data-i18n="join.short">اطلب انضمامك</a>
   </span>
+  <!-- بيظهر مع رسالة «انتهت الجلسة» — setStatus(..., { reconnect }) في core.js -->
+  <button type="button" class="status-action" id="statusReconnect" data-i18n="btn.reconnect" hidden>ربط تاني</button>
 </div>
 
 <div class="wrap">
@@ -509,6 +537,9 @@
       <p class="hero-pricing" hidden><a href="/pricing" data-i18n="hero.pricing">الأسعار — وجرّب ١٤ يوم مجاناً</a></p>
       <div class="hero-platforms"><span>Meta</span><span>·</span><span>Google Ads</span><span>·</span><span>Snapchat</span><span>·</span><span>TikTok <span data-i18n="pf.soonShort">(قريباً)</span></span></div>
     </section>
+
+    <!-- كروت الحالة لكل منصة متصلة: الجلسة انتهت / التحميل فشل / الحساب فاضي — renderLoadStates في ui.js -->
+    <div id="loadStates" class="load-states" aria-live="polite"></div>
 
     <div id="adsContent">
       <!-- فترة البيانات: بتتحكم في أرقام الصرف والنتائج لكل إعلان — زي اختيار التاريخ في المنصات نفسها.
@@ -663,25 +694,41 @@
     <div class="expand-body" style="padding-top:24px;">
       <div class="expand-title" style="margin-bottom:4px;" data-i18n="pf.title">اختر المنصة</div>
       <div class="expand-sub" style="margin-bottom:16px;" data-i18n="pf.sub">سجّل دخولك في كل منصة تستخدمها، وهتظهر كل إعلاناتك في مكان واحد</div>
+      <!-- كل منصة: زرار الربط + (لو متصلة) «متصل — الحساب» وزرار «فصل» جنبه — renderPlatformPanel في ui.js -->
       <div class="platform-list">
-        <button type="button" class="platform-item" id="platformMeta">
-          <span class="platform-item-name">Meta</span>
-          <span class="platform-item-sub" data-i18n="pf.meta">فيسبوك وإنستغرام — متصل وشغّال</span>
-        </button>
-        <button type="button" class="platform-item" id="platformGoogle">
-          <span class="platform-item-name">Google Ads</span>
-          <span class="platform-item-sub" data-i18n="pf.google">الإعلانات والإنفاق اليومي — بما فيها حسابات MCC</span>
-        </button>
-        <button type="button" class="platform-item" id="platformSnapchat">
-          <span class="platform-item-name">Snapchat Ads</span>
-          <span class="platform-item-sub" data-i18n="pf.snapchat">الإعلانات والإنفاق — والمشتريات لو Snap Pixel مركّب</span>
-        </button>
+        <div class="platform-row" data-platform="meta">
+          <button type="button" class="platform-item" id="platformMeta">
+            <span class="platform-item-name">Meta</span>
+            <span class="platform-item-sub" data-i18n="pf.meta">فيسبوك وإنستغرام — الإعلانات والإنفاق والنتائج</span>
+            <span class="platform-item-status" data-platform-status hidden></span>
+          </button>
+          <button type="button" class="platform-disconnect" data-disconnect="meta" data-i18n="pf.disconnect" hidden>فصل</button>
+        </div>
+        <div class="platform-row" data-platform="google">
+          <button type="button" class="platform-item" id="platformGoogle">
+            <span class="platform-item-name">Google Ads</span>
+            <span class="platform-item-sub" data-i18n="pf.google">الإعلانات والإنفاق اليومي — بما فيها حسابات MCC</span>
+            <span class="platform-item-status" data-platform-status hidden></span>
+          </button>
+          <button type="button" class="platform-disconnect" data-disconnect="google" data-i18n="pf.disconnect" hidden>فصل</button>
+        </div>
+        <div class="platform-row" data-platform="snapchat">
+          <button type="button" class="platform-item" id="platformSnapchat">
+            <span class="platform-item-name">Snapchat Ads</span>
+            <span class="platform-item-sub" data-i18n="pf.snapchat">الإعلانات والإنفاق — والمشتريات لو Snap Pixel مركّب</span>
+            <span class="platform-item-status" data-platform-status hidden></span>
+          </button>
+          <button type="button" class="platform-disconnect" data-disconnect="snapchat" data-i18n="pf.disconnect" hidden>فصل</button>
+        </div>
         <!-- TikTok «قريباً»: مقفول لحد ما حساب TikTok Business يجهز (راجع TIKTOK_ENABLED في js/tiktok.js) -->
-        <button type="button" class="platform-item soon" id="platformTikTok" disabled aria-disabled="true">
-          <span class="platform-item-name">TikTok Ads</span>
-          <span class="platform-item-sub" data-i18n="pf.tiktok">تسجيل الدخول شغّال — البيانات تحتاج موافقة Business Center</span>
-        </button>
+        <div class="platform-row" data-platform="tiktok">
+          <button type="button" class="platform-item soon" id="platformTikTok" disabled aria-disabled="true">
+            <span class="platform-item-name">TikTok Ads</span>
+            <span class="platform-item-sub" data-i18n="pf.tiktok">تسجيل الدخول شغّال — البيانات تحتاج موافقة Business Center</span>
+          </button>
+        </div>
       </div>
+      <button type="button" class="ghost-btn disconnect-all" id="disconnectAll" data-i18n="pf.disconnectAll" hidden>فصل كل الحسابات</button>
       <div class="pf-pilot">
         <span data-i18n="pf.pilot">تجربة مغلقة: Meta وGoogle Ads بيشتغلوا بعد ما نضيفك للتجربة. Snapchat متاح لأي حد.</span>
         <div class="pf-pilot-links">

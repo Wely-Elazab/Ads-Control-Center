@@ -165,6 +165,66 @@
   // بنقرا الجلسة المحفوظة دلوقتي، قبل أي حفظ جديد ممكن يكتب فوقها
   var savedSession = readSession();
 
+  var PLATFORMS = ['meta', 'google', 'snapchat', 'tiktok'];
+  var PLATFORM_NAMES = { meta: 'Meta', google: 'Google Ads', snapchat: 'Snapchat', tiktok: 'TikTok' };
+  function platformOfSource(source) { return String(source || '').split(':')[0]; }
+
+  // ---------- حالة كل منصة (للشاشة لما مفيش إعلانات أو فيه مشكلة) ----------
+  // { kind: 'error' | 'expired' | 'empty' | 'noAccounts', msg } — مفيش حالة = المنصة اتحمّلت تمام (أو مش متصلة).
+  // قبل كده لو الحساب فاضي أو التحميل فشل، شاشة «اربط حسابك» كانت بترجع كأن العميل مش مربوط
+  var platformState = {};
+  function setPlatformState(platform, state) {
+    if (state) platformState[platform] = state; else delete platformState[platform];
+  }
+  function isConnected(platform) {
+    return !!(activeSources[platform] || (platformOptions[platform] && platformOptions[platform].length) || platformState[platform]);
+  }
+
+  // ---------- آخر حساب اختاره العميل في كل منصة ----------
+  // بيتحفظ على الجهاز (رقم الحساب بس) — عشان المرة الجاية يفتح على نفس الحساب بدل أول واحد في القايمة
+  var LAST_ACCOUNT_KEY = 'acc.lastAccount.v1';
+  var lastAccounts = (function () {
+    try { return JSON.parse(localStorage.getItem(LAST_ACCOUNT_KEY) || 'null') || {}; } catch (e) { return {}; }
+  })();
+  function saveLastAccounts() { try { localStorage.setItem(LAST_ACCOUNT_KEY, JSON.stringify(lastAccounts)); } catch (e) { /* مش مهم */ } }
+  function rememberAccount(platform, id) { if (id && lastAccounts[platform] !== id) { lastAccounts[platform] = id; saveLastAccounts(); } }
+  function forgetAccount(platform) { if (platform in lastAccounts) { delete lastAccounts[platform]; saveLastAccounts(); } }
+  // الحساب اللي يتفتح: المحفوظ لو لسه موجود ← أول حساب شغّال (isActive) ← أول حساب
+  function pickAccount(platform, accounts, isActive) {
+    var ids = accounts.map(function (a) { return a.id; });
+    if (lastAccounts[platform] && ids.indexOf(lastAccounts[platform]) !== -1) return lastAccounts[platform];
+    var active = isActive ? accounts.filter(isActive)[0] : null;
+    return (active || accounts[0]).id;
+  }
+
+  // بداية تحميل حساب: لو حساب مختلف عن المعروض، إعلانات الحساب القديم لنفس المنصة بتتشال فوراً.
+  // قبل كده لو الحساب الجديد فاضي أو فشل، إعلانات القديم كانت بتفضل ظاهرة تحت اسم الجديد
+  function selectSource(platform, id) {
+    if (activeSources[platform] !== id) {
+      candidates = candidates.filter(function (c) { return platformOfSource(c.source) !== platform; });
+    }
+    activeSources[platform] = id;
+    rememberAccount(platform, id);
+    saveSession();
+  }
+
+  // ---------- طلبات سيرفر الأداة (/api/...) ----------
+  // بيرجّع { status, ok, data } دايماً — حتى لو الرد مش JSON (زي صفحة خطأ من Vercel لو الطلب طوّل)،
+  // بدل خطأ تقني زي "Unexpected end of JSON input" يظهر للعميل
+  function apiPost(path, body) {
+    return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) {
+        return r.text().then(function (txt) {
+          var data = null;
+          try { data = txt ? JSON.parse(txt) : null; } catch (e) { data = null; }
+          if (!data || typeof data !== 'object') data = { error: r.ok ? t('s.badResponse') : t('s.serverError', { code: ar(r.status) }) };
+          return { status: r.status, ok: r.ok, data: data };
+        });
+      });
+  }
+  // الربط انتهى أو اتلغى (توكن منتهي) — ده مش عطل، العميل محتاج يربط تاني بس
+  function isAuthFailure(res) { return !!res && (res.status === 401 || (res.data && res.data.code === 'AUTH')); }
+
   function rememberToken(platform, token, expiresInSec) {
     // بنطرح دقيقة احتياطي عشان منبعتش توكن هينتهي في نص الطلب
     sessionTokens[platform] = { token: token, expiresAt: expiresInSec ? Date.now() + (Number(expiresInSec) - 60) * 1000 : null };
@@ -265,10 +325,10 @@
 
   var loadingPlatforms = {};
   function anyLoading() { return Object.keys(loadingPlatforms).some(function (p) { return loadingPlatforms[p]; }); }
-  function setLoading(platform, on, text) {
+  function setLoading(platform, on, text, opts) {
     loadingPlatforms[platform] = !!on;
     document.body.classList.toggle('is-loading', anyLoading());
-    if (text) setStatus(text);
+    if (text) setStatus(text, opts);
     // شاشة الانتظار بتظهر بس لما مفيش أي إعلانات معروضة — لو فيه بيانات قديمة بتفضل ظاهرة وهي بتتحدّث
     if (on && !candidates.length) showSkeletons();
   }
@@ -293,7 +353,8 @@
     };
   }
   // opts.help = اسم المنصة ('meta' / 'google'): بيظهر جنب الرسالة رابط خطوات الربط بتاعتها وطلب الانضمام —
-  // لرسايل فشل الدخول في التجربة المغلقة. أي رسالة تانية بتخفيهم
+  // لرسايل فشل الدخول في التجربة المغلقة.
+  // opts.reconnect = اسم المنصة: زرار «ربط تاني» جنب رسالة انتهاء الجلسة. أي رسالة تانية بتخفيهم
   function setStatus(m, opts) {
     lastStatus = typeof m === 'function' ? m : function () { return String(m); };
     connectStatus.textContent = lastStatus();
@@ -301,6 +362,11 @@
     if (statusHelp) {
       statusHelp.hidden = !help;
       if (help) statusHelpLink.setAttribute('href', '/help#' + help);
+    }
+    var reconnect = opts && opts.reconnect;
+    if (statusReconnect) {
+      statusReconnect.hidden = !reconnect;
+      statusReconnect.setAttribute('data-reconnect', reconnect || '');
     }
   }
   function connectedText(notes) {
@@ -350,6 +416,7 @@
   var connectStatus = document.getElementById('connectStatus');
   var statusHelp = document.getElementById('statusHelp');
   var statusHelpLink = document.getElementById('statusHelpLink');
+  var statusReconnect = document.getElementById('statusReconnect');
   var filterToggle = document.getElementById('filterToggle');
   var filterBar = document.getElementById('filterBar');
   var textFilter = document.getElementById('textFilter');

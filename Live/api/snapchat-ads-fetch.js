@@ -26,8 +26,13 @@ export default async function handler(req, res) {
   try {
     if (action === 'accounts') {
       const r = await fetch(SNAP_API + '/me/organizations?with_ad_accounts=true', { headers: headers });
-      const data = await r.json();
-      res.status(r.status).json(data);
+      const data = await r.json().catch(function () { return null; });
+      // الخطأ بيرجع كـ { error } بحالة Snapchat نفسها (401 = الجلسة انتهت) — قبل كده كان بيوصل للواجهة كأنه «مفيش حسابات»
+      if (!r.ok || !data || data.request_status === 'ERROR') {
+        res.status(r.ok ? 502 : r.status).json({ error: snapError(data, r.status) });
+        return;
+      }
+      res.status(200).json(data);
       return;
     }
 

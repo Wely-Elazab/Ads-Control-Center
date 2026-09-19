@@ -26,10 +26,8 @@
   function exchangeSnapchatCode(code) {
     var redirectUri = window.location.origin + window.location.pathname;
     setStatus(msg('s.finishingLogin', { platform: 'Snapchat' }));
-    fetch('/api/snapchat-token', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: code, redirectUri: redirectUri })
-    }).then(function (r) { return r.json(); }).then(function (data) {
+    apiPost('/api/snapchat-token', { code: code, redirectUri: redirectUri }).then(function (res) {
+      var data = res.data;
       if (data && data.access_token) {
         snapchatAccessToken = data.access_token;
         rememberToken('snapchat', snapchatAccessToken, data.expires_in);
@@ -44,10 +42,17 @@
   }
 
   function loadSnapchatAccounts() {
-    fetch('/api/snapchat-ads-fetch', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accessToken: snapchatAccessToken, action: 'accounts' })
-    }).then(function (r) { return r.json(); }).then(function (data) {
+    apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'accounts' }).then(function (res) {
+      if (isAuthFailure(res)) { markExpired('snapchat'); return; }
+      var data = res.data;
+      // قبل كده أي خطأ من Snapchat كان بيظهر كأن «مفيش حسابات» — دلوقتي بيظهر كخطأ برسالته
+      if (!res.ok || data.error || data.request_status === 'ERROR') {
+        var failMsg = msg('s.accountsLoadFailed', { platform: 'Snapchat', msg: data.error || data.debug_message || ('HTTP ' + res.status) });
+        setPlatformState('snapchat', { kind: 'error', msg: failMsg });
+        setStatus(failMsg);
+        render();
+        return;
+      }
       var accounts = [];
       (data && data.organizations || []).forEach(function (o) {
         var org = o.organization || o;
@@ -57,45 +62,62 @@
         });
       });
       if (!accounts.length) {
+        setPlatformState('snapchat', { kind: 'noAccounts', msg: msg('s.snapNoAccounts') });
         setStatus(msg('s.snapNoAccounts'));
+        render();
         return;
       }
       setPlatformOptions('snapchat', accounts.map(function (a) { return { value: a.id, label: 'Snapchat — ' + (a.name || a.id) }; }));
       setStatus(msg('s.accountsFound', { n: accounts.length, accounts: function () { return noun(accounts.length, 'n.account'); }, platform: 'Snapchat' }));
-      loadSnapchatAdsForAccount(accounts[0].id);
-      accountSelect.value = accounts[0].id;
+      // آخر حساب اختاره العميل ← أول حساب شغّال ← أول حساب
+      var target = pickAccount('snapchat', accounts, function (a) { return !a.status || a.status === 'ACTIVE'; });
+      loadSnapchatAdsForAccount(target);
+      accountSelect.value = target;
     }).catch(function (err) {
-      setStatus(msg('s.accountsLoadFailed', { platform: 'Snapchat', msg: err.message }));
+      var failMsg = msg('s.accountsLoadFailed', { platform: 'Snapchat', msg: err.message });
+      setPlatformState('snapchat', { kind: 'error', msg: failMsg });
+      setStatus(failMsg);
+      render();
     });
   }
 
   function loadSnapchatAdsForAccount(adAccountId) {
+    selectSource('snapchat', adAccountId);
+    // الربط مع Snapchat بيخلص بعد حوالي نص ساعة — بنقول كده بوضوح بدل رسالة خطأ تقنية
+    if (!validToken(sessionTokens.snapchat)) { markExpired('snapchat'); return; }
     var token = beginLoad('snapchat');
+    var fail = function (m) {
+      setPlatformState('snapchat', { kind: 'error', msg: m });
+      setLoading('snapchat', false, m);
+      render();
+    };
     showCachedWhileLoading('snapchat:' + adAccountId);
     setLoading('snapchat', true, msg('s.loadingAds', { platform: 'Snapchat' }));
-    fetch('/api/snapchat-ads-fetch', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accessToken: snapchatAccessToken, action: 'ads', adAccountId: adAccountId, clientTz: BROWSER_TZ, period: period })
-    }).then(function (r) { return r.json(); }).then(function (payload) {
+    apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'ads', adAccountId: adAccountId, clientTz: BROWSER_TZ, period: period }).then(function (res) {
       if (!isCurrentLoad('snapchat', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
-      if (!payload || payload.error) {
-        setLoading('snapchat', false, msg('s.adsFailed', { platform: 'Snapchat', msg: payload && payload.error ? payload.error : msg('s.unexpected') }));
+      if (isAuthFailure(res)) { markExpired('snapchat'); return; }
+      var payload = res.data;
+      if (!res.ok || payload.error) {
+        fail(msg('s.adsFailed', { platform: 'Snapchat', msg: payload.error || msg('s.unexpected') }));
         return;
       }
       var adsList = payload.ads || [];
       var statsList = (payload.stats && payload.stats.timeseries_stats) || [];
       if (!adsList.length) {
+        setPlatformState('snapchat', { kind: 'empty' });
         setLoading('snapchat', false, msg('s.noAds'));
+        render();
         return;
       }
       var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns, payload.periodStats);
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
       cacheSource('snapchat:' + adAccountId, snapCandidates);
+      setPlatformState('snapchat', null);
       setLoading('snapchat', false, connectedText(payload.statsError ? [msg('note.spendFailed', { msg: payload.statsError })] : []));
       render();
     }).catch(function (err) {
       if (!isCurrentLoad('snapchat', token)) return;
-      setLoading('snapchat', false, msg('s.adsFailed', { platform: 'Snapchat', msg: err.message }));
+      fail(msg('s.adsFailed', { platform: 'Snapchat', msg: err.message }));
     });
   }
 
@@ -207,18 +229,20 @@
   }
 
   // لو رجعنا من Snapchat بـ ?code=... في الرابط، كمّل تسجيل الدخول تلقائياً
+  // بترجّع true لو بدأت تكمّل تسجيل دخول (عشان استرجاع الجلسة ميعتبرش جلسة Snapchat القديمة «انتهت»)
   function checkSnapchatRedirect() {
     var params = new URLSearchParams(window.location.search);
     var code = params.get('code');
     var state = params.get('state') || '';
-    if (state.indexOf('snapchat') !== 0) return;
+    if (state.indexOf('snapchat') !== 0) return false;
     window.history.replaceState({}, document.title, window.location.pathname);
     var oauthError = oauthErrorFromUrl(params);
-    if (oauthError) { setStatus(msg('s.oauthRejected', { platform: 'Snapchat', msg: oauthError })); return; }
-    if (!code) return;
+    if (oauthError) { setStatus(msg('s.oauthRejected', { platform: 'Snapchat', msg: oauthError })); return false; }
+    if (!code) return false;
     if (!consumeOauthState('snapchat', state)) {
       setStatus(msg('s.oauthMismatch', { platform: 'Snapchat' }));
-      return;
+      return false;
     }
     exchangeSnapchatCode(code);
+    return true;
   }

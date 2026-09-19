@@ -64,12 +64,14 @@
   var googleAccessToken = null;
 
   function loadGoogleAccounts() {
-    fetch('/api/google-list-accounts', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accessToken: googleAccessToken })
-    }).then(function (r) { return r.json(); }).then(function (data) {
-      if (!data || data.error || !data.accounts) {
-        setStatus(msg('s.googleAccountsFailed', { msg: data && data.error ? (data.error.message || data.error) : msg('s.checkBackend') }));
+    apiPost('/api/google-list-accounts', { accessToken: googleAccessToken }).then(function (res) {
+      if (isAuthFailure(res)) { markExpired('google'); return; }
+      var data = res.data;
+      if (!res.ok || data.error || !data.accounts) {
+        var failMsg = msg('s.googleAccountsFailed', { msg: data.error ? (data.error.message || data.error) : msg('s.checkBackend') });
+        setPlatformState('google', { kind: 'error', msg: failMsg });
+        setStatus(failMsg);
+        render();
         return;
       }
       // السيرفر بيرجّع حسابات العملاء بس (من غير حسابات Manager) ومع كل واحد الـ loginCustomerId بتاعه.
@@ -78,7 +80,10 @@
       var inactive = (data.inactive || []).map(formatGoogleId);
       var inactiveList = function () { return inactive.slice(0, 5).join(isAr() ? '، ' : ', ') + (inactive.length > 5 ? ' …' : ''); };
       if (!accounts.length) {
-        setStatus(inactive.length ? msg('s.googleInactiveOnly', { ids: inactiveList }) : msg('s.googleNoAccounts'));
+        var none = inactive.length ? msg('s.googleInactiveOnly', { ids: inactiveList }) : msg('s.googleNoAccounts');
+        setPlatformState('google', { kind: 'noAccounts', msg: none });
+        setStatus(none);
+        render();
         return;
       }
       accounts.forEach(function (a) { accountInfo['google:' + a.id] = a; });
@@ -88,45 +93,60 @@
       var found = msg('s.accountsFound', { n: accounts.length, accounts: function () { return noun(accounts.length, 'n.account'); }, platform: 'Google Ads' });
       var skipped = inactive.length ? msg('s.googleSkippedInactive', { ids: inactiveList }) : null;
       setStatus(skipped ? function () { return found() + ' ' + skipped(); } : found);
-      loadGoogleAdsForAccount(accounts[0].id);
-      accountSelect.value = accounts[0].id;
+      // آخر حساب اختاره العميل (لو لسه موجود) — مهم كمان بعد «ربط تاني»: بيرجع على نفس الحساب
+      var target = pickAccount('google', accounts);
+      loadGoogleAdsForAccount(target);
+      accountSelect.value = target;
     }).catch(function (err) {
-      setStatus(msg('s.backendFailed', { msg: err.message }));
+      var failMsg = msg('s.backendFailed', { msg: err.message });
+      setPlatformState('google', { kind: 'error', msg: failMsg });
+      setStatus(failMsg);
+      render();
     });
   }
 
   function loadGoogleAdsForAccount(customerId) {
     var info = accountInfo['google:' + customerId] || {};
+    selectSource('google', customerId);
+    // الربط مع Google بيخلص بعد حوالي ساعة — بنقول كده بوضوح بدل ما نبعت طلب هيفشل برسالة تقنية
+    if (!validToken(sessionTokens.google)) { markExpired('google'); return; }
     var token = beginLoad('google');
+    var fail = function (m) {
+      setPlatformState('google', { kind: 'error', msg: m });
+      setLoading('google', false, m);
+      render();
+    };
     showCachedWhileLoading('google:' + customerId);
     setLoading('google', true, msg('s.loadingAds', { platform: 'Google Ads' }));
-    fetch('/api/google-ads-fetch', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        accessToken: googleAccessToken, customerId: customerId,
-        loginCustomerId: info.loginCustomerId, timeZone: info.timeZone, clientTz: BROWSER_TZ, period: period
-      })
-    }).then(function (r) { return r.json(); }).then(function (payload) {
+    apiPost('/api/google-ads-fetch', {
+      accessToken: googleAccessToken, customerId: customerId,
+      loginCustomerId: info.loginCustomerId, timeZone: info.timeZone, clientTz: BROWSER_TZ, period: period
+    }).then(function (res) {
       if (!isCurrentLoad('google', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
-      if (!payload || payload.error) {
-        setLoading('google', false, msg('s.adsFailed', { platform: 'Google Ads', msg: payload && payload.error ? payload.error : msg('s.unexpected') }));
+      if (isAuthFailure(res)) { markExpired('google'); return; }
+      var payload = res.data;
+      if (!res.ok || payload.error) {
+        fail(msg('s.adsFailed', { platform: 'Google Ads', msg: payload.error || msg('s.unexpected') }));
         return;
       }
       var days = daysFromRange(payload.range);
       // حملات Performance Max بتتعرض ككارت لكل حملة جنب الإعلانات (Google مبترجّعش إعلاناتها منفصلة)
       var pmaxCandidates = transformGooglePmax(payload.pmax, payload.pmaxPeriod, days, info.currency);
       if ((!payload.ads || !payload.ads.length) && !pmaxCandidates.length) {
+        setPlatformState('google', { kind: 'empty' });
         setLoading('google', false, msg('s.noAdsGoogle'));
+        render();
         return;
       }
       var googleCandidates = transformGoogleRows(payload.ads || [], payload.metrics || [], days, info.currency, payload.periodMetrics).concat(pmaxCandidates);
       mergeCandidates(googleCandidates, 'google:' + customerId);
       cacheSource('google:' + customerId, googleCandidates);
+      setPlatformState('google', null);
       setLoading('google', false, connectedText(payload.pmaxError ? [msg('note.pmaxFailed', { msg: payload.pmaxError })] : []));
       render();
     }).catch(function (err) {
       if (!isCurrentLoad('google', token)) return;
-      setLoading('google', false, msg('s.adsFailed', { platform: 'Google Ads', msg: err.message }));
+      fail(msg('s.adsFailed', { platform: 'Google Ads', msg: err.message }));
     });
   }
 

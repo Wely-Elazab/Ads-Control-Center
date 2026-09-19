@@ -25,6 +25,15 @@
     }, Promise.resolve());
   }
   function tick() { return new Promise(function (r) { setTimeout(r, 0); }); }
+  // رد وهمي من سيرفر الأداة بنفس شكل fetch (apiPost بيقرا text و status)
+  function fakeFetch(obj, status) {
+    status = status || 200;
+    return function () {
+      return Promise.resolve({ ok: status < 400, status: status,
+        text: function () { return Promise.resolve(JSON.stringify(obj)); },
+        json: function () { return Promise.resolve(obj); } });
+    };
+  }
   function eq(actual, expected, what) {
     var a = JSON.stringify(actual), b = JSON.stringify(expected);
     if (a !== b) throw new Error((what ? what + ': ' : '') + 'expected ' + b + ' but got ' + a);
@@ -71,6 +80,11 @@
     viewMode = 'ads';
     alertSettings = {};
     period = { preset: 'last7' };
+    // حالة المنصات والحسابات والجلسات — كل اختبار يبدأ من غير أي منصة متصلة
+    [activeSources, platformState, sessionTokens, lastAccounts].forEach(function (o) { Object.keys(o).forEach(function (k) { delete o[k]; }); });
+    Object.keys(platformOptions).forEach(function (p) { if ((platformOptions[p] || []).length) setPlatformOptions(p, []); });
+    Object.keys(loadingPlatforms).forEach(function (p) { loadingPlatforms[p] = false; });
+    googleAccessToken = null; snapchatAccessToken = null;
     I18N.setLang('ar');
   }
 
@@ -511,12 +525,10 @@
     });
     testAsync('حساب فيه PMax بس (من غير إعلانات) بيتعرض عادي', function () {
       var realFetch = window.fetch;
-      window.fetch = function () {
-        return Promise.resolve({ json: function () {
-          return Promise.resolve({ ads: [], metrics: [], periodMetrics: null, pmax: rows, pmaxPeriod: null, pmaxError: null, range: { since: KEYS[0], until: KEYS[6] } });
-        } });
-      };
+      window.fetch = fakeFetch({ ads: [], metrics: [], periodMetrics: null, pmax: rows, pmaxPeriod: null, pmaxError: null, range: { since: KEYS[0], until: KEYS[6] } });
       accountInfo['google:999'] = { currency: 'EGP' };
+      sessionTokens.google = { token: 'tok', expiresAt: Date.now() + 3600000 };
+      googleAccessToken = 'tok';
       loadGoogleAdsForAccount('999');
       return tick().then(tick).then(function () {
         window.fetch = realFetch;
@@ -536,6 +548,151 @@
         var periodRows = [{ adGroup: { id: '4' }, adGroupAd: { ad: { id: '40' } }, metrics: { costMicros: '1' } }];
         eq(g.missingSpendKeys(ads, [metrics, periodRows, null]), { keys: ['2-20', '4-40'], adIds: ['20', '40'] });
       });
+    });
+  });
+
+  describe('الحسابات والجلسات', function () {
+    test('تبديل الحساب بيشيل إعلانات الحساب القديم فوراً (ونفس الحساب بيفضل)', function () {
+      candidates = [ad('a', { source: 'meta:act_1' }), ad('g', { source: 'google:1', platform: 'Google Ads' })];
+      activeSources.meta = 'act_1'; activeSources.google = '1';
+      selectSource('google', '1');
+      eq(candidates.length, 2, 'same account kept');
+      selectSource('meta', 'act_2');
+      eq(candidates.map(function (c) { return c.id; }), ['g']);
+      eq([activeSources.meta, lastAccounts.meta], ['act_2', 'act_2']);
+    });
+    test('الحساب اللي يتفتح: المحفوظ ← أول حساب شغّال ← الأول', function () {
+      var list = [{ id: 'act_1', account_status: 2 }, { id: 'act_2', account_status: 1 }, { id: 'act_3', account_status: 1 }];
+      var isActive = function (a) { return Number(a.account_status) === 1; };
+      eq(pickAccount('meta', list, isActive), 'act_2');
+      rememberAccount('meta', 'act_3');
+      eq(pickAccount('meta', list, isActive), 'act_3');
+      rememberAccount('meta', 'gone');
+      eq(pickAccount('meta', list, isActive), 'act_2', 'remembered account no longer exists');
+      eq(pickAccount('google', [{ id: 'x' }, { id: 'y' }]), 'x');
+    });
+    test('Meta بتفتح أول حساب شغّال — مش أول حساب في القايمة', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, realLoad = loadAdsForAccount, picked = null;
+      window.FB = { api: function (path, params, cb) { cb({ data: [{ id: 'act_1', name: 'Old', account_status: 2 }, { id: 'act_2', name: 'Live', account_status: 1 }] }); } };
+      loadAdsForAccount = function (id) { picked = id; };
+      try { loadAdAccounts(); } finally { loadAdsForAccount = realLoad; if (hadFB) window.FB = prevFB; else delete window.FB; }
+      eq([picked, accountSelect.value], ['act_2', 'act_2']);
+    });
+    test('خطأ Meta 190 = الجلسة انتهت (مش عطل)', function () {
+      ok(isMetaAuthError({ code: 190 }) && isMetaAuthError({ code: '102' }), 'auth codes');
+      ok(!isMetaAuthError({ code: 17 }) && !isMetaAuthError(null), 'other errors');
+    });
+    test('Google: لو الجلسة خلصت قبل الطلب، مفيش طلب بيتبعت وبيظهر «انتهت الجلسة»', function () {
+      var calls = 0, realFetch = window.fetch;
+      window.fetch = function () { calls++; return new Promise(function () {}); };
+      sessionTokens.google = { token: 'old', expiresAt: Date.now() - 1000 };
+      try { loadGoogleAdsForAccount('777'); } finally { window.fetch = realFetch; }
+      eq(calls, 0);
+      eq(platformState.google.kind, 'expired');
+      eq(document.getElementById('statusReconnect').getAttribute('data-reconnect'), 'google');
+    });
+    testAsync('Google: الجلسة انتهت أثناء التحميل = كارت «انتهت الجلسة» + «ربط تاني» (مش خطأ تقني)', function () {
+      var realFetch = window.fetch;
+      window.fetch = fakeFetch({ error: 'expired', code: 'AUTH' }, 401);
+      sessionTokens.google = { token: 'tok', expiresAt: Date.now() + 3600000 };
+      googleAccessToken = 'tok';
+      accountInfo['google:555'] = {};
+      loadGoogleAdsForAccount('555');
+      return tick().then(tick).then(function () {
+        window.fetch = realFetch;
+        eq(platformState.google && platformState.google.kind, 'expired');
+        eq(document.getElementById('connectStatus').textContent, t('s.platformExpired', { platform: 'Google Ads' }));
+        ok(!document.getElementById('statusReconnect').hidden, 'reconnect button in the status line');
+        ok(document.querySelector('#loadStates .ls-expired [data-ls-action="reconnect"]'), 'expired card with reconnect');
+        ok(document.getElementById('emptyHero').classList.contains('hidden'), 'no "connect your account" screen');
+        eq(googleAccessToken, null);
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+    testAsync('Snapchat: خطأ في قايمة الحسابات بيظهر كخطأ مش «مفيش حسابات»', function () {
+      var realFetch = window.fetch;
+      window.fetch = fakeFetch({ error: 'Internal error' }, 500);
+      loadSnapchatAccounts();
+      return tick().then(tick).then(function () {
+        window.fetch = realFetch;
+        eq(platformState.snapchat.kind, 'error');
+        ok(document.getElementById('connectStatus').textContent.indexOf('Internal error') > -1, 'real reason shown');
+        ok(document.querySelector('#loadStates .ls-error [data-ls-action="retry"]'), 'retry button');
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+    testAsync('رد مش JSON من السيرفر (زي صفحة خطأ Vercel) بيطلع رسالة مفهومة', function () {
+      var realFetch = window.fetch;
+      window.fetch = function () { return Promise.resolve({ ok: false, status: 504, text: function () { return Promise.resolve('<html>Gateway Timeout</html>'); } }); };
+      return apiPost('/api/x', {}).then(function (res) {
+        window.fetch = realFetch;
+        eq(res.status, 504);
+        eq(res.data.error, t('s.serverError', { code: ar(504) }));
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+    testAsync('Meta: خطأ غير متوقع بيوقف مؤشر التحميل ويظهر السبب', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      window.FB = { api: function () { throw new Error('boom'); } };
+      accountInfo['meta:act_5'] = {};
+      loadAdsForAccount('act_5');
+      return tick().then(tick).then(function () {
+        restore();
+        eq(loadingPlatforms.meta, false);
+        eq(platformState.meta.kind, 'error');
+        ok(document.getElementById('connectStatus').textContent.indexOf('boom') > -1, 'reason shown');
+      }, function (e) { restore(); throw e; });
+    });
+    test('حساب فاضي: كارت «الحساب ده مفيهوش إعلانات» بدل شاشة «اربط حسابك»', function () {
+      activeSources.meta = 'act_9';
+      setPlatformState('meta', { kind: 'empty' });
+      render();
+      ok(document.getElementById('emptyHero').classList.contains('hidden'), 'hero hidden');
+      ok(document.querySelector('#loadStates .ls-empty'), 'empty card');
+    });
+    test('كروت الحالة مترتبة بالأهمية: الجلسة المنتهية قبل الحساب الفاضي', function () {
+      activeSources.meta = 'act_1'; setPlatformState('meta', { kind: 'empty' });
+      activeSources.google = '1'; setPlatformState('google', { kind: 'expired' });
+      activeSources.snapchat = 's'; setPlatformState('snapchat', { kind: 'error', msg: 'x' });
+      render();
+      var kinds = Array.prototype.map.call(document.querySelectorAll('#loadStates .load-state'), function (el) { return el.className.replace('load-state ', ''); });
+      eq(kinds, ['ls-expired', 'ls-error', 'ls-empty']);
+    });
+    test('من غير أي منصة متصلة: شاشة البداية ومفيش كروت حالة', function () {
+      render();
+      ok(!document.getElementById('emptyHero').classList.contains('hidden'), 'hero shown');
+      eq(document.getElementById('loadStates').children.length, 0);
+      eq(loginMenuBtn.textContent, t('btn.login'));
+    });
+    test('فصل منصة بيمسح بياناتها بس، و«فصل الكل» بيرجّع شاشة البداية', function () {
+      setPlatformOptions('meta', [{ value: 'act_1', label: 'Meta — A' }]);
+      setPlatformOptions('google', [{ value: '1', label: 'Google Ads — B (1)' }]);
+      activeSources.meta = 'act_1'; activeSources.google = '1';
+      rememberAccount('meta', 'act_1'); rememberAccount('google', '1');
+      sessionTokens.google = { token: 't', expiresAt: null }; googleAccessToken = 't';
+      candidates = [ad('m', { source: 'meta:act_1' }), ad('g', { source: 'google:1', platform: 'Google Ads' })];
+      render();
+      eq(loginMenuBtn.textContent, t('btn.accounts'));
+      var row = document.querySelector('.platform-row[data-platform="meta"]');
+      ok(!row.querySelector('[data-disconnect]').hidden, 'disconnect visible');
+      eq(row.querySelector('[data-platform-status]').textContent, t('pf.connectedTo', { account: 'A' }));
+      row.querySelector('[data-disconnect]').click();
+      eq(candidates.map(function (c) { return c.id; }), ['g']);
+      ok(!('meta' in activeSources) && !lastAccounts.meta, 'meta forgotten');
+      eq(lastAccounts.google, '1', 'google kept');
+      ok(row.querySelector('[data-disconnect]').hidden, 'meta now disconnected');
+      document.getElementById('disconnectAll').click();
+      eq(candidates.length, 0);
+      eq(googleAccessToken, null);
+      ok(!document.getElementById('emptyHero').classList.contains('hidden'), 'back to the start screen');
+      eq(loginMenuBtn.textContent, t('btn.login'));
+    });
+    test('بعد reload: جلسة منتهية بتظهر «انتهت» مع «ربط تاني»', function () {
+      restoreSession({ tokens: { snapchat: { token: 'x', expiresAt: Date.now() - 1 } }, options: {}, active: { snapchat: 's1' }, accountInfo: {} }, {});
+      eq(platformState.snapchat && platformState.snapchat.kind, 'expired');
+      eq(document.getElementById('statusReconnect').getAttribute('data-reconnect'), 'snapchat');
+    });
+    test('راجعين من Snapchat بكود جديد: الجلسة القديمة المنتهية مش بتتحسب «انتهت»', function () {
+      restoreSession({ tokens: { snapchat: { token: 'x', expiresAt: Date.now() - 1 } }, options: {}, active: {}, accountInfo: {} }, { snapchat: true });
+      ok(!platformState.snapchat, 'no expired state');
     });
   });
 
@@ -775,9 +932,7 @@
     });
     testAsync('حساب مقفول بس = رسالة واضحة برقمه (مش "خطأ")', function () {
       var realFetch = window.fetch;
-      window.fetch = function () {
-        return Promise.resolve({ json: function () { return Promise.resolve({ accounts: [], errors: [], inactive: ['1234567890'] }); } });
-      };
+      window.fetch = fakeFetch({ accounts: [], errors: [], inactive: ['1234567890'] });
       googleAccessToken = 'test';
       loadGoogleAccounts();
       return tick().then(tick).then(function () {
