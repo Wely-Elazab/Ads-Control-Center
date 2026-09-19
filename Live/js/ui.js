@@ -91,6 +91,10 @@
 
   // ---------- Rendering ----------
   function previewMarkup(c) {
+    // حملة Performance Max: مفيش إعلان واحد نعرضه — بنوضّح إن الكارت ده حملة كاملة
+    if (c.campaignLevel) {
+      return '<div class="preview preview-text preview-campaign"><span class="format-badge">Performance Max</span><span class="text-desc">' + t('card.pmaxSub') + '</span></div>';
+    }
     // الرابط بيتحط جوه url('...') جوه style="..." — فلازم نشفّر ' و ( و ) عشان ميخرجش من CSS
     var thumb = safeUrl(c.thumbUrl);
     var bgStyle = thumb ? (' style="background-image:url(\'' + esc(thumb.replace(/'/g, '%27').replace(/\(/g, '%28').replace(/\)/g, '%29')) + '\');background-size:contain;background-repeat:no-repeat;background-position:center;"') : '';
@@ -262,9 +266,12 @@
   function campaignMarkup(g) {
     var h = HEALTH[g.status];
     var name = g.name || t('camp.noName');
-    var count = g.ads.length < g.total
-      ? t('camp.adsOf', { n: ar(g.ads.length), total: ar(g.total), ads: noun(g.total, 'n.ad') })
-      : ar(g.total) + ' ' + noun(g.total, 'n.ad');
+    // حملة Performance Max كارت واحد على مستوى الحملة — «١ إعلان» كانت هتبقى غلط
+    var pmaxOnly = g.ads.every(function (c) { return c.campaignLevel; });
+    var count = pmaxOnly ? t('camp.pmax')
+      : g.ads.length < g.total
+        ? t('camp.adsOf', { n: ar(g.ads.length), total: ar(g.total), ads: noun(g.total, 'n.ad') })
+        : ar(g.total) + ' ' + noun(g.total, 'n.ad');
     var chips = '<span class="metric-chip">' + money(g.spend, g.currency) + '</span>';
     if (g.results != null) chips += '<span class="metric-chip">' + ar(g.results) + ' ' + esc(t((I18N.form(g.results) === 'one' ? 'res1.' : 'res.') + (g.resultKey || 'generic'))) + '</span>';
     else if (g.mixedResults) chips += '<span class="metric-chip">' + t('camp.mixedResults') + '</span>';
@@ -475,12 +482,30 @@
     var strip = document.getElementById('kpiStrip');
     if (!candidates.length) { strip.innerHTML = ''; return; }
     // المجاميع بتتحسب لكل عملة على حدة — جمع ريال مع دولار يطلع رقم بلا معنى
-    var spendByCur = {}, resultsTotal = 0;
+    // والنتائج لكل نوع على حدة: مشتريات + محادثات + سوايب في رقم واحد كان بيطلع رقم ملوش معنى
+    var spendByCur = {}, byType = {};
     candidates.forEach(function (c) {
       var p = periodOf(c);
       spendByCur[c.currency || ''] = (spendByCur[c.currency || ''] || 0) + (p.spend || 0);
-      resultsTotal += p.results || 0;
+      if (p.results == null) return;
+      var k = c.resultKey || 'generic';
+      var g = byType[k] || (byType[k] = { results: 0, spend: 0 });
+      g.results += p.results || 0;
+      g.spend += p.spend || 0;
     });
+    // الأنواع مترتبة بالصرف مش بالعدد — عشان ١٠٠٠ سوايب ميغطّوش على ٢٠ عملية شراء صرفت أكتر
+    var types = Object.keys(byType).sort(function (a, b) { return (byType[b].spend - byType[a].spend) || (byType[b].results - byType[a].results); });
+    var typeNoun = function (k) { return t((I18N.form(byType[k].results) === 'one' ? 'res1.' : 'res.') + k); };
+    // فاصل الآلاف: ٢٬٤٠٠ / 2,400
+    var fmtN = function (n) { return ar(Math.round(n || 0).toLocaleString('en-US').replace(/,/g, isAr() ? '٬' : ',')); };
+    var typeText = function (k) { return fmtN(byType[k].results) + ' ' + typeNoun(k); };
+    var resultsValue, resultsTitle = types.map(typeText).join(' · ');
+    if (!types.length) resultsValue = ar(0);
+    else if (types.length === 1) resultsValue = fmtN(byType[types[0]].results) + ' <span class="kpi-unit">' + esc(typeNoun(types[0])) + '</span>';
+    else {
+      resultsValue = types.slice(0, 2).map(function (k) { return '<span class="kpi-line">' + esc(typeText(k)) + '</span>'; }).join('') +
+        (types.length > 2 ? '<span class="kpi-more">' + t('kpi.moreTypes', { n: ar(types.length - 2) }) + '</span>' : '');
+    }
     var joinMoney = function (map) {
       var keys = Object.keys(map).filter(function (k) { return map[k] > 0; });
       return keys.length ? keys.map(function (k) { return money(map[k], k || null); }).join(' + ') : money(0);
@@ -489,15 +514,16 @@
     var review = analysis.summary.health.review;
     var hasRisk = Object.keys(atRisk).some(function (k) { return atRisk[k] > 0; });
     // action: الرقم بيبقى زرار — "معرّض للهدر" بيفتح التنبيهات اللي وراه، و"تحتاج مراجعة" بيفلتر الإعلانات دي
-    var box = function (label, value, cls, action) {
+    var box = function (label, value, cls, action, title) {
       var inner = '<div class="kpi-label">' + label + '</div><div class="kpi-value">' + value + '</div>';
+      var tip = title ? ' title="' + esc(title) + '"' : '';
       return action
-        ? '<button type="button" class="kpi kpi-link' + (cls || '') + '" data-kpi="' + action + '">' + inner + '</button>'
-        : '<div class="kpi' + (cls || '') + '">' + inner + '</div>';
+        ? '<button type="button" class="kpi kpi-link' + (cls || '') + '" data-kpi="' + action + '"' + tip + '>' + inner + '</button>'
+        : '<div class="kpi' + (cls || '') + '"' + tip + '>' + inner + '</div>';
     };
     strip.innerHTML =
       box(t('kpi.spend', { p: periodLabel() }), joinMoney(spendByCur)) +
-      box(t('kpi.results', { p: periodLabel() }), ar(resultsTotal)) +
+      box(t('kpi.results', { p: periodLabel() }), resultsValue, types.length > 1 ? ' kpi-multi' : '', null, types.length > 1 ? resultsTitle : '') +
       box(t('kpi.atRisk'), joinMoney(atRisk), ' kpi-risk', hasRisk ? 'risk' : null) +
       box(t('kpi.review'), ar(review), review ? ' kpi-review' : '', review ? 'review' : null);
   }
@@ -577,6 +603,9 @@
         label: t('x.openMeta'), note: ''
       };
     }
+    if (c.platform === 'Google Ads' && c.campaignLevel) {
+      return { url: 'https://ads.google.com/aw/overview?campaignId=' + encodeURIComponent(c.campaignId || ''), label: t('x.openGoogle'), note: t('x.openGoogleNote', { acct: formatGoogleId(acct) }) };
+    }
     if (c.platform === 'Google Ads') {
       var q = [];
       if (c.campaignId) q.push('campaignId=' + encodeURIComponent(c.campaignId));
@@ -616,7 +645,7 @@
     document.getElementById('expandIssues').innerHTML = a.issues.length
       ? a.issues.map(issueMarkup).join('')
       : (c.active ? '<div class="issue-none">' + t('x.noIssues') + '</div>' : '');
-    document.getElementById('expandCaption').textContent = c.caption || c.headline || t('x.noText');
+    document.getElementById('expandCaption').textContent = c.campaignLevel ? t('x.pmaxNote') : (c.caption || c.headline || t('x.noText'));
 
     var destLabel = DEST_LABELS[c.landingKind] || t('dest.default');
     // الرابط بيبقى قابل للضغط بس لو http/https — غير كده بيتعرض كنص عادي

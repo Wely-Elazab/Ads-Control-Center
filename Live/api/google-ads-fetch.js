@@ -3,7 +3,7 @@
 // GOOGLE_ADS_DEVELOPER_TOKEN اختياري: من ٩ سبتمبر ٢٠٢٦ Google بتحدد الصلاحية من مشروع Google Cloud
 // اللي طلع منه مفتاح الدخول، والـ developer token لو اتبعت بيتجاهل (بنسيبه لو موجود للتوافق)
 
-import { gaql } from './_google.js';
+import { gaql, adKey, missingSpendKeys } from './_google.js';
 import { last7DaysRange, resolvePeriod } from './_dates.js';
 import { guardRequest } from './_cors.js';
 import { verifyGoogleToken } from './_verify.js';
@@ -40,7 +40,10 @@ export default async function handler(req, res) {
       ad_group_ad.primary_status_reasons,
       ad_group.primary_status,
       campaign.primary_status,`;
-  const adsQuery = (withPrimaryStatus) => `
+  const ACTIVE_ONLY = `ad_group_ad.status != 'REMOVED'
+      AND ad_group.status != 'REMOVED'
+      AND campaign.status != 'REMOVED'`;
+  const adsQuery = (withPrimaryStatus, where) => `
     SELECT${withPrimaryStatus ? statusFields : ''}
       ad_group_ad.ad.id,
       ad_group_ad.ad.name,
@@ -60,10 +63,10 @@ export default async function handler(req, res) {
       campaign.name,
       campaign.status
     FROM ad_group_ad
-    WHERE ad_group_ad.status != 'REMOVED'
-      AND ad_group.status != 'REMOVED'
-      AND campaign.status != 'REMOVED'
+    WHERE ${where}
   `;
+  // لو الحساب/الإصدار رفض حقول primary_status، بنرجع للاستعلام العادي بدل ما الإعلانات متحمّلش
+  const adsWhere = (where) => gaql(opts, adsQuery(true, where)).catch(function () { return gaql(opts, adsQuery(false, where)); });
   const metricsQuery = `
     SELECT
       ad_group.id,
@@ -77,9 +80,29 @@ export default async function handler(req, res) {
     WHERE segments.date BETWEEN '${range.since}' AND '${range.until}'
   `;
 
+  // حملات Performance Max مفيهاش مجموعات إعلانية ولا إعلانات (ad_group_ad) — Google بتوزّع ميزانيتها
+  // على كل أماكن الظهور ومبترجّعش أرقام كل إعلان لوحده. من غير الاستعلام ده صرفها كان بيختفي خالص
+  // من الأداة، فالإجمالي بيطلع أقل من لوحة Google. بنجيبها على مستوى الحملة (صف لكل حملة × يوم)،
+  // ومعاها اسمها وحالتها — فحملة PMax بتظهر لو صرفت في آخر ٧ أيام أو في الفترة المختارة
+  const pmaxQuery = (withPrimaryStatus, since, until, daily) => `
+    SELECT
+      campaign.id,
+      campaign.name,
+      campaign.status,${withPrimaryStatus ? `
+      campaign.primary_status,
+      campaign.primary_status_reasons,` : ''}${daily ? `
+      segments.date,` : ''}
+      metrics.cost_micros,
+      metrics.conversions,
+      metrics.conversions_value
+    FROM campaign
+    WHERE campaign.advertising_channel_type = 'PERFORMANCE_MAX'
+      AND segments.date BETWEEN '${since}' AND '${until}'
+  `;
+  const pmaxRows = (since, until, daily) => gaql(opts, pmaxQuery(true, since, until, daily))
+    .catch(function () { return gaql(opts, pmaxQuery(false, since, until, daily)); });
+
   try {
-    // لو الحساب/الإصدار رفض حقول primary_status، بنرجع للاستعلام العادي بدل ما الإعلانات متحمّلش
-    const adsRows = gaql(opts, adsQuery(true)).catch(function () { return gaql(opts, adsQuery(false)); });
     // مجاميع الفترة المختارة: صف واحد لكل إعلان (من غير تقسيم بالأيام). آخر ٧ أيام مش محتاجة طلب إضافي
     const periodQuery = `
       SELECT ad_group.id, ad_group_ad.ad.id, metrics.cost_micros, metrics.conversions, metrics.conversions_value
@@ -87,8 +110,33 @@ export default async function handler(req, res) {
       WHERE segments.date BETWEEN '${periodRange.since}' AND '${periodRange.until}'
     `;
     const periodRows = periodRange.isDefault ? Promise.resolve(null) : gaql(opts, periodQuery).catch(function () { return null; });
-    const results = await Promise.all([adsRows, gaql(opts, metricsQuery), periodRows]);
-    res.status(200).json({ ads: results[0], metrics: results[1], periodMetrics: results[2], range: range, period: periodRange });
+    // فشل استعلامات PMax مش بيوقف تحميل الإعلانات — بيرجع كملاحظة في الواجهة
+    const pmaxDaily = pmaxRows(range.since, range.until, true).catch(function (err) { return { error: String(err && err.message ? err.message : err) }; });
+    const pmaxPeriod = periodRange.isDefault ? Promise.resolve(null) : pmaxRows(periodRange.since, periodRange.until, false).catch(function () { return null; });
+
+    const results = await Promise.all([adsWhere(ACTIVE_ONLY), gaql(opts, metricsQuery), periodRows, pmaxDaily, pmaxPeriod]);
+    let ads = results[0];
+
+    // إعلانات اتحذفت بعد ما صرفت في الفترة: بنجيبها برقمها (حتى لو محذوفة) عشان صرفها يتحسب.
+    // دفعات ٥٠٠ رقم في الاستعلام. فشلها مش بيوقف التحميل
+    const missing = missingSpendKeys(ads, [results[1], results[2]]);
+    if (missing.adIds.length) {
+      const wanted = new Set(missing.keys);
+      for (let i = 0; i < missing.adIds.length; i += 500) {
+        const chunk = missing.adIds.slice(i, i + 500);
+        const extra = await adsWhere('ad_group_ad.ad.id IN (' + chunk.join(', ') + ')').catch(function () { return []; });
+        ads = ads.concat(extra.filter(function (row) { return wanted.has(adKey(row)); }));
+      }
+    }
+
+    const pmax = results[3];
+    res.status(200).json({
+      ads: ads, metrics: results[1], periodMetrics: results[2],
+      pmax: Array.isArray(pmax) ? pmax : null,
+      pmaxPeriod: Array.isArray(results[4]) ? results[4] : null,
+      pmaxError: pmax && !Array.isArray(pmax) ? pmax.error : null,
+      range: range, period: periodRange
+    });
   } catch (err) {
     res.status(err && err.status ? err.status : 500).json({ error: String(err && err.message ? err.message : err) });
   }

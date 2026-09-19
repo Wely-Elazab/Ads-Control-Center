@@ -432,7 +432,8 @@
     if (acc.total7 > 0 && acc.activeCount >= 2) {
       ads.forEach(function (c) {
         var share = (c.spend || 0) / acc.total7;
-        if (share < s.concentrationShare || !c.active) return;
+        // حملة كاملة (Performance Max) طبيعي تاخد جزء كبير من الميزانية — مش "إعلان واحد" متركز فيه الصرف
+        if (share < s.concentrationShare || !c.active || c.campaignLevel) return;
         var g = c.resultKey ? acc.byLabel[c.resultKey] : null;
         var avgCpr = g && g.adsWithResults >= 2 ? g.avgCpr : null;
         var weak = c.results === 0 || (avgCpr && c.cpr != null && c.cpr > avgCpr * 1.2);

@@ -112,14 +112,17 @@
         setLoading('google', false, msg('s.adsFailed', { platform: 'Google Ads', msg: payload && payload.error ? payload.error : msg('s.unexpected') }));
         return;
       }
-      if (!payload.ads || !payload.ads.length) {
+      var days = daysFromRange(payload.range);
+      // حملات Performance Max بتتعرض ككارت لكل حملة جنب الإعلانات (Google مبترجّعش إعلاناتها منفصلة)
+      var pmaxCandidates = transformGooglePmax(payload.pmax, payload.pmaxPeriod, days, info.currency);
+      if ((!payload.ads || !payload.ads.length) && !pmaxCandidates.length) {
         setLoading('google', false, msg('s.noAdsGoogle'));
         return;
       }
-      var googleCandidates = transformGoogleRows(payload.ads, payload.metrics || [], daysFromRange(payload.range), info.currency, payload.periodMetrics);
+      var googleCandidates = transformGoogleRows(payload.ads || [], payload.metrics || [], days, info.currency, payload.periodMetrics).concat(pmaxCandidates);
       mergeCandidates(googleCandidates, 'google:' + customerId);
       cacheSource('google:' + customerId, googleCandidates);
-      setLoading('google', false, connectedText());
+      setLoading('google', false, connectedText(payload.pmaxError ? [msg('note.pmaxFailed', { msg: payload.pmaxError })] : []));
       render();
     }).catch(function (err) {
       if (!isCurrentLoad('google', token)) return;
@@ -169,6 +172,99 @@
     if (approval === 'DISAPPROVED') return off('rejected');
     if (adStatus !== 'ENABLED') return off('ad');
     return { active: true, level: null, reason: null };
+  }
+
+  // ---------- حملات Performance Max ----------
+  // مفيهاش إعلانات منفصلة في الـ API، فكل حملة بتبقى كارت واحد (campaignLevel) بأرقام الحملة كلها.
+  // حالتها من campaign.primary_status بنفس فكرة الإعلانات: ELIGIBLE / LIMITED / LEARNING = شغّالة
+  var GOOGLE_CAMPAIGN_PRIMARY_LEVEL = {
+    ELIGIBLE: null, LIMITED: null, LEARNING: null,
+    PAUSED: 'campaign', REMOVED: 'campaign', ENDED: 'ended', PENDING: 'scheduled',
+    MISCONFIGURED: 'not-eligible', NOT_ELIGIBLE: 'not-eligible'
+  };
+  function googleCampaignDelivery(camp) {
+    var primary = camp.primaryStatus, reasons = camp.primaryStatusReasons || [];
+    if (primary) {
+      var level = GOOGLE_CAMPAIGN_PRIMARY_LEVEL[primary];
+      if (level === null) return { active: true, level: null, reason: null };
+      return { active: false, level: level || 'campaign', reason: reasons.join(', ') || primary };
+    }
+    // احتياطي لو حقول primary_status اترفضت: الحالة اليدوية بس
+    if (camp.status && camp.status !== 'ENABLED') return { active: false, level: 'campaign', reason: null };
+    return { active: true, level: null, reason: null };
+  }
+  // dailyRows: صف لكل حملة × يوم فيه صرف (آخر ٧ أيام) — periodRows: صف لكل حملة في الفترة المختارة
+  function transformGooglePmax(dailyRows, periodRows, days, currency) {
+    var byCamp = {}, order = [];
+    var entry = function (camp) {
+      if (!byCamp[camp.id]) { byCamp[camp.id] = { camp: camp, perDay: {}, period: null }; order.push(camp.id); }
+      return byCamp[camp.id];
+    };
+    (dailyRows || []).forEach(function (row) {
+      var camp = row.campaign || {}, date = ggPick(row, 'segments.date');
+      if (!camp.id || !date) return;
+      var m = row.metrics || {};
+      entry(camp).perDay[date] = {
+        spend: r2(parseInt(m.costMicros || 0, 10) / 1000000),
+        results: parseFloat(m.conversions || 0),
+        sales: r2(parseFloat(m.conversionsValue || 0))
+      };
+    });
+    // حملة صرفت في الفترة المختارة بس (مش في آخر ٧ أيام) لازم تظهر برضه — وإلا إجمالي الفترة يقل
+    if (Array.isArray(periodRows)) {
+      periodRows.forEach(function (row) {
+        var camp = row.campaign || {};
+        if (!camp.id) return;
+        var m = row.metrics || {}, e = entry(camp);
+        var acc = e.period || (e.period = { spend: 0, results: 0, sales: 0 });
+        acc.spend += parseInt(m.costMicros || 0, 10) / 1000000;
+        acc.results += parseFloat(m.conversions || 0);
+        acc.sales += parseFloat(m.conversionsValue || 0);
+      });
+    }
+    return order.map(function (campId) {
+      var e = byCamp[campId], camp = e.camp;
+      var id = 'gp-' + campId;
+      var delivery = googleCampaignDelivery(camp);
+      var daily = [], dailyResults = [], dailySales = [], rawResults = 0;
+      days.forEach(function (day) {
+        var r = e.perDay[day.key];
+        daily.push(r ? r.spend : 0);
+        rawResults += r ? r.results : 0;
+        dailyResults.push(r ? Math.round(r.results) : 0);
+        dailySales.push(r ? r.sales : 0);
+      });
+      var spend = daily.reduce(function (a, b) { return a + b; }, 0);
+      var totalResults = Math.round(rawResults);
+      var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
+      var pRow = Array.isArray(periodRows) ? (e.period || { spend: 0, results: 0, sales: 0 }) : null;
+      var name = camp.name || ('Performance Max #' + campId);
+      return {
+        id: id, platform: 'Google Ads', currency: currency || null,
+        campaignLevel: true,
+        reviewStatus: null, frequency: null,
+        placement: 'Performance Max',
+        campaignId: String(campId), campaignName: camp.name || null, adsetName: null, adGroupId: null,
+        nativeId: String(campId),
+        format: 'pmax', thumbUrl: null,
+        headline: name, desc: '', offer: name, caption: '',
+        landing: '—', landingKind: null,
+        daysAgo: null, updatedDaysAgo: null,
+        daily: daily, dailyResults: dailyResults, dailySales: dailySales, dailyDates: days.map(function (d) { return d.key; }),
+        spend: spend,
+        results: totalResults > 0 ? totalResults : 0,
+        resultKey: 'conversion',
+        cpr: (totalResults && spend > 0) ? (spend / totalResults) : null,
+        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null,
+        themeClass: 'pv-t' + (hashCode(id) % 4),
+        active: delivery.active,
+        pausedLevel: delivery.level,
+        deliveryReason: delivery.reason || null,
+        platformStatus: camp.primaryStatus || camp.status || null,
+        period: pRow ? buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales) : null,
+        fail: false
+      };
+    });
   }
 
   // adRows: كل الإعلانات بحالتها (من غير تاريخ) — metricRows: صف لكل إعلان × يوم فيه نشاط

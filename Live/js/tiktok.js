@@ -175,6 +175,8 @@
 
   // لو رجعنا من TikTok بـ ?auth_code=... في الرابط، كمّل تسجيل الدخول تلقائياً
   function checkTikTokRedirect() {
+    // TikTok مقفول («قريباً») — أي رابط رجوع منه بيتجاهل، عشان محدش يقدر يستخدمه كباب خلفي لتسجيل دخول
+    if (!TIKTOK_ENABLED) return;
     var params = new URLSearchParams(window.location.search);
     var authCode = params.get('auth_code') || params.get('code');
     var state = params.get('state') || '';

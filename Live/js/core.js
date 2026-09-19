@@ -387,12 +387,18 @@
     catch (e) { return platform + '.nostore'; } // التخزين مقفول — بنكتفي بالتأكد من اسم المنصة
     return state;
   }
+  function sessionStorageWorks() {
+    try { sessionStorage.setItem('acc.probe', '1'); sessionStorage.removeItem('acc.probe'); return true; } catch (e) { return false; }
+  }
   function consumeOauthState(platform, received) {
     if (!received || received.indexOf(platform + '.') !== 0) return false;
+    // «.nostore» معناها إن التخزين كان مقفول وقت ما الدخول بدأ — بتتقبل بس لو التخزين لسه مقفول فعلاً.
+    // قبل كده كانت بتتقبل دايماً: أي حد كان يقدر يبعت رابط رجوع فيه state=snapchat.nostore وكود دخول بتاعه،
+    // فمتصفح الضحية يربط حساب المهاجم من غير ما يحس (ثغرة CSRF على تسجيل الدخول)
+    if (received === platform + '.nostore') return !sessionStorageWorks();
     var saved = null;
     try { saved = sessionStorage.getItem(OAUTH_STATE_KEY); sessionStorage.removeItem(OAUTH_STATE_KEY); } catch (e) { /* مقفول */ }
-    if (received === platform + '.nostore') return true;
-    return received === saved;
+    return !!saved && received === saved;
   }
   // رسالة خطأ راجعة من المنصة نفسها في الرابط (مثلاً المستخدم رفض الصلاحيات)
   function oauthErrorFromUrl(params) {

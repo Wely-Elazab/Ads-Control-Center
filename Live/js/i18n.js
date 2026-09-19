@@ -140,6 +140,7 @@
 
       // الكروت
       'card.staticDesign': 'تصميم ثابت',
+      'card.pmaxSub': 'حملة كاملة — Google مبتعرضش إعلاناتها منفصلة',
       'card.adFallback': 'إعلان {platform} #{id}',
       'chip.spend': 'الإنفاق',
       'chip.results': 'النتائج',
@@ -160,12 +161,14 @@
       'kpi.results': 'النتائج — {p}',
       'kpi.atRisk': 'معرّض للهدر — آخر يومين',
       'kpi.review': 'إعلانات تحتاج مراجعة',
+      'kpi.moreTypes': '+{n} كمان',
 
       // نافذة التفاصيل
       'x.delivery': 'الظهور',
       'x.platformStatus': 'حالة المنصة: {s}',
       'x.noIssues': 'مفيش ملاحظات على الإعلان ده حالياً.',
       'x.noText': '(بدون نص)',
+      'x.pmaxNote': 'دي حملة Performance Max: Google بتوزّع ميزانيتها على كل أماكن الظهور تلقائياً ومبترجّعش أرقام كل إعلان لوحده، فبنعرضها على مستوى الحملة كلها.',
       'x.spend': 'الإنفاق',
       'x.results': 'النتائج',
       'x.noConversions': '— (لا توجد بيانات تحويل لهذا الإعلان)',
@@ -199,6 +202,7 @@
       'n.campaign.one': 'حملة', 'n.campaign.many': 'حملات',
       'gallery.countCampaigns': '{n} {camps} — فيها {m} {ads}',
       'camp.noName': 'حملة بدون اسم',
+      'camp.pmax': 'Performance Max — على مستوى الحملة',
       'camp.adsOf': '{n} من {total} {ads} (حسب الفلتر)',
       'camp.activeOf': '{a} نشط من {n}',
       'camp.urgent': '{n} عاجل',
@@ -357,6 +361,7 @@
       'note.dailyFailed': 'تعذّر تحميل الإنفاق اليومي: {msg}',
       'note.dailyTruncated': 'بيانات الإنفاق اتقطعت عند {n} صف — بعض الأرقام ممكن تكون ناقصة',
       'note.spendFailed': 'تعذّر تحميل الإنفاق: {msg}',
+      'note.pmaxFailed': 'تعذّر تحميل حملات Performance Max: {msg}',
 
 
       // التنبيهات (محرك التنبيهات)
@@ -573,6 +578,7 @@
       'res.generic': 'results', 'res1.generic': 'result',
 
       'card.staticDesign': 'Static design',
+      'card.pmaxSub': 'Whole campaign — Google doesn\'t report its ads separately',
       'card.adFallback': '{platform} ad #{id}',
       'chip.spend': 'Spend',
       'chip.results': 'Results',
@@ -592,11 +598,13 @@
       'kpi.results': 'Results — {p}',
       'kpi.atRisk': 'At risk of waste — last 2 days',
       'kpi.review': 'Ads needing review',
+      'kpi.moreTypes': '+{n} more',
 
       'x.delivery': 'Delivery',
       'x.platformStatus': 'Platform status: {s}',
       'x.noIssues': 'No notes on this ad right now.',
       'x.noText': '(no text)',
+      'x.pmaxNote': 'This is a Performance Max campaign: Google spreads its budget across all placements automatically and doesn\'t report each ad separately, so we show it at campaign level.',
       'x.spend': 'Spend',
       'x.results': 'Results',
       'x.noConversions': '— (no conversion data for this ad)',
@@ -629,6 +637,7 @@
       'n.campaign.one': 'campaign', 'n.campaign.many': 'campaigns',
       'gallery.countCampaigns': '{n} {camps} — {m} {ads}',
       'camp.noName': 'Unnamed campaign',
+      'camp.pmax': 'Performance Max — campaign level',
       'camp.adsOf': '{n} of {total} {ads} (filtered)',
       'camp.activeOf': '{a} active of {n}',
       'camp.urgent': '{n} urgent',
@@ -781,6 +790,7 @@
       'note.dailyFailed': 'Couldn\'t load daily spend: {msg}',
       'note.dailyTruncated': 'Spend data was cut at {n} rows — some figures may be incomplete',
       'note.spendFailed': 'Couldn\'t load spend: {msg}',
+      'note.pmaxFailed': 'Couldn\'t load Performance Max campaigns: {msg}',
 
 
       'al.name': '"{name}"',

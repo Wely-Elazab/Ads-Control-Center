@@ -419,6 +419,126 @@
     });
   });
 
+  describe('حماية تسجيل الدخول', function () {
+    test('رابط رجوع فيه state=...nostore بيترفض لما التخزين شغّال (ثغرة CSRF)', function () {
+      eq(consumeOauthState('snapchat', 'snapchat.nostore'), false);
+      eq(consumeOauthState('tiktok', 'tiktok.nostore'), false);
+    });
+    test('الـ state الصح بيتقبل مرة واحدة بس، ولنفس المنصة بس', function () {
+      var s = newOauthState('snapchat');
+      eq(consumeOauthState('google', s), false, 'other platform');
+      eq(consumeOauthState('snapchat', s), true, 'first use');
+      eq(consumeOauthState('snapchat', s), false, 'replay');
+    });
+    test('رابط رجوع TikTok بيتجاهل وهو مقفول', function () {
+      var before = location.href;
+      history.replaceState({}, '', location.pathname + '?code=x&state=tiktok.nostore');
+      try {
+        setStatus('before');
+        checkTikTokRedirect();
+        eq(location.search, '?code=x&state=tiktok.nostore', 'url untouched');
+        eq(document.getElementById('connectStatus').textContent, 'before');
+      } finally { history.replaceState({}, '', before); }
+    });
+    test('إصدار Meta هو v26 (v21 كان منتهي)', function () { eq(GRAPH_VERSION, 'v26.0'); });
+  });
+
+  describe('خانة النتائج', function () {
+    test('كل نوع نتيجة لوحده، مترتبين بالصرف — من غير رقم مجمّع', function () {
+      candidates = [
+        ad('p1', { daily: steady(100), res: [3, 3, 3, 3, 3, 3, 2], key: 'purchase' }),
+        ad('s1', { daily: steady(10), res: steady(130), key: 'swipe', source: 'snapchat:a1', platform: 'Snapchat' })
+      ];
+      render();
+      var box = document.querySelectorAll('#kpiStrip .kpi')[1];
+      var lines = box.querySelectorAll('.kpi-line');
+      eq(lines.length, 2);
+      eq(lines[0].textContent, ar(20) + ' ' + t('res1.purchase'), 'purchases first (more spend)');
+      eq(lines[1].textContent, ar(910) + ' ' + t('res.swipe'));
+      ok(box.textContent.indexOf(ar(930)) === -1, 'no combined total');
+    });
+    test('الأرقام الكبيرة بفاصل الآلاف', function () {
+      candidates = [ad('s1', { daily: steady(10), res: steady(350), key: 'swipe', source: 'snapchat:a1', platform: 'Snapchat' })];
+      render();
+      eq(document.querySelectorAll('#kpiStrip .kpi-value')[1].textContent, '٢٬٤٥٠ ' + t('res1.swipe'));
+    });
+    test('نوع واحد بيظهر مع اسمه', function () {
+      candidates = [ad('p1', { daily: steady(100), res: steady(1), key: 'purchase' })];
+      render();
+      eq(document.querySelectorAll('#kpiStrip .kpi-value')[1].textContent, ar(7) + ' ' + t('res.purchase'));
+    });
+  });
+
+  describe('Google — حملات Performance Max', function () {
+    var rows = [
+      { campaign: { id: '11', name: 'PMax A', status: 'ENABLED', primaryStatus: 'ELIGIBLE' }, segments: { date: KEYS[5] }, metrics: { costMicros: '50000000', conversions: 2, conversionsValue: 300 } },
+      { campaign: { id: '11', name: 'PMax A', status: 'ENABLED', primaryStatus: 'ELIGIBLE' }, segments: { date: KEYS[4] }, metrics: { costMicros: '30000000', conversions: 1.5, conversionsValue: 0 } },
+      { campaign: { id: '12', name: 'PMax B', status: 'PAUSED', primaryStatus: 'PAUSED', primaryStatusReasons: ['CAMPAIGN_PAUSED'] }, segments: { date: KEYS[0] }, metrics: { costMicros: '10000000' } }
+    ];
+    test('كل حملة PMax بتبقى كارت واحد بأرقام الحملة', function () {
+      var list = transformGooglePmax(rows, null, DAYS, 'EGP');
+      eq(list.length, 2);
+      var a = list[0];
+      eq([a.id, a.campaignLevel, a.active, a.spend, a.results, a.resultKey, a.currency], ['gp-11', true, true, 80, 4, 'conversion', 'EGP']);
+      eq([a.daily[4], a.daily[5], a.dailySales[5]], [30, 50, 300]);
+      eq([list[1].active, list[1].pausedLevel], [false, 'campaign']);
+    });
+    test('حملة صرفت في الفترة المختارة بس بتظهر برضه', function () {
+      var list = transformGooglePmax([], [{ campaign: { id: '13', name: 'Old', status: 'ENABLED', primaryStatus: 'ELIGIBLE' }, metrics: { costMicros: '120000000', conversions: 3, conversionsValue: 0 } }], DAYS, 'EGP');
+      eq(list.length, 1);
+      eq([list[0].spend, list[0].period.spend, list[0].period.results], [0, 120, 3]);
+    });
+    test('من غير primary_status بنرجع للحالة اليدوية', function () {
+      eq(googleCampaignDelivery({ status: 'PAUSED' }).level, 'campaign');
+      eq(googleCampaignDelivery({ status: 'ENABLED' }).active, true);
+      eq(googleCampaignDelivery({ primaryStatus: 'LEARNING' }).active, true);
+    });
+    test('كارت PMax: شارة واضحة، ورابط الحملة، وعرض الحملات', function () {
+      var p = transformGooglePmax(rows, null, DAYS, 'EGP')[0];
+      p.source = 'google:1234567890';
+      ok(previewMarkup(p).indexOf('Performance Max') > -1, 'badge');
+      eq(platformLink(p).url, 'https://ads.google.com/aw/overview?campaignId=11');
+      candidates = [p];
+      runAnalysis();
+      ok(campaignMarkup(groupCampaigns(candidates)[0]).indexOf(t('camp.pmax')) > -1, 'campaign card says PMax, not "1 ad"');
+    });
+    test('حملة PMax واخدة أغلب الصرف مش بتطلّع تنبيه «الميزانية متركزة في إعلان»', function () {
+      var p = transformGooglePmax([{ campaign: { id: '14', name: 'Big', status: 'ENABLED', primaryStatus: 'ELIGIBLE' }, segments: { date: KEYS[5] }, metrics: { costMicros: '900000000', conversions: 0 } }], null, DAYS, 'EGP')[0];
+      p.source = 'google:1';
+      var other = ad('g1', { daily: steady(5), res: steady(1), source: 'google:1', platform: 'Google Ads', key: 'conversion' });
+      var r = engine([p, other]);
+      ok(!r.alerts.some(function (al) { return al.adId === p.id && al.title === t('al.conc.t'); }), 'no concentration alert');
+    });
+    testAsync('حساب فيه PMax بس (من غير إعلانات) بيتعرض عادي', function () {
+      var realFetch = window.fetch;
+      window.fetch = function () {
+        return Promise.resolve({ json: function () {
+          return Promise.resolve({ ads: [], metrics: [], periodMetrics: null, pmax: rows, pmaxPeriod: null, pmaxError: null, range: { since: KEYS[0], until: KEYS[6] } });
+        } });
+      };
+      accountInfo['google:999'] = { currency: 'EGP' };
+      loadGoogleAdsForAccount('999');
+      return tick().then(tick).then(function () {
+        window.fetch = realFetch;
+        var pm = candidates.filter(function (c) { return c.campaignLevel; });
+        eq(pm.length, 2);
+        eq(pm[0].source, 'google:999');
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+    testAsync('صرف إعلانات Google المحذوفة مبيضيعش (السيرفر بيدوّر عليها برقمها)', function () {
+      return import('/api/_google.js').then(function (g) {
+        var ads = [{ adGroup: { id: '1' }, adGroupAd: { ad: { id: '10' } } }];
+        var metrics = [
+          { adGroup: { id: '1' }, adGroupAd: { ad: { id: '10' } }, metrics: { costMicros: '5000000' } },
+          { adGroup: { id: '2' }, adGroupAd: { ad: { id: '20' } }, metrics: { costMicros: '7000000' } },
+          { adGroup: { id: '3' }, adGroupAd: { ad: { id: '30' } }, metrics: { costMicros: '0' } }
+        ];
+        var periodRows = [{ adGroup: { id: '4' }, adGroupAd: { ad: { id: '40' } }, metrics: { costMicros: '1' } }];
+        eq(g.missingSpendKeys(ads, [metrics, periodRows, null]), { keys: ['2-20', '4-40'], adIds: ['20', '40'] });
+      });
+    });
+  });
+
   describe('الأسعار', function () {
     var P = function () { return window.ACC_PRICING; };
     test('السنوي = ١٢ × سعر الشهر، ونسبة التوفير صح', function () {

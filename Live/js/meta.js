@@ -8,7 +8,11 @@
 
   // !!! هام: ده الـ App ID بتاع تطبيقك في Meta for Developers — لو غيّرت التطبيق عدّله هنا !!!
   var META_APP_ID = "2950488078638871";
-  var GRAPH_VERSION = 'v21.0';
+  // إصدار Marketing API: Meta بتقفل كل إصدار بعد حوالي سنة (مش سنتين زي Graph API العادي).
+  // الإصدار المقفول بيتحوّل لوحده لأقدم إصدار شغّال — ولو الطلب اتغيّر فيه بيفشل فجأة.
+  // v21 كان انتهى وكانت الطلبات شغّالة بالتحويل ده. v26 صدر ٢٩ يوليو ٢٠٢٦ — راجع التاريخ ده كل ٦ شهور:
+  // https://developers.facebook.com/documentation/ads-commerce/marketing-api/marketing-api-changelog
+  var GRAPH_VERSION = 'v26.0';
 
   // ---------- Facebook SDK ----------
   // أي كود محتاج FB قبل ما الـ SDK يخلص تحميل (زي استرجاع الجلسة) بيستنى هنا

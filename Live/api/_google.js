@@ -44,6 +44,29 @@ export function googleHeaders(developerToken, accessToken, loginCustomerId) {
   return headers;
 }
 
+// مفتاح الإعلان عندنا: رقم المجموعة الإعلانية + رقم الإعلان (نفس الإعلان ممكن يتكرر في أكتر من مجموعة)
+export function adKey(row) {
+  const g = row && row.adGroup && row.adGroup.id;
+  const a = row && row.adGroupAd && row.adGroupAd.ad && row.adGroupAd.ad.id;
+  return g && a ? String(g) + '-' + String(a) : null;
+}
+// إعلانات صرفت في الفترة ومش موجودة في قائمة الإعلانات — غالباً اتحذفت (REMOVED) بعد ما صرفت.
+// من غيرها صرفها كان بيختفي من الأرقام، فالإجمالي يطلع أقل من لوحة Google
+export function missingSpendKeys(adRows, metricLists) {
+  const have = new Set((adRows || []).map(adKey));
+  const keys = new Set(), adIds = new Set();
+  (metricLists || []).forEach(function (rows) {
+    (rows || []).forEach(function (row) {
+      const k = adKey(row);
+      const cost = Number((row.metrics && row.metrics.costMicros) || 0);
+      if (!k || cost <= 0 || have.has(k)) return;
+      keys.add(k);
+      adIds.add(String(row.adGroupAd.ad.id).replace(/\D/g, ''));
+    });
+  });
+  return { keys: Array.from(keys), adIds: Array.from(adIds).filter(Boolean) };
+}
+
 // بيشغّل استعلام GAQL عن طريق searchStream وبيرجّع كل الصفوف في مصفوفة واحدة
 export async function gaql(opts, query) {
   const customerId = cleanCustomerId(opts.customerId);
