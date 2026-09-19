@@ -15,7 +15,7 @@ export default async function handler(req, res) {
 
   const { accessToken, customerId, loginCustomerId, timeZone, clientTz, period } = req.body || {};
   if (!accessToken || !customerId) {
-    res.status(400).json({ error: 'accessToken و customerId مطلوبين في جسم الطلب.', code: 'BAD_REQUEST' });
+    res.status(400).json({ error: 'الحقلان accessToken وcustomerId مطلوبان في جسم الطلب.', code: 'BAD_REQUEST' });
     return;
   }
 

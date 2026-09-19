@@ -93,18 +93,11 @@ html[lang="en"] .home-hero h1 { line-height: 1.2; letter-spacing: -.5px; }
 .steps > li::before { content: counter(step); display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: var(--verified); color: var(--on-verified); font-weight: 700; font-size: 15px; }
 html[lang="ar"] .steps > li::before { content: counter(step, arabic-indic); }
 
-/* ---------- البيانات والصلاحيات ---------- */
+/* ---------- البيانات ---------- */
 .trust { list-style: none; margin: 0 0 22px; padding: 0; display: grid; gap: 10px; }
 .trust li { display: flex; gap: 10px; align-items: flex-start; background: var(--verified-bg); border-radius: 12px; padding: 12px 16px; }
 .trust-icon { flex-shrink: 0; }
-.table-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
-.perm { width: 100%; border-collapse: collapse; font-size: 14.5px; min-width: 560px; }
-.perm th, .perm td { padding: 12px 14px; text-align: start; vertical-align: top; border-bottom: 1px solid var(--line); }
-.perm tr:last-child td { border-bottom: none; }
-.perm th { font-size: 13px; color: var(--ink-soft); background: var(--paper); }
-.perm td:first-child { font-weight: 600; white-space: nowrap; }
-.perm code, .doc code { direction: ltr; unicode-bidi: isolate; }
-.perm code { font-family: 'IBM Plex Mono', 'Courier New', monospace; font-size: 12.5px; background: var(--paper); padding: 1px 6px; border-radius: 5px; }
+.doc code { direction: ltr; unicode-bidi: isolate; }
 .fine { font-size: 14px; color: var(--ink-soft); margin: 14px 0 0; }
 
 /* ---------- الأسئلة ---------- */

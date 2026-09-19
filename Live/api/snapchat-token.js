@@ -13,13 +13,13 @@ export default async function handler(req, res) {
   const clientId = process.env.SNAPCHAT_CLIENT_ID;
   const clientSecret = process.env.SNAPCHAT_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
-    res.status(500).json({ error: 'SNAPCHAT_CLIENT_ID أو SNAPCHAT_CLIENT_SECRET غير مضبوطين في إعدادات Vercel.', code: 'CONFIG' });
+    res.status(500).json({ error: 'المتغيران SNAPCHAT_CLIENT_ID وSNAPCHAT_CLIENT_SECRET غير مضبوطين في إعدادات Vercel.', code: 'CONFIG' });
     return;
   }
 
   const { code, redirectUri } = req.body || {};
   if (!code || !redirectUri) {
-    res.status(400).json({ error: 'code و redirectUri مطلوبين في جسم الطلب.', code: 'BAD_REQUEST' });
+    res.status(400).json({ error: 'الحقلان code وredirectUri مطلوبان في جسم الطلب.', code: 'BAD_REQUEST' });
     return;
   }
 

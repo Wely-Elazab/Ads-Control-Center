@@ -102,8 +102,11 @@
       withLang('en', function () { [[0, 'many'], [1, 'one'], [2, 'many'], [21, 'many']].forEach(function (c) { eq(I18N.form(c[0]), c[1], String(c[0])); }); });
     });
     test('الاسم مع العدد', function () {
-      eq(noun(5, 'n.ad'), 'إعلانات'); eq(noun(15, 'n.ad'), 'إعلان');
-      withLang('en', function () { eq(noun(1, 'n.ad'), 'ad'); eq(noun(2, 'n.ad'), 'ads'); });
+      eq(noun(5, 'n.ad'), 'إعلانات'); eq(noun(1, 'n.ad'), 'إعلان'); eq(noun(101, 'n.ad'), 'إعلان');
+      // من ١١ لـ ٩٩ (وآخر رقمين في الأعداد الكبيرة) التمييز منصوب في الفصحى
+      eq(noun(15, 'n.ad'), 'إعلاناً'); eq(noun(111, 'n.ad'), 'إعلاناً'); eq(noun(20, 'n.day'), 'يوماً'); eq(noun(12, 'n.account'), 'حساباً');
+      eq(noun(15, 'n.campaign'), 'حملة', 'no .acc key = the singular');
+      withLang('en', function () { eq(noun(1, 'n.ad'), 'ad'); eq(noun(2, 'n.ad'), 'ads'); eq(noun(15, 'n.ad'), 'ads'); });
     });
     test('مفتاح مش موجود بيرجع نفسه (عشان يتلاحظ)', function () { eq(t('no.such.key'), 'no.such.key'); });
     test('تبديل اللغة بيغيّر الاتجاه', function () {
@@ -134,8 +137,8 @@
       });
     });
     test('منذ كام يوم', function () {
-      eq(sinceLabel(0), 'اليوم'); eq(sinceLabel(1), 'قبل يوم'); eq(sinceLabel(2), 'قبل يومين');
-      eq(sinceLabel(5), 'قبل ٥ أيام'); eq(sinceLabel(15), 'قبل ١٥ يوماً');
+      eq(sinceLabel(0), 'اليوم'); eq(sinceLabel(1), 'منذ يوم'); eq(sinceLabel(2), 'منذ يومين');
+      eq(sinceLabel(5), 'منذ ٥ أيام'); eq(sinceLabel(15), 'منذ ١٥ يوماً');
       withLang('en', function () { eq(sinceLabel(5), '5 days ago'); });
     });
   });
@@ -896,7 +899,7 @@
       ok(join.getAttribute('href').indexOf('mailto:' + ACC_JOIN.email + '?subject=') === 0, 'full mailto: ' + join.getAttribute('href').slice(0, 60));
       ok(hero.querySelector('a[href="/help"]'), 'help link');
     });
-    test('نافذة المنصات بتوضّح إن Meta وGoogle محتاجين انضمام', function () {
+    test('نافذة المنصات فيها ملاحظة التجربة وروابط الانضمام والخطوات', function () {
       var note = document.querySelector('#platformOverlay .pf-pilot');
       ok(note, 'note exists');
       ok(note.querySelector('a[data-join]') && note.querySelector('a[href="/help"]'), 'join + help links');
@@ -1004,6 +1007,69 @@
           });
         }));
       }).then(function () { eq(problems, []); });
+    });
+    // كل النص العربي اللي بيشوفه العميل فصحى (قرار ١٩ سبتمبر ٢٠٢٦) — الكلمات دي عامية مصرية صريحة،
+    // وأي واحدة منها في قاموس الأداة أو الصفحات أو رسايل السيرفر معناها إن نص عامي رجع
+    var COLLOQUIAL = ['مش', 'مفيش', 'عشان', 'علشان', 'دلوقتي', 'إزاي', 'ازاي', 'اللي', 'بتاع', 'بتاعة', 'بتاعك', 'كده', 'النهارده',
+      'عايز', 'عاوز', 'ده', 'دي', 'لسه', 'بس', 'كمان', 'إيه', 'فين', 'ليه', 'زي', 'خالص', 'شوية', 'تاني', 'دوس', 'اتنسخت', 'ابعتلنا', 'هنضيفك'];
+    function colloquialIn(text) {
+      var words = text.replace(/[ً-ْـ]/g, '').split(/[^ء-ي]+/);
+      return words.filter(function (w, i) { return COLLOQUIAL.indexOf(w) > -1 && words.indexOf(w) === i; });
+    }
+    function pageArabicText(html) {
+      var doc = parse(html);
+      Array.prototype.forEach.call(doc.querySelectorAll('.only-en, script, style'), function (el) { el.remove(); });
+      var meta = doc.querySelector('meta[name="description"]');
+      return doc.title + ' ' + (meta ? meta.getAttribute('content') : '') + ' ' + doc.body.textContent + ' ' +
+        Array.prototype.map.call(doc.querySelectorAll('[aria-label], [placeholder], [title]'), function (el) {
+          return [el.getAttribute('aria-label'), el.getAttribute('placeholder'), el.getAttribute('title')].join(' ');
+        }).join(' ');
+    }
+    testAsync('النص العربي فصحى: قاموس الأداة، والصفحات، ورسالة الانضمام، ورسايل السيرفر', function () {
+      var problems = [];
+      function check(src, text) { var w = colloquialIn(text); if (w.length) problems.push(src + ': ' + w.join('، ')); }
+      check('join.js', ACC_JOIN.text('ar') + ' ' + ACC_JOIN.subject.ar);
+      return getText('/js/i18n.js').then(function (js) {
+        var ar = (js.match(/\n {4}ar: \{([\s\S]*?)\n {4}\},/) || [])[1];
+        ok(ar, 'found the Arabic dictionary');
+        var values = ar.split('\n').filter(function (l) { return !/^\s*\/\//.test(l); }).join('\n').match(/'[^']*'/g) || [];
+        check('i18n.js (ar)', values.join(' '));
+        return Promise.all(PAGES.concat(['/pricing.html']).map(function (u) {
+          return getText(u).then(function (html) { check(u, pageArabicText(html)); });
+        }));
+      }).then(function () {
+        return Promise.all(['/api/_cors.js', '/api/_verify.js', '/api/_google.js', '/api/google-ads-fetch.js', '/api/google-list-accounts.js',
+          '/api/snapchat-ads-fetch.js', '/api/snapchat-token.js'].map(function (u) {
+          return getText(u).then(function (src) {
+            var msgs = (src.match(/(error:|new Error\()\s*'[^']*'/g) || []).join(' ');
+            check(u, msgs);
+          });
+        }));
+      }).then(function () { eq(problems, []); });
+    });
+    testAsync('العميل مبيشوفش تفاصيل داخلية عن مين يقدر يربط أنهي منصة', function () {
+      var MECHANICS = /متاح لأي|لأي حد|لأي أحد|open to (everyone|anyone)|by name|بالاسم|نضيفهم|we add you by/i;
+      ['hero.pilot', 'pf.pilot'].forEach(function (k) {
+        ['ar', 'en'].forEach(function (l) {
+          withLang(l, function () { ok(!/Snapchat|Meta|Google/.test(t(k)) && !MECHANICS.test(t(k)), k + ' (' + l + '): ' + t(k)); });
+        });
+      });
+      return Promise.all(['/home.html', '/help.html', '/pauseproof-live.html'].map(function (u) {
+        return getText(u).then(function (html) {
+          var doc = parse(html);
+          Array.prototype.forEach.call(doc.querySelectorAll('script, style'), function (el) { el.remove(); });
+          var m = doc.body.textContent.match(MECHANICS);
+          ok(!m, u + ': "' + (m && m[0]) + '"');
+        });
+      })).then(function () {
+        return getText('/home.html');
+      }).then(function (html) {
+        var doc = parse(html);
+        ok(!doc.querySelector('table.perm'), 'no permissions table on the landing page');
+        // Google بتطلب إن الصفحة الرئيسية توضّح ليه بنطلب البيانات، مع رابط سياسة الخصوصية
+        var data = doc.getElementById('data');
+        ok(data && data.querySelector('a[href="/privacy"]') && /Limited Use/.test(data.textContent), 'data-use statement + privacy link');
+      });
     });
     testAsync('الصفحات الجديدة باللغتين ومنشورة، و404 بمسارات مطلقة', function () {
       return Promise.all(['/home.html', '/help.html', '/404.html'].map(function (u) {

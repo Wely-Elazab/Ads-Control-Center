@@ -515,7 +515,7 @@
   <div class="appbar-inner">
     <div class="brand">
       <div class="brand-mark">Ads Control Center</div>
-      <div class="brand-tag" id="tBrandTag" data-i18n="app.tag">تنبيهات تحمي ميزانيتك الإعلانية</div>
+      <div class="brand-tag" id="tBrandTag" data-i18n="app.tag">تنبيهات ذكية تحمي ميزانيتك الإعلانية</div>
     </div>
     <nav class="view-tabs" role="tablist" aria-label="أقسام الصفحة" data-i18n-aria="tabs.aria">
       <button type="button" class="view-tab active" data-view="ads" role="tab" aria-selected="true" aria-controls="viewAds"><span data-i18n="tab.ads">الإعلانات</span></button>
@@ -537,14 +537,14 @@
 <div class="status-strip">
   <span class="spinner" aria-hidden="true"></span>
   <span id="tConnectTitle" class="sr-only" data-i18n="status.title">حالة الاتصال</span>
-  <span id="connectStatus" data-i18n="s.notConnected">غير متصل — دوس تسجيل الدخول للبدء</span>
+  <span id="connectStatus" data-i18n="s.notConnected">غير متصل — اضغط «تسجيل الدخول» للبدء</span>
   <!-- بيظهر بس مع رسايل فشل دخول Meta/Google (غالباً العميل لسه مش مضاف للتجربة) — setStatus(..., { help }) في core.js -->
   <span class="status-help" id="statusHelp" hidden>
     <a href="/help" id="statusHelpLink" data-i18n="help.steps">خطوات الربط</a>
-    <a href="mailto:walid.elazab20@gmail.com" data-join data-i18n="join.short">اطلب انضمامك</a>
+    <a href="mailto:walid.elazab20@gmail.com" data-join data-i18n="join.short">اطلب الانضمام</a>
   </span>
   <!-- بيظهر مع رسالة «انتهت الجلسة» — setStatus(..., { reconnect }) في core.js -->
-  <button type="button" class="status-action" id="statusReconnect" data-i18n="btn.reconnect" hidden>ربط تاني</button>
+  <button type="button" class="status-action" id="statusReconnect" data-i18n="btn.reconnect" hidden>إعادة الربط</button>
 </div>
 
 <div class="wrap">
@@ -552,17 +552,17 @@
   <div id="viewAds" role="tabpanel">
 
     <section class="hero hidden" id="emptyHero">
-      <h2 data-i18n="hero.title">اربط حسابك الإعلاني وشوف كل إعلاناتك في مكان واحد</h2>
-      <p data-i18n="hero.body">Ads Control Center أداة عرض وتحليل وتنبيه فقط — بتقرا إعلاناتك وبتنبّهك على اللي بيهدر ميزانيتك، ومش بتغيّر أي حاجة في حسابك. القرار دايماً ليك ولمسؤول الإعلانات.</p>
+      <h2 data-i18n="hero.title">اعرف أين تُهدر ميزانيتك الإعلانية، وأين تكمن فرص نموك</h2>
+      <p data-i18n="hero.body">اربط حساباتك الإعلانية، ليجمع Ads Control Center إعلاناتك من مختلف المنصات في لوحة واحدة، ويقيّم أداء كل إعلان، وينبّهك بلغة واضحة إلى ما يستنزف ميزانيتك وما يستحق زيادة الاستثمار — دون أن يغيّر أي شيء في حساباتك.</p>
       <button type="button" class="stop-btn" id="heroLoginBtn" data-i18n="hero.cta">اربط حسابك الإعلاني</button>
       <!-- التجربة المغلقة: من غير الملاحظة دي، أي زائر مش مضاف هيدوس Meta أو Google ويشوف رسالة خطأ من المنصة -->
-      <p class="hero-pilot" data-i18n="hero.pilot">الأداة حالياً في تجربة مغلقة: ربط Meta وGoogle Ads بيشتغل بعد ما نضيفك للتجربة، وSnapchat متاح لأي حد.</p>
+      <p class="hero-pilot" data-i18n="hero.pilot">الأداة متاحة حالياً لعملاء التجربة المغلقة. إن لم تنضم بعد، فاطلب الانضمام وسنفعّل حسابك ونرسل إليك خطوات الربط.</p>
       <div class="hero-join">
-        <a class="ghost-btn" href="mailto:walid.elazab20@gmail.com" data-join data-i18n="join.cta">اطلب انضمامك للتجربة</a>
-        <a class="hero-help" href="/help" data-i18n="hero.help">إزاي أربط حساباتي؟</a>
+        <a class="ghost-btn" href="mailto:walid.elazab20@gmail.com" data-join data-i18n="join.cta">اطلب الانضمام إلى التجربة</a>
+        <a class="hero-help" href="/help" data-i18n="hero.help">كيف أربط حساباتي؟</a>
       </div>
       <!-- صفحة الأسعار مخفية مؤقتاً: لإعادتها شيل hidden هنا وفي رابط الفوتر، وراجع .vercelignore و vercel.json -->
-      <p class="hero-pricing" hidden><a href="/pricing" data-i18n="hero.pricing">الأسعار — وجرّب ١٤ يوم مجاناً</a></p>
+      <p class="hero-pricing" hidden><a href="/pricing" data-i18n="hero.pricing">الأسعار — جرّب الأداة ١٤ يوماً مجاناً</a></p>
       <div class="hero-platforms"><span>Meta</span><span>·</span><span>Google Ads</span><span>·</span><span>Snapchat</span><span>·</span><span>TikTok <span data-i18n="pf.soonShort">(قريباً)</span></span></div>
     </section>
 
@@ -575,13 +575,13 @@
       <div class="period-bar">
         <span class="period-label" data-i18n="period.label">فترة البيانات</span>
         <select id="periodSelect" class="sort-select" aria-label="فترة البيانات" data-i18n-aria="period.label">
-          <option value="today" data-i18n="period.today">النهارده</option>
+          <option value="today" data-i18n="period.today">اليوم</option>
           <option value="yesterday" data-i18n="period.yesterday">أمس</option>
           <option value="last7" data-i18n="period.last7">آخر ٧ أيام</option>
-          <option value="last14" data-i18n="period.last14">آخر ١٤ يوم</option>
-          <option value="last30" data-i18n="period.last30">آخر ٣٠ يوم</option>
-          <option value="thisMonth" data-i18n="period.thisMonth">الشهر ده</option>
-          <option value="lastMonth" data-i18n="period.lastMonth">الشهر اللي فات</option>
+          <option value="last14" data-i18n="period.last14">آخر ١٤ يوماً</option>
+          <option value="last30" data-i18n="period.last30">آخر ٣٠ يوماً</option>
+          <option value="thisMonth" data-i18n="period.thisMonth">هذا الشهر</option>
+          <option value="lastMonth" data-i18n="period.lastMonth">الشهر الماضي</option>
           <option value="custom" data-i18n="period.customOption">فترة مخصصة…</option>
         </select>
         <span class="period-custom hidden" id="periodCustom">
@@ -596,12 +596,12 @@
 
       <!-- ليه الأرقام ممكن تختلف عن لوحة المنصة — مقفولة افتراضياً عشان متزحمش الصفحة -->
       <details class="numbers-note">
-        <summary data-i18n="diff.title">ليه الأرقام ممكن تختلف شوية عن لوحة المنصة؟</summary>
+        <summary data-i18n="diff.title">لماذا قد تختلف الأرقام قليلاً عن لوحة المنصة؟</summary>
         <ul>
-          <li data-i18n="diff.today">أرقام النهارده لسه بتتحدّث — المنصة بتحسب الصرف والنتائج على مدار اليوم.</li>
-          <li data-i18n="diff.late">التحويلات بتتسجّل أحياناً متأخرة (لحد ٧ أيام بعد الضغطة)، فأرقام آخر كام يوم ممكن تزيد شوية مع التحديث.</li>
-          <li data-i18n="diff.source">الأرقام جاية من المنصة نفسها بتوقيت الحساب الإعلاني، وفي Meta بنستخدم رقم «النتائج» بتاع Ads Manager نفسه لما يكون متاح.</li>
-          <li data-i18n="diff.compare">عشان تقارن بسرعة: افتح أي إعلان واضغط الزرار اللي بيفتحه في المنصة (زي «افتح في Google Ads»).</li>
+          <li data-i18n="diff.today">أرقام اليوم ما زالت تتحدّث، إذ تحتسب المنصة الإنفاق والنتائج على مدار اليوم.</li>
+          <li data-i18n="diff.late">قد تُسجَّل بعض التحويلات متأخرة (حتى ٧ أيام بعد النقرة)، لذا قد ترتفع أرقام الأيام الأخيرة قليلاً عند التحديث.</li>
+          <li data-i18n="diff.source">الأرقام مأخوذة من المنصة نفسها وفق المنطقة الزمنية للحساب الإعلاني، ونعتمد في Meta رقم «النتائج» الذي يعرضه Ads Manager متى توفّر.</li>
+          <li data-i18n="diff.compare">للمقارنة السريعة: افتح أي إعلان واضغط الزر الذي يفتحه في المنصة (مثل «افتح في Google Ads»).</li>
         </ul>
       </details>
 
@@ -618,7 +618,7 @@
           <span>⚙</span><span id="tFilterToggle" data-i18n="filters.btn">الفلاتر</span><span class="filter-count" id="filterCount"></span>
         </button>
         <select id="sortSelect" class="sort-select" aria-label="ترتيب الإعلانات" data-i18n-aria="sort.aria">
-          <option value="priority" data-i18n="sort.priority">الأولوية (المشاكل أولاً)</option>
+          <option value="priority" data-i18n="sort.priority">الأولوية (ما يحتاج إلى انتباه أولاً)</option>
           <option value="launch" data-i18n="sort.launch">الأحدث إطلاقاً</option>
           <option value="update" data-i18n="sort.update">آخر تعديل على الإعلان</option>
           <option value="spend" data-i18n="sort.spend">الأعلى إنفاقاً</option>
@@ -630,8 +630,8 @@
       <div class="active-filters" id="activeFilters"></div>
 
       <div class="health-legend" aria-hidden="true">
-        <span><span class="chip-dot h-review"></span><span data-i18n="health.review">يحتاج مراجعة</span></span>
-        <span><span class="chip-dot h-improve"></span><span data-i18n="health.improve">يحتاج تحسين</span></span>
+        <span><span class="chip-dot h-review"></span><span data-i18n="health.review">يحتاج إلى مراجعة</span></span>
+        <span><span class="chip-dot h-improve"></span><span data-i18n="health.improve">يحتاج إلى تحسين</span></span>
         <span><span class="chip-dot h-good"></span><span data-i18n="health.good">جيد</span></span>
         <span><span class="chip-dot h-inactive"></span><span data-i18n="health.inactive">متوقف</span></span>
       </div>
@@ -644,7 +644,7 @@
     <div class="alerts-head">
       <div>
         <h2 class="alerts-heading" id="alertsHeading" data-i18n="alerts.title">التنبيهات المهمة</h2>
-        <p class="alerts-sub" data-i18n="alerts.sub">مبنية على أداء آخر ٧ أيام، و«أمس» يعني آخر يوم كامل. اضغط على أي تنبيه عشان تشوف تفاصيل الإعلان.</p>
+        <p class="alerts-sub" data-i18n="alerts.sub">تستند إلى أداء آخر ٧ أيام، ويُقصد بـ«أمس» آخر يوم مكتمل. اضغط أي تنبيه لعرض تفاصيل الإعلان.</p>
       </div>
       <button type="button" class="ghost-btn" id="openSettingsBtn" data-i18n="alerts.settingsBtn">⚙ إعدادات التنبيهات</button>
     </div>
@@ -653,10 +653,10 @@
   </section>
 
   <footer class="site-footer">
-    <p data-i18n="footer.readOnly">Ads Control Center بيقرا بيانات إعلاناتك بس — مبيغيّرش أي حاجة في حساباتك الإعلانية.</p>
+    <p data-i18n="footer.readOnly">يقرأ Ads Control Center بيانات إعلاناتك فقط، ولا يغيّر أي شيء في حساباتك الإعلانية.</p>
     <nav class="footer-links">
       <a href="/home" data-i18n="footer.about">عن الأداة</a>
-      <a href="/help" data-i18n="footer.help">دليل البداية</a>
+      <a href="/help" data-i18n="footer.help">دليل البدء</a>
       <a href="/privacy" data-i18n="footer.privacy">سياسة الخصوصية</a>
       <a href="/terms" data-i18n="footer.terms">شروط الاستخدام</a>
       <a href="/data-deletion" data-i18n="footer.deletion">حذف البيانات</a>
@@ -667,11 +667,11 @@
 </div>
 
 <!-- درج الفلاتر -->
-<div id="filterDrawer" class="drawer hidden" role="dialog" aria-modal="true" aria-label="فلاتر الإعلانات" data-i18n-aria="filters.aria">
+<div id="filterDrawer" class="drawer hidden" role="dialog" aria-modal="true" aria-label="تصفية الإعلانات" data-i18n-aria="filters.aria">
   <div class="drawer-backdrop" data-close-drawer></div>
   <div class="drawer-panel">
     <div class="drawer-head">
-      <span class="drawer-title" data-i18n="filters.title">فلاتر الإعلانات</span>
+      <span class="drawer-title" data-i18n="filters.title">تصفية الإعلانات</span>
       <button type="button" class="expand-close" id="filterDrawerClose" aria-label="إغلاق" data-i18n-aria="btn.close" style="position:static;">✕</button>
     </div>
     <div class="drawer-body" id="filterBar">
@@ -679,8 +679,8 @@
         <span class="filter-label" id="tLblHealth" data-i18n="filters.status">الحالة</span>
         <div class="filter-group" data-filter="health">
           <button class="chip active" data-value="all" data-i18n="filters.all">الكل</button>
-          <button class="chip" data-value="review"><span class="chip-dot h-review"></span><span data-i18n="health.review">يحتاج مراجعة</span> <span class="chip-count" data-health-count="review"></span></button>
-          <button class="chip" data-value="improve"><span class="chip-dot h-improve"></span><span data-i18n="health.improve">يحتاج تحسين</span> <span class="chip-count" data-health-count="improve"></span></button>
+          <button class="chip" data-value="review"><span class="chip-dot h-review"></span><span data-i18n="health.review">يحتاج إلى مراجعة</span> <span class="chip-count" data-health-count="review"></span></button>
+          <button class="chip" data-value="improve"><span class="chip-dot h-improve"></span><span data-i18n="health.improve">يحتاج إلى تحسين</span> <span class="chip-count" data-health-count="improve"></span></button>
           <button class="chip" data-value="good"><span class="chip-dot h-good"></span><span data-i18n="health.good">جيد</span> <span class="chip-count" data-health-count="good"></span></button>
           <button class="chip" data-value="stopped"><span class="chip-dot h-inactive"></span><span data-i18n="health.inactive">متوقف</span> <span class="chip-count" data-health-count="stopped"></span></button>
         </div>
@@ -700,17 +700,17 @@
         <div class="filter-group" data-filter="format">
           <button class="chip active" data-value="all" data-i18n="filters.all">الكل</button>
           <button class="chip" data-value="video" data-i18n="format.video">فيديو</button>
-          <button class="chip" data-value="image" data-i18n="format.image">تصميم</button>
+          <button class="chip" data-value="image" data-i18n="format.image">صورة</button>
           <button class="chip" data-value="text" data-i18n="format.text">نص</button>
         </div>
       </div>
       <div class="filter-row">
         <span class="filter-label" id="tLblSearch" data-i18n="filters.search">بحث</span>
-        <input type="text" id="textFilter" class="text-filter" placeholder="اسم الإعلان، أو أي كلمة موجودة فيه" data-i18n-placeholder="filters.searchPh">
+        <input type="text" id="textFilter" class="text-filter" placeholder="اسم الإعلان أو أي كلمة وردت فيه" data-i18n-placeholder="filters.searchPh">
       </div>
     </div>
     <div class="drawer-foot">
-      <button type="button" class="ghost-btn" id="clearFiltersBtn" data-i18n="filters.clearAll">مسح كل الفلاتر</button>
+      <button type="button" class="ghost-btn" id="clearFiltersBtn" data-i18n="filters.clearAll">مسح جميع الفلاتر</button>
       <button type="button" class="stop-btn" id="filterDrawerDone" data-i18n="filters.showResults">عرض النتائج</button>
     </div>
   </div>
@@ -718,10 +718,10 @@
 
 <div id="platformOverlay" class="expand-overlay hidden">
   <div class="expand-card" role="dialog" aria-modal="true" aria-labelledby="pfTitle">
-    <button class="expand-close" id="platformClose" aria-label="close" data-i18n-aria="btn.close">✕</button>
+    <button class="expand-close" id="platformClose" aria-label="إغلاق" data-i18n-aria="btn.close">✕</button>
     <div class="expand-body" style="padding-top:24px;">
       <div class="expand-title" id="pfTitle" style="margin-bottom:4px;" data-i18n="pf.title">اختر المنصة</div>
-      <div class="expand-sub" style="margin-bottom:16px;" data-i18n="pf.sub">سجّل دخولك في كل منصة تستخدمها، وهتظهر كل إعلاناتك في مكان واحد</div>
+      <div class="expand-sub" style="margin-bottom:16px;" data-i18n="pf.sub">اربط كل منصة تعلن عليها، لتظهر جميع إعلاناتك في لوحة واحدة</div>
       <!-- كل منصة: زرار الربط + (لو متصلة) «متصل — الحساب» وزرار «فصل» جنبه — renderPlatformPanel في ui.js -->
       <div class="platform-list">
         <div class="platform-row" data-platform="meta">
@@ -743,7 +743,7 @@
         <div class="platform-row" data-platform="snapchat">
           <button type="button" class="platform-item" id="platformSnapchat">
             <span class="platform-item-name">Snapchat Ads</span>
-            <span class="platform-item-sub" data-i18n="pf.snapchat">الإعلانات والإنفاق — والمشتريات لو Snap Pixel مركّب</span>
+            <span class="platform-item-sub" data-i18n="pf.snapchat">الإعلانات والإنفاق — والمشتريات عند تثبيت Snap Pixel</span>
             <span class="platform-item-status" data-platform-status hidden></span>
           </button>
           <button type="button" class="platform-disconnect" data-disconnect="snapchat" data-i18n="pf.disconnect" hidden>فصل</button>
@@ -752,15 +752,15 @@
         <div class="platform-row" data-platform="tiktok">
           <button type="button" class="platform-item soon" id="platformTikTok" disabled aria-disabled="true">
             <span class="platform-item-name">TikTok Ads</span>
-            <span class="platform-item-sub" data-i18n="pf.tiktok">تسجيل الدخول شغّال — البيانات تحتاج موافقة Business Center</span>
+            <span class="platform-item-sub" data-i18n="pf.tiktok">قريباً</span>
           </button>
         </div>
       </div>
-      <button type="button" class="ghost-btn disconnect-all" id="disconnectAll" data-i18n="pf.disconnectAll" hidden>فصل كل الحسابات</button>
+      <button type="button" class="ghost-btn disconnect-all" id="disconnectAll" data-i18n="pf.disconnectAll" hidden>فصل جميع الحسابات</button>
       <div class="pf-pilot">
-        <span data-i18n="pf.pilot">تجربة مغلقة: Meta وGoogle Ads بيشتغلوا بعد ما نضيفك للتجربة. Snapchat متاح لأي حد.</span>
+        <span data-i18n="pf.pilot">الأداة في مرحلة تجربة مغلقة. إن لم يُفعَّل حسابك بعد، فاطلب الانضمام أولاً.</span>
         <div class="pf-pilot-links">
-          <a href="mailto:walid.elazab20@gmail.com" data-join data-i18n="join.cta">اطلب انضمامك للتجربة</a>
+          <a href="mailto:walid.elazab20@gmail.com" data-join data-i18n="join.cta">اطلب الانضمام إلى التجربة</a>
           <a href="/help" data-i18n="help.steps">خطوات الربط</a>
         </div>
       </div>
@@ -770,7 +770,7 @@
 
 <div id="expandOverlay" class="expand-overlay hidden">
   <div class="expand-card" role="dialog" aria-modal="true" aria-labelledby="expandTitle">
-    <button class="expand-close" id="expandClose" aria-label="close" data-i18n-aria="btn.close">✕</button>
+    <button class="expand-close" id="expandClose" aria-label="إغلاق" data-i18n-aria="btn.close">✕</button>
     <div class="expand-preview" id="expandPreview"></div>
     <div class="expand-body">
       <div id="expandHealth"></div>
@@ -785,7 +785,7 @@
       <div class="chart-section-label" data-i18n="x.dailyTitle">الإنفاق اليومي — آخر ٧ أيام</div>
       <div class="chart-legend">
         <span class="legend-item"><span class="legend-dot legend-spend"></span><span data-i18n="x.spendLegend">الإنفاق</span></span>
-        <span class="legend-item"><span class="legend-dot legend-sales"></span><span id="legendSalesLabel">مبيعات (تقديرية)</span></span>
+        <span class="legend-item"><span class="legend-dot legend-sales"></span><span id="legendSalesLabel">المبيعات</span></span>
       </div>
       <div class="daily-chart" id="expandChart"></div>
     </div>
@@ -794,15 +794,15 @@
 
 <div id="settingsOverlay" class="expand-overlay hidden">
   <div class="expand-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-    <button class="expand-close" id="settingsClose" aria-label="close" data-i18n-aria="btn.close">✕</button>
+    <button class="expand-close" id="settingsClose" aria-label="إغلاق" data-i18n-aria="btn.close">✕</button>
     <div class="expand-body" style="padding-top:24px;">
       <div class="expand-title" id="settingsTitle" data-i18n="settings.title">إعدادات التنبيهات</div>
-      <div class="expand-sub" data-i18n="settings.sub">القيم الافتراضية محسوبة نسبةً لأداء حسابك نفسه، فتناسب أي حجم ميزانية. عدّلها لو عندك أهداف مختلفة — بتتحفظ على المتصفح ده.</div>
+      <div class="expand-sub" data-i18n="settings.sub">القيم الافتراضية محسوبة وفق أداء حسابك نفسه، فتناسب أي حجم ميزانية. عدّلها إن كانت لديك أهداف مختلفة، وستُحفظ على هذا المتصفح.</div>
       <div id="settingsForm"></div>
       <div class="settings-error" id="settingsError" role="alert"></div>
       <div class="settings-actions">
         <button type="button" class="stop-btn" id="settingsSave" data-i18n="settings.save">حفظ</button>
-        <button type="button" class="ghost-btn" id="settingsReset" data-i18n="settings.reset">رجوع للقيم الافتراضية</button>
+        <button type="button" class="ghost-btn" id="settingsReset" data-i18n="settings.reset">استعادة القيم الافتراضية</button>
       </div>
     </div>
   </div>

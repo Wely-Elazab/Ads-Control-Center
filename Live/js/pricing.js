@@ -99,9 +99,9 @@
     $('planWas').textContent = d ? money(price, cur) : '';
     $('planUnit').textContent = isAr() ? '/ شهرياً' : '/ month';
     $('planNote').textContent = yearly
-      ? (isAr() ? 'بيتدفع ' + money(d ? p.yearlyTotalAfter : p.yearlyTotal, cur) + ' مرة واحدة في السنة.'
+      ? (isAr() ? 'يُدفع ' + money(d ? p.yearlyTotalAfter : p.yearlyTotal, cur) + ' مرة واحدة سنوياً.'
                 : 'Billed ' + money(d ? p.yearlyTotalAfter : p.yearlyTotal, cur) + ' once a year.')
-      : (isAr() ? 'بيتدفع كل شهر.' : 'Billed every month.');
+      : (isAr() ? 'يُدفع شهرياً.' : 'Billed every month.');
     Array.prototype.forEach.call(document.querySelectorAll('[data-saving]'), function (el) { el.textContent = digits(p.savingPct); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-trial-days]'), function (el) { el.textContent = digits(PRICING.trialDays); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-guarantee-days]'), function (el) { el.textContent = digits(PRICING.guaranteeDays); });
@@ -132,10 +132,10 @@
     var subject = isAr() ? 'طلب تجربة مجانية — الاشتراك ' + planName : 'Free trial request — ' + planName + ' plan';
     var code = state.discount ? state.discount.code : ($('discountInput').value || '').trim();
     var head = isAr()
-      ? 'الخطة: ' + planName + ' — ' + money(d ? after : price, cur) + ' / شهرياً' + (code ? '\nكود الخصم: ' + code : '') + '\n\n'
+      ? 'الخطة: ' + planName + ' — ' + money(d ? after : price, cur) + ' / شهرياً' + (code ? '\nرمز الخصم: ' + code : '') + '\n\n'
       : 'Plan: ' + planName + ' — ' + money(d ? after : price, cur) + ' / month' + (code ? '\nDiscount code: ' + code : '') + '\n\n';
     var body = head + (isAr()
-      ? 'الاسم:\nاسم النشاط:\nالبلد:\nالمنصات اللي بتعلن عليها (Meta / Google / Snapchat / TikTok):\nإيميل Google اللي عليه حساب Google Ads (لو هتربط Google):\nرابط حسابك على فيسبوك (لو هتربط Meta):\nرقم واتساب للتواصل:\n'
+      ? 'الاسم:\nاسم النشاط:\nالبلد:\nالمنصات التي تعلن عليها (Meta / Google / Snapchat / TikTok):\nبريد Google المرتبط بحساب Google Ads (لربط Google):\nرابط حسابك على فيسبوك (لربط Meta):\nرقم واتساب للتواصل:\n'
       : 'Name:\nBusiness name:\nCountry:\nPlatforms you advertise on (Meta / Google / Snapchat / TikTok):\nGoogle email with your Google Ads account (if connecting Google):\nYour Facebook profile link (if connecting Meta):\nWhatsApp number:\n');
     var href = 'mailto:' + PRICING.contactEmail + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
     Array.prototype.forEach.call(document.querySelectorAll('[data-trial-cta]'), function (a) { a.setAttribute('href', href); });
@@ -143,11 +143,11 @@
 
   // رسالة الكود بتتحفظ كنوع مش كنص — عشان لو اللغة اتغيرت تتكتب باللغة الجديدة
   var MSGS = {
-    checking: { ar: 'جارٍ التأكد من الكود…', en: 'Checking the code…' },
-    ok: { ar: '✓ خصم {pct}٪ اتطبّق على السعر', en: '✓ {pct}% discount applied' },
-    expired: { ar: 'الكود ده انتهت صلاحيته.', en: 'This code has expired.' },
-    invalid: { ar: 'الكود ده مش صحيح.', en: 'This code isn\'t valid.' },
-    offline: { ar: 'مقدرناش نتأكد من الكود دلوقتي — هيتبعت مع طلبك ونطبّقه عند الدفع.', en: 'We couldn\'t check the code right now — it will be sent with your request and applied at payment.' }
+    checking: { ar: 'جارٍ التحقق من الرمز…', en: 'Checking the code…' },
+    ok: { ar: '✓ طُبّق خصم {pct}٪ على السعر', en: '✓ {pct}% discount applied' },
+    expired: { ar: 'انتهت صلاحية هذا الرمز.', en: 'This code has expired.' },
+    invalid: { ar: 'هذا الرمز غير صحيح.', en: 'This code isn\'t valid.' },
+    offline: { ar: 'تعذّر التحقق من الرمز الآن — سيُرسل مع طلبك ونطبّقه عند الدفع.', en: 'We couldn\'t check the code right now — it will be sent with your request and applied at payment.' }
   };
   var msgState = null;
   function setDiscountMsg(key) { msgState = key || null; renderMsg(); }

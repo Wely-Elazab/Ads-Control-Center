@@ -17,7 +17,7 @@ export default async function handler(req, res) {
 
   const { accessToken, action, adAccountId, clientTz, period } = req.body || {};
   if (!accessToken || !action) {
-    res.status(400).json({ error: 'accessToken و action مطلوبين في جسم الطلب.', code: 'BAD_REQUEST' });
+    res.status(400).json({ error: 'الحقلان accessToken وaction مطلوبان في جسم الطلب.', code: 'BAD_REQUEST' });
     return;
   }
 
@@ -37,7 +37,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'ads') {
-      if (!adAccountId) { res.status(400).json({ error: 'adAccountId مطلوب لجلب الإعلانات.', code: 'BAD_REQUEST' }); return; }
+      if (!adAccountId) { res.status(400).json({ error: 'الحقل adAccountId مطلوب لجلب الإعلانات.', code: 'BAD_REQUEST' }); return; }
       const accountPath = SNAP_API + '/adaccounts/' + encodeURIComponent(adAccountId);
 
       // كل الإعلانات مع التصفّح (الافتراضي كان صفحة واحدة بس)
@@ -158,7 +158,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    res.status(400).json({ error: 'action غير معروف — استخدم accounts أو ads.', code: 'BAD_REQUEST' });
+    res.status(400).json({ error: 'قيمة action غير معروفة — استخدم accounts أو ads.', code: 'BAD_REQUEST' });
   } catch (err) {
     res.status(500).json({ error: String(err && err.message ? err.message : err) });
   }

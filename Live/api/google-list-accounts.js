@@ -23,7 +23,7 @@ export default async function handler(req, res) {
 
   const { accessToken } = req.body || {};
   if (!accessToken) {
-    res.status(400).json({ error: 'accessToken مطلوب في جسم الطلب.', code: 'BAD_REQUEST' });
+    res.status(400).json({ error: 'الحقل accessToken مطلوب في جسم الطلب.', code: 'BAD_REQUEST' });
     return;
   }
 

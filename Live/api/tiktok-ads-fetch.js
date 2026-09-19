@@ -34,7 +34,7 @@ export default async function handler(req, res) {
 
   const { accessToken, advertiserId, clientTz, period } = req.body || {};
   if (!accessToken || !advertiserId) {
-    res.status(400).json({ error: 'accessToken و advertiserId مطلوبين في جسم الطلب.' });
+    res.status(400).json({ error: 'الحقلان accessToken وadvertiserId مطلوبان في جسم الطلب.' });
     return;
   }
 

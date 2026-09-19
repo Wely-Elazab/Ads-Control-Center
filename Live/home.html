@@ -1,18 +1,19 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl" data-title-ar="Ads Control Center — كل إعلاناتك في شاشة واحدة" data-title-en="Ads Control Center — All your ads on one screen">
+<html lang="ar" dir="rtl" data-title-ar="Ads Control Center — احمِ ميزانيتك الإعلانية" data-title-en="Ads Control Center — Protect your ad budget">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
-<title>Ads Control Center — كل إعلاناتك في شاشة واحدة</title>
+<title>Ads Control Center — احمِ ميزانيتك الإعلانية</title>
 <!-- الصفحة الرئيسية — مؤقتاً على /home والأداة على /.
      عند نقل الدومين: الصفحة دي تنتقل لـ / والأداة لـ /app (vercel.json)، و/home يتحوّل لـ /،
-     وروابط الرجوع المسجّلة في Snapchat وTikTok تتحدّث للمسار الجديد -->
-<meta name="description" content="Ads Control Center بيقرا إعلاناتك على Meta وGoogle Ads وSnapchat، ويقيّم كل إعلان، وينبّهك باللي بيهدر ميزانيتك — للقراءة فقط، ومن غير ما يغيّر أي حاجة في حساباتك.">
+     وروابط الرجوع المسجّلة في Snapchat وTikTok تتحدّث للمسار الجديد.
+     النص العربي فصحى، ونبرته تسويقية من غير أرقام أو شهادات عملاء مخترعة -->
+<meta name="description" content="يجمع Ads Control Center إعلاناتك على Meta وGoogle Ads وSnapchat في لوحة واحدة، ويقيّم أداء كل إعلان، وينبّهك إلى ما يستنزف ميزانيتك وإلى فرص النمو — دون أن يغيّر أي شيء في حساباتك.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Ads Control Center">
-<meta property="og:title" content="Ads Control Center — كل إعلاناتك في شاشة واحدة">
-<meta property="og:description" content="إعلاناتك على Meta وGoogle Ads وSnapchat في شاشة واحدة، مع تقييم لكل إعلان وتنبيهات واضحة باللي بيهدر ميزانيتك. للقراءة فقط.">
+<meta property="og:title" content="Ads Control Center — احمِ ميزانيتك الإعلانية">
+<meta property="og:description" content="اكتشف ما يستنزف ميزانيتك الإعلانية قبل أن يكلّفك أكثر: إعلاناتك على Meta وGoogle Ads وSnapchat في لوحة واحدة، مع تقييم لكل إعلان وتنبيهات واضحة.">
 <meta name="twitter:card" content="summary">
 <script src="/js/theme.js"></script>
 <script src="/js/legal.js"></script>
@@ -28,14 +29,14 @@
   <div class="site-bar-inner">
     <a class="site-brand" href="/home">Ads Control Center</a>
     <nav class="site-nav">
-      <a href="#features"><span class="only-ar">المميزات</span><span class="only-en">Features</span></a>
-      <a href="#how"><span class="only-ar">إزاي بتشتغل</span><span class="only-en">How it works</span></a>
+      <a href="#features"><span class="only-ar">المزايا</span><span class="only-en">Features</span></a>
+      <a href="#how"><span class="only-ar">كيف تعمل</span><span class="only-en">How it works</span></a>
       <a href="#data"><span class="only-ar">بياناتك</span><span class="only-en">Your data</span></a>
-      <a href="#faq"><span class="only-ar">أسئلة</span><span class="only-en">FAQ</span></a>
-      <a href="/help"><span class="only-ar">دليل البداية</span><span class="only-en">Getting started</span></a>
+      <a href="#faq"><span class="only-ar">الأسئلة</span><span class="only-en">FAQ</span></a>
+      <a href="/help"><span class="only-ar">دليل البدء</span><span class="only-en">Getting started</span></a>
     </nav>
     <div class="site-bar-end">
-      <a class="btn btn-ghost btn-sm" href="/"><span class="only-ar">افتح الأداة</span><span class="only-en">Open the tool</span></a>
+      <a class="btn btn-ghost btn-sm" href="/"><span class="only-ar">دخول الأداة</span><span class="only-en">Open the tool</span></a>
       <button type="button" class="legal-lang" id="legalLang">English</button>
     </div>
   </div>
@@ -46,21 +47,21 @@
   <!-- ================= البداية ================= -->
   <section class="section home-hero">
     <div>
-      <span class="badge"><span aria-hidden="true">🔒</span><span class="only-ar">تجربة مغلقة — أماكن محدودة</span><span class="only-en">Closed pilot — limited spots</span></span>
+      <span class="badge"><span aria-hidden="true">🔒</span><span class="only-ar">تجربة مغلقة — عدد الأماكن محدود</span><span class="only-en">Closed pilot — limited spots</span></span>
       <h1>
-        <span class="only-ar">كل إعلاناتك في شاشة واحدة، وتنبيه واضح باللي بيهدر ميزانيتك</span>
-        <span class="only-en">All your ads on one screen — with clear alerts on what's wasting your budget</span>
+        <span class="only-ar">اكتشف ما يستنزف ميزانيتك الإعلانية قبل أن يكلّفك أكثر</span>
+        <span class="only-en">Catch what's draining your ad budget before it costs you more</span>
       </h1>
       <p class="lead">
-        <span class="only-ar">Ads Control Center بيقرا إعلاناتك على Meta وGoogle Ads وSnapchat، ويقيّم كل إعلان، ويقولك بلغة بسيطة إيه اللي شغّال وإيه اللي محتاج تدخّل — من غير ما يغيّر أي حاجة في حساباتك.</span>
-        <span class="only-en">Ads Control Center reads your ads on Meta, Google Ads and Snapchat, rates every ad, and tells you in plain language what's working and what needs attention — without changing anything in your accounts.</span>
+        <span class="only-ar">يراقب Ads Control Center إعلاناتك على Meta وGoogle Ads وSnapchat في لوحة واحدة، ويقيّم أداء كل إعلان، وينبّهك بلغة واضحة إلى الإنفاق المهدَر والإعلانات المتعثّرة وفرص النمو — لتتخذ القرار الصحيح في دقائق، لا في ساعات.</span>
+        <span class="only-en">Ads Control Center watches your Meta, Google Ads and Snapchat ads in one dashboard, scores every ad, and alerts you in plain language to wasted spend, struggling ads and growth opportunities — so you make the right call in minutes, not hours.</span>
       </p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="mailto:walid.elazab20@gmail.com" data-join><span class="only-ar">اطلب انضمامك للتجربة</span><span class="only-en">Request to join the pilot</span></a>
-        <a class="btn btn-ghost" href="/"><span class="only-ar">افتح الأداة</span><span class="only-en">Open the tool</span></a>
+        <a class="btn btn-primary" href="mailto:walid.elazab20@gmail.com" data-join><span class="only-ar">اطلب الانضمام إلى التجربة</span><span class="only-en">Request to join the pilot</span></a>
+        <a class="btn btn-ghost" href="/"><span class="only-ar">دخول الأداة</span><span class="only-en">Open the tool</span></a>
       </div>
       <p class="cta-note">
-        <span class="only-ar">منضم للتجربة قبل كده؟ افتح الأداة وسجّل دخولك على طول.</span>
+        <span class="only-ar">انضممت إلى التجربة بالفعل؟ ادخل إلى الأداة وسجّل الدخول مباشرة.</span>
         <span class="only-en">Already in the pilot? Open the tool and log in.</span>
       </p>
       <div class="platforms">
@@ -72,16 +73,16 @@
     </div>
 
     <!-- رسم توضيحي لشكل الأداة — أرقام وأسماء مثال، ومكتوب عليه «مثال» -->
-    <div class="mock only-ar" role="img" aria-label="مثال لشكل الأرقام والتنبيهات جوه الأداة">
+    <div class="mock only-ar" role="img" aria-label="مثال لشكل الأرقام والتنبيهات داخل الأداة">
       <div class="mock-head"><span>أهم التنبيهات</span><span class="mock-tag">مثال</span></div>
       <div class="mock-kpis">
         <div class="mock-kpi"><small>الإنفاق — ٧ أيام</small><b>٤٨٬٢٠٠ ج.م</b></div>
         <div class="mock-kpi risk"><small>معرّض للهدر</small><b>٣٬٤٥٠ ج.م</b></div>
-        <div class="mock-kpi"><small>تحتاج مراجعة</small><b>٣ إعلانات</b></div>
+        <div class="mock-kpi"><small>تحتاج إلى مراجعة</small><b>٣ إعلانات</b></div>
       </div>
-      <div class="mock-alert lv-critical"><span class="mock-level">عاجل</span><div><b>صرف بدون نتائج</b><small>إعلان «عرض الصيف» · Meta</small></div></div>
-      <div class="mock-alert lv-warning"><span class="mock-level">مهم</span><div><b>الجمهور زهق من الإعلان</b><small>إعلان «فيديو المنتج» · Meta</small></div></div>
-      <div class="mock-alert lv-opportunity"><span class="mock-level">فرصة</span><div><b>فرصة لزيادة الاستثمار</b><small>إعلان «كلمات الماركة» · Google Ads</small></div></div>
+      <div class="mock-alert lv-critical"><span class="mock-level">عاجل</span><div><b>إنفاق دون نتائج</b><small>إعلان «عرض الصيف» · Meta</small></div></div>
+      <div class="mock-alert lv-warning"><span class="mock-level">مهم</span><div><b>تشبّع الجمهور من الإعلان</b><small>إعلان «فيديو المنتج» · Meta</small></div></div>
+      <div class="mock-alert lv-opportunity"><span class="mock-level">فرصة</span><div><b>فرصة لزيادة الاستثمار</b><small>إعلان «كلمات العلامة التجارية» · Google Ads</small></div></div>
     </div>
     <div class="mock only-en" role="img" aria-label="An example of the figures and alerts inside the tool">
       <div class="mock-head"><span>Top alerts</span><span class="mock-tag">Example</span></div>
@@ -96,155 +97,157 @@
     </div>
   </section>
 
-  <!-- ================= المميزات ================= -->
+  <!-- ================= المشكلة ================= -->
+  <section class="section" id="problem">
+    <div class="section-head">
+      <h2><span class="only-ar">هل تعرف أين تذهب ميزانيتك الإعلانية كل يوم؟</span><span class="only-en">Do you know where your ad budget goes every day?</span></h2>
+      <p class="section-lead">
+        <span class="only-ar">معظم الهدر في الإعلانات لا يظهر في لوحات المنصات إلا بعد فوات الأوان:</span>
+        <span class="only-en">Most ad waste doesn't show up in platform dashboards until it's too late:</span>
+      </p>
+    </div>
+    <div class="grid">
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">💸</span>
+        <h3><span class="only-ar">إنفاق يستمر دون نتائج</span><span class="only-en">Spend that keeps going with no results</span></h3>
+        <p><span class="only-ar">إعلان يستهلك الميزانية يوماً بعد يوم دون أن يحقق عملية شراء أو رسالة واحدة.</span><span class="only-en">An ad that eats budget day after day without a single purchase or message.</span></p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">⏸️</span>
+        <h3><span class="only-ar">إعلان ناجح يتوقف بصمت</span><span class="only-en">A winning ad that stops silently</span></h3>
+        <p><span class="only-ar">رفضٌ من المنصة، أو مشكلة في الدفع، أو ميزانية نفدت — فتضيع مبيعات لا يلاحظها أحد.</span><span class="only-en">A rejection, a payment issue or an exhausted budget — and sales slip away without anyone noticing.</span></p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">🧩</span>
+        <h3><span class="only-ar">أرقام موزّعة بين لوحات كثيرة</span><span class="only-en">Numbers scattered across dashboards</span></h3>
+        <p><span class="only-ar">لكل منصة لوحتها ومصطلحاتها، فتصعب المقارنة ويتأخر القرار.</span><span class="only-en">Every platform has its own dashboard and jargon, so comparing is hard and decisions come late.</span></p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ================= المزايا ================= -->
   <section class="section" id="features">
     <div class="section-head">
-      <h2><span class="only-ar">إيه اللي هتلاقيه</span><span class="only-en">What you get</span></h2>
+      <h2><span class="only-ar">كل ما تحتاجه لحماية ميزانيتك وتنميتها</span><span class="only-en">Everything you need to protect and grow your budget</span></h2>
       <p class="section-lead">
-        <span class="only-ar">معمولة لأصحاب البزنس ومديري التسويق اللي عايزين يطمنوا على فلوس الإعلانات، من غير ما يغرقوا في لوحات كل منصة.</span>
-        <span class="only-en">Built for business owners and marketing managers who want peace of mind about their ad money — without digging through every platform's dashboard.</span>
+        <span class="only-ar">صُمّم Ads Control Center لأصحاب الأعمال ومديري التسويق الذين يريدون الاطمئنان على كل مبلغ يُنفَق على الإعلانات، دون التنقّل بين لوحات المنصات المعقّدة.</span>
+        <span class="only-en">Built for business owners and marketing managers who want confidence in every amount spent on ads — without hopping between complex platform dashboards.</span>
       </p>
     </div>
     <div class="grid">
       <article class="card">
         <span class="card-icon" aria-hidden="true">🧭</span>
-        <h3><span class="only-ar">كل المنصات في شاشة واحدة</span><span class="only-en">Every platform on one screen</span></h3>
-        <p><span class="only-ar">إعلاناتك على Meta وGoogle Ads وSnapchat مع بعض، بأرقام جاية من كل منصة مباشرةً — وتشوفها بالإعلانات أو بالحملات.</span><span class="only-en">Your Meta, Google Ads and Snapchat ads together, with numbers straight from each platform — by ad or by campaign.</span></p>
+        <h3><span class="only-ar">جميع منصاتك في لوحة واحدة</span><span class="only-en">All your platforms in one dashboard</span></h3>
+        <p><span class="only-ar">إعلاناتك على Meta وGoogle Ads وSnapchat جنباً إلى جنب، بأرقام مأخوذة مباشرة من كل منصة، ويمكنك عرضها حسب الإعلان أو الحملة.</span><span class="only-en">Your Meta, Google Ads and Snapchat ads side by side, with numbers straight from each platform — by ad or by campaign.</span></p>
       </article>
       <article class="card">
         <span class="card-icon" aria-hidden="true">🔔</span>
-        <h3><span class="only-ar">تنبيهات بلغة البزنس</span><span class="only-en">Alerts in business language</span></h3>
-        <p><span class="only-ar">صرف بدون نتائج، إعلان بيخسر، إعلان كان شغّال ووقف فجأة، ميزانية خلصت، جمهور زهق من الإعلان — وفرص لزيادة الاستثمار.</span><span class="only-en">Spend without results, ads losing money, ads that suddenly stopped, budgets that ran out, audience fatigue — and opportunities to invest more.</span></p>
+        <h3><span class="only-ar">تنبيهات بلغة الأعمال، لا بلغة التقنيين</span><span class="only-en">Alerts in business language, not jargon</span></h3>
+        <p><span class="only-ar">إنفاق دون نتائج، إعلان خاسر، إعلان ناجح توقف فجأة، ميزانية نفدت، جمهور تشبّع من الإعلان — مع توصية واضحة بالخطوة التالية.</span><span class="only-en">Spend without results, losing ads, winning ads that suddenly stopped, exhausted budgets, audience fatigue — each with a clear next step.</span></p>
       </article>
       <article class="card">
         <span class="card-icon" aria-hidden="true">🚦</span>
-        <h3><span class="only-ar">تقييم لكل إعلان</span><span class="only-en">A rating for every ad</span></h3>
-        <p><span class="only-ar">يحتاج مراجعة، يحتاج تحسين، أو جيد — عشان تعرف تبدأ منين في ثواني.</span><span class="only-en">Needs review, needs improvement, or good — so you know where to start in seconds.</span></p>
+        <h3><span class="only-ar">أولوياتك واضحة من النظرة الأولى</span><span class="only-en">Priorities clear at a glance</span></h3>
+        <p><span class="only-ar">يُقيَّم كل إعلان: يحتاج إلى مراجعة، أو يحتاج إلى تحسين، أو جيد — فتعرف من أين تبدأ خلال ثوانٍ.</span><span class="only-en">Every ad is rated — needs review, needs improvement, or good — so you know where to start in seconds.</span></p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">📈</span>
+        <h3><span class="only-ar">فرص النمو لا تفوتك</span><span class="only-en">Never miss a growth opportunity</span></h3>
+        <p><span class="only-ar">نرصد الإعلانات التي تحقق نتائج بتكلفة أقل من متوسط حسابك، لتعرف أين تزيد استثمارك بثقة.</span><span class="only-en">We spot the ads delivering results below your account's average cost, so you know where to invest more with confidence.</span></p>
       </article>
       <article class="card">
         <span class="card-icon" aria-hidden="true">💰</span>
-        <h3><span class="only-ar">تكلفة النتيجة والعائد</span><span class="only-en">Cost per result and return</span></h3>
-        <p><span class="only-ar">تكلفة النتيجة والعائد على الإنفاق (ROAS) لكل إعلان وحملة، للفترة اللي تختارها.</span><span class="only-en">Cost per result and return on ad spend (ROAS) for every ad and campaign, for the period you pick.</span></p>
+        <h3><span class="only-ar">العائد الحقيقي لكل إعلان</span><span class="only-en">The real return of every ad</span></h3>
+        <p><span class="only-ar">تكلفة النتيجة والعائد على الإنفاق الإعلاني (ROAS) لكل إعلان وحملة، للفترة التي تختارها.</span><span class="only-en">Cost per result and return on ad spend (ROAS) for every ad and campaign, for the period you choose.</span></p>
       </article>
       <article class="card">
         <span class="card-icon" aria-hidden="true">🎚️</span>
-        <h3><span class="only-ar">تنبيهات على مقاس حسابك</span><span class="only-en">Alerts that fit your account</span></h3>
-        <p><span class="only-ar">اختار الحساسية: هادي، متوازن، أو صارم. والحدود محسوبة من أداء حسابك نفسه، فبتناسب أي ميزانية.</span><span class="only-en">Choose the sensitivity: calm, balanced or strict. Thresholds are based on your own account's performance, so they fit any budget.</span></p>
-      </article>
-      <article class="card">
-        <span class="card-icon" aria-hidden="true">🌐</span>
-        <h3><span class="only-ar">عربي وإنجليزي</span><span class="only-en">Arabic and English</span></h3>
-        <p><span class="only-ar">الواجهة والتنبيهات بالعربي أو بالإنجليزي، وتبدّل بينهم في أي وقت.</span><span class="only-en">The interface and alerts in Arabic or English — switch any time.</span></p>
+        <h3><span class="only-ar">تنبيهات مضبوطة على حجم نشاطك</span><span class="only-en">Alerts tuned to your business</span></h3>
+        <p><span class="only-ar">الحدود محسوبة من أداء حسابك نفسه فتناسب أي ميزانية، ويمكنك اختيار الحساسية: هادئ أو متوازن أو صارم.</span><span class="only-en">Thresholds are based on your own account's performance, so they fit any budget — and you choose the sensitivity: calm, balanced or strict.</span></p>
       </article>
     </div>
   </section>
 
-  <!-- ================= إزاي بتشتغل ================= -->
+  <!-- ================= كيف تعمل ================= -->
   <section class="section" id="how">
     <div class="section-head">
-      <h2><span class="only-ar">إزاي بتشتغل</span><span class="only-en">How it works</span></h2>
+      <h2><span class="only-ar">ابدأ في ثلاث خطوات</span><span class="only-en">Get started in three steps</span></h2>
     </div>
     <ol class="grid steps">
       <li class="card">
-        <h3><span class="only-ar">اطلب انضمامك</span><span class="only-en">Request to join</span></h3>
-        <p><span class="only-ar">ابعتلنا بياناتك، وهنضيفك على المنصات اللي بتعلن عليها ونبلّغك أول ما تجهز.</span><span class="only-en">Send us your details. We'll add you on the platforms you advertise on and let you know when you're ready.</span></p>
+        <h3><span class="only-ar">اطلب الانضمام</span><span class="only-en">Request to join</span></h3>
+        <p><span class="only-ar">أرسل إلينا بياناتك، وسنفعّل حسابك في التجربة ونرسل إليك خطوات الربط.</span><span class="only-en">Send us your details, and we'll activate your pilot access and send you the connection steps.</span></p>
       </li>
       <li class="card">
-        <h3><span class="only-ar">اربط حساباتك</span><span class="only-en">Connect your accounts</span></h3>
-        <p><span class="only-ar">سجّل دخولك بحساب Meta أو Google أو Snapchat، ووافق على صلاحية قراءة الإعلانات. الخطوات بالتفصيل في <a href="/help">دليل البداية</a>.</span><span class="only-en">Log in with Meta, Google or Snapchat and approve read access to your ads. Step-by-step details are in the <a href="/help">getting-started guide</a>.</span></p>
+        <h3><span class="only-ar">اربط حساباتك في دقائق</span><span class="only-en">Connect your accounts in minutes</span></h3>
+        <p><span class="only-ar">سجّل الدخول بحسابك على Meta أو Google أو Snapchat، ووافق على صلاحية قراءة الإعلانات. الخطوات مشروحة بالتفصيل في <a href="/help">دليل البدء</a>.</span><span class="only-en">Log in with Meta, Google or Snapchat and approve read access to your ads. Every step is explained in the <a href="/help">getting-started guide</a>.</span></p>
       </li>
       <li class="card">
-        <h3><span class="only-ar">تابع وقرّر</span><span class="only-en">Follow up and decide</span></h3>
-        <p><span class="only-ar">شوف التقييم والتنبيهات، وقرّر إنت ومسؤول الإعلانات إيه اللي يتعمل. الأداة مبتنفّذش أي حاجة لوحدها.</span><span class="only-en">See the ratings and alerts, and decide with your ads manager what to do. The tool never takes action on its own.</span></p>
+        <h3><span class="only-ar">تابع وقرّر بثقة</span><span class="only-en">Follow up and decide with confidence</span></h3>
+        <p><span class="only-ar">راجع التقييمات والتنبيهات، وقرّر مع مسؤول إعلاناتك ما يجب فعله. لا تنفّذ الأداة أي إجراء من تلقاء نفسها.</span><span class="only-en">Review the ratings and alerts, and decide with your ads manager what to do. The tool never takes action on its own.</span></p>
       </li>
     </ol>
   </section>
 
-  <!-- ================= البيانات والصلاحيات =================
-       Google بتطلب إن الصفحة الرئيسية توضّح ليه التطبيق بيطلب بيانات المستخدم — القسم ده هو التوضيح،
-       ولازم يفضل مطابق لسياسة الخصوصية -->
+  <!-- ================= البيانات =================
+       Google بتطلب إن الصفحة الرئيسية توضّح ليه التطبيق بيطلب بيانات المستخدم — الفقرة الأخيرة هنا هي التوضيح،
+       وجدول الصلاحيات بالتفصيل في سياسة الخصوصية. لازم يفضلوا متطابقين -->
   <section class="section" id="data">
     <div class="section-head">
       <h2><span class="only-ar">بياناتك في أمان</span><span class="only-en">Your data stays safe</span></h2>
-      <p class="section-lead"><span class="only-ar">الأداة معمولة إنها تقرا بس — وده اللي بنعمله وده اللي مبنعملوش:</span><span class="only-en">The tool is built to read only — here's what we do and don't do:</span></p>
+      <p class="section-lead"><span class="only-ar">صُمّمت الأداة للقراءة فقط، ونلتزم بما يلي:</span><span class="only-en">The tool is built to read only, and we commit to the following:</span></p>
     </div>
     <ul class="trust">
-      <li><span class="trust-icon" aria-hidden="true">🔒</span><span><span class="only-ar"><strong>للقراءة فقط:</strong> الأداة مبتنشئش إعلانات ولا بتعدّلها ولا بتوقفها، ومبتغيّرش أي إعداد في حساباتك.</span><span class="only-en"><strong>Read-only:</strong> the tool doesn't create, edit or pause ads, and doesn't change any setting in your accounts.</span></span></li>
-      <li><span class="trust-icon" aria-hidden="true">🗄️</span><span><span class="only-ar"><strong>مبنخزّنش بياناتك:</strong> لا بيانات إعلاناتك ولا مفاتيح الدخول بتتحفظ على سيرفراتنا. مفاتيح الدخول بتفضل في تاب المتصفح، وبتتمسح لما تقفله.</span><span class="only-en"><strong>We don't store your data:</strong> neither your ad data nor your access keys are kept on our servers. Access keys stay in your browser tab and are deleted when you close it.</span></span></li>
-      <li><span class="trust-icon" aria-hidden="true">🚫</span><span><span class="only-ar"><strong>مبنبيعش ومبنتتبّعش:</strong> مبنبيعش بياناتك ومبنستخدمهاش في إعلانات، ومفيش أدوات تتبّع للزوار.</span><span class="only-en"><strong>No selling, no tracking:</strong> we don't sell your data or use it for advertising, and there are no visitor trackers.</span></span></li>
+      <li><span class="trust-icon" aria-hidden="true">🔒</span><span><span class="only-ar"><strong>للقراءة فقط:</strong> لا تنشئ الأداة إعلانات ولا تعدّلها ولا توقفها، ولا تغيّر أي إعداد في حساباتك.</span><span class="only-en"><strong>Read-only:</strong> the tool doesn't create, edit or pause ads, and doesn't change any setting in your accounts.</span></span></li>
+      <li><span class="trust-icon" aria-hidden="true">🗄️</span><span><span class="only-ar"><strong>لا نخزّن بياناتك:</strong> لا تُحفظ بيانات إعلاناتك ولا مفاتيح الدخول على خوادمنا؛ إذ تبقى مفاتيح الدخول في نافذة المتصفح وتُحذف عند إغلاقها.</span><span class="only-en"><strong>We don't store your data:</strong> neither your ad data nor your access keys are kept on our servers. Access keys stay in your browser tab and are deleted when you close it.</span></span></li>
+      <li><span class="trust-icon" aria-hidden="true">🚫</span><span><span class="only-ar"><strong>لا بيع ولا تتبّع:</strong> لا نبيع بياناتك ولا نستخدمها في الإعلانات، ولا نستخدم أي أدوات لتتبّع الزوار.</span><span class="only-en"><strong>No selling, no tracking:</strong> we don't sell your data or use it for advertising, and there are no visitor trackers.</span></span></li>
     </ul>
-
-    <h3><span class="only-ar">الصلاحيات اللي بنطلبها وليه</span><span class="only-en">The permissions we ask for, and why</span></h3>
-    <div class="table-wrap">
-      <table class="perm">
-        <thead>
-          <tr>
-            <th><span class="only-ar">المنصة</span><span class="only-en">Platform</span></th>
-            <th><span class="only-ar">الصلاحية</span><span class="only-en">Permission</span></th>
-            <th><span class="only-ar">بنستخدمها في</span><span class="only-en">What we use it for</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Meta</td>
-            <td><code>ads_read</code></td>
-            <td><span class="only-ar">قراءة حساباتك الإعلانية وحملاتك وإعلاناتك وأرقام أدائها، عشان نعرضها ونقيّمها وننبّهك.</span><span class="only-en">Reading your ad accounts, campaigns, ads and their performance, to show them, rate them and alert you.</span></td>
-          </tr>
-          <tr>
-            <td>Google Ads</td>
-            <td><code>adwords</code></td>
-            <td><span class="only-ar">نفس الغرض. Google مبتوفّرش صلاحية «قراءة فقط» لـ Google Ads، فبتطلب الصلاحية الوحيدة المتاحة — والأداة بتستخدمها في القراءة بس، ومبتبعتش أي طلب تعديل.</span><span class="only-en">The same purpose. Google doesn't offer a read-only permission for Google Ads, so it asks for the only one available — the tool uses it for reading only and never sends a change request.</span></td>
-          </tr>
-          <tr>
-            <td>Snapchat</td>
-            <td><code>snapchat-marketing-api</code></td>
-            <td><span class="only-ar">نفس الغرض — ودي الصلاحية الوحيدة اللي Snapchat بيوفّرها للإعلانات، وبنستخدمها في القراءة بس.</span><span class="only-en">The same purpose — it's the only permission Snapchat offers for ads, and we use it for reading only.</span></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
     <p class="fine">
-      <span class="only-ar">استخدامنا للبيانات اللي بتوصلنا من Google بيلتزم بـ<a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">سياسة بيانات مستخدمي Google API</a>، بما فيها متطلبات الاستخدام المحدود (Limited Use). التفاصيل كاملة في <a href="/privacy">سياسة الخصوصية</a>، وتقدر تلغي صلاحية الأداة في أي وقت بالخطوات اللي في <a href="/data-deletion">حذف البيانات</a>.</span>
-      <span class="only-en">Our use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. Full details are in the <a href="/privacy">privacy policy</a>, and you can revoke the tool's access at any time with the steps on the <a href="/data-deletion">data deletion</a> page.</span>
+      <span class="only-ar">نطلب من كل منصة صلاحية الوصول إلى بيانات إعلاناتك فقط، ونستخدمها حصراً لعرض أداء إعلاناتك وتقييمه وتنبيهك إلى ما يحتاج إلى انتباه. ويلتزم استخدامنا للبيانات الواردة من Google بـ<a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">سياسة بيانات المستخدمين في خدمات Google API</a>، بما في ذلك متطلبات الاستخدام المحدود (Limited Use). التفاصيل كاملة في <a href="/privacy">سياسة الخصوصية</a>، ويمكنك إلغاء صلاحية الأداة في أي وقت باتباع الخطوات في صفحة <a href="/data-deletion">حذف البيانات</a>.</span>
+      <span class="only-en">We ask each platform for access to your ad data only, and use it solely to show and evaluate your ads' performance and alert you to what needs attention. Our use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. Full details are in the <a href="/privacy">privacy policy</a>, and you can revoke the tool's access at any time with the steps on the <a href="/data-deletion">data deletion</a> page.</span>
     </p>
   </section>
 
-  <!-- ================= أسئلة ================= -->
+  <!-- ================= الأسئلة ================= -->
   <section class="section" id="faq">
     <div class="section-head">
-      <h2><span class="only-ar">أسئلة شائعة</span><span class="only-en">Frequently asked questions</span></h2>
+      <h2><span class="only-ar">الأسئلة الشائعة</span><span class="only-en">Frequently asked questions</span></h2>
     </div>
     <div class="faq">
       <details>
-        <summary><span class="only-ar">هل الأداة بتغيّر حاجة في إعلاناتي؟</span><span class="only-en">Does the tool change anything in my ads?</span></summary>
-        <p><span class="only-ar">لأ. الأداة بتقرا بس، ومش بتقدر تعدّل أو توقف أو تنشئ أي إعلان. القرار دايماً ليك ولمسؤول الإعلانات.</span><span class="only-en">No. The tool only reads — it can't edit, pause or create any ad. The decision is always yours and your ads manager's.</span></p>
+        <summary><span class="only-ar">هل تغيّر الأداة أي شيء في إعلاناتي؟</span><span class="only-en">Does the tool change anything in my ads?</span></summary>
+        <p><span class="only-ar">لا. الأداة للقراءة فقط، ولا يمكنها تعديل أي إعلان أو إيقافه أو إنشاؤه. القرار يبقى دائماً لك ولمسؤول إعلاناتك.</span><span class="only-en">No. The tool only reads — it can't edit, pause or create any ad. The decision is always yours and your ads manager's.</span></p>
       </details>
       <details>
-        <summary><span class="only-ar">ليه لازم أطلب انضمام؟</span><span class="only-en">Why do I need to request to join?</span></summary>
-        <p><span class="only-ar">الأداة في مرحلة تجربة مغلقة، وفي المرحلة دي Meta وGoogle بيسمحوا بالربط بس للناس اللي بنضيفهم بالاسم. Snapchat متاح لأي حد من دلوقتي.</span><span class="only-en">The tool is in a closed pilot, and at this stage Meta and Google only let the people we add by name connect. Snapchat is already open to everyone.</span></p>
+        <summary><span class="only-ar">لماذا التجربة مغلقة؟</span><span class="only-en">Why is the pilot closed?</span></summary>
+        <p><span class="only-ar">نقدّم الأداة حالياً لعدد محدود من العملاء، لنمنح كل عميل متابعة مباشرة، ونطوّر الأداة وفق احتياجاته الفعلية قبل إطلاقها للجميع.</span><span class="only-en">We're offering the tool to a limited number of clients for now, so each one gets direct support and the tool is shaped around real needs before it opens to everyone.</span></p>
       </details>
       <details>
-        <summary><span class="only-ar">محتاج إيه عشان أبدأ؟</span><span class="only-en">What do I need to start?</span></summary>
-        <p><span class="only-ar">حساب إعلاني شغّال على Meta أو Google Ads أو Snapchat، وإن حسابك يكون ليه صلاحية يشوف بيها الإعلانات دي. ومتصفح على الكمبيوتر أو الموبايل — مفيش حاجة تتسطّب.</span><span class="only-en">An active ad account on Meta, Google Ads or Snapchat, and a login that has access to see its ads. Plus a browser on your computer or phone — nothing to install.</span></p>
+        <summary><span class="only-ar">ما الذي أحتاج إليه للبدء؟</span><span class="only-en">What do I need to start?</span></summary>
+        <p><span class="only-ar">حساب إعلاني نشط على Meta أو Google Ads أو Snapchat، وصلاحية على هذا الحساب تتيح لك الاطلاع على إعلاناته، ومتصفح على الكمبيوتر أو الهاتف — دون تثبيت أي برنامج.</span><span class="only-en">An active ad account on Meta, Google Ads or Snapchat, a login that has access to see its ads, and a browser on your computer or phone — nothing to install.</span></p>
       </details>
       <details>
-        <summary><span class="only-ar">التنبيهات بتوصلني إزاي؟</span><span class="only-en">How do alerts reach me?</span></summary>
-        <p><span class="only-ar">بتظهر جوه الأداة لما تفتحها: أهم التنبيهات فوق الإعلانات، وكلها في تبويب «التنبيهات».</span><span class="only-en">They appear inside the tool when you open it: the top alerts above your ads, and all of them in the Alerts tab.</span></p>
+        <summary><span class="only-ar">كيف تصلني التنبيهات؟</span><span class="only-en">How do alerts reach me?</span></summary>
+        <p><span class="only-ar">تظهر داخل الأداة فور فتحها: أهم التنبيهات أعلى الإعلانات، وجميعها في تبويب «التنبيهات».</span><span class="only-en">They appear inside the tool as soon as you open it: the top alerts above your ads, and all of them in the Alerts tab.</span></p>
       </details>
       <details>
-        <summary><span class="only-ar">الأرقام هتطابق لوحة المنصة؟</span><span class="only-en">Will the numbers match the platform's dashboard?</span></summary>
-        <p><span class="only-ar">الأرقام جاية من المنصة نفسها، وممكن تختلف شوية بسبب تأخّر تسجيل التحويلات أو توقيت الحساب. التفاصيل في <a href="/help#numbers">دليل البداية</a>.</span><span class="only-en">The numbers come from the platform itself, and may differ slightly because of delayed conversion reporting or the account's time zone. Details are in the <a href="/help#numbers">getting-started guide</a>.</span></p>
+        <summary><span class="only-ar">هل تطابق الأرقام لوحة المنصة؟</span><span class="only-en">Will the numbers match the platform's dashboard?</span></summary>
+        <p><span class="only-ar">الأرقام مأخوذة من المنصة نفسها، وقد تختلف قليلاً بسبب تأخر تسجيل بعض التحويلات أو اختلاف المنطقة الزمنية للحساب. التفاصيل في <a href="/help#numbers">دليل البدء</a>.</span><span class="only-en">The numbers come from the platform itself, and may differ slightly because of delayed conversion reporting or the account's time zone. Details are in the <a href="/help#numbers">getting-started guide</a>.</span></p>
+      </details>
+      <details>
+        <summary><span class="only-ar">هل الأداة متاحة بالعربية؟</span><span class="only-en">Is the tool available in Arabic?</span></summary>
+        <p><span class="only-ar">نعم. الواجهة والتنبيهات متاحة بالعربية والإنجليزية، ويمكنك التبديل بينهما في أي وقت.</span><span class="only-en">Yes. The interface and alerts are available in Arabic and English, and you can switch between them at any time.</span></p>
       </details>
     </div>
   </section>
 
-  <!-- ================= مين إحنا ================= -->
+  <!-- ================= من نحن ================= -->
   <section class="section" id="about">
     <div class="section-head">
-      <h2><span class="only-ar">مين إحنا</span><span class="only-en">About us</span></h2>
+      <h2><span class="only-ar">من نحن</span><span class="only-en">About us</span></h2>
       <p class="section-lead">
-        <span class="only-ar">Ads Control Center منتج مستقل بيطوّره ويديره مطوّر مستقل في مصر، ومعمول لأصحاب البزنس ومديري التسويق في مصر والخليج. الأداة مش تابعة لـ Meta أو Google أو Snap أو TikTok، ومش معتمدة منهم.</span>
-        <span class="only-en">Ads Control Center is an independent product built and run by an independent developer in Egypt, for business owners and marketing managers in Egypt and the Gulf. It isn't affiliated with or endorsed by Meta, Google, Snap or TikTok.</span>
+        <span class="only-ar">Ads Control Center منتج مستقل يطوّره ويديره مطوّر مستقل في مصر، وقد صُمّم خصيصاً لأصحاب الأعمال ومديري التسويق في مصر ودول الخليج. الأداة غير تابعة لـ Meta أو Google أو Snap أو TikTok، وغير معتمدة منها.</span>
+        <span class="only-en">Ads Control Center is an independent product built and run by an independent developer in Egypt, designed for business owners and marketing managers in Egypt and the Gulf. It isn't affiliated with or endorsed by Meta, Google, Snap or TikTok.</span>
       </p>
       <p class="fine"><span class="only-ar">للتواصل:</span><span class="only-en">Contact:</span> <a href="mailto:walid.elazab20@gmail.com">walid.elazab20@gmail.com</a></p>
     </div>
@@ -253,18 +256,18 @@
   <!-- ================= طلب الانضمام ================= -->
   <section class="section" id="join">
     <div class="join-band">
-      <h2><span class="only-ar">جاهز تجرّب؟</span><span class="only-en">Ready to try it?</span></h2>
-      <p><span class="only-ar">الأماكن في التجربة محدودة. ابعتلنا بياناتك، وهنضيفك ونبعتلك خطوات الربط.</span><span class="only-en">Pilot spots are limited. Send us your details, and we'll add you and send you the connection steps.</span></p>
+      <h2><span class="only-ar">جاهز لحماية ميزانيتك؟</span><span class="only-en">Ready to protect your budget?</span></h2>
+      <p><span class="only-ar">أماكن التجربة محدودة. أرسل إلينا بياناتك، وسنفعّل حسابك ونرسل إليك خطوات الربط.</span><span class="only-en">Pilot spots are limited. Send us your details, and we'll activate your access and send you the connection steps.</span></p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="mailto:walid.elazab20@gmail.com" data-join><span class="only-ar">اطلب انضمامك للتجربة</span><span class="only-en">Request to join the pilot</span></a>
+        <a class="btn btn-primary" href="mailto:walid.elazab20@gmail.com" data-join><span class="only-ar">اطلب الانضمام إلى التجربة</span><span class="only-en">Request to join the pilot</span></a>
         <button type="button" class="btn btn-ghost" data-join-copy>
           <span class="copy-idle"><span class="only-ar">انسخ الرسالة</span><span class="only-en">Copy the message</span></span>
-          <span class="copy-done"><span class="only-ar">✓ اتنسخت</span><span class="only-en">✓ Copied</span></span>
-          <span class="copy-fail"><span class="only-ar">انسخها من المربع تحت</span><span class="only-en">Copy it from the box below</span></span>
+          <span class="copy-done"><span class="only-ar">✓ تم النسخ</span><span class="only-en">✓ Copied</span></span>
+          <span class="copy-fail"><span class="only-ar">انسخها من المربع أدناه</span><span class="only-en">Copy it from the box below</span></span>
         </button>
       </div>
       <p class="join-alt">
-        <span class="only-ar">لو زرار الإيميل مفتحش حاجة: انسخ الرسالة وابعتها على</span>
+        <span class="only-ar">إن لم يفتح زر البريد أي برنامج، فانسخ الرسالة وأرسلها إلى</span>
         <span class="only-en">If the email button doesn't open anything, copy the message and send it to</span>
         <a href="mailto:walid.elazab20@gmail.com">walid.elazab20@gmail.com</a>
       </p>
@@ -277,8 +280,8 @@
   <div class="site-foot-inner">
     <span><span class="only-ar">© ٢٠٢٦</span><span class="only-en">© 2026</span> Ads Control Center</span>
     <nav>
-      <a href="/"><span class="only-ar">افتح الأداة</span><span class="only-en">Open the tool</span></a>
-      <a href="/help"><span class="only-ar">دليل البداية</span><span class="only-en">Getting started</span></a>
+      <a href="/"><span class="only-ar">دخول الأداة</span><span class="only-en">Open the tool</span></a>
+      <a href="/help"><span class="only-ar">دليل البدء</span><span class="only-en">Getting started</span></a>
       <a href="/privacy"><span class="only-ar">سياسة الخصوصية</span><span class="only-en">Privacy policy</span></a>
       <a href="/terms"><span class="only-ar">شروط الاستخدام</span><span class="only-en">Terms of use</span></a>
       <a href="/data-deletion"><span class="only-ar">حذف البيانات</span><span class="only-en">Data deletion</span></a>

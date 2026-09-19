@@ -13,13 +13,13 @@ export default async function handler(req, res) {
   const appId = process.env.TIKTOK_APP_ID;
   const appSecret = process.env.TIKTOK_APP_SECRET;
   if (!appId || !appSecret) {
-    res.status(500).json({ error: 'TIKTOK_APP_ID أو TIKTOK_APP_SECRET غير مضبوطين في إعدادات Vercel.' });
+    res.status(500).json({ error: 'المتغيران TIKTOK_APP_ID وTIKTOK_APP_SECRET غير مضبوطين في إعدادات Vercel.' });
     return;
   }
 
   const { authCode } = req.body || {};
   if (!authCode) {
-    res.status(400).json({ error: 'authCode مطلوب في جسم الطلب.' });
+    res.status(400).json({ error: 'الحقل authCode مطلوب في جسم الطلب.' });
     return;
   }
 
