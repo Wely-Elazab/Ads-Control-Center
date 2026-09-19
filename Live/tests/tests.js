@@ -85,6 +85,7 @@
     Object.keys(platformOptions).forEach(function (p) { if ((platformOptions[p] || []).length) setPlatformOptions(p, []); });
     Object.keys(loadingPlatforms).forEach(function (p) { loadingPlatforms[p] = false; });
     googleAccessToken = null; snapchatAccessToken = null;
+    lastUpdatedAt = null;
     I18N.setLang('ar');
   }
 
@@ -115,7 +116,15 @@
     test('المبالغ بالعربي', function () {
       eq(money(1234.4, 'SAR'), '١٬٢٣٤ ر.س');
       eq(money(0.4, 'SAR'), '٠٫٤ ر.س');
-      eq(money(null), '٠ ر.س');
+      // من غير عملة معروفة: الرقم بس (قبل كده كان "ر.س" افتراضياً — حساب بالجنيه كان بيظهر بالريال)
+      eq(money(null), '٠');
+      eq(currencyLabel(null), '');
+    });
+    test('فاصل الآلاف والكسور الصغيرة', function () {
+      eq(fmtNum(12500), '١٢٬٥٠٠');
+      eq(fmtNum(0.4, true), '٠٫٤');
+      eq(fmtNum(0.4), '٠');
+      withLang('en', function () { eq(fmtNum(12500), '12,500'); });
     });
     test('المبالغ بالإنجليزي', function () {
       withLang('en', function () {
@@ -693,6 +702,124 @@
     test('راجعين من Snapchat بكود جديد: الجلسة القديمة المنتهية مش بتتحسب «انتهت»', function () {
       restoreSession({ tokens: { snapchat: { token: 'x', expiresAt: Date.now() - 1 } }, options: {}, active: {}, accountInfo: {} }, { snapchat: true });
       ok(!platformState.snapchat, 'no expired state');
+    });
+  });
+
+  describe('تحسينات الواجهة', function () {
+    test('«معرّض للهدر: ٠» بعملة الحساب المعروض', function () {
+      candidates = [ad('e1', { daily: steady(10), res: steady(1) })];
+      candidates[0].currency = 'EGP';
+      render();
+      eq(document.querySelectorAll('#kpiStrip .kpi-value')[2].textContent, '٠ ج.م');
+    });
+    test('جدول الأيام: فاصل الآلاف، والصرف الصغير مش بيبان صفر', function () {
+      var c = ad('t1', { daily: [0.4, 12500, 0, 0, 0, 0, 0] });
+      c.currency = null;
+      candidates = [c];
+      render();
+      openExpand(c);
+      var cells = Array.prototype.map.call(document.querySelectorAll('#expandChart tbody tr:first-child td'), function (td) { return td.textContent; });
+      eq(cells.slice(0, 3), [t('x.spend'), '٠٫٤', '١٢٬٥٠٠'], 'no empty "()" when the currency is unknown');
+      expandOverlay.classList.add('hidden');
+    });
+    test('نص الخطأ اللي في الرابط مبيظهرش — رسالة من عندنا بس', function () {
+      var denied = oauthErrorFromUrl(new URLSearchParams('error=access_denied&error_description=Call+0100+now'));
+      eq(denied(), t('err.oauthDenied'));
+      var junk = oauthErrorFromUrl(new URLSearchParams('error=call_us_on_0100&error_description=x'));
+      eq(junk(), t('err.oauthOther', { code: 'unknown' }));
+      ok(oauthErrorFromUrl(new URLSearchParams('error=invalid_scope'))().indexOf('invalid_scope') > -1, 'known codes kept');
+      eq(oauthErrorFromUrl(new URLSearchParams('code=1')), null);
+    });
+    test('أسباب الأخطاء بلغة الواجهة (مش رسالة السيرفر العربي أو المنصة الخام)', function () {
+      eq(apiErrorText({ status: 429, data: { error: 'Too Many Requests' } })(), t('err.rateLimit'));
+      eq(apiErrorText({ status: 403, data: { error: 'x', code: 'WRONG_APP' } })(), t('err.wrongApp'));
+      eq(apiErrorText({ status: 500, data: { error: 'Boom from platform' } })(), 'Boom from platform');
+      withLang('en', function () {
+        eq(apiErrorText({ status: 400, data: { error: 'رسالة عربي', code: 'BAD_REQUEST' } })(), t('err.badRequest'));
+      });
+      eq(metaErrorText({ code: 17, message: 'User request limit reached' })(), t('err.rateLimit'));
+      eq(metaErrorText({ code: 200, message: 'Permissions error' })(), t('err.permission'));
+      eq(metaErrorText({ code: 1, message: 'Unknown' })(), 'Unknown');
+    });
+    test('آخر تحديث: اليوم لو مش النهارده، و«حدّث» لو الأرقام قديمة', function () {
+      candidates = [ad('u1')];
+      lastUpdatedAt = Date.now();
+      render();
+      var upd = document.getElementById('lastUpdated');
+      ok(!upd.classList.contains('stale') && !upd.querySelector('[data-stale-refresh]'), 'fresh');
+      lastUpdatedAt = Date.now() - 26 * 3600 * 1000;
+      render();
+      ok(upd.classList.contains('stale') && upd.querySelector('[data-stale-refresh]'), 'stale with refresh button');
+      var d = new Date(lastUpdatedAt);
+      ok(upd.textContent.indexOf(fmtKey(localDateKey(d))) > -1, 'shows the day: ' + upd.textContent);
+    });
+    test('إعدادات التنبيهات: قيمة برّه الحدود أو حدود متلخبطة مبتتحفظش', function () {
+      renderSettingsForm();
+      var inp = function (k) { return settingsForm.querySelector('[name="' + k + '"]'); };
+      inp('cprWarnMultiple').value = '3';
+      inp('cprCriticalMultiple').value = '2';
+      inp('minSpendShare').value = '90';
+      document.getElementById('settingsSave').click();
+      eq(JSON.stringify(alertSettings), '{}', 'nothing saved');
+      eq(settingsForm.querySelectorAll('.setting-row.invalid').length, 2);
+      eq(document.getElementById('settingsError').textContent, t('set.err.fix'));
+      inp('cprWarnMultiple').value = '1.5';
+      inp('minSpendShare').value = '3';
+      document.getElementById('settingsSave').click();
+      eq([alertSettings.cprCriticalMultiple, alertSettings.minSpendShare], [2, 0.03]);
+      eq(document.getElementById('settingsError').textContent, '');
+    });
+    test('قيمة غلط محفوظة من قبل كده مبتتقبلش', function () {
+      eq(PauseProofAlerts.mergeSettings({ cprWarnMultiple: 0.2 }).cprWarnMultiple, 1.5);
+      eq(PauseProofAlerts.mergeSettings({ cprWarnMultiple: 1.8 }).cprWarnMultiple, 1.8);
+    });
+    test('الوضع الداكن بيتحفظ وبيتطبّق على الصفحة', function () {
+      var root = document.documentElement, prev = root.getAttribute('data-theme');
+      try {
+        ACC_THEME.set('light');
+        themeToggle.click();
+        eq([root.getAttribute('data-theme'), ACC_THEME.isDark(), localStorage.getItem('acc.theme')], ['dark', true, 'dark']);
+        eq(themeToggle.textContent, '🌙');
+        themeToggle.click();
+        eq([root.getAttribute('data-theme'), themeToggle.textContent], ['light', '☀️']);
+      } finally { if (prev) root.setAttribute('data-theme', prev); else root.removeAttribute('data-theme'); }
+    });
+    testAsync('النوافذ: التركيز بيدخل جوه النافذة وبيرجع للزرار اللي فتحها', function () {
+      loginMenuBtn.focus();
+      loginMenuBtn.click();
+      return tick().then(function () {
+        eq(document.activeElement && document.activeElement.id, 'platformClose');
+        document.getElementById('platformClose').click();
+        return tick();
+      }).then(function () {
+        eq(document.activeElement && document.activeElement.id, 'loginMenuBtn');
+      });
+    });
+    testAsync('Snapchat: الطلبات بتبدأ بالتوازي من غير ما تستنى طلب الحساب', function () {
+      var realFetch = window.fetch, order = [];
+      var json = function (obj, delay) {
+        return new Promise(function (r) { setTimeout(function () { r({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); }, delay || 0); });
+      };
+      window.fetch = function (url) {
+        var u = String(url);
+        if (/\/adaccounts\/[^/?]+$/.test(u)) { order.push('account'); return json({ adaccounts: [{ adaccount: { timezone: 'Africa/Cairo', currency: 'EGP' } }] }, 40).then(function (r) { order.push('account-done'); return r; }); }
+        if (/\/ads\?/.test(u)) { order.push('ads'); return json({ ads: [{ ad: { id: 'a1' } }] }); }
+        if (/\/adsquads/.test(u)) { order.push('squads'); return json({ adsquads: [] }); }
+        if (/\/campaigns/.test(u)) { order.push('campaigns'); return json({ campaigns: [] }); }
+        if (/\/stats/.test(u)) { order.push('stats'); return json({ timeseries_stats: [] }); }
+        return json({});
+      };
+      var out = null, code = null;
+      var res = { setHeader: function () {}, status: function (c) { code = c; return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1', period: { preset: 'last7' } } }, res);
+      }).then(function () {
+        window.fetch = realFetch;
+        eq(code, 200);
+        eq([out.ads.length, out.account.currency], [1, 'EGP']);
+        ok(order.indexOf('ads') < order.indexOf('account-done'), 'ads started before the account answered: ' + order.join(','));
+        ok(order.indexOf('stats') > order.indexOf('account-done'), 'stats wait for the account time zone');
+      }, function (e) { window.fetch = realFetch; throw e; });
     });
   });
 

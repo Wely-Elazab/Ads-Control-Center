@@ -17,7 +17,7 @@ export default async function handler(req, res) {
 
   const { accessToken, action, adAccountId, clientTz, period } = req.body || {};
   if (!accessToken || !action) {
-    res.status(400).json({ error: 'accessToken و action مطلوبين في جسم الطلب.' });
+    res.status(400).json({ error: 'accessToken و action مطلوبين في جسم الطلب.', code: 'BAD_REQUEST' });
     return;
   }
 
@@ -37,14 +37,8 @@ export default async function handler(req, res) {
     }
 
     if (action === 'ads') {
-      if (!adAccountId) { res.status(400).json({ error: 'adAccountId مطلوب لجلب الإعلانات.' }); return; }
+      if (!adAccountId) { res.status(400).json({ error: 'adAccountId مطلوب لجلب الإعلانات.', code: 'BAD_REQUEST' }); return; }
       const accountPath = SNAP_API + '/adaccounts/' + encodeURIComponent(adAccountId);
-
-      // توقيت الحساب نفسه — Snapchat بيرفض أي start_time/end_time مش على بداية يوم بتوقيت الحساب
-      const accResp = await fetch(accountPath, { headers: headers });
-      const accData = await accResp.json().catch(function () { return null; });
-      const acc = accData && accData.adaccounts && accData.adaccounts[0] && accData.adaccounts[0].adaccount;
-      const tz = (acc && acc.timezone) || clientTz;
 
       // كل الإعلانات مع التصفّح (الافتراضي كان صفحة واحدة بس)
       // لو Snapchat رفض limit=1000 بنعيد المحاولة بالحجم الافتراضي بدل ما نرجع بمفيش إعلانات خالص
@@ -60,13 +54,10 @@ export default async function handler(req, res) {
         }
         return { ads: out };
       };
-      let adsResult = await fetchAds(accountPath + '/ads?limit=1000');
-      if (adsResult.error) adsResult = await fetchAds(accountPath + '/ads');
-      if (adsResult.error) {
-        res.status(adsResult.status || 502).json({ error: adsResult.error });
-        return;
-      }
-      const ads = adsResult.ads;
+      const fetchAdsSafe = async function () {
+        const first = await fetchAds(accountPath + '/ads?limit=1000');
+        return first.error ? fetchAds(accountPath + '/ads') : first;
+      };
 
       // حالة المجموعات الإعلانية (Ad Squads) والحملات: الإعلان ممكن يكون ACTIVE وهو فعلياً مش شغّال
       // لأن المجموعة أو الحملة متوقفة أو مدتها خلصت. فشل الطلبين دول مش بيوقف التحميل
@@ -87,16 +78,24 @@ export default async function handler(req, res) {
         const first = await fetchList(path, key, itemKey);
         return first || (await fetchList(path, key, itemKey, accountPath + path));
       };
-      const [squadList, campaignList] = await Promise.all([
-        fetchListSafe('/adsquads', 'adsquads', 'adsquad'),
-        fetchListSafe('/campaigns', 'campaigns', 'campaign')
-      ]);
-      const squads = (squadList || []).map(function (s) {
-        return { id: s.id, name: s.name || null, status: s.status, campaign_id: s.campaign_id, start_time: s.start_time || null, end_time: s.end_time || null };
-      });
-      const campaigns = (campaignList || []).map(function (c) {
-        return { id: c.id, name: c.name || null, status: c.status, start_time: c.start_time || null, end_time: c.end_time || null };
-      });
+
+      // السرعة: الطلبات دي كانت بتتبعت ورا بعض (الحساب ← الإعلانات ← المجموعات والحملات ← الأرقام ← الفترة)،
+      // فالحسابات الكبيرة كانت بتاخد وقت طويل وممكن توصل لحد وقت الطلب على Vercel.
+      // دلوقتي: الإعلانات والمجموعات والحملات بتبدأ مع طلب الحساب نفسه، والأرقام أول ما توقيت الحساب يوصل —
+      // كلها بالتوازي. الترتيب الوحيد اللي لازم: الأرقام محتاجة توقيت الحساب (Snapchat بيرفض أي وقت مش على بداية يوم بتوقيته)
+      const accountP = fetch(accountPath, { headers: headers })
+        .then(function (r) { return r.json().catch(function () { return null; }); })
+        .then(function (d) { return d && d.adaccounts && d.adaccounts[0] && d.adaccounts[0].adaccount; })
+        .catch(function () { return null; });
+      // كل طلب بيرجّع خطأه كقيمة بدل ما يرفض — لأننا بنستنى طلب الحساب الأول، ورفض مش متعالج في الوقت ده
+      // ممكن يوقف الدالة كلها على Vercel (Node بيعتبره unhandled rejection)
+      const errOf = function (e) { return String(e && e.message ? e.message : e); };
+      const adsP = fetchAdsSafe().catch(function (e) { return { error: errOf(e), status: 502 }; });
+      const squadsP = fetchListSafe('/adsquads', 'adsquads', 'adsquad').catch(function () { return null; });
+      const campaignsP = fetchListSafe('/campaigns', 'campaigns', 'campaign').catch(function () { return null; });
+
+      const acc = await accountP;
+      const tz = (acc && acc.timezone) || clientTz;
 
       // نهاية النطاق حصرية: بداية اليوم اللي بعد النهارده
       const range = last7DaysRange(tz);
@@ -116,30 +115,42 @@ export default async function handler(req, res) {
       // لو الحساب مش بيدعمها ورفض الطلب، بنرجع للإنفاق والسوايب بس بدل ما نخسر الإنفاق كله
       const FIELDS_FULL = 'spend,swipes,impressions,conversion_purchases,conversion_purchases_value';
       const FIELDS_BASIC = 'spend,swipes,impressions';
-      let stats = await fetchStats(FIELDS_FULL, 'DAY', startTime, endTime);
-      if (stats.error) stats = await fetchStats(FIELDS_BASIC, 'DAY', startTime, endTime);
-      const statsData = stats.data;
-      const statsError = stats.error;
+      const statsSafe = async function (granularity, from, to) {
+        const first = await fetchStats(FIELDS_FULL, granularity, from, to);
+        return first.error ? fetchStats(FIELDS_BASIC, granularity, from, to) : first;
+      };
+      const statsP = statsSafe('DAY', startTime, endTime).catch(function (e) { return { data: null, error: errOf(e) }; });
 
       // مجاميع الفترة المختارة (TOTAL = رقم واحد لكل إعلان). آخر ٧ أيام مش محتاجة طلب إضافي
       const periodRange = resolvePeriod(period, tz);
-      let periodStats = null;
+      let periodP = Promise.resolve(null);
       if (!periodRange.isDefault) {
         const pEnd = shiftDateKey(periodRange.until, 1);
         const pFrom = periodRange.since + 'T00:00:00.000' + tzOffsetString(periodRange.since, tz);
         const pTo = pEnd + 'T00:00:00.000' + tzOffsetString(pEnd, tz);
-        let p = await fetchStats(FIELDS_FULL, 'TOTAL', pFrom, pTo);
-        if (p.error) p = await fetchStats(FIELDS_BASIC, 'TOTAL', pFrom, pTo);
-        periodStats = p.error ? null : p.data;
+        periodP = statsSafe('TOTAL', pFrom, pTo).then(function (p) { return p.error ? null : p.data; }).catch(function () { return null; });
       }
 
+      const results = await Promise.all([adsP, squadsP, campaignsP, statsP, periodP]);
+      const adsResult = results[0], squadList = results[1], campaignList = results[2], stats = results[3];
+      if (adsResult.error) {
+        res.status(adsResult.status || 502).json({ error: adsResult.error });
+        return;
+      }
+      const squads = (squadList || []).map(function (s) {
+        return { id: s.id, name: s.name || null, status: s.status, campaign_id: s.campaign_id, start_time: s.start_time || null, end_time: s.end_time || null };
+      });
+      const campaigns = (campaignList || []).map(function (c) {
+        return { id: c.id, name: c.name || null, status: c.status, start_time: c.start_time || null, end_time: c.end_time || null };
+      });
+
       res.status(200).json({
-        ads: ads,
+        ads: adsResult.ads,
         squads: squadList ? squads : null,
         campaigns: campaignList ? campaigns : null,
-        stats: statsError ? null : statsData,
-        statsError: statsError,
-        periodStats: periodStats,
+        stats: stats.error ? null : stats.data,
+        statsError: stats.error,
+        periodStats: results[4],
         period: periodRange,
         range: range,
         account: acc ? { timezone: acc.timezone || null, currency: acc.currency || null } : null
@@ -147,7 +158,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    res.status(400).json({ error: 'action غير معروف — استخدم accounts أو ads.' });
+    res.status(400).json({ error: 'action غير معروف — استخدم accounts أو ads.', code: 'BAD_REQUEST' });
   } catch (err) {
     res.status(500).json({ error: String(err && err.message ? err.message : err) });
   }

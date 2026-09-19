@@ -28,9 +28,9 @@ export async function verifyGoogleToken(accessToken) {
       // auth = الجلسة انتهت (مش خطأ) — الملفات بترجّعها 401 والواجهة بتعرض «ربط تاني»
       result = { ok: false, auth: true, error: 'توكن Google غير صالح أو منتهي — سجّل الدخول تاني.' };
     } else if (info.azp !== clientId && info.aud !== clientId) {
-      result = { ok: false, error: 'التوكن ده مش صادر لتطبيق Ads Control Center.' };
+      result = { ok: false, code: 'WRONG_APP', error: 'التوكن ده مش صادر لتطبيق Ads Control Center.' };
     } else if (!String(info.scope || '').includes('adwords')) {
-      result = { ok: false, error: 'التوكن ده مالوش صلاحية Google Ads.' };
+      result = { ok: false, code: 'NO_SCOPE', error: 'التوكن ده مالوش صلاحية Google Ads.' };
     } else {
       result = { ok: true };
     }

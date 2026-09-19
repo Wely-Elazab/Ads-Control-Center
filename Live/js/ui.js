@@ -7,11 +7,39 @@
 //   i18n → alerts → core → meta → google → snapchat → tiktok → ui → main
 // أي كود بيتنفّذ وقت التحميل مسموحله يستخدم اللي في الملفات اللي قبله بس — الباقي جوه دوال.
 
+  // الوضع الداكن: الافتراضي زي الجهاز، والاختيار من الزرار بيتحفظ ويتطبّق على كل الصفحات (js/theme.js).
+  // قبل كده الأداة كانت دايماً فاتحة ومش بتفتكر الاختيار، والصفحات التانية بتتبع الجهاز — فكان فيه تناقض
+  function syncThemeIcon() {
+    var dark = window.ACC_THEME ? ACC_THEME.isDark() : document.documentElement.getAttribute('data-theme') === 'dark';
+    themeToggle.textContent = dark ? '🌙' : '☀️';
+  }
   themeToggle.addEventListener('click', function () {
-    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
-    if (dark) { document.documentElement.removeAttribute('data-theme'); themeToggle.textContent = '☀️'; }
-    else { document.documentElement.setAttribute('data-theme', 'dark'); themeToggle.textContent = '🌙'; }
+    var dark = window.ACC_THEME ? ACC_THEME.isDark() : document.documentElement.getAttribute('data-theme') === 'dark';
+    if (window.ACC_THEME) ACC_THEME.set(dark ? 'light' : 'dark');
+    else document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+    syncThemeIcon();
   });
+  syncThemeIcon();
+  if (window.ACC_THEME) ACC_THEME.onSystemChange(syncThemeIcon);
+
+  // ---------- الموبايل: الشريط اللي فوق بيستخبى وإنت نازل ويرجع أول ما تطلع لفوق ----------
+  // على الموبايل الشريط ٣ صفوف (حوالي خُمس الشاشة) — ثابت طول الوقت كان بيقلّل الكروت اللي بتبان.
+  // زي فيسبوك وإنستجرام: بينزل مع الصفحة وبيرجع مع أول حركة لفوق
+  var appbarEl = document.querySelector('.appbar');
+  var mobileBar = window.matchMedia ? window.matchMedia('(max-width: 720px)') : null;
+  // (أحداث الـ scroll أصلاً بتيجي مرة كل فريم، والشغل هنا خفيف: قراية رقم وتبديل كلاس)
+  var lastScrollY = window.scrollY || 0;
+  function syncAppbar() {
+    if (!appbarEl) return;
+    var y = window.scrollY || 0;
+    var isMobile = !!(mobileBar && mobileBar.matches);
+    if (!isMobile || y <= appbarEl.offsetHeight || y < lastScrollY - 4) appbarEl.classList.remove('appbar-hidden');
+    else if (y > lastScrollY + 4 && !appbarEl.contains(document.activeElement)) appbarEl.classList.add('appbar-hidden');
+    lastScrollY = y;
+  }
+  window.addEventListener('scroll', syncAppbar, { passive: true });
+  // التركيز بالكيبورد جوه الشريط بيرجّعه (مينفعش حاجة متركّز عليها تبقى مستخبية)
+  if (appbarEl) appbarEl.addEventListener('focusin', function () { appbarEl.classList.remove('appbar-hidden'); });
   // تبديل اللغة: بيترجم الواجهة كلها ويعيد رسم الكروت والتنبيهات بالأرقام والعملة المناسبة.
   // بيانات الإعلانات نفسها (الأسماء والنصوص) بتفضل بلغتها الأصلية زي ما كتبها المعلن
   langToggle.addEventListener('click', function () {
@@ -281,7 +309,7 @@
     var tip = ' — ' + periodLabel();
     var chips = '<span class="metric-chip' + hl('spend') + '" title="' + t('chip.spend') + tip + '">' + money(p.spend, c.currency) + '</span>';
     if (p.results != null) {
-      chips += '<span class="metric-chip' + hl('results') + '" title="' + t('chip.results') + tip + '">' + ar(p.results) + ' ' + esc(resultNounOf(c, p.results)) + '</span>';
+      chips += '<span class="metric-chip' + hl('results') + '" title="' + t('chip.results') + tip + '">' + fmtNum(p.results) + ' ' + esc(resultNounOf(c, p.results)) + '</span>';
     }
     // تكلفة النتيجة (زي تكلفة الطلب CPO) والعائد (ROAS) الاتنين بيظهروا لو موجودين — كل واحد بيجاوب سؤال مختلف:
     // التكلفة مقارنةً بهامش ربحك، والعائد مقارنةً بالمبيعات
@@ -422,7 +450,7 @@
         ? t('camp.adsOf', { n: ar(g.ads.length), total: ar(g.total), ads: noun(g.total, 'n.ad') })
         : ar(g.total) + ' ' + noun(g.total, 'n.ad');
     var chips = '<span class="metric-chip">' + money(g.spend, g.currency) + '</span>';
-    if (g.results != null) chips += '<span class="metric-chip">' + ar(g.results) + ' ' + esc(t((I18N.form(g.results) === 'one' ? 'res1.' : 'res.') + (g.resultKey || 'generic'))) + '</span>';
+    if (g.results != null) chips += '<span class="metric-chip">' + fmtNum(g.results) + ' ' + esc(t((I18N.form(g.results) === 'one' ? 'res1.' : 'res.') + (g.resultKey || 'generic'))) + '</span>';
     else if (g.mixedResults) chips += '<span class="metric-chip">' + t('camp.mixedResults') + '</span>';
     if (g.cpr != null) chips += '<span class="metric-chip" title="' + t('chip.cprTip') + '">' + money(g.cpr, g.currency) + ' / ' + esc(t('res1.' + (g.resultKey || 'generic'))) + '</span>';
     if (g.roas != null) chips += '<span class="metric-chip" title="' + t('chip.roasTip') + '">' + t('chip.roas') + ' ' + roasStr(g.roas) + '</span>';
@@ -516,10 +544,7 @@
         : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
       galleryCount.textContent = t('gallery.count', { n: ar(visible.length), total: ar(candidates.length), ads: noun(candidates.length, 'n.ad') });
     }
-    var upd = document.getElementById('lastUpdated');
-    upd.textContent = lastUpdatedAt && candidates.length
-      ? t('upd.at', { time: new Date(lastUpdatedAt).toLocaleTimeString(isAr() ? 'ar-EG' : 'en-US', { hour: 'numeric', minute: '2-digit' }) })
-      : '';
+    renderLastUpdated();
     document.querySelectorAll('#viewSwitch [data-mode]').forEach(function (b) {
       var on = b.dataset.mode === viewMode;
       b.classList.toggle('active', on);
@@ -650,18 +675,18 @@
     var types = Object.keys(byType).sort(function (a, b) { return (byType[b].spend - byType[a].spend) || (byType[b].results - byType[a].results); });
     var typeNoun = function (k) { return t((I18N.form(byType[k].results) === 'one' ? 'res1.' : 'res.') + k); };
     // فاصل الآلاف: ٢٬٤٠٠ / 2,400
-    var fmtN = function (n) { return ar(Math.round(n || 0).toLocaleString('en-US').replace(/,/g, isAr() ? '٬' : ',')); };
-    var typeText = function (k) { return fmtN(byType[k].results) + ' ' + typeNoun(k); };
+    var typeText = function (k) { return fmtNum(byType[k].results) + ' ' + typeNoun(k); };
     var resultsValue, resultsTitle = types.map(typeText).join(' · ');
     if (!types.length) resultsValue = ar(0);
-    else if (types.length === 1) resultsValue = fmtN(byType[types[0]].results) + ' <span class="kpi-unit">' + esc(typeNoun(types[0])) + '</span>';
+    else if (types.length === 1) resultsValue = fmtNum(byType[types[0]].results) + ' <span class="kpi-unit">' + esc(typeNoun(types[0])) + '</span>';
     else {
       resultsValue = types.slice(0, 2).map(function (k) { return '<span class="kpi-line">' + esc(typeText(k)) + '</span>'; }).join('') +
         (types.length > 2 ? '<span class="kpi-more">' + t('kpi.moreTypes', { n: ar(types.length - 2) }) + '</span>' : '');
     }
     var joinMoney = function (map) {
       var keys = Object.keys(map).filter(function (k) { return map[k] > 0; });
-      return keys.length ? keys.map(function (k) { return money(map[k], k || null); }).join(' + ') : money(0);
+      // صفر بعملة الحساب المعروض (قبل كده كان "٠ ر.س" حتى لو الحساب بالجنيه)
+      return keys.length ? keys.map(function (k) { return money(map[k], k || null); }).join(' + ') : money(0, defaultCurrency());
     };
     var atRisk = analysis.summary.atRisk;
     var review = analysis.summary.health.review;
@@ -817,7 +842,7 @@
     var resultsLabelTxt = p.results != null ? (t('x.results') + ' — ' + esc(resultLabelOf(c)) + pl) : t('x.results') + pl;
     var boxes =
       metricBox(t('x.spend') + pl, money(p.spend, cur), hl('spend') || hl('delivery')) +
-      metricBox(resultsLabelTxt, p.results != null ? ar(p.results) : t('x.noConversions'), hl('results')) +
+      metricBox(resultsLabelTxt, p.results != null ? fmtNum(p.results) : t('x.noConversions'), hl('results')) +
       metricBox(t('x.cpr'), p.cpr != null ? money(p.cpr, cur) : '—', hl('cpr')) +
       metricBox(t('x.roas'), roasStr(p.roas), hl('roas'));
     if (c.frequency != null) boxes += metricBox(t('x.freq'), numAr(c.frequency) + ' ' + t('x.times'), mv(c, 'frequency'));
@@ -826,16 +851,17 @@
 
     // السلسلة الثانية: مبيعات فعلية لو موجودة، وإلا عدد النتائج (حسب هدف الإعلان نفسه) كبديل مفيد
     var secondSeries = hasSales ? c.dailySales : c.dailyResults;
-    var secondRowLabel = hasSales ? t('x.salesRow', { cur: currencyLabel(cur) }) : (t('x.results') + (c.resultKey ? ' — ' + esc(resultLabelOf(c)) : ''));
+    var secondRowLabel = hasSales ? (currencyLabel(cur) ? t('x.salesRow', { cur: currencyLabel(cur) }) : t('x.sales')) : (t('x.results') + (c.resultKey ? ' — ' + esc(resultLabelOf(c)) : ''));
     document.getElementById('legendSalesLabel').textContent = hasSales ? t('x.salesLegend') : t('x.resultsLegend');
     // عمود "أمس" متعلّم — أغلب التنبيهات مبنية عليه، وعمود النهارده يوم لسه مخلصش
     var colCls = function (i) { return i === 5 ? ' class="col-yesterday"' : (i === 6 ? ' class="col-today"' : ''); };
     var headerCells = c.dailyDates.map(function (dt, i) { return '<th' + colCls(i) + '>' + (i === 5 ? t('x.yesterday') : (i === 6 ? t('x.today') : fmtKey(dt))) + '</th>'; }).join('');
-    var spendCells = c.daily.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + digitsAny(Math.round(v)) + '</span></td>'; }).join('');
-    var secondCells = secondSeries.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + digitsAny(Math.round(v)) + '</span></td>'; }).join('');
+    // الجدول: فاصل الآلاف (١٢٬٥٠٠)، والصرف والمبيعات الصغيرة بخانة عشرية (٠٫٤ مش ٠)
+    var spendCells = c.daily.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + fmtNum(v, true) + '</span></td>'; }).join('');
+    var secondCells = secondSeries.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + fmtNum(v, hasSales) + '</span></td>'; }).join('');
     document.getElementById('expandChart').innerHTML =
       '<div class="daily-table-wrap"><table class="daily-table"><thead><tr><th></th>' + headerCells + '</tr></thead>' +
-      '<tbody><tr><td>' + t('x.spendRow', { cur: currencyLabel(cur) }) + '</td>' + spendCells + '</tr>' +
+      '<tbody><tr><td>' + (currencyLabel(cur) ? t('x.spendRow', { cur: currencyLabel(cur) }) : t('x.spend')) + '</td>' + spendCells + '</tr>' +
       '<tr><td>' + secondRowLabel + '</td>' + secondCells + '</tr></tbody></table></div>';
 
     expandOverlay.classList.remove('hidden');
@@ -999,7 +1025,7 @@
     var riskBar = '';
     if (alertsLevelFilter === 'risk') {
       var riskKeys = Object.keys(s.atRisk).filter(function (k) { return s.atRisk[k] > 0; });
-      var riskText = riskKeys.length ? riskKeys.map(function (cur) { return money(s.atRisk[cur], cur || null); }).join(' + ') : money(0);
+      var riskText = riskKeys.length ? riskKeys.map(function (cur) { return money(s.atRisk[cur], cur || null); }).join(' + ') : money(0, defaultCurrency());
       riskBar = '<div class="risk-filter"><span>' + t('alerts.riskShowing', { amount: riskText }) + '</span>' +
         '<button type="button" class="risk-filter-clear" data-level="urgent">' + t('alerts.showAll') + '</button></div>';
     }
@@ -1058,7 +1084,7 @@
     var shown = m.kind === 'ratio' ? Math.round(value * 100) : value;
     var step = m.kind === 'multiple' ? '0.1' : '1';
     return '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(m.label) + '</span><span class="setting-help">' + esc(m.help) + '</span></span>' +
-      '<span class="setting-input"><input type="number" inputmode="decimal" min="0" step="' + step + '" name="' + m.key + '" value="' + shown + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
+      '<span class="setting-input"><input type="number" inputmode="decimal" min="' + m.min + '" max="' + m.max + '" step="' + step + '" name="' + m.key + '" value="' + shown + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
   }
 
   function renderSettingsForm() {
@@ -1082,6 +1108,8 @@
         return '<fieldset class="settings-group"><legend>' + esc(g) + '</legend>' + groups[g].map(function (m) { return settingRow(m, current[m.key]); }).join('') + '</fieldset>';
       }).join('') + '</details>';
     settingsForm.innerHTML = presetHtml + mainHtml + advancedHtml;
+    var errEl = document.getElementById('settingsError');
+    if (errEl) errEl.textContent = '';
   }
 
   // اختيار نمط بيملّي الحدود المتقدمة بقيمه على طول (والمستخدم يقدر يعدّل بعدها)
@@ -1104,17 +1132,57 @@
     renderSettingsForm();
     render();
   });
-  document.getElementById('settingsSave').addEventListener('click', function () {
+  // التحقق قبل الحفظ: كل قيمة جوه حدودها، والحدود المرتبطة مترتبة (حد «مراجعة» أكبر من «تحسين»...).
+  // قبل كده القيمة الغلط كانت بترجع للافتراضي من غير ما العميل يعرف، والحدود المتلخبطة كانت بتتقبل
+  var settingsErrorEl = document.getElementById('settingsError');
+  function clearSettingsErrors() {
+    settingsForm.querySelectorAll('.setting-row.invalid').forEach(function (r) { r.classList.remove('invalid'); });
+    settingsForm.querySelectorAll('.setting-error').forEach(function (e) { e.remove(); });
+    if (settingsErrorEl) settingsErrorEl.textContent = '';
+  }
+  function readSettingsForm() {
     var picked = settingsForm.querySelector('[name="_preset"]:checked');
-    var next = { _preset: picked ? picked.value : 'balanced' };
+    var next = { _preset: picked ? picked.value : 'balanced' }, errors = [];
+    var inputOf = function (key) { return settingsForm.querySelector('[name="' + key + '"]'); };
     PauseProofAlerts.SETTINGS_META.forEach(function (m) {
-      var input = settingsForm.querySelector('[name="' + m.key + '"]');
+      var input = inputOf(m.key);
       if (!input) return;
-      var raw = parseFloat(String(input.value).replace(',', '.'));
-      if (!isFinite(raw) || raw < 0) return; // قيمة غلط = نرجع للافتراضي
+      var txt = String(input.value).trim().replace(',', '.');
+      if (txt === '') return; // فاضي = قيمة النمط المختار
+      var raw = parseFloat(txt);
+      if (!isFinite(raw) || raw < m.min || raw > m.max) {
+        errors.push({ input: input, text: t('set.err.range', { min: numAr(m.min), max: numAr(m.max) }) });
+        return;
+      }
       next[m.key] = m.kind === 'ratio' ? raw / 100 : raw;
     });
-    alertSettings = next;
+    var eff = PauseProofAlerts.mergeSettings(next);
+    PauseProofAlerts.SETTINGS_ORDER.forEach(function (o) {
+      if (eff[o[0]] > eff[o[1]] && inputOf(o[1])) errors.push({ input: inputOf(o[1]), text: t(o[2]) });
+    });
+    return { values: next, errors: errors };
+  }
+  document.getElementById('settingsSave').addEventListener('click', function () {
+    clearSettingsErrors();
+    var r = readSettingsForm();
+    if (r.errors.length) {
+      r.errors.forEach(function (err) {
+        var row = err.input.closest('.setting-row');
+        if (row && !row.classList.contains('invalid')) {
+          row.classList.add('invalid');
+          var box = document.createElement('span');
+          box.className = 'setting-error';
+          box.textContent = err.text;
+          row.querySelector('.setting-text').appendChild(box);
+        }
+        var det = err.input.closest('details');
+        if (det) det.open = true; // الخطأ جوه «الإعدادات المتقدمة» — بنفتحها عشان يبان
+      });
+      if (settingsErrorEl) settingsErrorEl.textContent = t('set.err.fix');
+      r.errors[0].input.focus();
+      return;
+    }
+    alertSettings = r.values;
     var saved = storeAlertSettings(alertSettings);
     settingsOverlay.classList.add('hidden');
     render();
@@ -1129,6 +1197,63 @@
   }
 
   // إعادة تحميل كل الحسابات المحمّلة من كل المنصات (مش Meta بس)
-  resetAllBtn.addEventListener('click', function () {
-    Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); });
+  function refreshAll() { Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); }); }
+  resetAllBtn.addEventListener('click', refreshAll);
+
+  // ---------- آخر تحديث ----------
+  // الساعة، ومعاها اليوم لو مش النهارده (قبل كده الساعة بس — تاب مفتوح من امبارح كان بيبان إنه النهارده).
+  // بعد نص ساعة بيتلوّن ومعاه زرار «حدّث»، ولو رجعت للتاب بعد المدة دي الأرقام بتتحدّث لوحدها
+  var STALE_MS = 30 * 60 * 1000;
+  function isStale() { return !!lastUpdatedAt && Date.now() - lastUpdatedAt > STALE_MS; }
+  function localDateKey(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function renderLastUpdated() {
+    var upd = document.getElementById('lastUpdated');
+    if (!lastUpdatedAt || !candidates.length) { upd.textContent = ''; upd.classList.remove('stale'); upd.removeAttribute('title'); return; }
+    var d = new Date(lastUpdatedAt);
+    var time = d.toLocaleTimeString(isAr() ? 'ar-EG' : 'en-US', { hour: 'numeric', minute: '2-digit' });
+    var text = localDateKey(d) === localDateKey(new Date()) ? t('upd.at', { time: time }) : t('upd.atDay', { day: fmtKey(localDateKey(d)), time: time });
+    var stale = isStale();
+    upd.classList.toggle('stale', stale);
+    if (stale) upd.setAttribute('title', t('upd.staleTip')); else upd.removeAttribute('title');
+    upd.innerHTML = esc(text) + (stale ? '<button type="button" class="stale-refresh" data-stale-refresh>' + esc(t('upd.refresh')) + '</button>' : '');
+  }
+  document.getElementById('lastUpdated').addEventListener('click', function (e) {
+    if (e.target.closest('[data-stale-refresh]')) refreshAll();
+  });
+  setInterval(renderLastUpdated, 60000);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && isStale() && !anyLoading() && Object.keys(activeSources).length) refreshAll();
+  });
+
+  // ---------- النوافذ المنبثقة: التركيز (لوحة المفاتيح وقارئات الشاشة) ----------
+  // لما نافذة تفتح: التركيز بيروح لزرار الإغلاق جواها، وTab بيلف جوه النافذة بس (مش ورا الخلفية).
+  // لما تتقفل: التركيز بيرجع للزرار اللي فتحها. بنراقب كلاس hidden نفسه، فبيشتغل مهما كانت طريقة الفتح والقفل
+  function focusablesIn(root) {
+    return Array.prototype.filter.call(
+      root.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])'),
+      function (el) { return !el.hidden && el.getClientRects().length > 0; });
+  }
+  [platformOverlay, expandOverlay, settingsOverlay, filterDrawer].forEach(function (dlg) {
+    if (!dlg || !window.MutationObserver) return;
+    var opener = null, isOpen = false;
+    new MutationObserver(function () {
+      var open = !dlg.classList.contains('hidden');
+      if (open === isOpen) return;
+      isOpen = open;
+      if (open) {
+        opener = document.activeElement;
+        var target = dlg.querySelector('.expand-close') || focusablesIn(dlg)[0];
+        if (target) target.focus();
+      } else if (opener && document.contains(opener) && (dlg.contains(document.activeElement) || document.activeElement === document.body)) {
+        opener.focus();
+      }
+    }).observe(dlg, { attributes: true, attributeFilter: ['class'] });
+    dlg.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab') return;
+      var list = focusablesIn(dlg);
+      if (!list.length) return;
+      var first = list[0], last = list[list.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
   });

@@ -68,7 +68,7 @@
       if (isAuthFailure(res)) { markExpired('google'); return; }
       var data = res.data;
       if (!res.ok || data.error || !data.accounts) {
-        var failMsg = msg('s.googleAccountsFailed', { msg: data.error ? (data.error.message || data.error) : msg('s.checkBackend') });
+        var failMsg = msg('s.googleAccountsFailed', { msg: data.error || data.code ? apiErrorText(res) : msg('s.checkBackend') });
         setPlatformState('google', { kind: 'error', msg: failMsg });
         setStatus(failMsg);
         render();
@@ -126,7 +126,7 @@
       if (isAuthFailure(res)) { markExpired('google'); return; }
       var payload = res.data;
       if (!res.ok || payload.error) {
-        fail(msg('s.adsFailed', { platform: 'Google Ads', msg: payload.error || msg('s.unexpected') }));
+        fail(msg('s.adsFailed', { platform: 'Google Ads', msg: apiErrorText(res) }));
         return;
       }
       var days = daysFromRange(payload.range);

@@ -2,10 +2,12 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<!-- من غير maximum-scale: كان بيمنع تكبير الشاشة بالصوابع على بعض الموبايلات (مهم لضعاف النظر) -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
 <title>Ads Control Center</title>
-<!-- اللغة والاتجاه بيتحددوا قبل ما الصفحة ترسم — عشان الواجهة الإنجليزي متظهرش لحظة بالعربي -->
+<!-- اللغة والاتجاه والوضع الداكن بيتحددوا قبل ما الصفحة ترسم — عشان مفيش وميض بلغة أو لون غلط -->
+<script src="js/theme.js"></script>
 <script src="js/i18n.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,10 +18,21 @@
     --verified: #0E7A63; --verified-bg: #E4F3EF; --pending: #C7841A; --pending-bg: #FBF0DD;
     --alert: #B3311F; --alert-bg: #FBE7E3; --sending-bg: #EEEFEC; --radius: 14px;
   }
+  :root { color-scheme: light; }
+  /* الوضع الداكن: زي الجهاز افتراضياً، أو اختيار العميل من الزرار (data-theme على <html> من js/theme.js) */
   [data-theme="dark"] {
     --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #6E7681; --line: #2B303A;
     --verified: #2BC4A4; --verified-bg: #123832; --pending: #E3A94A; --pending-bg: #3A2C13;
     --alert: #EC6952; --alert-bg: #3D1B15; --sending-bg: #262B34;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #6E7681; --line: #2B303A;
+      --verified: #2BC4A4; --verified-bg: #123832; --pending: #E3A94A; --pending-bg: #3A2C13;
+      --alert: #EC6952; --alert-bg: #3D1B15; --sending-bg: #262B34;
+      color-scheme: dark;
+    }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); font-family: 'IBM Plex Sans Arabic', 'IBM Plex Sans', 'Segoe UI', Tahoma, sans-serif; transition: background .2s ease, color .2s ease; }
@@ -401,6 +414,21 @@
   .status-action { border: 1px solid var(--verified); background: var(--verified-bg); color: var(--verified); border-radius: 8px; padding: 4px 10px; font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
   .status-action:focus-visible, .ls-link:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 
+  /* ---------- الموبايل: الشريط اللي فوق بيستخبى وإنت نازل ويرجع أول ما تطلع (ui.js) ---------- */
+  .appbar { transition: transform .2s ease; }
+  @media (max-width: 720px) { .appbar.appbar-hidden { transform: translateY(-100%); } }
+
+  /* ---------- آخر تحديث: قديم = زرار «حدّث» ---------- */
+  .last-updated.stale { color: var(--pending); }
+  .stale-refresh { border: 1px solid currentColor; background: none; color: inherit; border-radius: 7px; padding: 2px 8px; margin-inline-start: 6px; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .stale-refresh:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+
+  /* ---------- إعدادات التنبيهات: قيمة غلط ---------- */
+  .setting-row.invalid .setting-input input { border-color: var(--alert); box-shadow: 0 0 0 1px var(--alert); }
+  .setting-error { display: block; font-size: 11.5px; font-weight: 600; color: var(--alert); margin-top: 3px; }
+  .settings-error { font-size: 12.5px; font-weight: 600; color: var(--alert); background: var(--alert-bg); border-radius: 9px; padding: 8px 12px; margin-top: 10px; }
+  .settings-error:empty { display: none; }
+
   /* ---------- نافذة المنصات: متصل + فصل ---------- */
   .platform-row { display: flex; gap: 8px; align-items: stretch; }
   .platform-row .platform-item { flex: 1 1 auto; min-width: 0; }
@@ -639,7 +667,7 @@
 </div>
 
 <!-- درج الفلاتر -->
-<div id="filterDrawer" class="drawer hidden" role="dialog" aria-label="فلاتر الإعلانات" data-i18n-aria="filters.aria">
+<div id="filterDrawer" class="drawer hidden" role="dialog" aria-modal="true" aria-label="فلاتر الإعلانات" data-i18n-aria="filters.aria">
   <div class="drawer-backdrop" data-close-drawer></div>
   <div class="drawer-panel">
     <div class="drawer-head">
@@ -689,10 +717,10 @@
 </div>
 
 <div id="platformOverlay" class="expand-overlay hidden">
-  <div class="expand-card">
+  <div class="expand-card" role="dialog" aria-modal="true" aria-labelledby="pfTitle">
     <button class="expand-close" id="platformClose" aria-label="close" data-i18n-aria="btn.close">✕</button>
     <div class="expand-body" style="padding-top:24px;">
-      <div class="expand-title" style="margin-bottom:4px;" data-i18n="pf.title">اختر المنصة</div>
+      <div class="expand-title" id="pfTitle" style="margin-bottom:4px;" data-i18n="pf.title">اختر المنصة</div>
       <div class="expand-sub" style="margin-bottom:16px;" data-i18n="pf.sub">سجّل دخولك في كل منصة تستخدمها، وهتظهر كل إعلاناتك في مكان واحد</div>
       <!-- كل منصة: زرار الربط + (لو متصلة) «متصل — الحساب» وزرار «فصل» جنبه — renderPlatformPanel في ui.js -->
       <div class="platform-list">
@@ -741,7 +769,7 @@
 </div>
 
 <div id="expandOverlay" class="expand-overlay hidden">
-  <div class="expand-card">
+  <div class="expand-card" role="dialog" aria-modal="true" aria-labelledby="expandTitle">
     <button class="expand-close" id="expandClose" aria-label="close" data-i18n-aria="btn.close">✕</button>
     <div class="expand-preview" id="expandPreview"></div>
     <div class="expand-body">
@@ -765,12 +793,13 @@
 </div>
 
 <div id="settingsOverlay" class="expand-overlay hidden">
-  <div class="expand-card settings-card" role="dialog" aria-labelledby="settingsTitle">
+  <div class="expand-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
     <button class="expand-close" id="settingsClose" aria-label="close" data-i18n-aria="btn.close">✕</button>
     <div class="expand-body" style="padding-top:24px;">
       <div class="expand-title" id="settingsTitle" data-i18n="settings.title">إعدادات التنبيهات</div>
       <div class="expand-sub" data-i18n="settings.sub">القيم الافتراضية محسوبة نسبةً لأداء حسابك نفسه، فتناسب أي حجم ميزانية. عدّلها لو عندك أهداف مختلفة — بتتحفظ على المتصفح ده.</div>
       <div id="settingsForm"></div>
+      <div class="settings-error" id="settingsError" role="alert"></div>
       <div class="settings-actions">
         <button type="button" class="stop-btn" id="settingsSave" data-i18n="settings.save">حفظ</button>
         <button type="button" class="ghost-btn" id="settingsReset" data-i18n="settings.reset">رجوع للقيم الافتراضية</button>

@@ -10,7 +10,7 @@
 // الحسابات المقفولة أو اللي إعدادها ما خلصش (CUSTOMER_NOT_ENABLED، أو حالتها مش ENABLED) مش عطل —
 // بترجع لوحدها في inactive عشان الأداة تقول للمستخدم بالظبط أنهي حساب ويعمل إيه
 
-import { GOOGLE_ADS_API, googleErrorMessage, googleHeaders, gaql } from './_google.js';
+import { GOOGLE_ADS_API, googleErrorMessage, googleErrorCode, googleHeaders, gaql } from './_google.js';
 import { guardRequest } from './_cors.js';
 import { verifyGoogleToken } from './_verify.js';
 
@@ -23,14 +23,14 @@ export default async function handler(req, res) {
 
   const { accessToken } = req.body || {};
   if (!accessToken) {
-    res.status(400).json({ error: 'accessToken مطلوب في جسم الطلب.' });
+    res.status(400).json({ error: 'accessToken مطلوب في جسم الطلب.', code: 'BAD_REQUEST' });
     return;
   }
 
   // التوكن لازم يكون صادر لتطبيقنا — من غير كده أي حد يستهلك حصة Developer Token بتاعنا
   const verified = await verifyGoogleToken(accessToken);
   // توكن منتهي = 401 (الواجهة بتعرض «ربط تاني»)، توكن مش لتطبيقنا = 403
-  if (!verified.ok) { res.status(verified.auth ? 401 : 403).json({ error: verified.error, code: verified.auth ? 'AUTH' : 'FORBIDDEN' }); return; }
+  if (!verified.ok) { res.status(verified.auth ? 401 : 403).json({ error: verified.error, code: verified.auth ? 'AUTH' : (verified.code || 'FORBIDDEN') }); return; }
 
   try {
     const response = await fetch(GOOGLE_ADS_API + '/customers:listAccessibleCustomers', {
@@ -39,7 +39,7 @@ export default async function handler(req, res) {
     });
     const data = await response.json().catch(function () { return null; });
     if (!response.ok) {
-      res.status(response.status).json({ error: googleErrorMessage(data, response.status) });
+      res.status(response.status).json({ error: googleErrorMessage(data, response.status), code: googleErrorCode(data) });
       return;
     }
     const rootIds = ((data && data.resourceNames) || []).map(function (rn) { return rn.replace('customers/', ''); });
@@ -91,7 +91,7 @@ export default async function handler(req, res) {
     // حساب ظهر شغّال من طريق تاني (مثلاً تحت Manager) ميتحسبش مقفول
     const inactiveIds = Object.keys(inactive).filter(function (id) { return !byId[id]; });
     if (!accounts.length && errors.length) {
-      res.status(502).json({ error: errors[0].error, errors: errors, inactive: inactiveIds });
+      res.status(502).json({ error: errors[0].error, code: errors[0].code || null, errors: errors, inactive: inactiveIds });
       return;
     }
     res.status(200).json({ accounts: accounts, errors: errors, inactive: inactiveIds });

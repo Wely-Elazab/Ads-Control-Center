@@ -34,7 +34,7 @@
         setStatus(msg('s.snapLoggedIn'));
         loadSnapchatAccounts();
       } else {
-        setStatus(msg('s.loginFailed', { platform: 'Snapchat', msg: data && data.error ? data.error : msg('s.unknownError') }));
+        setStatus(msg('s.loginFailed', { platform: 'Snapchat', msg: data && (data.error || data.code) ? apiErrorText(res) : msg('s.unknownError') }));
       }
     }).catch(function (err) {
       setStatus(msg('s.backendPlatformFailed', { platform: 'Snapchat', msg: err.message }));
@@ -47,7 +47,7 @@
       var data = res.data;
       // قبل كده أي خطأ من Snapchat كان بيظهر كأن «مفيش حسابات» — دلوقتي بيظهر كخطأ برسالته
       if (!res.ok || data.error || data.request_status === 'ERROR') {
-        var failMsg = msg('s.accountsLoadFailed', { platform: 'Snapchat', msg: data.error || data.debug_message || ('HTTP ' + res.status) });
+        var failMsg = msg('s.accountsLoadFailed', { platform: 'Snapchat', msg: data.error || data.code ? apiErrorText(res) : (data.debug_message || ('HTTP ' + res.status)) });
         setPlatformState('snapchat', { kind: 'error', msg: failMsg });
         setStatus(failMsg);
         render();
@@ -98,7 +98,7 @@
       if (isAuthFailure(res)) { markExpired('snapchat'); return; }
       var payload = res.data;
       if (!res.ok || payload.error) {
-        fail(msg('s.adsFailed', { platform: 'Snapchat', msg: payload.error || msg('s.unexpected') }));
+        fail(msg('s.adsFailed', { platform: 'Snapchat', msg: apiErrorText(res) }));
         return;
       }
       var adsList = payload.ads || [];

@@ -25,20 +25,32 @@
   function ar(n) { return isAr() ? String(n).replace(/[0-9]/g, function (d) { return ARABIC_DIGITS[d]; }) : String(n); }
   function digitsAny(n) { return ar(n); }
   function decSep() { return isAr() ? '٫' : '.'; }
-  // العملة بتيجي من الحساب الإعلاني نفسه — ر.س افتراضياً لو المنصة مرجّعتهاش
+  // العملة بتيجي من الحساب الإعلاني نفسه. لو المنصة مرجّعتهاش بنسيبها فاضية —
+  // قبل كده كانت "ر.س" افتراضياً، فحساب بالجنيه كان ممكن يظهر بالريال
   var CURRENCY_LABELS = { SAR: 'ر.س', AED: 'د.إ', EGP: 'ج.م', KWD: 'د.ك', QAR: 'ر.ق', BHD: 'د.ب', OMR: 'ر.ع', JOD: 'د.أ', USD: '$', EUR: '€', GBP: '£' };
   var CURRENCY_SYMBOLS_EN = { USD: '$', EUR: '€', GBP: '£' };
   function currencyLabel(cur) {
-    if (!isAr()) return CURRENCY_SYMBOLS_EN[cur] || cur || 'SAR';
-    return CURRENCY_LABELS[cur] || cur || 'ر.س';
+    if (!cur) return '';
+    if (!isAr()) return CURRENCY_SYMBOLS_EN[cur] || cur;
+    return CURRENCY_LABELS[cur] || cur;
   }
-  // المبالغ الصغيرة بتتعرض بخانة عشرية (٠٫٤ ر.س) — التقريب كان بيخليها "٠ ر.س" في تنبيه زي "صرف ١ بس"
-  function money(n, cur) {
-    var v = n || 0;
-    var s = (Math.abs(v) > 0 && Math.abs(v) < 10 && Math.round(v) !== v)
+  // رقم بفاصل الآلاف (٢٬٤٠٠ / 2,400). keepSmallDecimal: الأرقام الأقل من ١٠ بخانة عشرية لو فيها كسور
+  // (٠٫٤ مش ٠) — عشان صرف صغير زي "صرف ١ بس" ميتقريش صفر
+  function fmtNum(n, keepSmallDecimal) {
+    var v = Number(n) || 0;
+    var s = (keepSmallDecimal && v !== 0 && Math.abs(v) < 10 && Math.round(v) !== v)
       ? String(Math.round(v * 10) / 10).replace('.', decSep())
       : Math.round(v).toLocaleString('en-US').replace(/,/g, isAr() ? '٬' : ',');
-    return ar(s) + ' ' + currencyLabel(cur);
+    return ar(s);
+  }
+  function money(n, cur) {
+    var label = currencyLabel(cur);
+    return fmtNum(n, true) + (label ? ' ' + label : '');
+  }
+  // عملة الإعلانات المعروفة (لمبلغ صفر مالوش عملة زي "معرّض للهدر: ٠") — null لو مفيش
+  function defaultCurrency() {
+    for (var i = 0; i < candidates.length; i++) if (candidates[i].currency) return candidates[i].currency;
+    return null;
   }
   // رقم بخانة عشرية واحدة بالأرقام العربية (مثال: ٢٫٥)
   // الأرقام اليومية بتتخزن بخانتين عشريتين — التقريب لأقرب رقم صحيح بيحصل وقت العرض بس،
@@ -224,6 +236,20 @@
   }
   // الربط انتهى أو اتلغى (توكن منتهي) — ده مش عطل، العميل محتاج يربط تاني بس
   function isAuthFailure(res) { return !!res && (res.status === 401 || (res.data && res.data.code === 'AUTH')); }
+  // سبب الخطأ بلغة الواجهة: الأخطاء المعروفة (حد الطلبات، الصلاحيات، إعداد السيرفر...) بتتترجم، والباقي بنص
+  // المنصة نفسه. بترجع دالة — عشان لو العميل غيّر اللغة، نفس الرسالة تتكتب باللغة الجديدة.
+  // قبل كده رسايل السيرفر كانت بالعربي بس، فالعميل اللي مختار إنجليزي كان بيشوفها بالعربي
+  var SERVER_ERROR_KEYS = {
+    ORIGIN: 'err.origin', WRONG_APP: 'err.wrongApp', NO_SCOPE: 'err.noScope', BAD_REQUEST: 'err.badRequest', CONFIG: 'err.config',
+    RESOURCE_EXHAUSTED: 'err.rateLimit', RATE_EXCEEDED: 'err.rateLimit', USER_PERMISSION_DENIED: 'err.permission', PERMISSION_DENIED: 'err.permission'
+  };
+  function apiErrorText(res) {
+    var data = (res && res.data) || {};
+    var key = SERVER_ERROR_KEYS[data.code] || (res && res.status === 429 ? 'err.rateLimit' : null) ||
+      (res && res.status === 403 && !data.code ? 'err.permission' : null);
+    var raw = data.error && (data.error.message || data.error);
+    return function () { return key ? t(key) : String(raw || t('s.unexpected')); };
+  }
 
   function rememberToken(platform, token, expiresInSec) {
     // بنطرح دقيقة احتياطي عشان منبعتش توكن هينتهي في نص الطلب
@@ -467,9 +493,15 @@
     try { saved = sessionStorage.getItem(OAUTH_STATE_KEY); sessionStorage.removeItem(OAUTH_STATE_KEY); } catch (e) { /* مقفول */ }
     return !!saved && received === saved;
   }
-  // رسالة خطأ راجعة من المنصة نفسها في الرابط (مثلاً المستخدم رفض الصلاحيات)
+  // خطأ راجع من المنصة نفسها في الرابط (مثلاً المستخدم رفض الصلاحيات). بنعرض رسالة من عندنا بس،
+  // مش النص اللي في الرابط (error_description) — أي حد كان يقدر يبعت رابط فيه أي جملة، زي
+  // "حسابك اتوقف كلّمنا على الرقم ده"، وتظهر للعميل كأنها رسالة من الأداة
   function oauthErrorFromUrl(params) {
     var err = params.get('error') || params.get('error_code');
     if (!err) return null;
-    return params.get('error_description') || params.get('error_message') || err;
+    // أكواد OAuth المعروفة بس بتظهر (بتساعد في الدعم الفني) — أي حاجة تانية بتبقى رسالة عامة
+    var code = OAUTH_ERROR_CODES.indexOf(err) !== -1 ? err : 'unknown';
+    return function () { return code === 'access_denied' ? t('err.oauthDenied') : t('err.oauthOther', { code: code }); };
   }
+  var OAUTH_ERROR_CODES = ['access_denied', 'invalid_request', 'unauthorized_client', 'unsupported_response_type',
+    'invalid_scope', 'server_error', 'temporarily_unavailable', 'invalid_grant', 'invalid_client'];

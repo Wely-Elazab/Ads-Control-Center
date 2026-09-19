@@ -15,14 +15,14 @@ export default async function handler(req, res) {
 
   const { accessToken, customerId, loginCustomerId, timeZone, clientTz, period } = req.body || {};
   if (!accessToken || !customerId) {
-    res.status(400).json({ error: 'accessToken و customerId مطلوبين في جسم الطلب.' });
+    res.status(400).json({ error: 'accessToken و customerId مطلوبين في جسم الطلب.', code: 'BAD_REQUEST' });
     return;
   }
 
   // التوكن لازم يكون صادر لتطبيقنا — من غير كده أي حد يستهلك حصة Developer Token بتاعنا
   const verified = await verifyGoogleToken(accessToken);
   // توكن منتهي = 401 (الواجهة بتعرض «ربط تاني»)، توكن مش لتطبيقنا = 403
-  if (!verified.ok) { res.status(verified.auth ? 401 : 403).json({ error: verified.error, code: verified.auth ? 'AUTH' : 'FORBIDDEN' }); return; }
+  if (!verified.ok) { res.status(verified.auth ? 401 : 403).json({ error: verified.error, code: verified.auth ? 'AUTH' : (verified.code || 'FORBIDDEN') }); return; }
 
   const range = last7DaysRange(timeZone || clientTz);
   // الفترة اللي المستخدم اختارها للأرقام (الصرف والنتائج) — التنبيهات بتفضل على آخر ٧ أيام دايماً
@@ -139,6 +139,6 @@ export default async function handler(req, res) {
       range: range, period: periodRange
     });
   } catch (err) {
-    res.status(err && err.status ? err.status : 500).json({ error: String(err && err.message ? err.message : err) });
+    res.status(err && err.status ? err.status : 500).json({ error: String(err && err.message ? err.message : err), code: (err && err.code) || null });
   }
 }

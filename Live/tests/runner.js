@@ -6,7 +6,7 @@
 // 3) بيمنع تحميل مكتبات Meta وGoogle (مش محتاجينها، والاختبارات بتشتغل من غير نت)
 // 4) بيحمّل ملفات الأداة بنفس ترتيب الموقع، وبعدين tests.js
 (function () {
-  var KEYS_LOCAL = ['acc.lang', 'acc.period.v1', 'acc.view.v1', 'acc.lastAccount.v1', 'pauseproof.alertSettings.v1'];
+  var KEYS_LOCAL = ['acc.lang', 'acc.theme', 'acc.period.v1', 'acc.view.v1', 'acc.lastAccount.v1', 'pauseproof.alertSettings.v1'];
   var KEYS_SESSION = ['pauseproof.session.v1', 'pauseproof.oauthState'];
   var backup = { local: {}, session: {} };
   KEYS_LOCAL.forEach(function (k) { backup.local[k] = localStorage.getItem(k); localStorage.removeItem(k); });
@@ -21,7 +21,7 @@
     var s = document.createElement('script'); s.id = id; s.type = 'text/plain'; document.head.appendChild(s);
   });
 
-  var SCRIPTS = ['/js/i18n.js', '/js/alerts.js', '/js/core.js', '/js/meta.js', '/js/google.js', '/js/snapchat.js',
+  var SCRIPTS = ['/js/theme.js', '/js/i18n.js', '/js/alerts.js', '/js/core.js', '/js/meta.js', '/js/google.js', '/js/snapchat.js',
     '/js/tiktok.js', '/js/ui.js', '/js/main.js', '/js/join.js', '/js/pricing.js', '/tests/tests.js'];
 
   function loadScript(src) {

@@ -2,12 +2,20 @@
 :root {
   --paper: #F5F6F2; --card: #FFFFFF; --ink: #161A1F; --ink-soft: #5B6470; --ink-faint: #9098A0; --line: #E3E5DF;
   --verified: #0E7A63; --verified-bg: #E4F3EF;
+  color-scheme: light;
 }
+/* الوضع الداكن: زي الجهاز، إلا لو العميل اختار غير كده من زرار الأداة (data-theme من js/theme.js) */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #6E7681; --line: #2B303A;
     --verified: #2BC4A4; --verified-bg: #123832;
+    color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #6E7681; --line: #2B303A;
+  --verified: #2BC4A4; --verified-bg: #123832;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); }

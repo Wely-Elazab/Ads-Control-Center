@@ -33,8 +33,8 @@ export function guardRequest(req, res) {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   }
 
-  if (!ok) { res.status(403).json({ error: 'الطلب جاي من دومين غير مسموح (' + origin + ').' }); return false; }
+  if (!ok) { res.status(403).json({ error: 'الطلب جاي من دومين غير مسموح (' + origin + ').', code: 'ORIGIN' }); return false; }
   if (req.method === 'OPTIONS') { res.status(204).end(); return false; }
-  if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return false; }
+  if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed', code: 'BAD_REQUEST' }); return false; }
   return true;
 }

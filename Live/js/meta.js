@@ -51,6 +51,17 @@
 
   // خطأ 190 (أو 102) = جلسة فيسبوك انتهت أو اتلغت — العميل محتاج يربط تاني بس، مش عطل
   function isMetaAuthError(err) { return !!err && (Number(err.code) === 190 || Number(err.code) === 102); }
+  // أكواد Meta المعروفة بتترجم لرسالة مفهومة بلغة الواجهة (بدل "(#17) User request limit reached" بالإنجليزي)
+  var META_RATE_CODES = { 4: 1, 17: 1, 32: 1, 613: 1, 80000: 1, 80001: 1, 80002: 1, 80003: 1, 80004: 1, 80005: 1, 80006: 1, 80008: 1, 80009: 1, 80014: 1 };
+  function isMetaRateLimit(err) { return !!err && !!META_RATE_CODES[Number(err.code)]; }
+  function metaErrorText(err) {
+    var code = err ? Number(err.code) : null;
+    return function () {
+      if (META_RATE_CODES[code]) return t('err.rateLimit');
+      if (code === 10 || (code >= 200 && code <= 299)) return t('err.permission');
+      return (err && err.message) || t('s.unexpected');
+    };
+  }
 
   // بيحمّل *كل* الحسابات الإعلانية مش أول صفحة بس (Meta بترجّع ٢٥ حساب في الصفحة افتراضياً)
   function loadAdAccounts(onlyRefreshId) {
@@ -58,7 +69,7 @@
     fetchAllPages('/me/adaccounts', { fields: META_ACCOUNT_FIELDS, limit: 100 }, FULL_SCAN_CAP, function (err, data) {
       if (err) {
         if (isMetaAuthError(err)) { markExpired('meta'); return; }
-        var failMsg = msg('s.metaAccountsFailed');
+        var failMsg = isMetaRateLimit(err) ? metaErrorText(err) : msg('s.metaAccountsFailed');
         setPlatformState('meta', { kind: 'error', msg: failMsg });
         setStatus(failMsg);
         render();
@@ -243,7 +254,7 @@
       var ads = r[0], adsetStatusMap = r[1];
       if (ads.err) {
         if (isMetaAuthError(ads.err)) markExpired('meta');
-        else fail(msg('s.adsFailed', { platform: 'Meta', msg: ads.err.message }));
+        else fail(msg('s.adsFailed', { platform: 'Meta', msg: metaErrorText(ads.err) }));
         return null;
       }
       adsTruncated = ads.truncated;
@@ -305,7 +316,7 @@
       var notes = [];
       if (periodRes && periodRes.err) notes.push(msg('note.periodFailed'));
       if (adsTruncated) notes.push(msg('note.adsCapped', { n: PAGE_SAFETY_CAP, ads: function () { return noun(PAGE_SAFETY_CAP, 'n.ad'); } }));
-      if (daily.err) notes.push(msg('note.dailyFailed', { msg: daily.err.message }));
+      if (daily.err) notes.push(msg('note.dailyFailed', { msg: metaErrorText(daily.err) }));
       else if (daily.truncated) notes.push(msg('note.dailyTruncated', { n: FULL_SCAN_CAP }));
       setPlatformState('meta', null);
       setLoading('meta', false, connectedText(notes));

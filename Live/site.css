@@ -9,8 +9,9 @@
 }
 @media (prefers-color-scheme: dark) {
   /* في الوضع الداكن اللون الأخضر فاتح، فالكتابة عليه لازم تبقى غامقة عشان تتقري */
-  :root { --pending: #E3A94A; --pending-bg: #3A2C13; --alert: #EC6952; --alert-bg: #3D1B15; --on-verified: #06231C; }
+  :root:not([data-theme="light"]) { --pending: #E3A94A; --pending-bg: #3A2C13; --alert: #EC6952; --alert-bg: #3D1B15; --on-verified: #06231C; }
 }
+:root[data-theme="dark"] { --pending: #E3A94A; --pending-bg: #3A2C13; --alert: #EC6952; --alert-bg: #3D1B15; --on-verified: #06231C; }
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 /* الأقسام متستخبّاش تحت الشريط العلوي الثابت لما تفتحها من رابط (#...) */

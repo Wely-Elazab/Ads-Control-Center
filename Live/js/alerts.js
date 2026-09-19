@@ -58,23 +58,37 @@
 
   // وصف كل إعداد لشاشة الإعدادات — بلغة بزنس (النص نفسه في i18n.js تحت set.<key> و set.<key>.help)
   // kind: multiple (×) / ratio (بيتعرض كنسبة مئوية) / days / times / count
+  // min / max = أقل وأكبر قيمة مقبولة بوحدة الشاشة (النسب بالمئة) — القيم برّه الحدود دي بتخلّي
+  // التنبيهات تطلع على كل حاجة أو متطلعش خالص (مثلاً مضاعف «أعلى من المتوسط» أقل من ١)
   var SETTINGS_META = [
-    ['learningDays', 'days', 'general'], ['minSpendShare', 'ratio', 'general'], ['oldAdDays', 'days', 'general'],
-    ['wasteCprMultiple', 'multiple', 'waste'], ['cprWarnMultiple', 'multiple', 'waste'], ['cprCriticalMultiple', 'multiple', 'waste'],
-    ['roasBreakEven', 'multiple', 'roas'], ['roasTarget', 'multiple', 'roas'],
-    ['lowDeliveryRatio', 'ratio', 'spend'], ['spikeMultiple', 'multiple', 'spend'],
-    ['dropRatio', 'ratio', 'results'],
-    ['scaleMinResults', 'count', 'opps'], ['scaleCprRatio', 'ratio', 'opps'],
-    ['frequencyWarn', 'times', 'audience'], ['frequencyHigh', 'times', 'audience'],
-    ['accountSpikeMultiple', 'multiple', 'account'], ['accountDropRatio', 'ratio', 'account'], ['concentrationShare', 'ratio', 'account']
+    ['learningDays', 'days', 'general', 0, 30], ['minSpendShare', 'ratio', 'general', 0, 50], ['oldAdDays', 'days', 'general', 1, 730],
+    ['wasteCprMultiple', 'multiple', 'waste', 0.5, 20], ['cprWarnMultiple', 'multiple', 'waste', 1, 20], ['cprCriticalMultiple', 'multiple', 'waste', 1, 20],
+    ['roasBreakEven', 'multiple', 'roas', 0.1, 50], ['roasTarget', 'multiple', 'roas', 0.1, 50],
+    ['lowDeliveryRatio', 'ratio', 'spend', 1, 100], ['spikeMultiple', 'multiple', 'spend', 1.1, 20],
+    ['dropRatio', 'ratio', 'results', 1, 100],
+    ['scaleMinResults', 'count', 'opps', 1, 10000], ['scaleCprRatio', 'ratio', 'opps', 1, 100],
+    ['frequencyWarn', 'times', 'audience', 1, 50], ['frequencyHigh', 'times', 'audience', 1, 50],
+    ['accountSpikeMultiple', 'multiple', 'account', 1.1, 20], ['accountDropRatio', 'ratio', 'account', 1, 100], ['concentrationShare', 'ratio', 'account', 5, 100]
   ].map(function (m) {
     return {
-      key: m[0], kind: m[1],
+      key: m[0], kind: m[1], min: m[3], max: m[4],
       get group() { return t('setgroup.' + m[2]); },
       get label() { return t('set.' + m[0]); },
       get help() { return t('set.' + m[0] + '.help'); }
     };
   });
+  // نفس الحدود بالوحدة الداخلية (النسبة ٠–١) — عشان قيمة غلط محفوظة من قبل كده متتقبلش
+  var SETTINGS_LIMITS = {};
+  SETTINGS_META.forEach(function (m) {
+    var f = m.kind === 'ratio' ? 0.01 : 1;
+    SETTINGS_LIMITS[m.key] = { min: m.min * f, max: m.max * f };
+  });
+  // حدود لازم تكون مترتبة: [الأصغر، الأكبر، مفتاح الرسالة]
+  var SETTINGS_ORDER = [
+    ['cprWarnMultiple', 'cprCriticalMultiple', 'set.err.cprOrder'],
+    ['frequencyWarn', 'frequencyHigh', 'set.err.freqOrder'],
+    ['roasBreakEven', 'roasTarget', 'set.err.roasOrder']
+  ];
 
   var LEVEL_RANK = { critical: 3, warning: 2, info: 1, opportunity: 0 };
 
@@ -113,8 +127,9 @@
     var s = {};
     var preset = (custom && PRESETS[custom._preset]) || {};
     Object.keys(DEFAULT_SETTINGS).forEach(function (k) {
-      var v = custom && custom[k];
-      s[k] = (typeof v === 'number' && isFinite(v) && v >= 0) ? v : (k in preset ? preset[k] : DEFAULT_SETTINGS[k]);
+      var v = custom && custom[k], lim = SETTINGS_LIMITS[k];
+      var ok = typeof v === 'number' && isFinite(v) && v >= 0 && (!lim || (v >= lim.min - 1e-9 && v <= lim.max + 1e-9));
+      s[k] = ok ? v : (k in preset ? preset[k] : DEFAULT_SETTINGS[k]);
     });
     return s;
   }
@@ -259,7 +274,10 @@
       // 5) العائد (بس للإعلانات اللي بتسجّل قيمة مبيعات)
       if (acc.hasSales && any(sales) && spendY > 0 && (!avgCpr || spendY >= avgCpr * 0.5) && !(salesY === 0 && wasteRaised)) {
         var roasY = salesY / spendY;
-        var roasText = t('al.roasText', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: fmt.num(roasY) });
+        // لو عملة الحساب مش معروفة: "العائد ×٣" بدل "كل ١  اتصرف رجّع ٣ " من غير عملة
+        var roasText = fmt.currencyLabel(cur)
+          ? t('al.roasText', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: fmt.num(roasY) })
+          : t('al.roasTextNoCur', { roas: fmt.num(roasY) });
         var roasVars = { name: name, spend: money(spendY), sales: money(salesY), roasText: roasText, target: fmt.num(s.roasTarget) };
         if (roasY < s.roasBreakEven) {
           issues.push(makeIssue('critical', ['roas', 'spend'], t('al.loss.t'), t('al.loss.d', roasVars),
@@ -329,7 +347,9 @@
         issues.forEach(function (i, idx) { if (i.code === 'roas-great') greatIdx = idx; });
         var roasNote = '';
         if (greatIdx !== -1) {
-          roasNote = t('al.scale.note', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: fmt.num(salesY / spendY) });
+          roasNote = fmt.currencyLabel(cur)
+            ? t('al.scale.note', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: fmt.num(salesY / spendY) })
+            : t('al.scale.noteNoCur', { roas: fmt.num(salesY / spendY) });
           issues.splice(greatIdx, 1);
         }
         issues.push(makeIssue('opportunity', ['results', 'cpr', 'roas'], t('al.scale.t'),
@@ -507,6 +527,7 @@
     PRESETS: PRESETS,
     presetSettings: presetSettings,
     SETTINGS_META: SETTINGS_META,
+    SETTINGS_ORDER: SETTINGS_ORDER,
     mergeSettings: mergeSettings,
     analyze: analyze
   };
