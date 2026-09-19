@@ -63,7 +63,8 @@
     if (n === 0) return t('since.today');
     if (n === 1) return t('since.1');
     if (n === 2) return t('since.2');
-    return t('since.n.' + I18N.form(n), { n: ar(n) });
+    // «منذ ٥ أيام» / «منذ ١٥ يوماً» / «منذ ١٠٠ يوم»
+    return t(I18N.countKey(n, 'since.n.one', 'since.n.many', 'since.n.acc'), { n: ar(n) });
   }
   // بيرجّع null لو التاريخ مش موجود أو غلط — "٠ يوم" كانت بتتقري غلط إنه اتطلق النهارده
   function daysBetween(dateStr) {
@@ -308,15 +309,23 @@
     return { preset: preset, since: since, until: until, isDefault: preset === 'last7' };
   }
   function periodKey() { return period.preset === 'custom' ? 'custom:' + period.since + ':' + period.until : period.preset; }
-  // تاريخ بشكل مقروء: "٣ سبت"
+  // تاريخ بشكل مقروء: "٣ سبتمبر"
   function fmtKey(key) {
     if (!key) return '';
     var p = key.split('-').map(Number);
     return ar(p[2]) + ' ' + monthsShort()[p[1] - 1];
   }
+  // فترة: "١٣–١٩ سبتمبر" لو نفس الشهر، و"٢٨ أغسطس – ٣ سبتمبر" لو شهرين — من غير تكرار الشهر ولا شرطتين ورا بعض
+  // مع "الإنفاق — ..."
+  function fmtRange(since, until) {
+    if (!since || !until || since === until) return fmtKey(since || until);
+    var a = since.split('-').map(Number), b = until.split('-').map(Number);
+    if (a[0] === b[0] && a[1] === b[1]) return ar(a[2]) + '–' + ar(b[2]) + ' ' + monthsShort()[a[1] - 1];
+    return fmtKey(since) + ' – ' + fmtKey(until);
+  }
   function periodLabel() {
     if (period.preset !== 'custom') return PERIOD_LABELS[period.preset];
-    return fmtKey(period.since) + ' — ' + fmtKey(period.until);
+    return fmtRange(period.since, period.until);
   }
   // أرقام الإعلان في الفترة المختارة — لو الفترة هي آخر ٧ أيام بتتحسب من البيانات الأسبوعية نفسها
   function periodOf(c) {

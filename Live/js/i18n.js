@@ -32,7 +32,8 @@
       'since.today': 'اليوم',
       'since.1': 'منذ يوم',
       'since.2': 'منذ يومين',
-      'since.n.one': 'منذ {n} يوماً',
+      'since.n.one': 'منذ {n} يوم',
+      'since.n.acc': 'منذ {n} يوماً',
       'since.n.many': 'منذ {n} أيام',
       'n.ad.one': 'إعلان', 'n.ad.acc': 'إعلاناً', 'n.ad.many': 'إعلانات',
       'n.account.one': 'حساب', 'n.account.acc': 'حساباً', 'n.account.many': 'حسابات',
@@ -137,6 +138,11 @@
       'res.contact': 'طلبات تواصل', 'res1.contact': 'طلب تواصل',
       'res.reach': 'أشخاص وصلهم الإعلان', 'res1.reach': 'شخص',
       'res.generic': 'نتائج', 'res1.generic': 'نتيجة',
+      // التمييز المنصوب مع ١١–٩٩ (للأنواع اللي شكلها بيتغيّر بس): «١٥ تحويلاً»
+      'resA.lead': 'عميلاً محتملاً', 'resA.install': 'تثبيتاً', 'resA.engagement': 'تفاعلاً', 'resA.reply': 'رداً',
+      'resA.conversion': 'تحويلاً', 'resA.registration': 'تسجيلاً', 'resA.subscribe': 'اشتراكاً', 'resA.reach': 'شخصاً',
+      // الجمع المجرور بعد «أي» وبعد الأعداد من ٣ لـ ١٠: «دون أي عملاء محتملين»
+      'resG.lead': 'عملاء محتملين',
 
       // الكروت
       'card.staticDesign': 'صورة ثابتة',
@@ -175,7 +181,7 @@
       'x.cpr': 'تكلفة النتيجة الواحدة',
       'x.roas': 'العائد (مقابل كل ١)',
       'x.freq': 'تكرار الظهور للشخص نفسه (آخر ٧ أيام)',
-      'x.times': 'مرة',
+      'n.time.one': 'مرة', 'n.time.many': 'مرات',
       'x.sales': 'قيمة المبيعات',
       'x.noSales': '— (لا توجد قيمة مالية مرتبطة بالنتائج)',
       'x.salesRow': 'المبيعات ({cur})',
@@ -364,7 +370,7 @@
       's.connected': 'متصل — تم تحميل {n} {ads} من جميع المنصات المتصلة.',
       's.metaSdkLoading': 'ما زالت مكتبة Meta قيد التحميل، حاول مرة أخرى بعد ثانية.',
       's.metaOpening': 'جارٍ فتح نافذة تسجيل الدخول بحساب Meta…',
-      's.metaCancelled': 'لم يكتمل تسجيل الدخول بحساب Meta. إن ظهرت لك رسالة بأن التطبيق «غير نشط» (App not active)، فحسابك لم يُفعَّل في التجربة بعد، أو لم تقبل دعوة الانضمام.',
+      's.metaCancelled': 'لم يكتمل تسجيل الدخول بحساب Meta. إن ظهرت لك رسالة بأن التطبيق «غير نشط» (App not active)، فحسابك لم يُفعَّل في التجربة بعد، أو لم تقبل دعوة المختبِر على فيسبوك.',
       's.googleSdkLoading': 'ما زالت مكتبة Google قيد التحميل، حاول مرة أخرى بعد ثانية.',
       's.googleLoggedIn': 'تم تسجيل الدخول بحساب Google ✓ — جارٍ تحميل حساباتك الإعلانية…',
       's.googleLoginFailed': 'تعذّر تسجيل الدخول بحساب Google. إن ظهرت لك رسالة «تم حظر الوصول» (Access blocked)، فهذا البريد لم يُفعَّل في التجربة بعد.',
@@ -443,7 +449,7 @@
       'al.noSpend7.d': '{name} نشط، لكنه لم يُنفق شيئاً خلال آخر ٧ أيام.',
       'al.noSpend7.a': 'إن كان يُفترض أن يعمل هذا الإعلان، فراجع مع مسؤول الإعلانات سبب عدم ظهوره.',
       'al.waste.t': 'إنفاق دون نتائج',
-      'al.waste.d': 'أنفق {name} مبلغ {spend} خلال آخر يومين دون أي {label}. ومتوسط تكلفة {one} في حسابك {avg}، أي أن هذا الإنفاق كان يُفترض أن يحقق نحو {expected} {labelExp}.',
+      'al.waste.d': 'أنفق {name} مبلغ {spend} خلال آخر يومين دون أي {label}. ومتوسط تكلفة كل {one} في حسابك {avg}، أي أن هذا الإنفاق كان يُفترض أن يحقق نحو {expected} {labelExp}.',
       'al.waste.dNoAvg': 'أنفق {name} مبلغ {spend} خلال آخر يومين دون أي {label}، ولم يحقق أي إعلان في الحساب نتيجة خلال الفترة نفسها.',
       'al.waste.a': 'راجع الإعلان مع مسؤول الإعلانات: يحتاج إلى تعديل أو إيقاف حتى لا تُهدر هذه الميزانية.',
       'al.wasteEarly.t': 'إنفاق دون نتائج حتى الآن',
@@ -464,13 +470,14 @@
       'al.cpr.a': 'توجد إعلانات أخرى تحقق النتيجة نفسها بتكلفة أقل، ويمكن نقل جزء من الميزانية إليها.',
       'al.drop.t': 'نتائج أقل من المعتاد',
       'al.drop.d': 'حقق {name} أمس {n} {label} فقط مقابل متوسط {avg} يومياً، رغم أن الإنفاق بالمعدل نفسه تقريباً.',
+      'al.drop.dZero': 'لم يحقق {name} أي {label} أمس، مقابل متوسط {avg} يومياً، رغم أن الإنفاق بالمعدل نفسه تقريباً.',
       'al.drop.a': 'ربما بدأ الجمهور يتشبّع، أو توجد مشكلة في الموقع أو وسيلة التواصل — تابعه اليوم.',
       'al.spike.t': 'إنفاق أعلى من المعتاد',
       'al.spike.d': 'أنفق {name} أمس {spend}، أي نحو {x} أضعاف متوسطه اليومي ({avg})، دون أن تتحسن النتائج بالنسبة نفسها.',
       'al.spike.a': 'تأكّد من أن زيادة الميزانية مقصودة، وأن النتائج ستزداد معها.',
       'al.fatigue.t': 'تشبّع الجمهور من الإعلان',
       'al.fatigue.old': '، والإعلان نشط منذ {days} {dayWord}',
-      'al.fatigue.d': 'شاهد الشخص نفسه {name} نحو {f} مرات في المتوسط خلال آخر ٧ أيام{old}. وتكرار الإعلان نفسه يدفع الجمهور إلى تجاهله ويرفع التكلفة.',
+      'al.fatigue.d': 'شاهد الشخص نفسه {name} نحو {f} {times} في المتوسط خلال آخر ٧ أيام{old}. وتكرار الإعلان نفسه يدفع الجمهور إلى تجاهله ويرفع التكلفة.',
       'al.fatigue.a': 'الوقت مناسب لتجديد الإعلان (صورة أو فيديو أو نص جديد) أو لتوسيع الجمهور.',
       'al.scale.note': ' كما أن كل {one} {cur} أُنفق أمس عاد بمبيعات قيمتها {roas} {cur}.',
       'al.scale.t': 'فرصة لزيادة الاستثمار',
@@ -657,7 +664,7 @@
       'x.cpr': 'Cost per result',
       'x.roas': 'ROAS (return per 1)',
       'x.freq': 'Frequency per person (last 7 days)',
-      'x.times': 'times',
+      'n.time.one': 'time', 'n.time.many': 'times',
       'x.sales': 'Sales value',
       'x.noSales': '— (no sales value linked to results)',
       'x.salesRow': 'Sales ({cur})',
@@ -837,11 +844,11 @@
       's.connected': 'Connected — {n} {ads} loaded across all connected platforms.',
       's.metaSdkLoading': 'The SDK is still loading — try again in a second.',
       's.metaOpening': 'Opening the Meta login window…',
-      's.metaCancelled': 'The Meta login wasn\'t completed. If you saw "App not active", your account hasn\'t been activated in the pilot yet, or you haven\'t accepted the invitation.',
+      's.metaCancelled': 'The Meta login wasn\'t completed. If you saw "App not active", your account hasn\'t been activated in the pilot yet, or you haven\'t accepted the tester invitation on Facebook.',
       's.googleSdkLoading': 'The Google library is still loading — try again in a second.',
       's.googleLoggedIn': 'Logged in with Google ✓ — loading your ad accounts…',
-      's.googleLoginFailed': 'Couldn\'t log in with Google. If you saw "Access blocked", this email hasn\'t been added to the pilot yet.',
-      's.googleCancelled': 'The Google login wasn\'t completed. If you saw "Access blocked", this email hasn\'t been added to the pilot yet.',
+      's.googleLoginFailed': 'Couldn\'t log in with Google. If you saw "Access blocked", this email hasn\'t been activated in the pilot yet.',
+      's.googleCancelled': 'The Google login wasn\'t completed. If you saw "Access blocked", this email hasn\'t been activated in the pilot yet.',
       's.googleScopeMissing': 'You logged in, but the Google Ads permission wasn\'t ticked on the consent screen — log in again and tick it.',
       's.popupBlocked': 'Your browser blocked the {platform} login window — allow pop-ups for this site and try again.',
       's.googleAccountsFailed': 'Couldn\'t load Google Ads accounts ({msg}).',
@@ -936,13 +943,14 @@
       'al.cpr.a': 'Other ads get the same result for less — consider moving some budget to them.',
       'al.drop.t': 'Fewer results than usual',
       'al.drop.d': '{name} got only {n} {label} yesterday, versus an average of {avg} a day, at roughly the same spend.',
+      'al.drop.dZero': '{name} got no {label} yesterday, versus an average of {avg} a day, at roughly the same spend.',
       'al.drop.a': 'The audience may be tiring, or there may be a problem with the website or contact number — watch it today.',
       'al.spike.t': 'Higher spend than usual',
       'al.spike.d': '{name} spent {spend} yesterday — about {x}× its daily average ({avg}) — without results improving at the same rate.',
       'al.spike.a': 'Make sure the budget increase is intended and that results will grow with it.',
       'al.fatigue.t': 'Audience fatigue',
       'al.fatigue.old': ', and the ad has been running for {days} {dayWord}',
-      'al.fatigue.d': 'The same person saw {name} about {f} times on average in the last 7 days{old}. Repeating the same ad makes people ignore it and raises costs.',
+      'al.fatigue.d': 'The same person saw {name} about {f} {times} on average in the last 7 days{old}. Repeating the same ad makes people ignore it and raises costs.',
       'al.fatigue.a': 'A good time to refresh the ad (new image, video or copy) or widen the audience.',
       'al.scale.note': ' Also, every {one} {cur} spent yesterday returned {roas} {cur} in sales.',
       'al.scale.t': 'Opportunity to invest more',
@@ -1001,15 +1009,32 @@
     var m = n % 100;
     return (n === 0 || (m >= 3 && m <= 10)) ? 'many' : 'one';
   }
-  // الاسم المناسب للعدد من مفتاحين: base + '.one' و base + '.many'.
-  // في العربي من ١١ لـ ٩٩ التمييز منصوب («١٥ إعلاناً») لو المفتاح base + '.acc' موجود، وإلا المفرد
-  function noun(n, base) {
-    var f = form(n);
-    if (lang === 'ar' && f === 'one') {
-      var m = Math.abs(Math.round(Number(n) || 0)) % 100;
-      if (m >= 11 && DICT.ar[base + '.acc'] != null) return DICT.ar[base + '.acc'];
-    }
-    return t(base + '.' + f);
+  // أنهي مفتاح يتقري مع العدد: الجمع، أو المفرد، أو (في العربي من ١١ لـ ٩٩) التمييز المنصوب
+  // «١٥ إعلاناً / ١٥ تحويلاً» لو مفتاحه موجود — وإلا المفرد («١٥ نقرة» شكلها واحد)
+  function countKey(n, oneKey, manyKey, accKey) {
+    if (form(n) === 'many') return manyKey;
+    if (lang === 'ar' && accKey && DICT.ar[accKey] != null && Math.abs(Math.round(Number(n) || 0)) % 100 >= 11) return accKey;
+    return oneKey;
+  }
+  // الاسم المناسب للعدد: base + '.one' / '.many' / '.acc'
+  function noun(n, base) { return t(countKey(n, base + '.one', base + '.many', base + '.acc')); }
+  // الجمع بعد «أي» أو بعد عدد من ٣ لـ ١٠ مجرور: «دون أي عملاء محتملين» / «٥ عملاء محتملين» —
+  // resG موجود بس للأنواع اللي شكلها بيتغيّر (جمع المذكر السالم)، والباقي بياخد res زي ما هو
+  function resultAny(key) {
+    key = key || 'generic';
+    return t(lang === 'ar' && DICT.ar['resG.' + key] != null ? 'resG.' + key : 'res.' + key);
+  }
+  // اسم نوع النتيجة مظبوط على العدد: res1 (مفرد) / res أو resG (جمع) / resA (منصوب)
+  function resultNoun(n, key) {
+    key = key || 'generic';
+    var k = countKey(n, 'res1.' + key, 'res.' + key, 'resA.' + key);
+    return k === 'res.' + key ? resultAny(key) : t(k);
+  }
+  // عدد بكسر أو من غير («٤٫٥ مرة» / «٧ مرات» / «4.5 times»): الكسر في العربي بياخد المفرد، وفي الإنجليزي الجمع
+  function measureNoun(v, base) {
+    var r = Math.round((Number(v) || 0) * 10) / 10;
+    if (r !== Math.round(r)) return t(base + (lang === 'ar' ? '.one' : '.many'));
+    return noun(r, base);
   }
 
   // بيترجم عناصر الـ HTML اللي عليها data-i18n (النص)، و data-i18n-placeholder / -title / -aria
@@ -1040,14 +1065,18 @@
     t: t,
     form: form,
     noun: noun,
+    countKey: countKey,
+    resultNoun: resultNoun,
+    resultAny: resultAny,
+    measureNoun: measureNoun,
     apply: apply,
     setLang: setLang,
     get lang() { return lang; },
     months: function () { return t('months').split(','); },
     // للاختبارات: المفاتيح الموجودة في لغة ومش موجودة في التانية (المفروض دايماً فاضية)
     missingKeys: function () {
-      // مفاتيح .acc قواعد عربية بس (التمييز المنصوب) ومالهاش مقابل إنجليزي
-      var diff = function (a, b) { return Object.keys(DICT[a]).filter(function (k) { return !(k in DICT[b]) && !/\.acc$/.test(k); }); };
+      // مفاتيح الإعراب (.acc و resA. و resG.) قواعد عربية بس ومالهاش مقابل إنجليزي
+      var diff = function (a, b) { return Object.keys(DICT[a]).filter(function (k) { return !(k in DICT[b]) && !/\.acc$|^res[AG]\./.test(k); }); };
       return { missingInEn: diff('ar', 'en'), missingInAr: diff('en', 'ar') };
     }
   };

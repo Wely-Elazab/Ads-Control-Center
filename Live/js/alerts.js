@@ -95,10 +95,10 @@
   // اسم نوع النتيجة (جمع) وصيغة المفرد — عشان الجمل تبقى طبيعية ("تكلفة عملية الشراء الواحدة" مش "تكلفة الـمشتريات")
   function pluralOf(key) { return t('res.' + (key || 'generic')); }
   function singularOf(key) { return t('res1.' + (key || 'generic')); }
-  // اسم النتيجة مظبوط على العدد: "١ عملية شراء" / "٥ مشتريات" / "1 purchase" / "3 purchases"
+  // اسم النتيجة مظبوط على العدد: "١ عملية شراء" / "٥ مشتريات" / "١٥ تحويلاً" / "1 purchase" / "3 purchases"
   function countOf(n, key) {
-    var one = global.I18N ? global.I18N.form(n) === 'one' : n === 1;
-    return one ? singularOf(key) : pluralOf(key);
+    if (global.I18N) return global.I18N.resultNoun(n, key);
+    return n === 1 ? singularOf(key) : pluralOf(key);
   }
   function dayWord(n) { return global.I18N ? global.I18N.noun(n, 'n.day') : ''; }
 
@@ -180,7 +180,8 @@
     var name = t('al.name', { name: c.offer || c.headline || c.id });
     var cur = c.currency;
     var money = function (n) { return fmt.money(n, cur); };
-    var label = pluralOf(c.resultKey);
+    // الجمع هنا بييجي بعد «أي» («دون أي عملاء محتملين») — فبنستخدم الصيغة المجرورة لو موجودة
+    var label = global.I18N ? global.I18N.resultAny(c.resultKey) : pluralOf(c.resultKey);
     var one = singularOf(c.resultKey);
     var group = c.resultKey ? acc.byLabel[c.resultKey] : null;
     // متوسط الحساب يبقى له معنى بس لو فيه أكتر من إعلان جاب نتائج من نفس النوع
@@ -309,7 +310,10 @@
       var prevSpend4 = sum(daily, 1, DAY_BEFORE) / 4;
       if (!wasteRaised && prevResAvg >= 2 && prevSpend4 > 0 && spendY >= prevSpend4 * 0.7 && resY <= prevResAvg * s.dropRatio) {
         issues.push(makeIssue('warning', ['results'], t('al.drop.t'),
-          t('al.drop.d', { name: name, n: fmt.int(resY), label: countOf(resY, c.resultKey), avg: fmt.num(prevResAvg) }),
+          // صفر نتائج: «لم يحقق أي مشتريات» بدل «حقق ٠ مشتريات فقط»
+          resY === 0
+            ? t('al.drop.dZero', { name: name, label: label, avg: fmt.num(prevResAvg) })
+            : t('al.drop.d', { name: name, n: fmt.int(resY), label: countOf(resY, c.resultKey), avg: fmt.num(prevResAvg) }),
           t('al.drop.a')));
       }
     }
@@ -332,7 +336,7 @@
       if (c.frequency >= s.frequencyHigh || (isOld && c.frequency >= s.frequencyWarn)) {
         var hurting = avgCpr && c.cpr != null && c.cpr >= avgCpr * s.cprWarnMultiple;
         issues.push(makeIssue(hurting ? 'critical' : 'warning', ['frequency'], t('al.fatigue.t'),
-          t('al.fatigue.d', { name: name, f: fmt.num(c.frequency), old: isOld ? t('al.fatigue.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '' }),
+          t('al.fatigue.d', { name: name, f: fmt.num(c.frequency), times: global.I18N ? global.I18N.measureNoun(c.frequency, 'n.time') : 'times', old: isOld ? t('al.fatigue.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '' }),
           t('al.fatigue.a')));
       }
     }

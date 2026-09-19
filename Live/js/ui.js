@@ -298,8 +298,8 @@
   }
   // اسم نوع النتيجة (مشتريات، محادثات...) بلغة الواجهة
   function resultLabelOf(c) { return t('res.' + (c.resultKey || 'generic')); }
-  // نفس الاسم بس مظبوط على العدد: "١ عملية شراء" / "٥ مشتريات" / "1 purchase"
-  function resultNounOf(c, n) { return t((I18N.form(n) === 'one' ? 'res1.' : 'res.') + (c.resultKey || 'generic')); }
+  // نفس الاسم بس مظبوط على العدد: "١ عملية شراء" / "٥ مشتريات" / "١٥ تحويلاً" / "1 purchase"
+  function resultNounOf(c, n) { return I18N.resultNoun(n, c.resultKey); }
 
   function cardChips(c) {
     // الأرقام للفترة المختارة. تلوين المشكلة (اللي جاي من تنبيهات آخر ٧ أيام) بيظهر بس لما الفترة
@@ -450,7 +450,7 @@
         ? t('camp.adsOf', { n: ar(g.ads.length), total: ar(g.total), ads: noun(g.total, 'n.ad') })
         : ar(g.total) + ' ' + noun(g.total, 'n.ad');
     var chips = '<span class="metric-chip">' + money(g.spend, g.currency) + '</span>';
-    if (g.results != null) chips += '<span class="metric-chip">' + fmtNum(g.results) + ' ' + esc(t((I18N.form(g.results) === 'one' ? 'res1.' : 'res.') + (g.resultKey || 'generic'))) + '</span>';
+    if (g.results != null) chips += '<span class="metric-chip">' + fmtNum(g.results) + ' ' + esc(I18N.resultNoun(g.results, g.resultKey)) + '</span>';
     else if (g.mixedResults) chips += '<span class="metric-chip">' + t('camp.mixedResults') + '</span>';
     if (g.cpr != null) chips += '<span class="metric-chip" title="' + t('chip.cprTip') + '">' + money(g.cpr, g.currency) + ' / ' + esc(t('res1.' + (g.resultKey || 'generic'))) + '</span>';
     if (g.roas != null) chips += '<span class="metric-chip" title="' + t('chip.roasTip') + '">' + t('chip.roas') + ' ' + roasStr(g.roas) + '</span>';
@@ -579,7 +579,7 @@
     dateFrom.max = today; dateTo.max = today;
     if (period.preset === 'custom') { dateFrom.value = period.since || ''; dateTo.value = period.until || ''; }
     var r = resolvePeriodFor(BROWSER_TZ);
-    document.getElementById('periodRangeText').textContent = r.since === r.until ? fmtKey(r.since) : fmtKey(r.since) + ' — ' + fmtKey(r.until);
+    document.getElementById('periodRangeText').textContent = fmtRange(r.since, r.until);
   }
   // تغيير الفترة بيعيد تحميل كل الحسابات المتصلة بالأرقام الجديدة (ولو فيه نسخة محفوظة للفترة دي بتظهر فوراً)
   function applyPeriod(next) {
@@ -673,7 +673,7 @@
     });
     // الأنواع مترتبة بالصرف مش بالعدد — عشان ١٠٠٠ سوايب ميغطّوش على ٢٠ عملية شراء صرفت أكتر
     var types = Object.keys(byType).sort(function (a, b) { return (byType[b].spend - byType[a].spend) || (byType[b].results - byType[a].results); });
-    var typeNoun = function (k) { return t((I18N.form(byType[k].results) === 'one' ? 'res1.' : 'res.') + k); };
+    var typeNoun = function (k) { return I18N.resultNoun(byType[k].results, k); };
     // فاصل الآلاف: ٢٬٤٠٠ / 2,400
     var typeText = function (k) { return fmtNum(byType[k].results) + ' ' + typeNoun(k); };
     var resultsValue, resultsTitle = types.map(typeText).join(' · ');
@@ -845,7 +845,7 @@
       metricBox(resultsLabelTxt, p.results != null ? fmtNum(p.results) : t('x.noConversions'), hl('results')) +
       metricBox(t('x.cpr'), p.cpr != null ? money(p.cpr, cur) : '—', hl('cpr')) +
       metricBox(t('x.roas'), roasStr(p.roas), hl('roas'));
-    if (c.frequency != null) boxes += metricBox(t('x.freq'), numAr(c.frequency) + ' ' + t('x.times'), mv(c, 'frequency'));
+    if (c.frequency != null) boxes += metricBox(t('x.freq'), numAr(c.frequency) + ' ' + I18N.measureNoun(c.frequency, 'n.time'), mv(c, 'frequency'));
     boxes += metricBox(t('x.sales') + pl, p.sales > 0 ? money(p.sales, cur) : t('x.noSales'));
     document.getElementById('expandMetrics').innerHTML = boxes;
 
