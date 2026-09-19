@@ -30,36 +30,54 @@
     </p>
   </section>
 
-  <div class="billing-toggle" id="billingToggle" role="group" aria-label="Billing">
-    <button type="button" data-billing="monthly" aria-pressed="false"><span class="only-ar">شهري</span><span class="only-en">Monthly</span></button>
-    <button type="button" data-billing="yearly" class="active" aria-pressed="true">
-      <span class="only-ar">سنوي</span><span class="only-en">Yearly</span>
-      <span class="save-badge"><span class="only-ar">وفّر <span data-saving>٣٠</span>٪</span><span class="only-en">Save <span data-saving>30</span>%</span></span>
-    </button>
+  <div class="pricing-controls">
+    <div class="billing-toggle" id="billingToggle" role="group" aria-label="Billing">
+      <button type="button" data-billing="monthly" aria-pressed="false"><span class="only-ar">شهري</span><span class="only-en">Monthly</span></button>
+      <button type="button" data-billing="yearly" class="active" aria-pressed="true">
+        <span class="only-ar">سنوي</span><span class="only-en">Yearly</span>
+        <span class="save-badge"><span class="only-ar">وفّر <span data-saving>٣٠</span>٪</span><span class="only-en">Save <span data-saving>30</span>%</span></span>
+      </button>
+    </div>
+    <label class="currency-pick">
+      <span class="only-ar">العملة</span><span class="only-en">Currency</span>
+      <select id="currencySelect"></select>
+    </label>
   </div>
+  <p class="currency-note hidden" id="currencyNote">
+    <span class="only-ar">السعر بعملتك ثابت ومحسوب من سعر الدولار، ومتقرّب لأقرب رقم.</span>
+    <span class="only-en">Your local price is fixed, based on the dollar price and rounded.</span>
+  </p>
 
   <div class="plan-card" id="planCard">
     <p class="plan-name"><span class="only-ar">الخطة الكاملة</span><span class="only-en">Full plan</span></p>
     <div class="plan-price">
-      <span class="only-en plan-amount">$<span data-price>6.99</span></span>
-      <span class="only-ar plan-amount"><span data-price>٦٫٩٩</span></span>
-      <span class="plan-unit"><span class="only-ar">دولار / شهرياً</span><span class="only-en">/ month</span></span>
+      <span class="plan-amount" id="planAmount"></span>
+      <span class="plan-unit" id="planUnit"></span>
     </div>
-    <p class="plan-note" data-billing-note="yearly">
-      <span class="only-ar">بيتدفع <span data-yearly-total>٨٣٫٨٨</span> دولار مرة واحدة في السنة.</span>
-      <span class="only-en">Billed $<span data-yearly-total>83.88</span> once a year.</span>
-    </p>
-    <p class="plan-note hidden" data-billing-note="monthly">
-      <span class="only-ar">بيتدفع كل شهر، وتقدر توقفه في أي وقت.</span>
-      <span class="only-en">Billed every month — stop anytime.</span>
-    </p>
+    <p class="plan-was" id="planWas"></p>
+    <p class="plan-note" id="planNote"></p>
     <p class="trial-line">
       <span class="only-ar">أول <span data-trial-days>١٤</span> يوم مجاناً</span>
       <span class="only-en">First <span data-trial-days>14</span> days free</span>
     </p>
+
+    <div class="discount">
+      <label for="discountInput"><span class="only-ar">عندك كود خصم؟</span><span class="only-en">Have a discount code?</span></label>
+      <div class="discount-row">
+        <input type="text" id="discountInput" maxlength="32" autocomplete="off" spellcheck="false" dir="ltr">
+        <button type="button" id="discountApply"><span class="only-ar">تطبيق</span><span class="only-en">Apply</span></button>
+      </div>
+      <p class="discount-msg" id="discountMsg" role="status" aria-live="polite"></p>
+    </div>
+
     <a class="trial-cta" data-trial-cta href="mailto:walid.elazab20@gmail.com">
       <span class="only-ar">ابدأ تجربتك المجانية</span><span class="only-en">Start your free trial</span>
     </a>
+    <ul class="trust-row">
+      <li><span class="only-ar"><span data-trial-days>١٤</span> يوم مجاناً</span><span class="only-en"><span data-trial-days>14</span> days free</span></li>
+      <li><span class="only-ar">ضمان استرداد <span data-guarantee-days>١٤</span> يوم</span><span class="only-en"><span data-guarantee-days>14</span>-day money-back guarantee</span></li>
+      <li><span class="only-ar">إلغاء في أي وقت</span><span class="only-en">Cancel anytime</span></li>
+    </ul>
     <p class="cta-note">
       <span class="only-ar">ابعتلنا بياناتك، وهنفعّل حسابك ونساعدك تربط منصاتك.</span>
       <span class="only-en">Send us your details — we'll activate your account and help you connect your platforms.</span>
@@ -97,6 +115,11 @@
     </ul>
   </section>
 
+  <section class="package pay">
+    <h2><span class="only-ar">وسائل الدفع</span><span class="only-en">Payment methods</span></h2>
+    <ul id="payMethods"></ul>
+  </section>
+
   <section class="faq">
     <h2><span class="only-ar">أسئلة شائعة</span><span class="only-en">FAQ</span></h2>
     <details>
@@ -105,19 +128,24 @@
       <p class="only-en">We'll reach out before your trial ends. If you want to continue, pick monthly or yearly. If not, you won't pay anything.</p>
     </details>
     <details>
+      <summary><span class="only-ar">إزاي ضمان الاسترداد بيشتغل؟</span><span class="only-en">How does the money-back guarantee work?</span></summary>
+      <p class="only-ar">لو دفعت ومش راضي، ابعتلنا خلال <span data-guarantee-days>١٤</span> يوم من أول دفعة، ونرجّعلك المبلغ كامل — سواء اشتراك شهري أو سنوي، ومن غير أسئلة.</p>
+      <p class="only-en">If you pay and aren't happy, message us within <span data-guarantee-days>14</span> days of your first payment and we'll refund you in full — monthly or yearly, no questions asked.</p>
+    </details>
+    <details>
+      <summary><span class="only-ar">أقدر ألغي في أي وقت؟</span><span class="only-en">Can I cancel anytime?</span></summary>
+      <p class="only-ar">أيوه. الإلغاء بيوقف التجديد الجاي، وحسابك بيفضل شغال لحد نهاية الفترة اللي دفعتها. بعد فترة الضمان، مفيش استرداد للفترة اللي فاضلة.</p>
+      <p class="only-en">Yes. Cancelling stops the next renewal, and your account stays active until the end of the period you paid for. After the guarantee period, the remaining time isn't refunded.</p>
+    </details>
+    <details>
       <summary><span class="only-ar">هل الأداة بتغيّر حاجة في إعلاناتي؟</span><span class="only-en">Does the tool change anything in my ads?</span></summary>
       <p class="only-ar">لأ. الأداة بتقرا بياناتك بس، ومش بتقدر تعدّل أو توقف أو تنشئ أي إعلان. القرار دايماً ليك.</p>
       <p class="only-en">No. The tool only reads your data — it can't edit, pause or create any ad. The decision is always yours.</p>
     </details>
     <details>
-      <summary><span class="only-ar">أقدر أوقف الاشتراك في أي وقت؟</span><span class="only-en">Can I stop my subscription anytime?</span></summary>
-      <p class="only-ar">أيوه. وحسابك بيفضل شغال لحد نهاية الفترة اللي دفعتها.</p>
-      <p class="only-en">Yes. Your account stays active until the end of the period you paid for.</p>
-    </details>
-    <details>
-      <summary><span class="only-ar">الدفع بيتم إزاي؟</span><span class="only-en">How do I pay?</span></summary>
-      <p class="only-ar">قبل نهاية التجربة بنبعتلك طرق الدفع المتاحة في بلدك.</p>
-      <p class="only-en">Before your trial ends, we'll send you the payment options available in your country.</p>
+      <summary><span class="only-ar">السعر بعملة بلدي ثابت؟</span><span class="only-en">Is the price in my currency fixed?</span></summary>
+      <p class="only-ar">أيوه. السعر بعملتك محسوب من سعر الدولار ومتقرّب، وبنراجعه من وقت للتاني. والسعر اللي اشتركت بيه ثابت لحد نهاية الفترة اللي دفعتها.</p>
+      <p class="only-en">Yes. Your local price is based on the dollar price and rounded, and we review it from time to time. The price you subscribed at stays fixed until the end of the period you paid for.</p>
     </details>
   </section>
 

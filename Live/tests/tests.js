@@ -420,11 +420,55 @@
   });
 
   describe('الأسعار', function () {
+    var P = function () { return window.ACC_PRICING; };
     test('السنوي = ١٢ × سعر الشهر، ونسبة التوفير صح', function () {
-      var p = window.ACC_PRICING;
-      eq([p.monthly, p.yearlyPerMonth, p.trialDays], [9.99, 6.99, 14]);
+      var p = P();
+      eq([p.monthly, p.yearlyPerMonth, p.trialDays, p.guaranteeDays], [9.99, 6.99, 14, 14]);
       eq(p.yearlyTotal(), 83.88);
       eq(p.savingPct(), 30);
+    });
+    test('العملة المحلية: رقم صحيح بيخلص بـ .٩٩', function () {
+      var p = P();
+      eq([p.localPrice(6.99, 'EGP'), p.localPrice(9.99, 'EGP')], [349.99, 499.99]);
+      eq([p.localPrice(6.99, 'SAR'), p.localPrice(9.99, 'SAR')], [26.99, 37.99]);
+      eq(p.localPrice(9.99, 'AED'), 36.99);
+      eq(p.localPrice(6.99, 'USD'), 6.99);
+    });
+    test('العملات الغالية (دينار كويتي...) بتظهر بالدولار', function () {
+      eq(P().localPrice(6.99, 'KWD'), 6.99);
+      eq(P().currencyForTimezone('Asia/Kuwait'), 'USD');
+    });
+    test('العملة المبدئية من المنطقة الزمنية', function () {
+      eq(['Africa/Cairo', 'Asia/Riyadh', 'Asia/Dubai', 'Europe/London'].map(P().currencyForTimezone), ['EGP', 'SAR', 'AED', 'USD']);
+    });
+    test('المجموع السنوي والتوفير بالعملة المحلية', function () {
+      var x = P().prices('EGP');
+      eq([x.yearlyTotal, x.savingPct], [4199.88, 30]);
+    });
+    test('الخصم بيتحسب بالظبط من غير تقريب لـ .٩٩', function () {
+      var x = P().prices('EGP', 20);
+      eq([x.monthlyAfter, x.yearlyPerMonthAfter, x.yearlyTotalAfter], [399.99, 279.99, 3359.88]);
+    });
+  });
+
+  describe('أكواد الخصم (السيرفر)', function () {
+    testAsync('قراءة الأكواد من متغيّر البيئة', function () {
+      return import('/api/_discounts.js').then(function (d) {
+        var codes = d.parseDiscountCodes('FOUNDER-7K2Q:50, partner-x9:20:2026-12-31, bad:0, nopct, over:150');
+        eq(Object.keys(codes).sort(), ['FOUNDER-7K2Q', 'PARTNER-X9']);
+        eq(codes['PARTNER-X9'], { percent: 20, until: '2026-12-31' });
+      });
+    });
+    testAsync('التحقق: حروف صغيرة، صلاحية، وكود غلط', function () {
+      return import('/api/_discounts.js').then(function (d) {
+        var codes = d.parseDiscountCodes('FOUNDER-7K2Q:50, PARTNER-X9:20:2026-12-31');
+        eq(d.checkDiscount(codes, ' founder-7k2q ', '2026-09-19'), { valid: true, code: 'FOUNDER-7K2Q', percent: 50 });
+        eq(d.checkDiscount(codes, 'PARTNER-X9', '2026-12-31').valid, true);
+        eq(d.checkDiscount(codes, 'PARTNER-X9', '2027-01-01'), { valid: false, expired: true });
+        eq(d.checkDiscount(codes, 'NOPE', '2026-09-19'), { valid: false });
+        eq(d.checkDiscount(codes, '', '2026-09-19'), { valid: false });
+        eq(d.normalizeCode('a<b>"c'), 'ABC');
+      });
     });
   });
 

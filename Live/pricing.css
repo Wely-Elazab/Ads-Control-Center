@@ -5,6 +5,30 @@
 .pricing-hero h1 { font-size: 28px; margin: 0 0 8px; }
 .pricing-hero p { font-size: 15.5px; color: var(--ink-soft); margin: 0; }
 
+.pricing-controls { display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 auto 10px; }
+.pricing-controls .billing-toggle { margin: 0; }
+.currency-pick { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink-soft); }
+.currency-pick select { border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; font-family: inherit; font-size: 14px; background: var(--card); color: var(--ink); }
+.currency-pick select:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+.currency-note { text-align: center; font-size: 12.5px; color: var(--ink-faint); margin: 0 0 16px; }
+.plan-was { margin: 4px 0 0; font-size: 14px; color: var(--ink-faint); text-decoration: line-through; min-height: 0; }
+.plan-was:empty { display: none; }
+.discount { margin: 14px 0 0; }
+.discount label { display: block; font-size: 13px; color: var(--ink-soft); margin-bottom: 6px; }
+.discount-row { display: flex; gap: 8px; }
+.discount-row input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-family: inherit; font-size: 16px; background: var(--paper); color: var(--ink); text-transform: uppercase; }
+.discount-row input:focus-visible { outline: 2px solid var(--verified); outline-offset: 1px; }
+.discount-row button { border: 1px solid var(--verified); background: var(--card); color: var(--verified); border-radius: 10px; padding: 10px 16px; font-family: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
+.discount-row button:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+.discount-msg { font-size: 13px; margin: 6px 0 0; color: var(--ink-soft); min-height: 1em; }
+.discount-msg:empty { display: none; }
+.discount-msg.ok { color: var(--verified); font-weight: 600; }
+.discount-msg.bad { color: #B3311F; }
+.trust-row { list-style: none; padding: 0; margin: 12px 0 0; display: flex; justify-content: center; gap: 6px 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-soft); }
+.trust-row li::before { content: '✓ '; color: var(--verified); font-weight: 700; }
+.package.pay ul { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.package.pay li { border: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: 14px; }
+.package.pay li::before { content: none; }
 .billing-toggle { display: flex; justify-content: center; gap: 4px; width: fit-content; margin: 0 auto 18px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
 .billing-toggle button { border: none; background: none; font-family: inherit; font-size: 14px; font-weight: 600; color: var(--ink-soft); padding: 9px 16px; border-radius: 9px; cursor: pointer; }
 .billing-toggle button.active { background: var(--verified); color: #fff; }
@@ -40,3 +64,5 @@
 .faq summary { cursor: pointer; font-weight: 600; font-size: 15px; }
 .faq summary:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; border-radius: 4px; }
 .faq details p { margin: 8px 0 0; font-size: 14.5px; color: var(--ink-soft); line-height: 1.7; }
+/* شرايح وسائل الدفع: البرواز كامل حتى لآخر شريحة (قاعدة القائمة فوق بتشيل الخط السفلي لآخر عنصر) */
+.package.pay li:last-child { border-bottom: 1px solid var(--line); }
