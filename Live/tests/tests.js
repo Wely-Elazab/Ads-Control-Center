@@ -795,6 +795,16 @@
         eq(document.activeElement && document.activeElement.id, 'loginMenuBtn');
       });
     });
+    testAsync('سياسة الأمان: script-src من غير unsafe-inline/eval، وصفحة الفحص مطابقة للموقع', function () {
+      return Promise.all([fetch('/vercel.json').then(function (r) { return r.json(); }), fetch('/tests/csp-check.html').then(function (r) { return r.text(); })]).then(function (r) {
+        var live = r[0].headers[0].headers.filter(function (h) { return h.key === 'Content-Security-Policy'; })[0].value;
+        var check = new DOMParser().parseFromString(r[1], 'text/html').querySelector('meta[http-equiv="Content-Security-Policy"]').getAttribute('content');
+        var scriptSrc = /script-src ([^;]+)/.exec(live)[1];
+        ok(scriptSrc.indexOf('unsafe-inline') === -1 && scriptSrc.indexOf('unsafe-eval') === -1, 'strict script-src: ' + scriptSrc);
+        // frame-ancestors مينفعش في <meta> — غير كده لازم تبقى نفس السياسة بالظبط
+        eq(check, live.replace(" frame-ancestors 'self';", ''));
+      });
+    });
     testAsync('Snapchat: الطلبات بتبدأ بالتوازي من غير ما تستنى طلب الحساب', function () {
       var realFetch = window.fetch, order = [];
       var json = function (obj, delay) {
