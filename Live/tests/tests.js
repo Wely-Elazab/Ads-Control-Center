@@ -473,6 +473,150 @@
     });
   });
 
+  describe('التجربة المغلقة', function () {
+    test('شاشة البداية فيها ملاحظة التجربة وطلب الانضمام ورابط الخطوات', function () {
+      var hero = document.getElementById('emptyHero');
+      ok(hero.querySelector('[data-i18n="hero.pilot"]'), 'pilot note');
+      var join = hero.querySelector('a[data-join]');
+      ok(join, 'join link');
+      ok(join.getAttribute('href').indexOf('mailto:' + ACC_JOIN.email + '?subject=') === 0, 'full mailto: ' + join.getAttribute('href').slice(0, 60));
+      ok(hero.querySelector('a[href="/help"]'), 'help link');
+    });
+    test('نافذة المنصات بتوضّح إن Meta وGoogle محتاجين انضمام', function () {
+      var note = document.querySelector('#platformOverlay .pf-pilot');
+      ok(note, 'note exists');
+      ok(note.querySelector('a[data-join]') && note.querySelector('a[href="/help"]'), 'join + help links');
+      eq(document.querySelector('#platformMeta .platform-item-sub').textContent, t('pf.meta'));
+    });
+    test('رسالة الانضمام فيها البيانات المطلوبة وموافقة المختبِر باللغتين', function () {
+      ['ar', 'en'].forEach(function (l) {
+        var href = ACC_JOIN.href(l);
+        ok(href.indexOf('mailto:walid.elazab20@gmail.com?subject=') === 0, l + ': mailto');
+        var body = decodeURIComponent(href.split('&body=')[1]);
+        ok(/فيسبوك|Facebook/.test(body), l + ': asks for the Facebook profile');
+        ok(/Google Ads/.test(body), l + ': asks for the Google Ads email');
+        ok(body.indexOf(location.origin + '/terms#pilot' + (l === 'en' ? '-en' : '')) > -1, l + ': links the pilot terms');
+        ok(ACC_JOIN.text(l).indexOf(ACC_JOIN.email) > -1, l + ': copied text has the address');
+      });
+    });
+    testAsync('رابط الانضمام بيتحدّث لما اللغة تتغيّر', function () {
+      var a = document.querySelector('#emptyHero a[data-join]');
+      I18N.setLang('en');
+      return tick().then(function () {
+        ok(decodeURIComponent(a.getAttribute('href')).indexOf(ACC_JOIN.subject.en) > -1, 'english subject');
+        I18N.setLang('ar');
+        return tick();
+      }).then(function () {
+        ok(decodeURIComponent(a.getAttribute('href')).indexOf(ACC_JOIN.subject.ar) > -1, 'arabic subject');
+      });
+    });
+    test('إلغاء دخول Meta بيوضّح السبب ويظهر رابط خطوات Meta', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB;
+      window.FB = { login: function (cb) { cb({ status: 'unknown', authResponse: null }); } };
+      try { loginWithMeta(); } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
+      eq(document.getElementById('connectStatus').textContent, t('s.metaCancelled'));
+      ok(!document.getElementById('statusHelp').hidden, 'help links shown');
+      eq(document.getElementById('statusHelpLink').getAttribute('href'), '/help#meta');
+      setStatus(msg('s.notConnected'));
+      ok(document.getElementById('statusHelp').hidden, 'hidden again with a normal message');
+    });
+    test('Google: النافذة اتقفلت، أو اتمنعت، أو الصلاحية مش متعلّم عليها', function () {
+      var cfg = null;
+      var hadGoogle = 'google' in window, prevGoogle = window.google;
+      window.google = { accounts: { oauth2: {
+        initTokenClient: function (c) { cfg = c; return { requestAccessToken: function () {} }; },
+        hasGrantedAllScopes: function () { return false; }
+      } } };
+      googleTokenClient = null;
+      googleAccessToken = null;
+      try {
+        loginWithGoogle();
+        ok(cfg && typeof cfg.error_callback === 'function', 'error_callback registered');
+        eq(cfg.scope, 'https://www.googleapis.com/auth/adwords');
+        cfg.error_callback({ type: 'popup_closed' });
+        eq(document.getElementById('connectStatus').textContent, t('s.googleCancelled'));
+        ok(!document.getElementById('statusHelp').hidden, 'help shown after closing');
+        eq(document.getElementById('statusHelpLink').getAttribute('href'), '/help#google');
+        cfg.error_callback({ type: 'popup_failed_to_open' });
+        eq(document.getElementById('connectStatus').textContent, t('s.popupBlocked', { platform: 'Google' }));
+        ok(document.getElementById('statusHelp').hidden, 'no join link for a blocked pop-up');
+        cfg.callback({ access_token: 'tok', scope: '' });
+        eq(document.getElementById('connectStatus').textContent, t('s.googleScopeMissing'));
+        eq(googleAccessToken, null, 'a token without the scope is not kept');
+        cfg.callback({ error: 'access_denied' });
+        eq(document.getElementById('connectStatus').textContent, t('s.googleLoginFailed'));
+      } finally {
+        googleTokenClient = null;
+        googleAccessToken = null;
+        if (hadGoogle) window.google = prevGoogle; else delete window.google;
+      }
+    });
+  });
+
+  describe('الصفحات والروابط', function () {
+    var PAGES = ['/pauseproof-live.html', '/home.html', '/help.html', '/404.html', '/privacy.html', '/terms.html', '/data-deletion.html'];
+    function getText(u) {
+      return fetch(u + '?t=' + Date.now()).then(function (r) {
+        if (!r.ok) throw new Error(u + ' → HTTP ' + r.status);
+        return r.text();
+      });
+    }
+    function parse(html) { return new DOMParser().parseFromString(html, 'text/html'); }
+    // السيرفر المحلي مفيهوش rewrites بتاعة Vercel (زي /help → /help.html) — فبنطبّقها من vercel.json نفسه
+    function routeMap() {
+      return getText('/vercel.json').then(function (txt) {
+        var cfg = JSON.parse(txt), map = {};
+        (cfg.rewrites || []).concat(cfg.redirects || []).forEach(function (r) { map[r.source] = r.destination; });
+        return function (path) { for (var i = 0; i < 5 && map[path]; i++) path = map[path]; return path; };
+      });
+    }
+    testAsync('كل الروابط والملفات الداخلية في الصفحات موجودة (ومعاها الأقسام #)', function () {
+      var problems = [], cache = {};
+      function fileText(f) { return cache[f] || (cache[f] = getText(f)); }
+      return routeMap().then(function (resolve) {
+        return Promise.all(PAGES.map(function (page) {
+          return fileText(page).then(function (html) {
+            var els = parse(html).querySelectorAll('a[href], link[rel="stylesheet"][href], script[src]');
+            return Promise.all(Array.prototype.map.call(els, function (el) {
+              var raw = el.getAttribute('href') || el.getAttribute('src');
+              if (/^(https?:|mailto:|tel:|data:|javascript:)/i.test(raw)) return null;
+              var u = new URL(raw, location.origin + page);
+              var file = raw.charAt(0) === '#' ? page : resolve(u.pathname);
+              var hash = decodeURIComponent(u.hash.slice(1));
+              return fileText(file).then(function (target) {
+                if (hash && !parse(target).getElementById(hash)) problems.push(page + ': ' + raw + ' (#' + hash + ' missing)');
+              }, function (e) { problems.push(page + ': ' + raw + ' → ' + e.message); });
+            }));
+          });
+        }));
+      }).then(function () { eq(problems, []); });
+    });
+    testAsync('الصفحات الجديدة باللغتين ومنشورة، و404 بمسارات مطلقة', function () {
+      return Promise.all(['/home.html', '/help.html', '/404.html'].map(function (u) {
+        return getText(u).then(function (html) {
+          var doc = parse(html), root = doc.documentElement;
+          ok(root.getAttribute('data-title-ar') && root.getAttribute('data-title-en'), u + ': both titles');
+          ok(doc.getElementById('legalLang'), u + ': language button');
+          var nAr = doc.querySelectorAll('.only-ar').length, nEn = doc.querySelectorAll('.only-en').length;
+          ok(nAr > 0 && nAr === nEn, u + ': every Arabic block has an English one (' + nAr + '/' + nEn + ')');
+          if (u === '/404.html') {
+            var relative = Array.prototype.filter.call(doc.querySelectorAll('a[href], link[href], script[src]'), function (el) {
+              return !/^(https?:|mailto:|\/)/.test(el.getAttribute('href') || el.getAttribute('src'));
+            });
+            eq(relative.length, 0, '404 uses absolute paths only');
+          }
+        });
+      })).then(function () {
+        return getText('/.vercelignore');
+      }).then(function (txt) {
+        var ignored = txt.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s && s.charAt(0) !== '#'; });
+        ['/home.html', '/help.html', '/404.html', '/site.css', '/legal.css', '/js/join.js', '/js/legal.js'].forEach(function (f) {
+          ok(ignored.indexOf(f) === -1 && ignored.indexOf(f.slice(1)) === -1 && ignored.indexOf(f.split('/')[1]) === -1, f + ' is deployed');
+        });
+      });
+    });
+  });
+
   describe('أكواد الخصم (السيرفر)', function () {
     testAsync('قراءة الأكواد من متغيّر البيئة', function () {
       return import('/api/_discounts.js').then(function (d) {

@@ -19,6 +19,9 @@
   // !!! هام: عدّل بالـ Client ID بتاعك من Google Cloud Console !!!
   var GOOGLE_CLIENT_ID = "755601072390-jvljtdc8799o59fjffvtq43p70765jqn.apps.googleusercontent.com"
   var googleTokenClient = null;
+  // صلاحية Google Ads بس — كان فيه طلب للإيميل كمان ومش مستخدم في أي حتة، فاتشال (أقل بيانات = أسهل في التوثيق).
+  // Google مبتوفّرش صلاحية «قراءة فقط» لـ Google Ads، فدي الوحيدة المتاحة — والأداة بتستخدمها للقراءة بس
+  var GOOGLE_ADS_SCOPE = 'https://www.googleapis.com/auth/adwords';
   function loginWithGoogle() {
     if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
       setStatus(msg('s.googleSdkLoading'));
@@ -27,17 +30,31 @@
     if (!googleTokenClient) {
       googleTokenClient = google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
-        // صلاحية Google Ads بس — كان فيه طلب للإيميل كمان ومش مستخدم في أي حتة، فاتشال (أقل بيانات = أسهل في التوثيق)
-        scope: 'https://www.googleapis.com/auth/adwords',
+        scope: GOOGLE_ADS_SCOPE,
         callback: function (tokenResponse) {
           if (tokenResponse && tokenResponse.access_token) {
+            // لو العميل شال العلامة من على صلاحية Google Ads في شاشة الموافقة، التوكن بيرجع من غيرها
+            // وكل الطلبات بعد كده بتفشل برسالة مش مفهومة — فبنقوله السبب على طول
+            var oauth2 = google.accounts.oauth2;
+            if (oauth2.hasGrantedAllScopes && !oauth2.hasGrantedAllScopes(tokenResponse, GOOGLE_ADS_SCOPE)) {
+              setStatus(msg('s.googleScopeMissing'), { help: 'google' });
+              return;
+            }
             googleAccessToken = tokenResponse.access_token;
             rememberToken('google', googleAccessToken, tokenResponse.expires_in);
             setStatus(msg('s.googleLoggedIn'));
             loadGoogleAccounts();
           } else {
-            setStatus(msg('s.googleLoginFailed'));
+            setStatus(msg('s.googleLoginFailed'), { help: 'google' });
           }
+        },
+        // النافذة اتقفلت من غير دخول (في التجربة المغلقة غالباً بعد «Access blocked» لإيميل مش مضاف)،
+        // أو المتصفح منعها. من غير الدالة دي Google مكانتش بتبلّغنا بحاجة، والأداة كانت بتفضل ساكتة.
+        // تحذير: لو اتضاف للموقع هيدر Cross-Origin-Opener-Policy: same-origin، الـ popup_closed ده هيوصل غلط
+        // أول ما النافذة تفتح — لازم يبقى same-origin-allow-popups (vercel.json مفيهوش COOP حالياً)
+        error_callback: function (err) {
+          if (err && err.type === 'popup_failed_to_open') setStatus(msg('s.popupBlocked', { platform: 'Google' }));
+          else setStatus(msg('s.googleCancelled'), { help: 'google' });
         }
       });
     }

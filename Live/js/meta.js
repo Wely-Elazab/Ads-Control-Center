@@ -37,7 +37,9 @@
     // ومش مستخدمة في أي طلب. لو حساب إعلاني تابع لـ Business Manager مظهرش بعد الشيل، ده السبب
     FB.login(function (response) {
       if (response.authResponse) { loadAdAccounts(); }
-      else { setStatus(msg('s.loginCancelled')); }
+      // من غير authResponse = النافذة اتقفلت من غير دخول. في التجربة المغلقة ده غالباً بعد رسالة «App not active»
+      // (الحساب مش Tester لسه)، فبنقول السبب وبنظهر رابط الخطوات وطلب الانضمام
+      else { setStatus(msg('s.metaCancelled'), { help: 'meta' }); }
     }, { scope: 'ads_read' });
   }
 

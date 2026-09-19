@@ -349,7 +349,7 @@
   .tab-count:empty { display: none; }
 
   /* شريط الحالة تحت الشريط العلوي + مؤشر تحميل */
-  .status-strip { position: relative; max-width: 1100px; margin: 0 auto; padding: 8px 16px 0; font-size: 12.5px; color: var(--ink-soft); display: flex; align-items: center; gap: 8px; min-height: 30px; }
+  .status-strip { position: relative; max-width: 1100px; margin: 0 auto; padding: 8px 16px 0; font-size: 12.5px; color: var(--ink-soft); display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 30px; }
   .status-strip .spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--verified); animation: spin .8s linear infinite; display: none; flex-shrink: 0; }
   body.is-loading .status-strip .spinner { display: block; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -361,6 +361,17 @@
   .hero-pricing { margin: 12px 0 0; font-size: 13.5px; }
   .hero-pricing a { color: var(--verified); font-weight: 600; }
   .hero-platforms { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 16px; font-size: 12px; color: var(--ink-faint); }
+
+  /* ---------- التجربة المغلقة: طلب الانضمام ورابط خطوات الربط ---------- */
+  .hero .hero-pilot { margin: 18px auto 0; max-width: 52ch; font-size: 13px; line-height: 1.7; color: var(--pending); background: var(--pending-bg); border-radius: 10px; padding: 10px 14px; }
+  .hero-join { display: flex; gap: 10px 18px; justify-content: center; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .hero-join .ghost-btn { text-decoration: none; display: inline-block; }
+  .hero-help, .pf-pilot a, .status-help a { color: var(--verified); font-weight: 600; }
+  .hero-help { font-size: 13.5px; }
+  .pf-pilot { margin: 14px 0 0; font-size: 12.5px; line-height: 1.7; color: var(--ink-soft); background: var(--paper); border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px; }
+  .pf-pilot-links { display: flex; gap: 6px 16px; flex-wrap: wrap; margin-top: 4px; }
+  .status-help { display: inline-flex; gap: 12px; flex-wrap: wrap; }
+  .hero-help:focus-visible, .pf-pilot a:focus-visible, .status-help a:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; border-radius: 3px; }
 
   /* ---------- ملخص الأرقام ---------- */
   .kpi-strip { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 14px 0; }
@@ -466,6 +477,11 @@
   <span class="spinner" aria-hidden="true"></span>
   <span id="tConnectTitle" class="sr-only" data-i18n="status.title">حالة الاتصال</span>
   <span id="connectStatus" data-i18n="s.notConnected">غير متصل — دوس تسجيل الدخول للبدء</span>
+  <!-- بيظهر بس مع رسايل فشل دخول Meta/Google (غالباً العميل لسه مش مضاف للتجربة) — setStatus(..., { help }) في core.js -->
+  <span class="status-help" id="statusHelp" hidden>
+    <a href="/help" id="statusHelpLink" data-i18n="help.steps">خطوات الربط</a>
+    <a href="mailto:walid.elazab20@gmail.com" data-join data-i18n="join.short">اطلب انضمامك</a>
+  </span>
 </div>
 
 <div class="wrap">
@@ -476,6 +492,12 @@
       <h2 data-i18n="hero.title">اربط حسابك الإعلاني وشوف كل إعلاناتك في مكان واحد</h2>
       <p data-i18n="hero.body">Ads Control Center أداة عرض وتحليل وتنبيه فقط — بتقرا إعلاناتك وبتنبّهك على اللي بيهدر ميزانيتك، ومش بتغيّر أي حاجة في حسابك. القرار دايماً ليك ولمسؤول الإعلانات.</p>
       <button type="button" class="stop-btn" id="heroLoginBtn" data-i18n="hero.cta">اربط حسابك الإعلاني</button>
+      <!-- التجربة المغلقة: من غير الملاحظة دي، أي زائر مش مضاف هيدوس Meta أو Google ويشوف رسالة خطأ من المنصة -->
+      <p class="hero-pilot" data-i18n="hero.pilot">الأداة حالياً في تجربة مغلقة: ربط Meta وGoogle Ads بيشتغل بعد ما نضيفك للتجربة، وSnapchat متاح لأي حد.</p>
+      <div class="hero-join">
+        <a class="ghost-btn" href="mailto:walid.elazab20@gmail.com" data-join data-i18n="join.cta">اطلب انضمامك للتجربة</a>
+        <a class="hero-help" href="/help" data-i18n="hero.help">إزاي أربط حساباتي؟</a>
+      </div>
       <!-- صفحة الأسعار مخفية مؤقتاً: لإعادتها شيل hidden هنا وفي رابط الفوتر، وراجع .vercelignore و vercel.json -->
       <p class="hero-pricing" hidden><a href="/pricing" data-i18n="hero.pricing">الأسعار — وجرّب ١٤ يوم مجاناً</a></p>
       <div class="hero-platforms"><span>Meta</span><span>·</span><span>Google Ads</span><span>·</span><span>Snapchat</span><span>·</span><span>TikTok <span data-i18n="pf.soonShort">(قريباً)</span></span></div>
@@ -513,7 +535,7 @@
           <li data-i18n="diff.today">أرقام النهارده لسه بتتحدّث — المنصة بتحسب الصرف والنتائج على مدار اليوم.</li>
           <li data-i18n="diff.late">التحويلات بتتسجّل أحياناً متأخرة (لحد ٧ أيام بعد الضغطة)، فأرقام آخر كام يوم ممكن تزيد شوية مع التحديث.</li>
           <li data-i18n="diff.source">الأرقام جاية من المنصة نفسها بتوقيت الحساب الإعلاني، وفي Meta بنستخدم رقم «النتائج» بتاع Ads Manager نفسه لما يكون متاح.</li>
-          <li data-i18n="diff.compare">عشان تقارن بسرعة: افتح أي إعلان واضغط «افتح في المنصة».</li>
+          <li data-i18n="diff.compare">عشان تقارن بسرعة: افتح أي إعلان واضغط الزرار اللي بيفتحه في المنصة (زي «افتح في Google Ads»).</li>
         </ul>
       </details>
 
@@ -567,6 +589,8 @@
   <footer class="site-footer">
     <p data-i18n="footer.readOnly">Ads Control Center بيقرا بيانات إعلاناتك بس — مبيغيّرش أي حاجة في حساباتك الإعلانية.</p>
     <nav class="footer-links">
+      <a href="/home" data-i18n="footer.about">عن الأداة</a>
+      <a href="/help" data-i18n="footer.help">دليل البداية</a>
       <a href="/privacy" data-i18n="footer.privacy">سياسة الخصوصية</a>
       <a href="/terms" data-i18n="footer.terms">شروط الاستخدام</a>
       <a href="/data-deletion" data-i18n="footer.deletion">حذف البيانات</a>
@@ -651,6 +675,13 @@
           <span class="platform-item-sub" data-i18n="pf.tiktok">تسجيل الدخول شغّال — البيانات تحتاج موافقة Business Center</span>
         </button>
       </div>
+      <div class="pf-pilot">
+        <span data-i18n="pf.pilot">تجربة مغلقة: Meta وGoogle Ads بيشتغلوا بعد ما نضيفك للتجربة. Snapchat متاح لأي حد.</span>
+        <div class="pf-pilot-links">
+          <a href="mailto:walid.elazab20@gmail.com" data-join data-i18n="join.cta">اطلب انضمامك للتجربة</a>
+          <a href="/help" data-i18n="help.steps">خطوات الربط</a>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -703,5 +734,7 @@
 <script src="js/tiktok.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/main.js"></script>
+<!-- مستقل عن الملفات اللي فوق: روابط وزراير «اطلب انضمامك» (data-join) -->
+<script src="js/join.js"></script>
 </body>
 </html>

@@ -292,9 +292,16 @@
       return t(key, v);
     };
   }
-  function setStatus(m) {
+  // opts.help = اسم المنصة ('meta' / 'google'): بيظهر جنب الرسالة رابط خطوات الربط بتاعتها وطلب الانضمام —
+  // لرسايل فشل الدخول في التجربة المغلقة. أي رسالة تانية بتخفيهم
+  function setStatus(m, opts) {
     lastStatus = typeof m === 'function' ? m : function () { return String(m); };
     connectStatus.textContent = lastStatus();
+    var help = opts && opts.help;
+    if (statusHelp) {
+      statusHelp.hidden = !help;
+      if (help) statusHelpLink.setAttribute('href', '/help#' + help);
+    }
   }
   function connectedText(notes) {
     return function () {
@@ -341,6 +348,8 @@
   var platformTikTok = document.getElementById('platformTikTok');
   var accountSelect = document.getElementById('accountSelect');
   var connectStatus = document.getElementById('connectStatus');
+  var statusHelp = document.getElementById('statusHelp');
+  var statusHelpLink = document.getElementById('statusHelpLink');
   var filterToggle = document.getElementById('filterToggle');
   var filterBar = document.getElementById('filterBar');
   var textFilter = document.getElementById('textFilter');
