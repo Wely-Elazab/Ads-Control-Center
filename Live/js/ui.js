@@ -20,7 +20,7 @@
     syncThemeIcon();
   });
   syncThemeIcon();
-  if (window.ACC_THEME) ACC_THEME.onSystemChange(syncThemeIcon);
+  if (window.ACC_THEME) { ACC_THEME.onSystemChange(syncThemeIcon); ACC_THEME.onChange(syncThemeIcon); }
 
   // ---------- الموبايل: الشريط اللي فوق بيستخبى وإنت نازل ويرجع أول ما تطلع لفوق ----------
   // على الموبايل الشريط ٣ صفوف (حوالي خُمس الشاشة) — ثابت طول الوقت كان بيقلّل الكروت اللي بتبان.

@@ -44,6 +44,10 @@
 
   .topbar { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
   .brand { display: flex; flex-direction: column; gap: 3px; }
+  /* اسم الأداة رابط للصفحة الرئيسية */
+  a.brand { color: inherit; text-decoration: none; border-radius: 6px; }
+  a.brand:hover .brand-mark { color: var(--verified); }
+  a.brand:focus-visible { outline: 2px solid var(--verified); outline-offset: 3px; }
   .brand-mark { font-size: 23px; font-weight: 700; letter-spacing: 0.2px; }
   .brand-tag { font-size: 13px; color: var(--ink-soft); }
   .topbar-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -513,10 +517,10 @@
 
 <header class="appbar">
   <div class="appbar-inner">
-    <div class="brand">
+    <a class="brand" href="/home" title="الصفحة الرئيسية" data-i18n-title="brand.home">
       <div class="brand-mark">Ads Control Center</div>
       <div class="brand-tag" id="tBrandTag" data-i18n="app.tag">تنبيهات ذكية تحمي ميزانيتك الإعلانية</div>
-    </div>
+    </a>
     <nav class="view-tabs" role="tablist" aria-label="أقسام الصفحة" data-i18n-aria="tabs.aria">
       <button type="button" class="view-tab active" data-view="ads" role="tab" aria-selected="true" aria-controls="viewAds"><span data-i18n="tab.ads">الإعلانات</span></button>
       <button type="button" class="view-tab" data-view="alerts" role="tab" aria-selected="false" aria-controls="viewAlerts"><span data-i18n="tab.alerts">التنبيهات</span> <span class="tab-count" id="alertsTabCount"></span></button>

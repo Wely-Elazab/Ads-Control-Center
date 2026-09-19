@@ -14,6 +14,7 @@
       // عام — كل النص العربي في الواجهة بالفصحى
       'app.name': 'Ads Control Center',
       'app.tag': 'تنبيهات ذكية تحمي ميزانيتك الإعلانية',
+      'brand.home': 'الصفحة الرئيسية',
       'lang.toggle': 'EN',
       'theme.aria': 'المظهر',
       'tab.ads': 'الإعلانات',
@@ -513,6 +514,7 @@
     en: {
       'app.name': 'Ads Control Center',
       'app.tag': 'Smart alerts that protect your ad budget',
+      'brand.home': 'Home page',
       'lang.toggle': 'العربية',
       'theme.aria': 'Theme',
       'tab.ads': 'Ads',

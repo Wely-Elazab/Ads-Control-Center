@@ -818,6 +818,31 @@
         eq([root.getAttribute('data-theme'), themeToggle.textContent], ['light', '☀️']);
       } finally { if (prev) root.setAttribute('data-theme', prev); else root.removeAttribute('data-theme'); }
     });
+    test('زرار الوضع الداكن في صفحات الموقع (data-theme-toggle) — ومن تاب تاني بيتطبّق هنا', function () {
+      var root = document.documentElement, prev = root.getAttribute('data-theme');
+      var b = document.createElement('button');
+      b.setAttribute('data-theme-toggle', ''); b.innerHTML = '<span data-theme-icon></span>';
+      document.body.appendChild(b);
+      try {
+        ACC_THEME.set('light');
+        b.click();
+        eq([root.getAttribute('data-theme'), b.getAttribute('aria-pressed'), b.querySelector('[data-theme-icon]').textContent], ['dark', 'true', '🌙']);
+        b.click();
+        eq([root.getAttribute('data-theme'), b.getAttribute('aria-pressed'), b.querySelector('[data-theme-icon]').textContent], ['light', 'false', '☀️']);
+        // العميل غيّر الوضع من تاب تاني: الصفحة وأيقونة الأداة بيتبعوه
+        window.dispatchEvent(new StorageEvent('storage', { key: 'acc.theme', newValue: 'dark' }));
+        eq([root.getAttribute('data-theme'), themeToggle.textContent, b.getAttribute('aria-pressed')], ['dark', '🌙', 'true']);
+      } finally {
+        b.remove();
+        if (prev) ACC_THEME.set(prev); else { root.removeAttribute('data-theme'); try { localStorage.removeItem('acc.theme'); } catch (e) {} }
+        window.dispatchEvent(new StorageEvent('storage', { key: 'acc.theme', newValue: prev }));
+      }
+    });
+    test('اسم الأداة فوق رابط للصفحة الرئيسية', function () {
+      var brand = document.querySelector('.appbar a.brand');
+      ok(brand && brand.getAttribute('href') === '/home', 'brand links to /home');
+      eq(brand.getAttribute('title'), t('brand.home'));
+    });
     testAsync('النوافذ: التركيز بيدخل جوه النافذة وبيرجع للزرار اللي فتحها', function () {
       loginMenuBtn.focus();
       loginMenuBtn.click();
@@ -1101,6 +1126,19 @@
         var data = doc.getElementById('data');
         ok(data && data.querySelector('a[href="/privacy"]') && /Limited Use/.test(data.textContent), 'data-use statement + privacy link');
       });
+    });
+    testAsync('كل صفحات الموقع فيها زرار الوضع الداكن، واسم الأداة بيودّي للرئيسية', function () {
+      return Promise.all(['/home.html', '/help.html', '/privacy.html', '/terms.html', '/data-deletion.html', '/404.html'].map(function (u) {
+        return getText(u).then(function (html) {
+          var doc = parse(html);
+          var btn = doc.querySelector('header [data-theme-toggle]');
+          ok(btn && btn.querySelector('[data-theme-icon]'), u + ': dark-mode button');
+          ok(btn.querySelector('.only-ar') && btn.querySelector('.only-en'), u + ': button has a label in both languages');
+          var brand = doc.querySelector('header .legal-brand, header .site-brand');
+          eq(brand && brand.getAttribute('href'), '/home', u + ': brand link');
+          ok(/theme\.js/.test(Array.prototype.map.call(doc.querySelectorAll('head script[src]'), function (s) { return s.getAttribute('src'); }).join(' ')), u + ': loads theme.js');
+        });
+      }));
     });
     testAsync('الصفحات الجديدة باللغتين ومنشورة، و404 بمسارات مطلقة', function () {
       return Promise.all(['/home.html', '/help.html', '/404.html'].map(function (u) {

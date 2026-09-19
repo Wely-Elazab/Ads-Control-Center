@@ -38,6 +38,8 @@ html { scroll-behavior: smooth; }
 @media (max-width: 860px) { .site-nav { display: none; } }
 /* الموبايل الصغير: زرار «افتح الأداة» موجود في أول الصفحة، فبيتشال من الشريط عشان الشريط ميتكسرش */
 @media (max-width: 440px) { .site-bar-end .btn { display: none; } }
+/* ٣٢٠–٤٠٠: الاسم وزرار الوضع الداكن وزرار اللغة في سطر واحد */
+@media (max-width: 400px) { .site-bar-inner { gap: 8px 10px; } .site-brand { font-size: 16px; } }
 
 /* ---------- الأقسام ---------- */
 .section { max-width: 1080px; margin: 0 auto; padding: 56px 16px; }
