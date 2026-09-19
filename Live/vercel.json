@@ -4,7 +4,8 @@
     { "source": "/index.html", "destination": "/pauseproof-live.html" },
     { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/terms", "destination": "/terms.html" },
-    { "source": "/data-deletion", "destination": "/data-deletion.html" }
+    { "source": "/data-deletion", "destination": "/data-deletion.html" },
+    { "source": "/pricing", "destination": "/pricing.html" }
   ],
   "headers": [
     {

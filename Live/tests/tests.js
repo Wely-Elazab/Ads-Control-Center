@@ -419,6 +419,15 @@
     });
   });
 
+  describe('الأسعار', function () {
+    test('السنوي = ١٢ × سعر الشهر، ونسبة التوفير صح', function () {
+      var p = window.ACC_PRICING;
+      eq([p.monthly, p.yearlyPerMonth, p.trialDays], [9.99, 6.99, 14]);
+      eq(p.yearlyTotal(), 83.88);
+      eq(p.savingPct(), 30);
+    });
+  });
+
   describe('Google Ads — الحسابات', function () {
     testAsync('السيرفر بيطلع كود الخطأ من رد Google', function () {
       return import('/api/_google.js').then(function (g) {
