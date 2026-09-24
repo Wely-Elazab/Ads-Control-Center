@@ -1166,6 +1166,129 @@
     });
   });
 
+  describe('Cloudflare', function () {
+    // الـ Worker نفسه (cloudflare/worker.js) بيتحمّل هنا كـ module، وبنديله ASSETS وهمي بيقرا الملفات من
+    // السيرفر المحلي (ملف مش موجود = 404 زي Cloudflare) — فبنختبر الـ routes والرؤوس وطبقة التحويل
+    // لدوال api من غير Cloudflare
+    function loadWorker() { return import('/cloudflare/worker.js'); }
+    function fakeEnv(extra) {
+      return Object.assign({
+        ASSETS: { fetch: function (req) { return fetch(new URL(req.url).pathname + '?t=' + Date.now()); } }
+      }, extra || {});
+    }
+    function call(w, path, init, env) { return w.default.fetch(new Request(location.origin + path, init || {}), env || fakeEnv()); }
+    function readVercel() { return fetch('/vercel.json?t=' + Date.now()).then(function (r) { return r.json(); }); }
+    // الـ Worker بيحط الأسرار في process.env (زي Vercel) — بنرجّع الصفحة لحالتها بعد الاختبار
+    var hadProcess = typeof globalThis.process !== 'undefined';
+    function cleanProcess() { if (!hadProcess) delete globalThis.process; else ['SNAPCHAT_CLIENT_ID', 'SNAPCHAT_CLIENT_SECRET'].forEach(function (k) { delete globalThis.process.env[k]; }); }
+
+    testAsync('الـ routes ورؤوس الأمان مطابقة لـ vercel.json بالظبط', function () {
+      return Promise.all([loadWorker(), readVercel()]).then(function (r) {
+        var w = r[0], cfg = r[1];
+        var rewrites = {}, redirects = {}, headers = {};
+        cfg.rewrites.forEach(function (x) { rewrites[x.source] = x.destination; });
+        cfg.redirects.forEach(function (x) { redirects[x.source] = x.destination; ok(x.permanent === false, 'Vercel redirect is temporary (307)'); });
+        cfg.headers[0].headers.forEach(function (h) { headers[h.key] = h.value; });
+        eq(w.REWRITES, rewrites, 'rewrites');
+        eq(w.REDIRECTS, redirects, 'redirects');
+        eq(w.SECURITY_HEADERS, headers, 'headers');
+        eq(cfg.headers[0].source, '/(.*)', 'Vercel applies the headers to every response');
+      });
+    });
+    testAsync('الصفحات: الرئيسية والروابط النظيفة والتحويل و404 — بنفس سلوك Vercel', function () {
+      return loadWorker().then(function (w) {
+        var csp = w.SECURITY_HEADERS['Content-Security-Policy'];
+        return call(w, '/').then(function (res) {
+          eq(res.status, 200, '/');
+          eq(res.headers.get('Content-Security-Policy'), csp, 'CSP on pages');
+          eq(res.headers.get('X-Frame-Options'), 'SAMEORIGIN');
+          return res.text();
+        }).then(function (html) {
+          ok(html.indexOf('id="emptyHero"') > -1, '/ serves the tool');
+          return call(w, '/home');
+        }).then(function (res) {
+          eq(res.status, 200, '/home');
+          return res.text();
+        }).then(function (html) {
+          ok(html.indexOf('home-hero') > -1, '/home serves the landing page');
+          return call(w, '/help.html');
+        }).then(function (res) {
+          eq(res.status, 200, '/help.html still works (html_handling: none)');
+          return call(w, '/pricing?x=1');
+        }).then(function (res) {
+          eq([res.status, res.headers.get('Location')], [307, '/?x=1'], 'hidden pricing page redirects');
+          return call(w, '/no-such-page');
+        }).then(function (res) {
+          eq(res.status, 404, 'missing page');
+          eq(res.headers.get('Content-Security-Policy'), csp, 'CSP on 404');
+          return res.text();
+        }).then(function (html) {
+          ok(html.indexOf('nf-code') > -1, 'our 404 page');
+          return call(w, '/home', { method: 'POST' });
+        }).then(function (res) {
+          eq(res.status, 405, 'POST to a page');
+        });
+      });
+    });
+    testAsync('دوال api على Cloudflare بتدّي نفس ردود Vercel (طبقة التحويل)', function () {
+      var w;
+      return loadWorker().then(function (mod) {
+        w = mod;
+        cleanProcess();
+        // من غير الأسرار: نفس رسالة CONFIG
+        return call(w, '/api/snapchat-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      }).then(function (res) {
+        eq(res.status, 500, 'no secrets');
+        return res.json();
+      }).then(function (data) {
+        eq(data.code, 'CONFIG');
+        var env = fakeEnv({ SNAPCHAT_CLIENT_ID: 'id', SNAPCHAT_CLIENT_SECRET: 'secret' });
+        return call(w, '/api/snapchat-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }, env);
+      }).then(function (res) {
+        eq(res.status, 400, 'missing fields');
+        eq(res.headers.get('Cache-Control'), 'no-store', 'API replies are never cached');
+        ok(/application\/json/.test(res.headers.get('Content-Type')), 'JSON reply');
+        ok(res.headers.get('Content-Security-Policy'), 'security headers on API replies too');
+        return res.json();
+      }).then(function (data) {
+        eq(data.code, 'BAD_REQUEST');
+        return call(w, '/api/snapchat-token', { method: 'POST', body: 'not json' });
+      }).then(function (res) {
+        eq(res.status, 400, 'a body that is not JSON = BAD_REQUEST (like Vercel)');
+        return call(w, '/api/snapchat-token', { method: 'OPTIONS' });
+      }).then(function (res) {
+        eq(res.status, 204, 'OPTIONS');
+        return res.text();
+      }).then(function (txt) {
+        eq(txt, '', 'OPTIONS has no body');
+        return call(w, '/api/google-list-accounts', { method: 'GET' });
+      }).then(function (res) {
+        eq(res.status, 405, 'GET on an API');
+        return Promise.all(['/api/discount', '/api/_cors', '/api/_verify.js'].map(function (p) {
+          return call(w, p, { method: 'POST', body: '{}' }).then(function (r) { return p + ' ' + r.status; });
+        }));
+      }).then(function (list) {
+        eq(list, ['/api/discount 404', '/api/_cors 404', '/api/_verify.js 404'], 'hidden and private modules are not endpoints');
+      }).then(cleanProcess, function (e) { cleanProcess(); throw e; });
+    });
+    testAsync('ملفات الخادم والاختبارات مش بتتنشر على Cloudflare ولا Vercel', function () {
+      function lines(u) {
+        return fetch(u + '?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (txt) {
+          return txt.split(/\r?\n/).map(function (s) { return s.trim().replace(/^\//, ''); }).filter(function (s) { return s && s.charAt(0) !== '#'; });
+        });
+      }
+      return Promise.all([lines('/.assetsignore'), lines('/.vercelignore')]).then(function (r) {
+        var cf = r[0], vc = r[1];
+        ['api', 'cloudflare', 'tests', 'vercel.json', '.vercelignore', '.assetsignore'].forEach(function (f) { ok(cf.indexOf(f) > -1, '.assetsignore: ' + f); });
+        // كل اللي مستخبي على Vercel مستخبي على Cloudflare كمان (بالاسم أو بالمجلد)
+        vc.forEach(function (f) {
+          ok(cf.indexOf(f) > -1 || cf.indexOf(f.split('/')[0]) > -1 || f === 'cloudflare' || f === '.assetsignore', 'hidden on Cloudflare too: ' + f);
+        });
+        ['cloudflare', '.assetsignore'].forEach(function (f) { ok(vc.indexOf(f) > -1, '.vercelignore: ' + f); });
+      });
+    });
+  });
+
   describe('أكواد الخصم (السيرفر)', function () {
     testAsync('قراءة الأكواد من متغيّر البيئة', function () {
       return import('/api/_discounts.js').then(function (d) {

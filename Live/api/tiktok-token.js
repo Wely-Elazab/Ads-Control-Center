@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   const appId = process.env.TIKTOK_APP_ID;
   const appSecret = process.env.TIKTOK_APP_SECRET;
   if (!appId || !appSecret) {
-    res.status(500).json({ error: 'المتغيران TIKTOK_APP_ID وTIKTOK_APP_SECRET غير مضبوطين في إعدادات Vercel.' });
+    res.status(500).json({ error: 'المتغيران TIKTOK_APP_ID وTIKTOK_APP_SECRET غير مضبوطين في إعدادات الخادم.' });
     return;
   }
 

@@ -1,0 +1,20 @@
+// Ads Control Center على Cloudflare Workers — الموقع والـ API من نفس المكان.
+// Cloudflare بيبني وينشر تلقائياً مع كل push على main (Workers Builds: Root directory = /).
+// الاسم لازم يفضل زي اسم الـ Worker في لوحة Cloudflare، وإلا البناء بيفشل.
+{
+  "name": "ads-center",
+  "main": "Live/cloudflare/worker.js",
+  "compatibility_date": "2026-09-22",
+  "assets": {
+    // الصفحات الثابتة — نفس مجلد Vercel. الملفات اللي مبتتنشرش في Live/.assetsignore
+    "directory": "./Live",
+    "binding": "ASSETS",
+    // الـ Worker بيشتغل على كل طلب عشان يطبّق الـ rewrites ورؤوس الأمان (زي vercel.json)
+    "run_worker_first": true,
+    // الروابط بالظبط زي Vercel: /home.html بيفضل /home.html، و/home بييجي من الـ rewrite
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+  // سجلات التشغيل للمتابعة لو حصل خطأ — الكود مبيكتبش أي بيانات عملاء في السجلات
+  "observability": { "enabled": true }
+}

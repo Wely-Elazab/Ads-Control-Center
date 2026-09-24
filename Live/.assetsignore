@@ -1,0 +1,14 @@
+# ملفات مبتتنشرش كصفحات على Cloudflare (نفس فكرة .vercelignore)
+# كود الخادم: بيتجمّع جوه الـ Worker نفسه، ومينفعش يبقى متاح للتحميل
+api
+cloudflare
+# صفحة الاختبارات بتتشغّل محلياً بس
+tests
+# إعدادات المنصات
+vercel.json
+.vercelignore
+.assetsignore
+# صفحة الأسعار مخفية مؤقتاً (زي .vercelignore)
+pricing.html
+pricing.css
+js/pricing.js

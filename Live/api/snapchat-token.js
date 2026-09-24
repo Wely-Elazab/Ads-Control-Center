@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   const clientId = process.env.SNAPCHAT_CLIENT_ID;
   const clientSecret = process.env.SNAPCHAT_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
-    res.status(500).json({ error: 'المتغيران SNAPCHAT_CLIENT_ID وSNAPCHAT_CLIENT_SECRET غير مضبوطين في إعدادات Vercel.', code: 'CONFIG' });
+    res.status(500).json({ error: 'المتغيران SNAPCHAT_CLIENT_ID وSNAPCHAT_CLIENT_SECRET غير مضبوطين في إعدادات الخادم.', code: 'CONFIG' });
     return;
   }
 
