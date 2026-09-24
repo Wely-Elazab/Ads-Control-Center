@@ -16,5 +16,9 @@
     "not_found_handling": "none"
   },
   // سجلات التشغيل للمتابعة لو حصل خطأ — الكود مبيكتبش أي بيانات عملاء في السجلات
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // الأسرار (GOOGLE_CLIENT_ID وGOOGLE_ADS_DEVELOPER_TOKEN وSNAPCHAT_CLIENT_ID وSNAPCHAT_CLIENT_SECRET)
+  // بتتحط من لوحة Cloudflare كـ Secret ومبتتمسحش مع النشر. keep_vars بيحمي كمان أي متغيّر نصي
+  // اتحط من اللوحة بالغلط كـ Text بدل Secret — من غيره كل نشر كان هيمسحه
+  "keep_vars": true
 }
