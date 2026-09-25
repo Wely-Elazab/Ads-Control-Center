@@ -1191,6 +1191,9 @@
         ok(d.querySelector('[data-demo]').getAttribute('aria-hidden') === 'true' && d.querySelector('.demo-wrap .sr-only'), 'decorative for screen readers, with a text description');
         ok(/بيانات توضيحية/.test(d.querySelector('.demo-tag').textContent), 'labelled as sample data');
         ok(!d.querySelector('[data-demo] button, [data-demo] a'), 'no buttons to press');
+        var demoText = d.querySelector('.demo-wrap').textContent;
+        ok(!/ج\.م|EGP/.test(demoText) && /\$/.test(demoText), 'amounts in dollars, no EGP left');
+        ok(d.querySelector('.demo-hint') && d.querySelector('[data-demo] .demo-paused'), 'tap-to-pause hint + paused label');
         eq([active(d, '[data-scene]'), active(d, '.demo-steps [data-step]')], [0, 0], 'starts at step 1');
         return new Promise(function (r) { setTimeout(r, 3200); });
       }).then(function () {
@@ -1198,6 +1201,45 @@
         // لو التاب مخفي (زي لوحة الاختبار وهي مقفولة) العرض لازم يفضل واقف عشان ميستهلكش جهاز الزائر
         if (d.hidden) eq(now, [0, 0], 'tab hidden: stays paused on step 1 (saves the device)');
         else eq(now, [1, 1], 'moved to step 2 on its own');
+      }).then(function () { f.remove(); }, function (e) { f.remove(); throw e; });
+    });
+    testAsync('العرض التوضيحي: الضغط بيوقفه ثانيتين، وبيتقلّب حتى مع «تقليل الحركة»، والمبالغ بالدولار', function () {
+      var f = document.createElement('iframe'), t0;
+      f.style.cssText = 'position:fixed;left:0;top:0;width:1280px;height:900px;opacity:0;pointer-events:none';
+      function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+      return getText('/home.html').then(function (html) {
+        // «تقليل الحركة» شغال والتاب ظاهر — عشان النتيجة متتأثرش بإعدادات الجهاز ولا بلوحة الاختبار وهي مقفولة
+        f.srcdoc = '<!doctype html><html lang="ar" dir="rtl"><head><link rel="stylesheet" href="/site.css"></head><body>' +
+          '<script>Object.defineProperty(document, "hidden", { configurable: true, get: function () { return false; } });' +
+          'window.matchMedia = function (q) { return { matches: /reduce/.test(q), media: q, addListener: function () {}, removeListener: function () {} }; };<\/script>' +
+          parse(html).querySelector('.demo-wrap').outerHTML + '<script src="/js/demo.js"><\/script></body></html>';
+        var loaded = new Promise(function (r) { f.onload = r; });
+        document.body.appendChild(f);
+        return loaded;
+      }).then(function () {
+        var d = f.contentDocument, w = f.contentWindow, demo = d.querySelector('[data-demo]');
+        function scene() { return Array.prototype.findIndex.call(d.querySelectorAll('[data-scene]'), function (s) { return s.classList.contains('is-active'); }); }
+        eq(scene(), 0, 'starts at scene 1');
+        demo.dispatchEvent(new w.PointerEvent('pointerdown', { bubbles: true }));
+        demo.dispatchEvent(new w.PointerEvent('pointerup', { bubbles: true }));
+        t0 = Date.now();
+        ok(demo.classList.contains('is-paused') && d.querySelector('.demo-steps').classList.contains('is-paused'), 'a tap pauses it');
+        ok(w.getComputedStyle(d.querySelector('.demo-paused')).display !== 'none' && w.getComputedStyle(d.querySelector('.demo-url')).display === 'none', 'shows «⏸ متوقف مؤقتًا» instead of the URL');
+        return sleep(3300).then(function () {
+          // من غير الإيقاف كان هيتنقل عند ٢٫٨ ثانية
+          eq(scene(), 0, 'still on scene 1 after 3.3s (the pause added time)');
+          ok(!demo.classList.contains('is-paused'), 'pause lifted by itself after 2s');
+          function poll() { return scene() === 1 || Date.now() - t0 > 9000 ? null : sleep(100).then(poll); }
+          return poll();
+        }).then(function () {
+          eq(scene(), 1, 'reduced motion: still moves to the next scene (no animation, but not frozen)');
+          ok(Date.now() - t0 >= 4500, 'resumed with the time that was left (' + (Date.now() - t0) + 'ms)');
+          eq(Array.prototype.map.call(d.querySelectorAll('[data-count]'), function (el) { return el.textContent; }), ['٤٬٨٢٠ $', '٦١٢', '٣٤٥ $'], 'reduced motion: figures at full value right away, in dollars');
+          d.documentElement.lang = 'en';
+          return sleep(50);
+        }).then(function () {
+          eq(d.querySelector('[data-count]').textContent, '$4,820', 'English: $4,820');
+        });
       }).then(function () { f.remove(); }, function (e) { f.remove(); throw e; });
     });
     testAsync('الصفحات الجديدة باللغتين ومنشورة، و404 بمسارات مطلقة', function () {

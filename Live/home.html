@@ -73,6 +73,7 @@
     </div>
 
     <!-- عرض توضيحي متحرك للأداة (زي GIF بيتكرر، من غير زرار) — js/demo.js بيقلّب المشاهد الأربعة.
+         الضغط عليه بيوقفه ثانيتين (والضغط المطوّل بيوقفه لحد ما يشيل صباعه) عشان الزائر يلحق يقرا.
          كل الأرقام والأسماء مثال، ومكتوب عليه «بيانات توضيحية». المشهد نفسه aria-hidden، ووصفه للقارئ الصوتي في sr-only -->
     <div class="demo-wrap">
       <p class="sr-only"><span class="only-ar">عرض توضيحي متحرك ببيانات مثال: ربط حسابات Meta وGoogle Ads وSnapchat، ثم لوحة الإعلانات والأرقام، ثم التنبيهات مرتّبة حسب حجمها في الميزانية، ثم تفاصيل تنبيه عاجل مع التوصية.</span><span class="only-en">Animated demo with sample data: connecting Meta, Google Ads and Snapchat, then the ads dashboard and figures, then alerts ranked by their size in the budget, then an urgent alert's details with the recommendation.</span></p>
@@ -80,6 +81,7 @@
         <div class="demo-bar">
           <span class="demo-lights"><i></i><i></i><i></i></span>
           <span class="demo-url">adscenter.online/app</span>
+          <span class="demo-paused"><span class="only-ar">⏸ متوقف مؤقتًا</span><span class="only-en">⏸ Paused</span></span>
           <span class="demo-tag"><span class="only-ar">بيانات توضيحية</span><span class="only-en">Sample data</span></span>
         </div>
         <div class="demo-screen">
@@ -96,9 +98,9 @@
           <!-- ٢. كل الإعلانات في لوحة واحدة -->
           <div class="demo-scene" data-scene>
             <div class="demo-kpis">
-              <div class="demo-kpi demo-item" style="--d:0"><small><span class="only-ar">الإنفاق — آخر ٧ أيام</span><span class="only-en">Spend — last 7 days</span></small><b data-count="48200" data-money>٤٨٬٢٠٠ ج.م</b></div>
+              <div class="demo-kpi demo-item" style="--d:0"><small><span class="only-ar">الإنفاق — آخر ٧ أيام</span><span class="only-en">Spend — last 7 days</span></small><b data-count="4820" data-money>٤٬٨٢٠ $</b></div>
               <div class="demo-kpi demo-item" style="--d:1"><small><span class="only-ar">المشتريات</span><span class="only-en">Purchases</span></small><b data-count="612">٦١٢</b></div>
-              <div class="demo-kpi risk demo-item" style="--d:2"><small><span class="only-ar">معرّض للهدر</span><span class="only-en">At risk of waste</span></small><b data-count="3450" data-money>٣٬٤٥٠ ج.م</b></div>
+              <div class="demo-kpi risk demo-item" style="--d:2"><small><span class="only-ar">معرّض للهدر</span><span class="only-en">At risk of waste</span></small><b data-count="345" data-money>٣٤٥ $</b></div>
             </div>
             <div class="demo-ads">
               <div class="demo-ad demo-item h-review" style="--d:3"><i></i><b><span class="only-ar">عرض الصيف</span><span class="only-en">Summer offer</span></b><small>Meta</small></div>
@@ -123,12 +125,12 @@
           <!-- ٤. تفاصيل التنبيه والخطوة التالية -->
           <div class="demo-scene" data-scene>
             <div class="demo-detail-head demo-item" style="--d:0"><span class="demo-level lv-critical"><span class="only-ar">عاجل</span><span class="only-en">Urgent</span></span><b><span class="only-ar">إنفاق دون نتائج</span><span class="only-en">Spend without results</span></b></div>
-            <p class="demo-text demo-item" style="--d:1"><span class="only-ar">أنفق «عرض الصيف» ٦٠٠ ج.م خلال آخر يومين دون أي مشتريات.</span><span class="only-en">“Summer offer” spent EGP 600 in the last 2 days with no purchases.</span></p>
+            <p class="demo-text demo-item" style="--d:1"><span class="only-ar">أنفق «عرض الصيف» ٦٠ $ خلال آخر يومين دون أي مشتريات.</span><span class="only-en">“Summer offer” spent $60 in the last 2 days with no purchases.</span></p>
             <div class="demo-chart demo-item" style="--d:2">
               <i style="--h:62%"></i><i style="--h:70%"></i><i style="--h:58%"></i><i style="--h:66%"></i><i style="--h:60%"></i><i class="bad" style="--h:74%"></i><i class="bad" style="--h:72%"></i>
             </div>
             <div class="demo-chart-key demo-item" style="--d:2.5"><span><i></i><span class="only-ar">الإنفاق اليومي — آخر ٧ أيام</span><span class="only-en">Daily spend — last 7 days</span></span><span class="bad"><i></i><span class="only-ar">يومان دون نتائج</span><span class="only-en">2 days with no results</span></span></div>
-            <p class="demo-impact demo-item" style="--d:3"><span class="only-ar">📊 الحجم في ميزانيتك: ٦٬٢٦٠ ج.م خلال آخر ٧ أيام — ١٣٪ من إنفاق الحساب</span><span class="only-en">📊 Size in your budget: EGP 6,260 in the last 7 days — 13% of account spend</span></p>
+            <p class="demo-impact demo-item" style="--d:3"><span class="only-ar">📊 الحجم في ميزانيتك: ٦٢٦ $ خلال آخر ٧ أيام — ١٣٪ من إنفاق الحساب</span><span class="only-en">📊 Size in your budget: $626 in the last 7 days — 13% of account spend</span></p>
             <p class="demo-advice demo-item" style="--d:4"><span class="only-ar">💡 راجع الإعلان مع مسؤول الإعلانات، فقد يحتاج إلى تعديل أو إيقاف.</span><span class="only-en">💡 Review it with your ads manager — it may need changes or a pause.</span></p>
           </div>
 
@@ -140,6 +142,7 @@
         <li data-step><span class="demo-step-fill"></span><span class="only-ar">تنبيهات حسب حجمها في ميزانيتك</span><span class="only-en">Alerts ranked by budget size</span></li>
         <li data-step><span class="demo-step-fill"></span><span class="only-ar">التفاصيل والخطوة التالية</span><span class="only-en">Details and next step</span></li>
       </ol>
+      <p class="demo-hint" aria-hidden="true"><span class="only-ar">اضغط على العرض لإيقافه مؤقتًا وقراءة التفاصيل.</span><span class="only-en">Tap the demo to pause it and read the details.</span></p>
     </div>
   </section>
 
