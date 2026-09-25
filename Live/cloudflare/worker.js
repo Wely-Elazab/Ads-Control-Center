@@ -1,5 +1,5 @@
 // =====================================================================
-// Ads Control Center — Cloudflare Worker (الموقع + /api)
+// Ads Center — Cloudflare Worker (الموقع + /api)
 // =====================================================================
 // الموقع كله على adscenter.online (من ٢٥ سبتمبر ٢٠٢٦ — Vercel اتقفل):
 //   - الصفحات الثابتة من مجلد Live (الـ ASSETS binding) بالـ rewrites والـ redirects اللي تحت

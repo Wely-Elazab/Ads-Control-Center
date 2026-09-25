@@ -1,5 +1,5 @@
 // =====================================================================
-// Ads Control Center — الترجمة (عربي / إنجليزي)
+// Ads Center — الترجمة (عربي / إنجليزي)
 // =====================================================================
 // كل نص بيظهر للمستخدم ليه مفتاح هنا. الواجهة بتستخدم:
 //   - I18N.t('مفتاح', { متغيرات })  للنصوص اللي بتتبني في الكود
@@ -12,7 +12,7 @@
   var DICT = {
     ar: {
       // عام — كل النص العربي في الواجهة بالفصحى
-      'app.name': 'Ads Control Center',
+      'app.name': 'Ads Center',
       'app.tag': 'تنبيهات ذكية تحمي ميزانيتك الإعلانية',
       'brand.home': 'الصفحة الرئيسية',
       'lang.toggle': 'EN',
@@ -42,7 +42,7 @@
 
       // شاشة البداية
       'hero.title': 'اعرف أين تُهدر ميزانيتك الإعلانية، وأين تكمن فرص نموك',
-      'hero.body': 'اربط حساباتك الإعلانية، ليجمع Ads Control Center إعلاناتك من مختلف المنصات في لوحة واحدة، ويقيّم أداء كل إعلان، وينبّهك بلغة واضحة إلى ما يستنزف ميزانيتك وما يستحق زيادة الاستثمار — دون أن يغيّر أي شيء في حساباتك.',
+      'hero.body': 'اربط حساباتك الإعلانية، ليجمع Ads Center إعلاناتك من مختلف المنصات في لوحة واحدة، ويقيّم أداء كل إعلان، وينبّهك بلغة واضحة إلى ما يستنزف ميزانيتك وما يستحق زيادة الاستثمار — دون أن يغيّر أي شيء في حساباتك.',
       'hero.cta': 'اربط حسابك الإعلاني',
 
       // فترة البيانات
@@ -220,7 +220,7 @@
       'filters.campaignChip': 'الحملة: {name}',
 
       // الفوتر
-      'footer.readOnly': 'يقرأ Ads Control Center بيانات إعلاناتك فقط، ولا يغيّر أي شيء في حساباتك الإعلانية.',
+      'footer.readOnly': 'يقرأ Ads Center بيانات إعلاناتك فقط، ولا يغيّر أي شيء في حساباتك الإعلانية.',
       'footer.privacy': 'سياسة الخصوصية',
       'footer.terms': 'شروط الاستخدام',
       'footer.deletion': 'حذف البيانات',
@@ -512,7 +512,7 @@
     },
 
     en: {
-      'app.name': 'Ads Control Center',
+      'app.name': 'Ads Center',
       'app.tag': 'Smart alerts that protect your ad budget',
       'brand.home': 'Home page',
       'lang.toggle': 'العربية',
@@ -539,7 +539,7 @@
       'n.day.one': 'day', 'n.day.many': 'days',
 
       'hero.title': 'See where your ad budget is being wasted — and where your growth opportunities are',
-      'hero.body': 'Connect your ad accounts and Ads Control Center brings your ads from every platform into one dashboard, scores each ad, and tells you in plain language what is draining your budget and what deserves more investment — without changing anything in your accounts.',
+      'hero.body': 'Connect your ad accounts and Ads Center brings your ads from every platform into one dashboard, scores each ad, and tells you in plain language what is draining your budget and what deserves more investment — without changing anything in your accounts.',
       'hero.cta': 'Connect your ad account',
 
       'period.label': 'Data period',
@@ -702,7 +702,7 @@
       'camp.showAds': 'Show ads →',
       'filters.campaignChip': 'Campaign: {name}',
 
-      'footer.readOnly': 'Ads Control Center only reads your ad data — it never changes anything in your ad accounts.',
+      'footer.readOnly': 'Ads Center only reads your ad data — it never changes anything in your ad accounts.',
       'footer.privacy': 'Privacy policy',
       'footer.terms': 'Terms of use',
       'footer.deletion': 'Data deletion',

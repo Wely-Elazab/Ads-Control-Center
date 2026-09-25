@@ -1,5 +1,5 @@
 // =====================================================================
-// Ads Control Center — طلب الانضمام للتجربة المغلقة
+// Ads Center — طلب الانضمام للتجربة المغلقة
 // =====================================================================
 // في التجربة المغلقة Meta وGoogle بيسمحوا بالربط بس للناس اللي بنضيفهم بالاسم
 // (Tester على تطبيق Meta، وTest user على Google). عشان كده:
@@ -12,8 +12,8 @@
   var JOIN = {
     email: 'support@adscenter.online',
     subject: {
-      ar: 'طلب الانضمام إلى تجربة Ads Control Center',
-      en: 'Request to join the Ads Control Center pilot'
+      ar: 'طلب الانضمام إلى تجربة Ads Center',
+      en: 'Request to join the Ads Center pilot'
     },
     // موافقة المختبِر مكتوبة في آخر الرسالة: Meta بتشترط اتفاق مع أي حد بنضيفه Tester (بند «برنامج التجربة» في الشروط)
     lines: {

@@ -28,7 +28,7 @@ export async function verifyGoogleToken(accessToken) {
       // auth = الجلسة انتهت (مش خطأ) — الملفات بترجّعها 401 والواجهة بتعرض «ربط تاني»
       result = { ok: false, auth: true, error: 'رمز دخول Google غير صالح أو منتهي — سجّل الدخول مرة أخرى.' };
     } else if (info.azp !== clientId && info.aud !== clientId) {
-      result = { ok: false, code: 'WRONG_APP', error: 'رمز الدخول هذا غير صادر لتطبيق Ads Control Center.' };
+      result = { ok: false, code: 'WRONG_APP', error: 'رمز الدخول هذا غير صادر لتطبيق Ads Center.' };
     } else if (!String(info.scope || '').includes('adwords')) {
       result = { ok: false, code: 'NO_SCOPE', error: 'رمز الدخول هذا لا يملك صلاحية Google Ads.' };
     } else {

@@ -1,4 +1,4 @@
-// Ads Control Center على Cloudflare Workers — الموقع والـ API من نفس المكان.
+// Ads Center على Cloudflare Workers — الموقع والـ API من نفس المكان.
 // Cloudflare بيبني وينشر تلقائياً مع كل push على main (Workers Builds: Root directory = /).
 // الاسم لازم يفضل زي اسم الـ Worker في لوحة Cloudflare، وإلا البناء بيفشل.
 {
