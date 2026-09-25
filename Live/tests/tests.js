@@ -1227,6 +1227,10 @@
           return call(w, '/home', { method: 'POST' });
         }).then(function (res) {
           eq(res.status, 405, 'POST to a page');
+          // www بيتحوّل للدومين الأساسي بنفس المسار
+          return w.default.fetch(new Request('https://www.adscenter.online/help?x=1'), fakeEnv());
+        }).then(function (res) {
+          eq([res.status, res.headers.get('Location')], [301, 'https://adscenter.online/help?x=1'], 'www redirect');
         });
       });
     });

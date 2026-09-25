@@ -20,5 +20,13 @@
   // الأسرار (GOOGLE_CLIENT_ID وGOOGLE_ADS_DEVELOPER_TOKEN وSNAPCHAT_CLIENT_ID وSNAPCHAT_CLIENT_SECRET)
   // بتتحط من لوحة Cloudflare كـ Secret ومبتتمسحش مع النشر. keep_vars بيحمي كمان أي متغيّر نصي
   // اتحط من اللوحة بالغلط كـ Text بدل Secret — من غيره كل نشر كان هيمسحه
-  "keep_vars": true
+  "keep_vars": true,
+  // الدومين الرسمي (مدار من Cloudflare). www بيتحوّل للأساسي من جوه الـ Worker.
+  // Cloudflare بيعمل سجلات DNS وشهادة HTTPS لوحده مع النشر
+  "routes": [
+    { "pattern": "adscenter.online", "custom_domain": true },
+    { "pattern": "www.adscenter.online", "custom_domain": true }
+  ],
+  // رابط ads-center.walid-elazab20.workers.dev يفضل شغّال طول فترة الانتقال
+  "workers_dev": true
 }

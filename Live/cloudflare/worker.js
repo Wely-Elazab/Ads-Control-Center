@@ -139,6 +139,11 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // www.adscenter.online → adscenter.online (نفس المسار) — عنوان واحد رسمي للموقع ولتسجيلات OAuth
+    if (url.hostname.indexOf('www.') === 0) {
+      return withSecurityHeaders(new Response(null, { status: 301, headers: { Location: 'https://' + url.hostname.slice(4) + path + url.search } }));
+    }
+
     if (path.indexOf('/api/') === 0) {
       const name = path.slice(5).replace(/\/+$/, '');
       if (Object.prototype.hasOwnProperty.call(HANDLERS, name)) {
