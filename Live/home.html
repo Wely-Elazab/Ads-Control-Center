@@ -72,28 +72,74 @@
       </div>
     </div>
 
-    <!-- رسم توضيحي لشكل الأداة — أرقام وأسماء مثال، ومكتوب عليه «مثال» -->
-    <div class="mock only-ar" role="img" aria-label="مثال لشكل الأرقام والتنبيهات داخل الأداة">
-      <div class="mock-head"><span>أهم التنبيهات</span><span class="mock-tag">مثال</span></div>
-      <div class="mock-kpis">
-        <div class="mock-kpi"><small>الإنفاق — ٧ أيام</small><b>٤٨٬٢٠٠ ج.م</b></div>
-        <div class="mock-kpi risk"><small>معرّض للهدر</small><b>٣٬٤٥٠ ج.م</b></div>
-        <div class="mock-kpi"><small>تحتاج إلى مراجعة</small><b>٣ إعلانات</b></div>
+    <!-- عرض توضيحي متحرك للأداة (زي GIF بيتكرر، من غير زرار) — js/demo.js بيقلّب المشاهد الأربعة.
+         كل الأرقام والأسماء مثال، ومكتوب عليه «بيانات توضيحية». المشهد نفسه aria-hidden، ووصفه للقارئ الصوتي في sr-only -->
+    <div class="demo-wrap">
+      <p class="sr-only"><span class="only-ar">عرض توضيحي متحرك ببيانات مثال: ربط حسابات Meta وGoogle Ads وSnapchat، ثم لوحة الإعلانات والأرقام، ثم التنبيهات مرتّبة حسب حجمها في الميزانية، ثم تفاصيل تنبيه عاجل مع التوصية.</span><span class="only-en">Animated demo with sample data: connecting Meta, Google Ads and Snapchat, then the ads dashboard and figures, then alerts ranked by their size in the budget, then an urgent alert's details with the recommendation.</span></p>
+      <div class="demo" aria-hidden="true" data-demo>
+        <div class="demo-bar">
+          <span class="demo-lights"><i></i><i></i><i></i></span>
+          <span class="demo-url">adscenter.online/app</span>
+          <span class="demo-tag"><span class="only-ar">بيانات توضيحية</span><span class="only-en">Sample data</span></span>
+        </div>
+        <div class="demo-screen">
+
+          <!-- ١. ربط الحسابات -->
+          <div class="demo-scene is-active" data-scene>
+            <div class="demo-h"><span class="only-ar">اختر المنصة</span><span class="only-en">Choose a platform</span></div>
+            <div class="demo-conn demo-item" style="--d:0"><b>Meta</b><small><span class="only-ar">فيسبوك وإنستغرام</span><span class="only-en">Facebook &amp; Instagram</span></small><span class="demo-ok"><span class="only-ar">✓ متصل</span><span class="only-en">✓ Connected</span></span></div>
+            <div class="demo-conn demo-item" style="--d:1"><b>Google Ads</b><small><span class="only-ar">بما فيها حسابات MCC</span><span class="only-en">Including MCC accounts</span></small><span class="demo-ok"><span class="only-ar">✓ متصل</span><span class="only-en">✓ Connected</span></span></div>
+            <div class="demo-conn demo-item" style="--d:2"><b>Snapchat</b><small><span class="only-ar">الإعلانات والإنفاق</span><span class="only-en">Ads and spend</span></small><span class="demo-ok"><span class="only-ar">✓ متصل</span><span class="only-en">✓ Connected</span></span></div>
+            <div class="demo-conn demo-soon demo-item" style="--d:3"><b>TikTok</b><small><span class="only-ar">قريباً</span><span class="only-en">Coming soon</span></small><span></span></div>
+          </div>
+
+          <!-- ٢. كل الإعلانات في لوحة واحدة -->
+          <div class="demo-scene" data-scene>
+            <div class="demo-kpis">
+              <div class="demo-kpi demo-item" style="--d:0"><small><span class="only-ar">الإنفاق — آخر ٧ أيام</span><span class="only-en">Spend — last 7 days</span></small><b data-count="48200" data-money>٤٨٬٢٠٠ ج.م</b></div>
+              <div class="demo-kpi demo-item" style="--d:1"><small><span class="only-ar">المشتريات</span><span class="only-en">Purchases</span></small><b data-count="612">٦١٢</b></div>
+              <div class="demo-kpi risk demo-item" style="--d:2"><small><span class="only-ar">معرّض للهدر</span><span class="only-en">At risk of waste</span></small><b data-count="3450" data-money>٣٬٤٥٠ ج.م</b></div>
+            </div>
+            <div class="demo-ads">
+              <div class="demo-ad demo-item h-review" style="--d:3"><i></i><b><span class="only-ar">عرض الصيف</span><span class="only-en">Summer offer</span></b><small>Meta</small></div>
+              <div class="demo-ad demo-item h-improve" style="--d:3.4"><i></i><b><span class="only-ar">فيديو المنتج</span><span class="only-en">Product video</span></b><small>Meta</small></div>
+              <div class="demo-ad demo-item h-good" style="--d:3.8"><i></i><b><span class="only-ar">حملة البحث</span><span class="only-en">Search campaign</span></b><small>Google Ads</small></div>
+              <div class="demo-ad demo-item h-good" style="--d:4.2"><i></i><b><span class="only-ar">إعادة الاستهداف</span><span class="only-en">Retargeting</span></b><small>Meta</small></div>
+              <div class="demo-ad demo-item h-improve" style="--d:4.6"><i></i><b><span class="only-ar">العرض الأسبوعي</span><span class="only-en">Weekly deal</span></b><small>Snapchat</small></div>
+              <div class="demo-ad demo-item h-good" style="--d:5"><i></i><b><span class="only-ar">قصة عميل</span><span class="only-en">Customer story</span></b><small>Snapchat</small></div>
+            </div>
+            <div class="demo-legend demo-item" style="--d:5.5"><span class="h-review"><i></i><span class="only-ar">يحتاج إلى مراجعة</span><span class="only-en">Needs review</span></span><span class="h-improve"><i></i><span class="only-ar">يحتاج إلى تحسين</span><span class="only-en">Needs improvement</span></span><span class="h-good"><i></i><span class="only-ar">جيد</span><span class="only-en">Good</span></span></div>
+          </div>
+
+          <!-- ٣. التنبيهات مرتّبة حسب حجمها في الميزانية -->
+          <div class="demo-scene" data-scene>
+            <div class="demo-h"><span class="only-ar">أهم التنبيهات</span><span class="only-en">Top alerts</span></div>
+            <div class="demo-alert lv-critical demo-item demo-pulse" style="--d:0"><span class="demo-level"><span class="only-ar">عاجل</span><span class="only-en">Urgent</span></span><div><b><span class="only-ar">إنفاق دون نتائج</span><span class="only-en">Spend without results</span></b><small><span class="only-ar">إعلان «عرض الصيف» · Meta</span><span class="only-en">“Summer offer” ad · Meta</span></small><em><span class="only-ar">📊 ١٣٪ من إنفاق الحساب</span><span class="only-en">📊 13% of account spend</span></em></div></div>
+            <div class="demo-alert lv-warning demo-item" style="--d:1"><span class="demo-level"><span class="only-ar">مهم</span><span class="only-en">Important</span></span><div><b><span class="only-ar">مؤشرات على تشبّع الجمهور</span><span class="only-en">Signs of audience fatigue</span></b><small><span class="only-ar">إعلان «فيديو المنتج» · Meta</span><span class="only-en">“Product video” ad · Meta</span></small><em><span class="only-ar">📊 ١٩٪ من إنفاق الحساب</span><span class="only-en">📊 19% of account spend</span></em></div></div>
+            <div class="demo-alert lv-opportunity demo-item" style="--d:2"><span class="demo-level"><span class="only-ar">فرصة</span><span class="only-en">Opportunity</span></span><div><b><span class="only-ar">فرصة لاختبار زيادة الاستثمار</span><span class="only-en">Worth testing a bigger budget</span></b><small><span class="only-ar">إعلان «حملة البحث» · Google Ads</span><span class="only-en">“Search campaign” ad · Google Ads</span></small><em><span class="only-ar">📊 ٨٪ من إنفاق الحساب</span><span class="only-en">📊 8% of account spend</span></em></div></div>
+            <div class="demo-more demo-item" style="--d:3"><span class="only-ar">جميع التنبيهات (٧) ←</span><span class="only-en">All alerts (7) →</span></div>
+          </div>
+
+          <!-- ٤. تفاصيل التنبيه والخطوة التالية -->
+          <div class="demo-scene" data-scene>
+            <div class="demo-detail-head demo-item" style="--d:0"><span class="demo-level lv-critical"><span class="only-ar">عاجل</span><span class="only-en">Urgent</span></span><b><span class="only-ar">إنفاق دون نتائج</span><span class="only-en">Spend without results</span></b></div>
+            <p class="demo-text demo-item" style="--d:1"><span class="only-ar">أنفق «عرض الصيف» ٦٠٠ ج.م خلال آخر يومين دون أي مشتريات.</span><span class="only-en">“Summer offer” spent EGP 600 in the last 2 days with no purchases.</span></p>
+            <div class="demo-chart demo-item" style="--d:2">
+              <i style="--h:62%"></i><i style="--h:70%"></i><i style="--h:58%"></i><i style="--h:66%"></i><i style="--h:60%"></i><i class="bad" style="--h:74%"></i><i class="bad" style="--h:72%"></i>
+            </div>
+            <div class="demo-chart-key demo-item" style="--d:2.5"><span><i></i><span class="only-ar">الإنفاق اليومي — آخر ٧ أيام</span><span class="only-en">Daily spend — last 7 days</span></span><span class="bad"><i></i><span class="only-ar">يومان دون نتائج</span><span class="only-en">2 days with no results</span></span></div>
+            <p class="demo-impact demo-item" style="--d:3"><span class="only-ar">📊 الحجم في ميزانيتك: ٦٬٢٦٠ ج.م خلال آخر ٧ أيام — ١٣٪ من إنفاق الحساب</span><span class="only-en">📊 Size in your budget: EGP 6,260 in the last 7 days — 13% of account spend</span></p>
+            <p class="demo-advice demo-item" style="--d:4"><span class="only-ar">💡 راجع الإعلان مع مسؤول الإعلانات، فقد يحتاج إلى تعديل أو إيقاف.</span><span class="only-en">💡 Review it with your ads manager — it may need changes or a pause.</span></p>
+          </div>
+
+        </div>
       </div>
-      <div class="mock-alert lv-critical"><span class="mock-level">عاجل</span><div><b>إنفاق دون نتائج</b><small>إعلان «عرض الصيف» · Meta</small></div></div>
-      <div class="mock-alert lv-warning"><span class="mock-level">مهم</span><div><b>مؤشرات على تشبّع الجمهور</b><small>إعلان «فيديو المنتج» · Meta</small></div></div>
-      <div class="mock-alert lv-opportunity"><span class="mock-level">فرصة</span><div><b>فرصة لاختبار زيادة الاستثمار</b><small>إعلان «كلمات العلامة التجارية» · Google Ads</small></div></div>
-    </div>
-    <div class="mock only-en" role="img" aria-label="An example of the figures and alerts inside the tool">
-      <div class="mock-head"><span>Top alerts</span><span class="mock-tag">Example</span></div>
-      <div class="mock-kpis">
-        <div class="mock-kpi"><small>Spend — 7 days</small><b>EGP 48,200</b></div>
-        <div class="mock-kpi risk"><small>At risk of waste</small><b>EGP 3,450</b></div>
-        <div class="mock-kpi"><small>Need review</small><b>3 ads</b></div>
-      </div>
-      <div class="mock-alert lv-critical"><span class="mock-level">Urgent</span><div><b>Spend without results</b><small>“Summer offer” ad · Meta</small></div></div>
-      <div class="mock-alert lv-warning"><span class="mock-level">Important</span><div><b>Signs of audience fatigue</b><small>“Product video” ad · Meta</small></div></div>
-      <div class="mock-alert lv-opportunity"><span class="mock-level">Opportunity</span><div><b>Worth testing a bigger budget</b><small>“Brand keywords” ad · Google Ads</small></div></div>
+      <ol class="demo-steps" aria-hidden="true">
+        <li class="is-active" data-step><span class="demo-step-fill"></span><span class="only-ar">اربط حساباتك</span><span class="only-en">Connect your accounts</span></li>
+        <li data-step><span class="demo-step-fill"></span><span class="only-ar">كل إعلاناتك في لوحة واحدة</span><span class="only-en">All your ads in one place</span></li>
+        <li data-step><span class="demo-step-fill"></span><span class="only-ar">تنبيهات حسب حجمها في ميزانيتك</span><span class="only-en">Alerts ranked by budget size</span></li>
+        <li data-step><span class="demo-step-fill"></span><span class="only-ar">التفاصيل والخطوة التالية</span><span class="only-en">Details and next step</span></li>
+      </ol>
     </div>
   </section>
 
@@ -298,5 +344,6 @@
 </footer>
 
 <script src="/js/join.js"></script>
+<script src="/js/demo.js"></script>
 </body>
 </html>

@@ -61,25 +61,102 @@ html[lang="en"] .home-hero h1 { line-height: 1.2; letter-spacing: -.5px; }
 .platform-chip { background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px; font-size: 13px; font-weight: 600; }
 .platform-chip.soon { color: var(--ink-faint); font-weight: 500; }
 
-/* رسم توضيحي لشكل التنبيهات جوه الأداة — أرقام مثال، مش بيانات حقيقية */
-.mock { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: 0 18px 44px -26px rgba(22, 26, 31, .45); }
-.mock-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; font-weight: 700; font-size: 14.5px; }
-.mock-tag { font-size: 11.5px; font-weight: 600; color: var(--ink-faint); border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; }
-.mock-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
-.mock-kpi { background: var(--paper); border-radius: 10px; padding: 8px 10px; }
-.mock-kpi small { display: block; font-size: 11px; line-height: 1.4; color: var(--ink-faint); }
-.mock-kpi b { font-size: 15px; white-space: nowrap; }
+/* ---------- عرض توضيحي متحرك للأداة (js/demo.js) — بيانات مثال، مش حقيقية ----------
+   ٤ مشاهد فوق بعض، الظاهر عليه .is-active، وعناصره بتظهر بالتتابع حسب --d.
+   الحركة بتقف مع «تقليل الحركة» (المشهد التالت ثابت) */
+.demo-wrap { min-width: 0; }
+.demo { background: var(--card); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; box-shadow: 0 18px 44px -26px rgba(22, 26, 31, .45); }
+.demo-bar { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--paper); }
+.demo-lights { display: flex; gap: 5px; flex-shrink: 0; }
+.demo-lights i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.demo-url { flex: 1; min-width: 0; direction: ltr; text-align: center; font-size: 12px; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.demo-tag { flex-shrink: 0; font-size: 11px; font-weight: 600; color: var(--ink-faint); border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; }
+.demo-screen { position: relative; height: 340px; }
+.demo-scene { position: absolute; inset: 0; padding: 16px; opacity: 0; transform: translateY(10px); transition: opacity .45s ease, transform .45s ease; pointer-events: none; }
+.demo-scene.is-active { opacity: 1; transform: none; }
+.demo-item { opacity: 0; transform: translateY(8px); transition: opacity .4s ease, transform .4s ease; transition-delay: 0s; }
+.demo-scene.is-active .demo-item { opacity: 1; transform: none; transition-delay: calc(var(--d, 0) * .32s + .15s); }
+.demo-h { font-weight: 700; font-size: 14px; margin-bottom: 10px; }
+
+/* ١. ربط الحسابات */
+.demo-conn { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 10px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; margin-bottom: 9px; }
+.demo-conn b { font-size: 14px; }
+.demo-conn small { font-size: 12px; color: var(--ink-faint); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.demo-ok { font-size: 12px; font-weight: 700; color: var(--verified); opacity: 0; transform: scale(.6); transition: opacity .3s ease, transform .3s ease; }
+.demo-scene.is-active .demo-ok { opacity: 1; transform: none; transition-delay: calc(var(--d, 0) * .32s + .75s); }
+
+/* ٢. الأرقام والإعلانات */
+.demo-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.demo-kpi { background: var(--paper); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.demo-kpi small { display: block; font-size: 11px; line-height: 1.4; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.demo-kpi b { font-size: 15px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.demo-kpi.risk b { color: var(--alert); }
+.demo-ads { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.demo-ad { position: relative; background: var(--paper); border-radius: 10px; padding: 34px 10px 9px; min-width: 0; overflow: hidden; }
+.demo-ad::before { content: ""; position: absolute; inset: 0 0 auto; height: 26px; background: linear-gradient(135deg, var(--line), transparent); }
+.demo-ad i { position: absolute; top: 9px; inset-inline-start: 9px; width: 9px; height: 9px; border-radius: 50%; background: var(--h); }
+.demo-ad b { display: block; font-size: 12px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.demo-ad small { display: block; font-size: 10.5px; color: var(--ink-faint); }
+.h-review { --h: var(--alert); } .h-improve { --h: var(--pending); } .h-good { --h: var(--verified); }
+.demo-conn.demo-soon { border-style: dashed; background: transparent; }
+.demo-conn.demo-soon b, .demo-conn.demo-soon small { color: var(--ink-faint); }
+.demo-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 12px; font-size: 11.5px; color: var(--ink-soft); }
+.demo-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.demo-legend i { width: 8px; height: 8px; border-radius: 50%; background: var(--h); }
+.demo-more { margin-top: 12px; font-size: 12.5px; font-weight: 600; color: var(--verified); }
+.demo-chart-key { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: -4px 0 10px; font-size: 11.5px; color: var(--ink-soft); }
+.demo-chart-key > span { display: inline-flex; align-items: center; gap: 5px; }
+.demo-chart-key i { width: 10px; height: 8px; border-radius: 2px; background: var(--verified); opacity: .75; }
+.demo-chart-key .bad i { background: var(--alert); opacity: 1; }
+
+/* ٣. التنبيهات */
+.demo-alert { display: flex; gap: 10px; align-items: flex-start; background: var(--paper); border-inline-start: 4px solid var(--lv); border-radius: 10px; padding: 9px 12px; margin-top: 8px; }
+.demo-level { flex-shrink: 0; font-size: 11px; font-weight: 700; line-height: 1.6; color: var(--lv); background: var(--lv-bg); border-radius: 999px; padding: 1px 9px; margin-top: 2px; }
+.demo-alert div { min-width: 0; }
+.demo-alert b { display: block; font-size: 13.5px; line-height: 1.45; }
+.demo-alert small { display: block; font-size: 12px; line-height: 1.5; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.demo-alert em { display: block; font-style: normal; font-size: 12px; font-weight: 600; line-height: 1.5; }
+.demo-scene.is-active .demo-pulse { animation: demo-pulse 1.6s ease-out 1.4s 2; }
+@keyframes demo-pulse { 0% { box-shadow: 0 0 0 0 var(--lv); } 100% { box-shadow: 0 0 0 10px transparent; } }
+
+/* ٤. تفاصيل التنبيه */
+.demo-detail-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.demo-detail-head b { font-size: 15px; }
+.demo-text { font-size: 13.5px; line-height: 1.6; margin: 0 0 10px; }
+.demo-chart { display: flex; align-items: flex-end; gap: 7px; height: 64px; padding: 8px 10px 0; background: var(--paper); border-radius: 10px; margin-bottom: 10px; }
+.demo-chart i { flex: 1; height: var(--h); background: var(--verified); border-radius: 4px 4px 0 0; opacity: .75; transform: scaleY(0); transform-origin: bottom; transition: transform .5s ease; }
+.demo-chart i.bad { background: var(--alert); opacity: 1; }
+.demo-scene.is-active .demo-chart i { transform: none; transition-delay: .9s; }
+.demo-impact { font-size: 12.5px; font-weight: 700; line-height: 1.6; margin: 0 0 6px; }
+.demo-advice { font-size: 12.5px; line-height: 1.6; color: var(--ink-soft); margin: 0; }
+
+/* الخطوات تحت المشهد + شريط تقدّم للخطوة الحالية */
+.demo-steps { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.demo-steps li { position: relative; font-size: 11.5px; line-height: 1.45; color: var(--ink-faint); padding-top: 8px; }
+.demo-steps li::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; border-radius: 3px; background: var(--line); }
+.demo-step-fill { position: absolute; inset: 0 0 auto; height: 3px; border-radius: 3px; background: var(--verified); transform: scaleX(0); transform-origin: 100% 50%; }
+html[dir="ltr"] .demo-step-fill { transform-origin: 0 50%; }
+.demo-steps li.is-active { color: var(--ink); font-weight: 600; }
+.demo-steps li.is-done .demo-step-fill { transform: none; }
+.demo-steps li.is-active .demo-step-fill { animation: demo-fill var(--dur, 3s) linear forwards; }
+@keyframes demo-fill { to { transform: none; } }
+
 @media (max-width: 480px) {
-  .mock { padding: 14px; }
-  .mock-kpis { gap: 6px; }
-  .mock-kpi { padding: 7px 8px; }
-  .mock-kpi b { font-size: 13px; }
+  .demo-screen { height: 376px; }
+  .demo-scene { padding: 12px; }
+  .demo-kpis, .demo-ads { gap: 6px; }
+  .demo-kpi { padding: 7px 8px; }
+  .demo-kpi b { font-size: 13px; }
+  .demo-steps { gap: 6px; }
+  .demo-steps li { font-size: 10.5px; }
 }
-.mock-kpi.risk b { color: var(--alert); }
-.mock-alert { display: flex; gap: 10px; align-items: flex-start; background: var(--paper); border-inline-start: 4px solid var(--lv); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
-.mock-level { flex-shrink: 0; font-size: 11px; font-weight: 700; line-height: 1.6; color: var(--lv); background: var(--lv-bg); border-radius: 999px; padding: 1px 9px; margin-top: 2px; }
-.mock-alert b { display: block; font-size: 13.5px; line-height: 1.5; }
-.mock-alert small { display: block; font-size: 12px; line-height: 1.5; color: var(--ink-faint); }
+/* الموبايل الصغير: إعلانين في الصف بدل ٣ عشان الأسماء متتقصّش */
+@media (max-width: 400px) { .demo-ads { grid-template-columns: repeat(2, minmax(0, 1fr)); } .demo-screen { height: 384px; } }
+@media (prefers-reduced-motion: reduce) {
+  .demo-scene, .demo-item, .demo-ok, .demo-chart i { transition: none !important; }
+  .demo-scene.is-active .demo-pulse { animation: none; }
+  .demo-steps li.is-active .demo-step-fill { animation: none; transform: none; }
+}
 .lv-critical { --lv: var(--alert); --lv-bg: var(--alert-bg); }
 .lv-warning { --lv: var(--pending); --lv-bg: var(--pending-bg); }
 .lv-opportunity { --lv: var(--verified); --lv-bg: var(--verified-bg); }

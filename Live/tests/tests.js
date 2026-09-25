@@ -1178,6 +1178,28 @@
         });
       }));
     });
+    testAsync('العرض التوضيحي في الرئيسية بيتحرك لوحده (من غير زرار) وبيبيّن إنه بيانات مثال', function () {
+      var f = document.createElement('iframe');
+      f.style.cssText = 'position:fixed;left:0;top:0;width:1280px;height:900px;opacity:0;pointer-events:none';
+      f.src = '/home.html?t=' + Date.now();
+      document.body.appendChild(f);
+      function active(d, sel) { return Array.prototype.findIndex.call(d.querySelectorAll(sel), function (s) { return s.classList.contains('is-active'); }); }
+      return new Promise(function (r) { f.onload = r; }).then(function () {
+        var d = f.contentDocument;
+        eq(d.querySelectorAll('[data-demo] [data-scene]').length, 4, '4 scenes');
+        eq(d.querySelectorAll('.demo-steps [data-step]').length, 4, '4 step captions');
+        ok(d.querySelector('[data-demo]').getAttribute('aria-hidden') === 'true' && d.querySelector('.demo-wrap .sr-only'), 'decorative for screen readers, with a text description');
+        ok(/بيانات توضيحية/.test(d.querySelector('.demo-tag').textContent), 'labelled as sample data');
+        ok(!d.querySelector('[data-demo] button, [data-demo] a'), 'no buttons to press');
+        eq([active(d, '[data-scene]'), active(d, '.demo-steps [data-step]')], [0, 0], 'starts at step 1');
+        return new Promise(function (r) { setTimeout(r, 3200); });
+      }).then(function () {
+        var d = f.contentDocument, now = [active(d, '[data-scene]'), active(d, '.demo-steps [data-step]')];
+        // لو التاب مخفي (زي لوحة الاختبار وهي مقفولة) العرض لازم يفضل واقف عشان ميستهلكش جهاز الزائر
+        if (d.hidden) eq(now, [0, 0], 'tab hidden: stays paused on step 1 (saves the device)');
+        else eq(now, [1, 1], 'moved to step 2 on its own');
+      }).then(function () { f.remove(); }, function (e) { f.remove(); throw e; });
+    });
     testAsync('الصفحات الجديدة باللغتين ومنشورة، و404 بمسارات مطلقة', function () {
       return Promise.all(['/home.html', '/help.html', '/404.html'].map(function (u) {
         return getText(u).then(function (html) {
