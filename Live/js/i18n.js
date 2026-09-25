@@ -859,7 +859,7 @@
       's.googleInactiveOnly': 'Logged in, but the Google Ads account on this login isn\'t active (closed, or setup not finished): {ids}. Log in with an email that has an active ad account, or finish setting up the account at ads.google.com.',
       's.googleSkippedInactive': '(skipped inactive accounts: {ids})',
       's.accountsFound': 'Found {n} {platform} {accounts} — pick one from the list.',
-      's.backendFailed': 'Couldn\'t reach the backend ({msg}). Make sure the /api files are deployed on Vercel.',
+      's.backendFailed': 'Couldn\'t reach the server ({msg}).',
       's.loadingAds': 'Loading {platform} ads…',
       's.adsFailed': 'Couldn\'t load {platform} ads ({msg}).',
       's.unexpected': 'unexpected server response',

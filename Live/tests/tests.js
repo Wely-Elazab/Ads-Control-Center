@@ -855,8 +855,8 @@
       });
     });
     testAsync('سياسة الأمان: script-src من غير unsafe-inline/eval، وصفحة الفحص مطابقة للموقع', function () {
-      return Promise.all([fetch('/vercel.json').then(function (r) { return r.json(); }), fetch('/tests/csp-check.html').then(function (r) { return r.text(); })]).then(function (r) {
-        var live = r[0].headers[0].headers.filter(function (h) { return h.key === 'Content-Security-Policy'; })[0].value;
+      return Promise.all([import('/cloudflare/worker.js'), fetch('/tests/csp-check.html').then(function (r) { return r.text(); })]).then(function (r) {
+        var live = r[0].SECURITY_HEADERS['Content-Security-Policy'];
         var check = new DOMParser().parseFromString(r[1], 'text/html').querySelector('meta[http-equiv="Content-Security-Policy"]').getAttribute('content');
         var scriptSrc = /script-src ([^;]+)/.exec(live)[1];
         ok(scriptSrc.indexOf('unsafe-inline') === -1 && scriptSrc.indexOf('unsafe-eval') === -1, 'strict script-src: ' + scriptSrc);
@@ -964,7 +964,7 @@
     test('رسالة الانضمام فيها البيانات المطلوبة وموافقة المختبِر باللغتين', function () {
       ['ar', 'en'].forEach(function (l) {
         var href = ACC_JOIN.href(l);
-        ok(href.indexOf('mailto:walid.elazab20@gmail.com?subject=') === 0, l + ': mailto');
+        ok(href.indexOf('mailto:support@adscenter.online?subject=') === 0, l + ': mailto');
         var body = decodeURIComponent(href.split('&body=')[1]);
         ok(/فيسبوك|Facebook/.test(body), l + ': asks for the Facebook profile');
         ok(/Google Ads/.test(body), l + ': asks for the Google Ads email');
@@ -1035,11 +1035,12 @@
       });
     }
     function parse(html) { return new DOMParser().parseFromString(html, 'text/html'); }
-    // السيرفر المحلي مفيهوش rewrites بتاعة Vercel (زي /help → /help.html) — فبنطبّقها من vercel.json نفسه
+    // السيرفر المحلي مفيهوش rewrites الموقع (زي /help → /help.html) — فبنطبّقها من الـ Worker نفسه
     function routeMap() {
-      return getText('/vercel.json').then(function (txt) {
-        var cfg = JSON.parse(txt), map = {};
-        (cfg.rewrites || []).concat(cfg.redirects || []).forEach(function (r) { map[r.source] = r.destination; });
+      return import('/cloudflare/worker.js').then(function (w) {
+        var map = {};
+        Object.keys(w.REWRITES).forEach(function (k) { map[k] = w.REWRITES[k]; });
+        Object.keys(w.REDIRECTS).forEach(function (k) { map[k] = w.REDIRECTS[k].destination; });
         return function (path) { for (var i = 0; i < 5 && map[path]; i++) path = map[path]; return path; };
       });
     }
@@ -1156,7 +1157,7 @@
           }
         });
       })).then(function () {
-        return getText('/.vercelignore');
+        return getText('/.assetsignore');
       }).then(function (txt) {
         var ignored = txt.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s && s.charAt(0) !== '#'; });
         ['/home.html', '/help.html', '/404.html', '/site.css', '/legal.css', '/js/join.js', '/js/legal.js'].forEach(function (f) {
@@ -1177,22 +1178,27 @@
       }, extra || {});
     }
     function call(w, path, init, env) { return w.default.fetch(new Request(location.origin + path, init || {}), env || fakeEnv()); }
-    function readVercel() { return fetch('/vercel.json?t=' + Date.now()).then(function (r) { return r.json(); }); }
-    // الـ Worker بيحط الأسرار في process.env (زي Vercel) — بنرجّع الصفحة لحالتها بعد الاختبار
+    // الـ Worker بيحط الأسرار في process.env — بنرجّع الصفحة لحالتها بعد الاختبار
     var hadProcess = typeof globalThis.process !== 'undefined';
     function cleanProcess() { if (!hadProcess) delete globalThis.process; else ['SNAPCHAT_CLIENT_ID', 'SNAPCHAT_CLIENT_SECRET'].forEach(function (k) { delete globalThis.process.env[k]; }); }
 
-    testAsync('الـ routes ورؤوس الأمان مطابقة لـ vercel.json بالظبط', function () {
-      return Promise.all([loadWorker(), readVercel()]).then(function (r) {
-        var w = r[0], cfg = r[1];
-        var rewrites = {}, redirects = {}, headers = {};
-        cfg.rewrites.forEach(function (x) { rewrites[x.source] = x.destination; });
-        cfg.redirects.forEach(function (x) { redirects[x.source] = { destination: x.destination, permanent: x.permanent === true }; });
-        cfg.headers[0].headers.forEach(function (h) { headers[h.key] = h.value; });
-        eq(w.REWRITES, rewrites, 'rewrites');
-        eq(w.REDIRECTS, redirects, 'redirects');
-        eq(w.SECURITY_HEADERS, headers, 'headers');
-        eq(cfg.headers[0].source, '/(.*)', 'Vercel applies the headers to every response');
+    // الروابط الرسمية مسجّلة في Meta وGoogle وSnapchat (رابط الرجوع = /app) — أي تغيير فيها لازم يتسجّل هناك كمان
+    testAsync('الروابط الرسمية ورؤوس الأمان ثابتة، وكل صفحة ليها ملف موجود', function () {
+      return loadWorker().then(function (w) {
+        eq(w.REWRITES, {
+          '/': '/home.html', '/index.html': '/home.html', '/app': '/pauseproof-live.html',
+          '/help': '/help.html', '/privacy': '/privacy.html', '/terms': '/terms.html', '/data-deletion': '/data-deletion.html'
+        }, 'rewrites');
+        eq(w.REDIRECTS['/home'], { destination: '/', permanent: true }, 'old /home');
+        ['X-Content-Type-Options', 'Referrer-Policy', 'X-Frame-Options', 'Permissions-Policy', 'Strict-Transport-Security', 'Content-Security-Policy'].forEach(function (h) {
+          ok(w.SECURITY_HEADERS[h], 'security header: ' + h);
+        });
+        ok(/frame-ancestors 'self'/.test(w.SECURITY_HEADERS['Content-Security-Policy']), 'no framing by other sites');
+        return Promise.all(Object.keys(w.REWRITES).map(function (k) {
+          return fetch(w.REWRITES[k] + '?t=' + Date.now()).then(function (r) { return k + ' ' + r.status; });
+        }));
+      }).then(function (list) {
+        list.forEach(function (s) { ok(/ 200$/.test(s), 'page file exists: ' + s); });
       });
     });
     testAsync('الصفحات: الرئيسية والروابط النظيفة والتحويل و404 — بنفس سلوك Vercel', function () {
@@ -1278,20 +1284,10 @@
         eq(list, ['/api/discount 404', '/api/_cors 404', '/api/_verify.js 404'], 'hidden and private modules are not endpoints');
       }).then(cleanProcess, function (e) { cleanProcess(); throw e; });
     });
-    testAsync('ملفات الخادم والاختبارات مش بتتنشر على Cloudflare ولا Vercel', function () {
-      function lines(u) {
-        return fetch(u + '?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (txt) {
-          return txt.split(/\r?\n/).map(function (s) { return s.trim().replace(/^\//, ''); }).filter(function (s) { return s && s.charAt(0) !== '#'; });
-        });
-      }
-      return Promise.all([lines('/.assetsignore'), lines('/.vercelignore')]).then(function (r) {
-        var cf = r[0], vc = r[1];
-        ['api', 'cloudflare', 'tests', 'vercel.json', '.vercelignore', '.assetsignore'].forEach(function (f) { ok(cf.indexOf(f) > -1, '.assetsignore: ' + f); });
-        // كل اللي مستخبي على Vercel مستخبي على Cloudflare كمان (بالاسم أو بالمجلد)
-        vc.forEach(function (f) {
-          ok(cf.indexOf(f) > -1 || cf.indexOf(f.split('/')[0]) > -1 || f === 'cloudflare' || f === '.assetsignore', 'hidden on Cloudflare too: ' + f);
-        });
-        ['cloudflare', '.assetsignore'].forEach(function (f) { ok(vc.indexOf(f) > -1, '.vercelignore: ' + f); });
+    testAsync('ملفات الخادم والاختبارات والأسعار المخفية مش بتتنشر', function () {
+      return fetch('/.assetsignore?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (txt) {
+        var cf = txt.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s && s.charAt(0) !== '#'; });
+        ['api', 'cloudflare', 'tests', '.assetsignore', 'pricing.html', 'pricing.css', 'js/pricing.js'].forEach(function (f) { ok(cf.indexOf(f) > -1, '.assetsignore: ' + f); });
       });
     });
   });

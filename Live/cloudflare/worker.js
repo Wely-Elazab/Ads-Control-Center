@@ -1,16 +1,15 @@
 // =====================================================================
 // Ads Control Center — Cloudflare Worker (الموقع + /api)
 // =====================================================================
-// الملف ده بيعمل على Cloudflare اللي vercel.json + مجلد api بيعملوه على Vercel:
-//   - الصفحات الثابتة من مجلد Live (الـ ASSETS binding) بنفس الـ rewrites والـ redirects
-//   - نفس رؤوس الأمان (CSP وغيرها) على كل رد
-//   - نفس ملفات api/*.js من غير أي تعديل: بنلفّها بطبقة صغيرة بتحوّل طلب Cloudflare
-//     (Request/Response) لشكل Vercel (req.body / res.status().json()) — فالكود واحد على المنصتين
-//     طول فترة الانتقال
+// الموقع كله على adscenter.online (من ٢٥ سبتمبر ٢٠٢٦ — Vercel اتقفل):
+//   - الصفحات الثابتة من مجلد Live (الـ ASSETS binding) بالـ rewrites والـ redirects اللي تحت
+//   - رؤوس الأمان (CSP وغيرها) على كل رد
+//   - ملفات api/*.js مكتوبة بشكل Vercel (req.body / res.status().json()) — بنلفّها بطبقة صغيرة
+//     بتحوّلها من/لـ Request/Response بتاعة Cloudflare
 // الإعداد في wrangler.jsonc (في جذر الريبو). الملفات اللي مبتتنشرش كصفحات في Live/.assetsignore
 //
-// أي تعديل في الـ routes أو الرؤوس هنا لازم يتعمل في vercel.json كمان لحد ما Vercel يتقفل —
-// فيه اختبار بيتأكد إن الاتنين متطابقين (tests → «Cloudflare»)
+// الروابط هنا مسجّلة في Meta وGoogle وSnapchat (رابط الرجوع = /app) — أي تغيير فيها لازم يتسجّل هناك كمان
+// (اختبار «Cloudflare» في tests.js بيثبّتها)
 
 import googleListAccounts from '../api/google-list-accounts.js';
 import googleAdsFetch from '../api/google-ads-fetch.js';
@@ -19,7 +18,7 @@ import snapchatAdsFetch from '../api/snapchat-ads-fetch.js';
 import tiktokToken from '../api/tiktok-token.js';
 import tiktokAdsFetch from '../api/tiktok-ads-fetch.js';
 
-// نفس الـ endpoints المنشورة على Vercel — discount متشال عن قصد مع صفحة الأسعار المخفية (.vercelignore)،
+// الـ endpoints المنشورة — discount متشال عن قصد مع صفحة الأسعار المخفية،
 // والملفات اللي بتبدأ بـ "_" مش endpoints أصلاً
 export const HANDLERS = {
   'google-list-accounts': googleListAccounts,
@@ -30,7 +29,7 @@ export const HANDLERS = {
   'tiktok-ads-fetch': tiktokAdsFetch
 };
 
-// نسخة من vercel.json → redirects (permanent: true = 308 زي Vercel، وfalse = 307)
+// التحويلات (permanent: true = 308، وfalse = 307)
 // /home كانت الصفحة الرئيسية قبل الدومين — الروابط القديمة بتروح لـ / على طول
 export const REDIRECTS = {
   '/home': { destination: '/', permanent: true },
@@ -38,7 +37,7 @@ export const REDIRECTS = {
   '/pricing.html': { destination: '/', permanent: false }
 };
 
-// نسخة من vercel.json → rewrites: الرابط بيفضل زي ما هو والصفحة بتيجي من الملف.
+// الروابط النظيفة: الرابط بيفضل زي ما هو والصفحة بتيجي من الملف.
 // الصفحة الرئيسية على / والأداة على /app (رابط الرجوع من Snapchat = origin + /app)
 export const REWRITES = {
   '/': '/home.html',
@@ -50,7 +49,7 @@ export const REWRITES = {
   '/data-deletion': '/data-deletion.html'
 };
 
-// نسخة من vercel.json → headers (على كل الردود، الصفحات والـ API)
+// رؤوس الأمان (على كل الردود، الصفحات والـ API)
 export const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',

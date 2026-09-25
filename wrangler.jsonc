@@ -6,12 +6,12 @@
   "main": "Live/cloudflare/worker.js",
   "compatibility_date": "2026-09-22",
   "assets": {
-    // الصفحات الثابتة — نفس مجلد Vercel. الملفات اللي مبتتنشرش في Live/.assetsignore
+    // الصفحات الثابتة. الملفات اللي مبتتنشرش في Live/.assetsignore
     "directory": "./Live",
     "binding": "ASSETS",
-    // الـ Worker بيشتغل على كل طلب عشان يطبّق الـ rewrites ورؤوس الأمان (زي vercel.json)
+    // الـ Worker بيشتغل على كل طلب عشان يطبّق الـ rewrites ورؤوس الأمان
     "run_worker_first": true,
-    // الروابط بالظبط زي Vercel: /home.html بيفضل /home.html، و/home بييجي من الـ rewrite
+    // الملفات بأسمائها بالظبط (/help.html)، والروابط النظيفة (/help و/app) من الـ rewrites في الـ Worker
     "html_handling": "none",
     "not_found_handling": "none"
   },
@@ -27,6 +27,7 @@
     { "pattern": "adscenter.online", "custom_domain": true },
     { "pattern": "www.adscenter.online", "custom_domain": true }
   ],
-  // رابط ads-center.walid-elazab20.workers.dev يفضل شغّال طول فترة الانتقال
-  "workers_dev": true
+  // الموقع على adscenter.online بس — رابط workers.dev القديم وروابط المعاينة مقفولين
+  "workers_dev": false,
+  "preview_urls": false
 }

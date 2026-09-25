@@ -10,7 +10,7 @@
 // واللغة بياخدها من <html lang> وقت الضغط (فلو المستخدم بدّل اللغة، الرسالة بتتبعت باللغة الجديدة).
 (function (global) {
   var JOIN = {
-    email: 'walid.elazab20@gmail.com',
+    email: 'support@adscenter.online',
     subject: {
       ar: 'طلب الانضمام إلى تجربة Ads Control Center',
       en: 'Request to join the Ads Control Center pilot'
