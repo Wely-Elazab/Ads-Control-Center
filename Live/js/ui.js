@@ -763,6 +763,7 @@
     return '<div class="issue-item ' + LEVELS[i.level].cls + '">' +
       '<div class="issue-title"><span class="issue-level">' + LEVELS[i.level].label + '</span>' + esc(i.title) + '</div>' +
       '<div class="issue-detail">' + esc(i.detail) + '</div>' +
+      (i.impactText ? '<div class="issue-impact">📊 ' + esc(i.impactText) + '</div>' : '') +
       '<div class="issue-advice">💡 ' + esc(i.advice) + '</div>' +
     '</div>';
   }
@@ -1000,6 +1001,7 @@
       '<div class="alert-head"><span class="alert-level">' + LEVELS[a.level].label + '</span><span class="alert-source">' + source + '</span></div>' +
       '<div class="alert-title">' + esc(a.title) + '</div>' +
       '<p class="alert-detail">' + esc(a.detail) + '</p>' +
+      (a.impactText ? '<p class="alert-impact">📊 ' + esc(a.impactText) + '</p>' : '') +
       '<p class="alert-advice">💡 ' + esc(a.advice) + '</p>' +
     '</article>';
   }

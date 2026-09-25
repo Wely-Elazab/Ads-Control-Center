@@ -407,6 +407,43 @@
       var r = engine(ads);
       eq([issuesOf(r, 'bud')[0].level, r.byAd.bud.health], ['warning', 'inactive']);
     });
+    test('حجم المشكلة: إنفاق الإعلان في آخر ٧ أيام ونسبته من الحساب، في التنبيه وفي تفاصيل الإعلان', function () {
+      // good1 وgood2 = ٧٠٠ لكل واحد، والإعلان ده = ٦٢٠ ← ٣١٪ من ٢٬٠٢٠
+      var ads = baseAccount().concat([ad('waste', { daily: [100, 100, 100, 100, 100, 100, 20], res: [5, 5, 5, 5, 0, 0, 0] })]);
+      var r = engine(ads);
+      var a = r.alerts.filter(function (x) { return x.adId === 'waste'; })[0];
+      eq([a.impact.spend, Math.round(a.impact.share * 100)], [620, 31]);
+      eq(a.impactText, t('al.impact', { spend: money(620, 'SAR'), pct: t('al.impactPct', { pct: ar(31) }) }));
+      eq(issuesOf(r, 'waste')[0].impactText, a.impactText, 'same line in the ad details');
+      ok(/alert-impact/.test(alertMarkup(a)) && alertMarkup(a).indexOf(esc(a.impactText)) > -1, 'shown on the alert card');
+    });
+    test('حجم المشكلة: أقل من ١٪ بيتكتب كده، وتنبيه الحساب بيوضّح إنه بيشمل الحساب كله', function () {
+      var ads = [ad('huge', { daily: steady(10000), res: steady(100) }), ad('tiny', { daily: steady(10), res: steady(0), freq: 9 }), ad('g2', { daily: steady(10000), res: steady(100) })];
+      var r = engine(ads);
+      var tiny = r.byAd.tiny.issues.filter(function (i) { return i.impactText; })[0];
+      ok(tiny && tiny.impactText.indexOf(t('al.impactPctLow')) > -1, 'under 1%: ' + (tiny && tiny.impactText));
+      var stopped = [ad('s1', { daily: [100, 100, 100, 100, 100, 0, 0], res: [2, 2, 2, 2, 2, 0, 0] }), ad('s2', { daily: [100, 100, 100, 100, 100, 0, 0], res: [2, 2, 2, 2, 2, 0, 0] })];
+      var acct = engine(stopped).alerts.filter(function (x) { return !x.adId; })[0];
+      ok(acct && acct.impactText === t('al.impactAccount', { spend: money(1000, 'SAR') }), 'whole account: ' + (acct && acct.impactText));
+    });
+    test('الترتيب جوه كل مستوى: الأكبر في الميزانية الأول، ومشاكل الحساب العاجلة فوق الكل', function () {
+      var ads = baseAccount().concat([
+        ad('w1', { daily: [50, 50, 50, 50, 50, 50, 10], res: [3, 3, 3, 3, 0, 0, 0] }),
+        ad('w2', { daily: [300, 300, 300, 300, 300, 300, 60], res: [9, 9, 9, 9, 0, 0, 0] }),
+        ad('f1', { daily: steady(80), res: steady(4), freq: 8 }),
+        ad('f2', { daily: steady(400), res: steady(20), freq: 8 })
+      ]);
+      var alerts = engine(ads).alerts, rank = { critical: 3, warning: 2, info: 1, opportunity: 0 };
+      for (var k = 1; k < alerts.length; k++) {
+        var p = alerts[k - 1], q = alerts[k];
+        if (p.level !== q.level) { ok(rank[p.level] >= rank[q.level], 'levels in order'); continue; }
+        var pAcct = p.amount === Number.MAX_SAFE_INTEGER, qAcct = q.amount === Number.MAX_SAFE_INTEGER;
+        ok(pAcct || !qAcct, 'urgent account problems first');
+        if (pAcct === qAcct) ok(p.impact.spend >= q.impact.spend, p.adId + ' (' + p.impact.spend + ') before ' + q.adId + ' (' + q.impact.spend + ')');
+      }
+      var waste = alerts.filter(function (x) { return x.title === t('al.waste.t'); }).map(function (x) { return x.adId; });
+      eq(waste, ['w2', 'w1'], 'bigger ad first');
+    });
     test('مشكلة الحساب = تنبيه واحد للحساب مش لكل إعلان', function () {
       var ads = baseAccount().concat([
         ad('a1', { daily: [100, 100, 100, 100, 100, 100, 0], active: false, pausedLevel: 'account' }),

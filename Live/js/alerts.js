@@ -475,8 +475,23 @@
       a.source = source; a.accountName = accName; a.currency = cur;
       // مشاكل الحساب نفسه (دفع، وقوف كامل) أهم من أي إعلان منفرد — تطلع أول القائمة في مستواها
       if (a.level === 'critical' && !a.adId) a.amount = Number.MAX_SAFE_INTEGER;
+      // حجم المشكلة: تنبيه التركيز خاص بإعلان واحد، والباقي بيخص الحساب كله
+      var concAd = a.adId ? ads.filter(function (c) { return c.id === a.adId; })[0] : null;
+      setImpact(a, concAd ? concAd.spend : acc.total7, acc.total7, cur, fmt, !concAd);
     });
     return alerts;
+  }
+
+  // حجم المشكلة في ميزانية صاحب النشاط: إنفاق الإعلان (أو الحساب) خلال آخر ٧ أيام ونسبته من إنفاق الحساب —
+  // رقم واحد بنفس المعنى في كل التنبيهات، وبيه بنرتّب التنبيهات جوه كل مستوى (الأكبر في الميزانية الأول)
+  function setImpact(i, spend, total, cur, fmt, wholeAccount) {
+    spend = spend || 0;
+    i.impact = { spend: spend, share: total > 0 ? spend / total : null, account: !!wholeAccount };
+    if (spend <= 0) { i.impactText = null; return; }
+    if (wholeAccount) { i.impactText = t('al.impactAccount', { spend: fmt.money(spend, cur) }); return; }
+    var share = i.impact.share;
+    var pct = share == null ? null : (share < 0.01 ? t('al.impactPctLow') : t('al.impactPct', { pct: fmt.int(share * 100) }));
+    i.impactText = pct ? t('al.impact', { spend: fmt.money(spend, cur), pct: pct }) : t('al.impactNoPct', { spend: fmt.money(spend, cur) });
   }
 
   // الدالة الرئيسية
@@ -495,6 +510,7 @@
         var r = evaluateAd(c, acc, s, fmt);
         byAd[c.id] = r;
         r.issues.forEach(function (i) {
+          setImpact(i, c.spend, acc.total7, c.currency, fmt, false);
           alerts.push(Object.assign({ adId: c.id, source: source, platform: c.platform, adName: c.offer || c.headline || c.id, currency: c.currency }, i));
         });
       });
@@ -504,7 +520,13 @@
       });
     });
 
-    alerts.sort(function (a, b) { return (LEVEL_RANK[b.level] - LEVEL_RANK[a.level]) || (b.amount - a.amount); });
+    // الترتيب: المستوى، وبعدين مشاكل الحساب العاجلة (دفع، وقوف كامل)، وبعدين الأكبر في الميزانية
+    alerts.sort(function (a, b) {
+      return (LEVEL_RANK[b.level] - LEVEL_RANK[a.level]) ||
+        ((b.amount === Number.MAX_SAFE_INTEGER) - (a.amount === Number.MAX_SAFE_INTEGER)) ||
+        (((b.impact && b.impact.spend) || 0) - ((a.impact && a.impact.spend) || 0)) ||
+        (b.amount - a.amount);
+    });
 
     var summary = { health: { review: 0, improve: 0, good: 0, inactive: 0 }, levels: { critical: 0, warning: 0, opportunity: 0, info: 0 }, atRisk: {} };
     Object.keys(byAd).forEach(function (id) { summary.health[byAd[id].health]++; });
