@@ -127,13 +127,22 @@ function jsonError(status, message) {
   });
 }
 
-// صفحة 404 بتاعتنا بحالة 404 (زي Vercel) — من غير رؤوس الطلب الأصلي عشان متبقاش 304 من غير محتوى
+// تعليقات الـ HTML (<!-- -->) ملاحظات لينا إحنا — بتفضل في الكود ومبتتنشرش للزوار ولا لمراجعي المنصات
+// (فيها تفاصيل داخلية زي طريقة إضافة المختبِرين وبنود الأسعار المخفية). HTMLRewriter موجود في Cloudflare
+// بس — في صفحة الاختبارات المحلية الرد بيرجع زي ما هو
+export function stripHtmlComments(response) {
+  const type = response.headers.get('content-type') || '';
+  if (typeof HTMLRewriter === 'undefined' || !response.body || type.indexOf('text/html') === -1) return response;
+  return new HTMLRewriter().onDocument({ comments: function (c) { c.remove(); } }).transform(response);
+}
+
+// صفحة 404 بتاعتنا بحالة 404 — من غير رؤوس الطلب الأصلي عشان متبقاش 304 من غير محتوى
 async function notFound(request, env) {
   const url = new URL(request.url);
   const page = await env.ASSETS.fetch(new Request(new URL('/404.html', url), { method: 'GET' }));
   const headers = new Headers(page.headers);
   headers.set('cache-control', 'no-store');
-  return withSecurityHeaders(new Response(request.method === 'HEAD' ? null : page.body, { status: 404, headers: headers }));
+  return withSecurityHeaders(stripHtmlComments(new Response(request.method === 'HEAD' ? null : page.body, { status: 404, headers: headers })));
 }
 
 export default {
@@ -167,6 +176,6 @@ export default {
     const assetUrl = new URL(assetPath + url.search, url);
     const asset = await env.ASSETS.fetch(new Request(assetUrl, request));
     if (asset.status === 404) return notFound(request, env);
-    return withSecurityHeaders(asset);
+    return withSecurityHeaders(stripHtmlComments(asset));
   }
 };
