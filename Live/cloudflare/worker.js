@@ -30,17 +30,20 @@ export const HANDLERS = {
   'tiktok-ads-fetch': tiktokAdsFetch
 };
 
-// نسخة من vercel.json → redirects (permanent: false = 307)
+// نسخة من vercel.json → redirects (permanent: true = 308 زي Vercel، وfalse = 307)
+// /home كانت الصفحة الرئيسية قبل الدومين — الروابط القديمة بتروح لـ / على طول
 export const REDIRECTS = {
-  '/pricing': '/',
-  '/pricing.html': '/'
+  '/home': { destination: '/', permanent: true },
+  '/pricing': { destination: '/', permanent: false },
+  '/pricing.html': { destination: '/', permanent: false }
 };
 
-// نسخة من vercel.json → rewrites: الرابط بيفضل زي ما هو والصفحة بتيجي من الملف
+// نسخة من vercel.json → rewrites: الرابط بيفضل زي ما هو والصفحة بتيجي من الملف.
+// الصفحة الرئيسية على / والأداة على /app (رابط الرجوع من Snapchat = origin + /app)
 export const REWRITES = {
-  '/': '/pauseproof-live.html',
-  '/index.html': '/pauseproof-live.html',
-  '/home': '/home.html',
+  '/': '/home.html',
+  '/index.html': '/home.html',
+  '/app': '/pauseproof-live.html',
   '/help': '/help.html',
   '/privacy': '/privacy.html',
   '/terms': '/terms.html',
@@ -153,7 +156,8 @@ export default {
     }
 
     if (Object.prototype.hasOwnProperty.call(REDIRECTS, path)) {
-      return withSecurityHeaders(new Response(null, { status: 307, headers: { Location: REDIRECTS[path] + url.search } }));
+      const r = REDIRECTS[path];
+      return withSecurityHeaders(new Response(null, { status: r.permanent ? 308 : 307, headers: { Location: r.destination + url.search } }));
     }
 
     if (request.method !== 'GET' && request.method !== 'HEAD') {

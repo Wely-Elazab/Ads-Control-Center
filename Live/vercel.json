@@ -1,12 +1,13 @@
 {
   "redirects": [
+    { "source": "/home", "destination": "/", "permanent": true },
     { "source": "/pricing", "destination": "/", "permanent": false },
     { "source": "/pricing.html", "destination": "/", "permanent": false }
   ],
   "rewrites": [
-    { "source": "/", "destination": "/pauseproof-live.html" },
-    { "source": "/index.html", "destination": "/pauseproof-live.html" },
-    { "source": "/home", "destination": "/home.html" },
+    { "source": "/", "destination": "/home.html" },
+    { "source": "/index.html", "destination": "/home.html" },
+    { "source": "/app", "destination": "/pauseproof-live.html" },
     { "source": "/help", "destination": "/help.html" },
     { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/terms", "destination": "/terms.html" },

@@ -840,7 +840,7 @@
     });
     test('اسم الأداة فوق رابط للصفحة الرئيسية', function () {
       var brand = document.querySelector('.appbar a.brand');
-      ok(brand && brand.getAttribute('href') === '/home', 'brand links to /home');
+      ok(brand && brand.getAttribute('href') === '/', 'brand links to the landing page (/)');
       eq(brand.getAttribute('title'), t('brand.home'));
     });
     testAsync('النوافذ: التركيز بيدخل جوه النافذة وبيرجع للزرار اللي فتحها', function () {
@@ -1135,7 +1135,7 @@
           ok(btn && btn.querySelector('[data-theme-icon]'), u + ': dark-mode button');
           ok(btn.querySelector('.only-ar') && btn.querySelector('.only-en'), u + ': button has a label in both languages');
           var brand = doc.querySelector('header .legal-brand, header .site-brand');
-          eq(brand && brand.getAttribute('href'), '/home', u + ': brand link');
+          eq(brand && brand.getAttribute('href'), '/', u + ': brand link');
           ok(/theme\.js/.test(Array.prototype.map.call(doc.querySelectorAll('head script[src]'), function (s) { return s.getAttribute('src'); }).join(' ')), u + ': loads theme.js');
         });
       }));
@@ -1187,7 +1187,7 @@
         var w = r[0], cfg = r[1];
         var rewrites = {}, redirects = {}, headers = {};
         cfg.rewrites.forEach(function (x) { rewrites[x.source] = x.destination; });
-        cfg.redirects.forEach(function (x) { redirects[x.source] = x.destination; ok(x.permanent === false, 'Vercel redirect is temporary (307)'); });
+        cfg.redirects.forEach(function (x) { redirects[x.source] = { destination: x.destination, permanent: x.permanent === true }; });
         cfg.headers[0].headers.forEach(function (h) { headers[h.key] = h.value; });
         eq(w.REWRITES, rewrites, 'rewrites');
         eq(w.REDIRECTS, redirects, 'redirects');
@@ -1204,13 +1204,16 @@
           eq(res.headers.get('X-Frame-Options'), 'SAMEORIGIN');
           return res.text();
         }).then(function (html) {
-          ok(html.indexOf('id="emptyHero"') > -1, '/ serves the tool');
-          return call(w, '/home');
+          ok(html.indexOf('home-hero') > -1, '/ serves the landing page');
+          return call(w, '/app');
         }).then(function (res) {
-          eq(res.status, 200, '/home');
+          eq(res.status, 200, '/app');
           return res.text();
         }).then(function (html) {
-          ok(html.indexOf('home-hero') > -1, '/home serves the landing page');
+          ok(html.indexOf('id="emptyHero"') > -1, '/app serves the tool');
+          return call(w, '/home?x=1');
+        }).then(function (res) {
+          eq([res.status, res.headers.get('Location')], [308, '/?x=1'], 'old /home links go to / permanently');
           return call(w, '/help.html');
         }).then(function (res) {
           eq(res.status, 200, '/help.html still works (html_handling: none)');
@@ -1224,7 +1227,7 @@
           return res.text();
         }).then(function (html) {
           ok(html.indexOf('nf-code') > -1, 'our 404 page');
-          return call(w, '/home', { method: 'POST' });
+          return call(w, '/app', { method: 'POST' });
         }).then(function (res) {
           eq(res.status, 405, 'POST to a page');
           // www بيتحوّل للدومين الأساسي بنفس المسار
