@@ -510,10 +510,88 @@
     .expand-overlay { align-items: flex-end; padding: 0; }
     .expand-card { max-width: 100%; border-radius: 18px 18px 0 0; max-height: 85vh; }
   }
-  @media print {
-    .appbar, .status-strip, .period-custom, .toolbar, .drawer, .expand-overlay, #openSettingsBtn { display: none !important; }
+  /* =====================================================================
+     الفصل بين الأقسام والحركة — حركة خفيفة وسريعة بس، عشان دي شاشة شغل يومية.
+     كلها بتتلغي مع «تقليل الحركة» (آخر قاعدة في الملف)
+     ===================================================================== */
+  :root { --ease-out: cubic-bezier(.2, .7, .2, 1); }
+  @keyframes app-rise { from { opacity: 0; transform: translateY(10px); } }
+  @keyframes app-fade { from { opacity: 0; } }
+  @keyframes app-fade-soft { from { opacity: .35; } }
+  @keyframes app-pop { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+  @keyframes app-sheet { from { transform: translateY(100%); } }
+  @keyframes app-drawer-r { from { transform: translateX(100%); } }
+  @keyframes app-drawer-l { from { transform: translateX(-100%); } }
+  @keyframes app-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--lv, var(--alert)) 60%, transparent); } 70%, 100% { box-shadow: 0 0 0 8px transparent; } }
+
+  /* أقسام صفحة الإعلانات: عنوان بعلامة خضرا لكل قسم، وقسم الإعلانات نفسه مفصول بخط */
+  .app-sec { margin-top: 22px; }
+  .sec-title, .top-alerts-title { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 15px; font-weight: 700; line-height: 1.4; color: var(--ink); }
+  .sec-title::before, .top-alerts-title::before, .alerts-heading::before { content: ""; flex-shrink: 0; width: 4px; height: 1em; border-radius: 3px; background: var(--verified); }
+  .alerts-heading { display: flex; align-items: center; gap: 8px; }
+  .top-alerts-head .top-alerts-title { margin: 0; }
+  .app-sec-summary:has(> .kpi-strip:empty) { display: none; }
+  .app-sec-summary .kpi-strip { margin: 0; }
+  .top-alerts { margin: 22px 0 0; }
+  .app-sec-ads { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
+  /* فترة البيانات: لوحة تحكّم واضحة فوق الأرقام */
+  .period-bar { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+  .period-bar .sort-select, .period-bar .date-input { background: var(--paper); }
+
+  /* الشريط اللي فوق بياخد ظل لما تنزل */
+  .appbar { transition: transform .2s ease, box-shadow .25s ease; }
+  .appbar.is-scrolled { box-shadow: 0 8px 24px -18px rgba(22, 26, 31, .5); }
+
+  /* التفاعل: الكروت بترتفع مع الماوس، والزراير بتنضغط */
+  .candidate-card, .campaign-card { transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+  .top-alert, .alert-item, .kpi-link, .summary-box { transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease, background-color .2s ease; }
+  @media (hover: hover) {
+    .candidate-card:hover, .campaign-card:hover { transform: translateY(-3px); box-shadow: 0 14px 28px -20px rgba(22, 26, 31, .6); }
+    .top-alert:hover, .alert-item.clickable:hover, .kpi-link:hover, .summary-box:hover { transform: translateY(-2px); }
+    .icon-toggle:hover, .lang-toggle:hover, .filters-btn:hover, .sort-select:hover, .view-switch-btn:hover { border-color: var(--ink-faint); }
   }
-  @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+  .ghost-btn, .filters-btn, .chip, .view-tab, .view-switch-btn, .icon-toggle, .lang-toggle, .sort-select, .show-more, .status-action, .platform-item, .platform-disconnect, .active-filter { transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .12s ease; }
+  .ghost-btn:active, .filters-btn:active, .chip:active, .view-tab:active, .view-switch-btn:active, .icon-toggle:active, .lang-toggle:active, .show-more:active, .active-filter:active, .platform-item:active:not(:disabled) { transform: scale(.97); }
+  /* زرار التحديث بيلف طول ما البيانات بتتحمّل */
+  body.is-loading #resetAllBtn { animation: spin 1s linear infinite; }
+
+  /* الظهور: الكروت الجديدة بس (ui.js → animateCards)، ووميض خفيف للشبكة لما الفلتر أو الترتيب يتغيّر */
+  .card-in { animation: app-rise .45s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 30ms); }
+  .grid-refresh { animation: app-fade-soft .3s ease both; }
+  .kpi-in { animation: app-rise .4s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 60ms); }
+  .ta-in { animation: app-rise .4s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 70ms + 80ms); }
+  .ta-in.lv-critical .top-alert-level { animation: app-ring 1.6s ease-out .7s 2; }
+  .alert-item { animation: app-rise .4s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 40ms); }
+  #viewAds:not(.hidden), #viewAlerts:not(.hidden) { animation: app-fade .25s ease both; }
+  .hero:not(.hidden) > * { animation: app-rise .5s var(--ease-out) both; }
+  .hero:not(.hidden) > :nth-child(2) { animation-delay: .06s; }
+  .hero:not(.hidden) > :nth-child(3) { animation-delay: .12s; }
+  .hero:not(.hidden) > :nth-child(4) { animation-delay: .18s; }
+  .hero:not(.hidden) > :nth-child(n+5) { animation-delay: .24s; }
+  /* عدد التنبيهات العاجلة على التبويب: نبضتين تلفت النظر أول ما يظهر */
+  .tab-count.has-critical { --lv: var(--alert); animation: app-ring 1.8s ease-out .8s 3; }
+  .numbers-note[open] ul { animation: app-rise .3s var(--ease-out) both; }
+
+  /* النوافذ: بتظهر بهدوء (وعلى الموبايل بتطلع من تحت)، ودرج الفلاتر بيدخل من الجنب */
+  .expand-overlay:not(.hidden) { animation: app-fade .2s ease both; }
+  .expand-overlay:not(.hidden) .expand-card { animation: app-pop .28s var(--ease-out) both; }
+  .drawer:not(.hidden) .drawer-backdrop { animation: app-fade .2s ease both; }
+  html[dir="rtl"] .drawer:not(.hidden) .drawer-panel { animation: app-drawer-r .3s var(--ease-out) both; }
+  html[dir="ltr"] .drawer:not(.hidden) .drawer-panel { animation: app-drawer-l .3s var(--ease-out) both; }
+  @media (max-width: 560px) { .expand-overlay:not(.hidden) .expand-card { animation: app-sheet .32s var(--ease-out) both; } }
+
+  /* زرار «لأعلى الصفحة» */
+  .to-top { position: fixed; bottom: 18px; inset-inline-end: 18px; z-index: 30; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-family: inherit; font-size: 19px; font-weight: 700; line-height: 1; cursor: pointer; box-shadow: 0 10px 26px -14px rgba(22, 26, 31, .55); opacity: 0; transform: translateY(12px); pointer-events: none; transition: opacity .25s ease, transform .25s ease, border-color .2s ease, color .2s ease; }
+  .to-top.is-visible { opacity: 1; transform: none; pointer-events: auto; }
+  .to-top:hover { border-color: var(--verified); color: var(--verified); }
+  .to-top:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+
+  @media print {
+    .appbar, .status-strip, .period-custom, .toolbar, .drawer, .expand-overlay, #openSettingsBtn, .to-top { display: none !important; }
+  }
+  /* «تقليل الحركة»: كل الحركة بتخلص على طول (من غير تأخير ولا تكرار) والمحتوى بيظهر في مكانه */
+  @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0s !important; } }
+
 </style>
 </head>
 <body>
@@ -612,10 +690,16 @@
         </ul>
       </details>
 
-      <div class="kpi-strip" id="kpiStrip"></div>
+      <!-- كل قسم في الصفحة ليه عنوان بعلامة خضرا (.sec-title) — عشان العين تفرّق بين الملخص والتنبيهات والإعلانات -->
+      <section class="app-sec app-sec-summary" aria-labelledby="secSummary">
+        <h2 class="sec-title" id="secSummary" data-i18n="sec.summary">ملخص الأداء</h2>
+        <div class="kpi-strip" id="kpiStrip"></div>
+      </section>
 
       <div class="top-alerts" id="topAlerts"></div>
 
+      <section class="app-sec app-sec-ads" aria-labelledby="secAds">
+      <h2 class="sec-title" id="secAds" data-i18n="sec.ads">الإعلانات والحملات</h2>
       <div class="toolbar">
         <div class="view-switch" id="viewSwitch" role="group" aria-label="طريقة العرض" data-i18n-aria="view.aria">
           <button type="button" class="view-switch-btn active" data-mode="ads" aria-pressed="true" data-i18n="view.ads">الإعلانات</button>
@@ -644,6 +728,7 @@
       </div>
 
       <div class="card-grid" id="cardGrid"></div>
+      </section>
     </div>
   </div>
 
@@ -672,6 +757,9 @@
   </footer>
 
 </div>
+
+<!-- زرار الرجوع لأعلى: بيظهر بعد ما تنزل في قائمة إعلانات طويلة (syncAppbar في ui.js) -->
+<button type="button" class="to-top" id="toTopBtn" tabindex="-1" aria-label="العودة إلى أعلى الصفحة" title="العودة إلى أعلى الصفحة" data-i18n-aria="btn.toTop" data-i18n-title="btn.toTop"><span aria-hidden="true">↑</span></button>
 
 <!-- درج الفلاتر -->
 <div id="filterDrawer" class="drawer hidden" role="dialog" aria-modal="true" aria-label="تصفية الإعلانات" data-i18n-aria="filters.aria">

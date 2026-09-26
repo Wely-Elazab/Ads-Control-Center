@@ -504,6 +504,26 @@
       render();
       eq(document.querySelectorAll('#cardGrid .candidate-card').length, 60, 'reset after sort change');
     });
+    test('الكارت بيظهر بحركة أول مرة بس، وتغيير الترتيب من غير كروت جديدة بيومّض الشبكة', function () {
+      var prevSort = filters.sort, tag = 'mv' + Date.now();
+      candidates = [ad(tag + 'a', { daily: steady(10) }), ad(tag + 'b', { daily: steady(20) })];
+      render();
+      eq(document.querySelectorAll('#cardGrid .candidate-card.card-in').length, 2, 'new cards animate in');
+      render(); // زي تغيير اللغة أو تحميل منصة تانية
+      eq(document.querySelectorAll('#cardGrid .card-in').length, 0, 'a plain re-render does not replay it');
+      filters.sort = prevSort === 'spend' ? 'launch' : 'spend';
+      render();
+      ok(cardGrid.classList.contains('grid-refresh'), 'changing the sort flashes the grid');
+      filters.sort = prevSort;
+      render();
+    });
+    test('صفحة الإعلانات مقسّمة بعناوين أقسام، وزرار «لأعلى» مترجم', function () {
+      ok(document.querySelector('#secSummary[data-i18n="sec.summary"]') && document.querySelector('#secAds[data-i18n="sec.ads"]'), 'section headings');
+      ok(document.getElementById('kpiStrip').closest('.app-sec-summary') && cardGrid.closest('.app-sec-ads'), 'numbers and cards sit in their own sections');
+      var btn = document.getElementById('toTopBtn');
+      ok(btn && btn.getAttribute('data-i18n-aria') === 'btn.toTop' && btn.tabIndex === -1, 'to-top button, out of the Tab order while hidden');
+      ['sec.summary', 'sec.ads', 'btn.toTop'].forEach(function (k) { ok(t(k) && t(k) !== k, k + ' translated'); });
+    });
     test('روابط فتح الإعلان في المنصة', function () {
       eq(platformLink({ platform: 'Meta', source: 'meta:act_123', nativeId: '456', id: '456' }).url,
         'https://adsmanager.facebook.com/adsmanager/manage/ads?act=123&selected_ad_ids=456');

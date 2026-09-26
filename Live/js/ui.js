@@ -29,15 +29,28 @@
   var mobileBar = window.matchMedia ? window.matchMedia('(max-width: 720px)') : null;
   // (أحداث الـ scroll أصلاً بتيجي مرة كل فريم، والشغل هنا خفيف: قراية رقم وتبديل كلاس)
   var lastScrollY = window.scrollY || 0;
+  // زرار «لأعلى الصفحة»: بيظهر بعد ما تنزل في قائمة طويلة، ومش بيتوصله بـ Tab وهو مستخبي
+  var toTopBtn = document.getElementById('toTopBtn');
   function syncAppbar() {
     if (!appbarEl) return;
     var y = window.scrollY || 0;
+    appbarEl.classList.toggle('is-scrolled', y > 4);
+    if (toTopBtn && toTopBtn.classList.contains('is-visible') !== (y > 900)) {
+      toTopBtn.classList.toggle('is-visible', y > 900);
+      toTopBtn.tabIndex = y > 900 ? 0 : -1;
+    }
     var isMobile = !!(mobileBar && mobileBar.matches);
     if (!isMobile || y <= appbarEl.offsetHeight || y < lastScrollY - 4) appbarEl.classList.remove('appbar-hidden');
     else if (y > lastScrollY + 4 && !appbarEl.contains(document.activeElement)) appbarEl.classList.add('appbar-hidden');
     lastScrollY = y;
   }
   window.addEventListener('scroll', syncAppbar, { passive: true });
+  if (toTopBtn) toTopBtn.addEventListener('click', function () {
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: still ? 'auto' : 'smooth' });
+    var brand = document.querySelector('.appbar .brand');
+    if (brand) brand.focus({ preventScroll: true });
+  });
   // التركيز بالكيبورد جوه الشريط بيرجّعه (مينفعش حاجة متركّز عليها تبقى مستخبية)
   if (appbarEl) appbarEl.addEventListener('focusin', function () { appbarEl.classList.remove('appbar-hidden'); });
   // تبديل اللغة: بيترجم الواجهة كلها ويعيد رسم الكروت والتنبيهات بالأرقام والعملة المناسبة.
@@ -514,12 +527,39 @@
     return '<button type="button" class="show-more" data-show-more>' + t('more.show', { n: ar(Math.min(RENDER_STEP, total - shown)) }) + '</button>';
   }
 
+  // ---------- حركة الكروت ----------
+  // الكارت بيظهر بحركة أول مرة بس — مش مع كل إعادة رسم (تغيير اللغة، تحميل منصة تانية، تحديث).
+  // ولو العميل غيّر الفلتر أو الترتيب ومفيش كروت جديدة، الشبكة كلها بتومض ومضة خفيفة عشان يبان إن النتيجة اتغيّرت
+  var seenCards = {};
+  function animateCards(reshuffled) {
+    var k = 0;
+    Array.prototype.forEach.call(cardGrid.querySelectorAll('.candidate-card, .campaign-card'), function (el) {
+      var key = el.dataset.id ? 'ad:' + el.dataset.id : 'camp:' + el.dataset.campaign;
+      if (seenCards[key]) return;
+      seenCards[key] = true;
+      el.style.setProperty('--i', Math.min(k++, 14));
+      el.classList.add('card-in');
+    });
+    if (reshuffled && !k) {
+      cardGrid.classList.remove('grid-refresh');
+      void cardGrid.offsetWidth; // يعيد تشغيل الومضة من الأول
+      cardGrid.classList.add('grid-refresh');
+    }
+  }
+  // بعد ما الحركة تخلص الكلاس بيتشال — عشان الرجوع لتبويب الإعلانات ميعيدهاش
+  cardGrid.addEventListener('animationend', function (e) {
+    if (e.target.classList.contains('card-in')) e.target.classList.remove('card-in');
+    else if (e.target === cardGrid) cardGrid.classList.remove('grid-refresh');
+  });
+
   function render() {
     runAnalysis();
     // لو الحملة اللي كنت فاتحها مش موجودة تاني (بدّلت الحساب مثلاً) الفلتر بيتشال لوحده
     if (filters.campaign && !candidates.some(function (c) { return campaignKey(c) === filters.campaign; })) filters.campaign = null;
     var visible = sortCandidates(visibleCandidates(), filters.sort);
     var signature = JSON.stringify([filters, viewMode, periodKey()]);
+    // العميل غيّر الفلتر أو الترتيب أو طريقة العرض أو الفترة (مش أول رسم ولا مجرد تحميل منصة) — animateCards
+    var reshuffled = !!renderSignature && signature !== renderSignature;
     if (signature !== renderSignature) { renderSignature = signature; renderLimit = RENDER_STEP; }
     // شاشة البداية («اربط حسابك») بتظهر بس لما مفيش أي منصة متصلة. لو متصل ومفيش إعلانات
     // (حساب فاضي، فشل، أو جلسة انتهت) بيظهر كارت الحالة بدالها
@@ -544,6 +584,7 @@
         : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
       galleryCount.textContent = t('gallery.count', { n: ar(visible.length), total: ar(candidates.length), ads: noun(candidates.length, 'n.ad') });
     }
+    animateCards(reshuffled);
     renderLastUpdated();
     document.querySelectorAll('#viewSwitch [data-mode]').forEach(function (b) {
       var on = b.dataset.mode === viewMode;
@@ -699,12 +740,15 @@
         ? '<button type="button" class="kpi kpi-link' + (cls || '') + '" data-kpi="' + action + '"' + tip + '>' + inner + '</button>'
         : '<div class="kpi' + (cls || '') + '"' + tip + '>' + inner + '</div>';
     };
+    var wasEmpty = !strip.children.length;
     strip.innerHTML =
       box(t('kpi.spend', { p: periodLabel() }), joinMoney(spendByCur)) +
       box(t('kpi.results', { p: periodLabel() }), resultsValue, types.length > 1 ? ' kpi-multi' : '', null, types.length > 1 ? resultsTitle : '') +
       box(t('kpi.atRisk'), joinMoney(atRisk), ' kpi-risk', hasRisk ? 'risk' : null) +
       box(t('kpi.review'), ar(review), review ? ' kpi-review' : '', review ? 'review' : null);
+    if (wasEmpty) Array.prototype.forEach.call(strip.children, function (el, i) { el.style.setProperty('--i', i); el.classList.add('kpi-in'); });
   }
+  document.getElementById('kpiStrip').addEventListener('animationend', function (e) { e.target.classList.remove('kpi-in'); });
   document.getElementById('kpiStrip').addEventListener('click', function (e) {
     var b = e.target.closest('[data-kpi]'); if (!b) return;
     if (b.dataset.kpi === 'risk') { openAlertsView('risk'); return; }
@@ -717,8 +761,15 @@
 
   // ---------- أهم التنبيهات فوق الإعلانات ----------
   // أهم ٣ تنبيهات (عاجل ثم مهم) بتظهر في صفحة الإعلانات نفسها — عشان متعتمدش على إن حد يفتح تبويب التنبيهات
+  var lastTopAlerts = '';
   function renderTopAlerts() {
     var el = document.getElementById('topAlerts');
+    fillTopAlerts(el);
+    if (el.textContent === lastTopAlerts) return;
+    lastTopAlerts = el.textContent;
+    Array.prototype.forEach.call(el.querySelectorAll('.top-alert, .top-alerts-ok'), function (item, i) { item.style.setProperty('--i', i); item.classList.add('ta-in'); });
+  }
+  function fillTopAlerts(el) {
     if (!candidates.length) { el.innerHTML = ''; return; }
     var list = analysis.alerts.filter(function (a) { return a.level === 'critical' || a.level === 'warning'; });
     if (!list.length) { el.innerHTML = '<div class="top-alerts-ok">✓ ' + t('top.none') + '</div>'; return; }
@@ -992,11 +1043,11 @@
   var alertsListEl = document.getElementById('alertsList');
   var alertsTabCount = document.getElementById('alertsTabCount');
 
-  function alertMarkup(a) {
+  function alertMarkup(a, i) {
     var clickable = a.adId && findCandidate(a.adId);
     // اسم الحساب فيه اسم المنصة أصلاً (مثال: "Meta — متجري")، فمنكررهاش
     var source = a.adName ? esc(a.platform || '') + ' · ' + esc(a.adName) : esc(a.accountName || a.platform || '');
-    return '<article class="alert-item ' + LEVELS[a.level].cls + (clickable ? ' clickable' : '') + '"' +
+    return '<article class="alert-item ' + LEVELS[a.level].cls + (clickable ? ' clickable' : '') + '" style="--i:' + Math.min(i || 0, 10) + '"' +
         (clickable ? ' data-ad-id="' + esc(a.adId) + '" tabindex="0" role="button"' : '') + '>' +
       '<div class="alert-head"><span class="alert-level">' + LEVELS[a.level].label + '</span><span class="alert-source">' + source + '</span></div>' +
       '<div class="alert-title">' + esc(a.title) + '</div>' +
