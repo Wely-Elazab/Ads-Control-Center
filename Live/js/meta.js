@@ -192,17 +192,30 @@
       return res.err ? fbPagesPromise('/' + accountId + '/insights', params, FULL_SCAN_CAP) : res;
     });
   }
-  // تكملة: إعلانات صرفت في الفترة ومكانتش في الدفعات اللي اتسحبت — بنجيبها بالـ ID (٥٠ في الطلب)
-  function fetchMetaAdsByIds(ids, fields, onDone) {
+  // طلبات مجمّعة (Batch): لحد ٥٠ عنصر برقمه في طلب واحد. Meta لغت ?ids= من v26.0
+  // («The ids query parameter is deprecated») — فالطريقة القديمة كانت بتفشل في صمت.
+  // query = الحقول بصيغة ?fields=... — بيرجّع قائمة العناصر اللي رجعت (الفاشل بيتشال)
+  function graphBatch(ids, query, onDone) {
     var out = [], chunks = [];
     for (var i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
     (function next(i) {
       if (i >= chunks.length) { onDone(out); return; }
-      FB.api('/', { ids: chunks[i].join(','), fields: fields }, function (resp) {
-        if (resp && !resp.error) Object.keys(resp).forEach(function (id) { if (resp[id] && resp[id].id) out.push(resp[id]); });
+      var batch = chunks[i].map(function (id) { return { method: 'GET', relative_url: encodeURIComponent(id) + '?' + query }; });
+      FB.api('/', 'POST', { batch: JSON.stringify(batch), include_headers: false }, function (resp) {
+        if (Array.isArray(resp)) {
+          resp.forEach(function (r) {
+            if (!r || r.code !== 200) return;
+            try { var item = JSON.parse(r.body); if (item && item.id) out.push(item); } catch (e) { /* رد مش JSON — بنتجاهله */ }
+          });
+        }
         next(i + 1);
       });
     })(0);
+  }
+  // تكملة: إعلانات صرفت في الفترة ومكانتش في الدفعات اللي اتسحبت (اتحذفت أو اتأرشفت بعد ما صرفت،
+  // أو في حساب أكبر من الحد) — بنجيبها برقمها عشان صرفها يتحسب في الإجمالي
+  function fetchMetaAdsByIds(ids, fields, onDone) {
+    graphBatch(ids, 'fields=' + encodeURIComponent(fields), onDone);
   }
 
   function loadAdsForAccount(accountId) {
@@ -590,19 +603,18 @@
         });
       });
     });
-    chunks(Object.keys(byStory), 50).forEach(function (ids) {
+    // صور المنشورات الأصلية (إعلان مبني على منشور موجود) — بطلب مجمّع (?ids= اتلغى من v26.0)
+    var storyIds = Object.keys(byStory);
+    if (storyIds.length) {
       jobs.push(function (next) {
-        FB.api('/', { ids: ids.join(','), fields: 'full_picture' }, function (resp) {
-          if (resp && !resp.error) {
-            ids.forEach(function (id) {
-              var post = resp[id];
-              if (post && post.full_picture) byStory[id].forEach(function (ad) { ad._fullImage = post.full_picture; });
-            });
-          }
+        graphBatch(storyIds, 'fields=full_picture', function (posts) {
+          posts.forEach(function (post) {
+            if (post.full_picture && byStory[post.id]) byStory[post.id].forEach(function (ad) { ad._fullImage = post.full_picture; });
+          });
           next();
         });
       });
-    });
+    }
     (function run(i) { if (i >= jobs.length) { onDone(); return; } jobs[i](function () { run(i + 1); }); })(0);
   }
 
