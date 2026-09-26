@@ -4,7 +4,7 @@
    المسارات في الصفحات دي كلها مطلقة (/…) عشان صفحة 404 تشتغل من أي رابط مهما كان عمقه
    ===================================================================== */
 :root {
-  --pending: #C7841A; --pending-bg: #FBF0DD; --alert: #B3311F; --alert-bg: #FBE7E3;
+  --pending: #9A6200; --pending-bg: #FBF0DD; --alert: #B3311F; --alert-bg: #FBE7E3;
   --on-verified: #FFFFFF; --radius: 14px; --band: #ECEFE9;
 }
 @media (prefers-color-scheme: dark) {

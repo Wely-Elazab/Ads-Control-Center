@@ -5,6 +5,9 @@
 <!-- من غير maximum-scale: كان بيمنع تكبير الشاشة بالصوابع على بعض الموبايلات (مهم لضعاف النظر) -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171C" media="(prefers-color-scheme: dark)">
+<meta name="description" content="لوحة Ads Center: إعلاناتك على Meta وGoogle Ads وSnapchat في مكان واحد، مع تقييم لأداء كل إعلان وتنبيهات واضحة — للقراءة فقط، دون أي تغيير في حساباتك.">
 <title>Ads Center</title>
 <!-- اللغة والاتجاه والوضع الداكن بيتحددوا قبل ما الصفحة ترسم — عشان مفيش وميض بلغة أو لون غلط -->
 <script src="js/theme.js"></script>
@@ -14,23 +17,28 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --paper: #F5F6F2; --card: #FFFFFF; --ink: #161A1F; --ink-soft: #5B6470; --ink-faint: #9098A0; --line: #E3E5DF;
-    --verified: #0E7A63; --verified-bg: #E4F3EF; --pending: #C7841A; --pending-bg: #FBF0DD;
+    --paper: #F5F6F2; --card: #FFFFFF; --ink: #161A1F; --ink-soft: #5B6470; --ink-faint: #636B78; --line: #E3E5DF;
+    --verified: #0E7A63; --verified-bg: #E4F3EF; --pending: #9A6200; --pending-bg: #FBF0DD;
     --alert: #B3311F; --alert-bg: #FBE7E3; --sending-bg: #EEEFEC; --radius: 14px;
+    /* النص فوق الأزرار والشارات الملونة (الأخضر والأصفر والأحمر) */
+    --on-verified: #FFFFFF; --on-pending: #FFFFFF; --on-alert: #FFFFFF;
   }
+  /* الألوان محسوبة على حد القراءة WCAG AA (٤٫٥:١ على الأقل للنص الصغير) في الوضعين — راجعها لو غيّرت أي لون */
   :root { color-scheme: light; }
   /* الوضع الداكن: زي الجهاز افتراضياً، أو اختيار العميل من الزرار (data-theme على <html> من js/theme.js) */
   [data-theme="dark"] {
-    --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #6E7681; --line: #2B303A;
+    --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #8A929C; --line: #2B303A;
     --verified: #2BC4A4; --verified-bg: #123832; --pending: #E3A94A; --pending-bg: #3A2C13;
     --alert: #EC6952; --alert-bg: #3D1B15; --sending-bg: #262B34;
+    --on-verified: #06231C; --on-pending: #2A1C05; --on-alert: #2A0C07;
     color-scheme: dark;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #6E7681; --line: #2B303A;
+      --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #8A929C; --line: #2B303A;
       --verified: #2BC4A4; --verified-bg: #123832; --pending: #E3A94A; --pending-bg: #3A2C13;
       --alert: #EC6952; --alert-bg: #3D1B15; --sending-bg: #262B34;
+      --on-verified: #06231C; --on-pending: #2A1C05; --on-alert: #2A0C07;
       color-scheme: dark;
     }
   }
@@ -77,7 +85,7 @@
   .filter-label { font-size: 11.5px; color: var(--ink-faint); min-width: 46px; flex-shrink: 0; }
   .filter-group { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip { border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); font-size: 13px; font-weight: 500; padding: 8px 15px; border-radius: 999px; cursor: pointer; font-family: inherit; transition: background .12s ease, color .12s ease, border-color .12s ease; }
-  .chip.active { background: var(--verified); border-color: var(--verified); color: #fff; }
+  .chip.active { background: var(--verified); border-color: var(--verified); color: var(--on-verified); }
   .text-filter, .date-input, .sort-select { border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; font-size: 16px; font-family: inherit; color: var(--ink); background: var(--paper); }
   .text-filter { flex: 1 1 220px; }
   .date-range { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -86,7 +94,7 @@
 
   .gallery-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
   .gallery-count { font-size: 13px; color: var(--ink-soft); }
-  .stop-btn { background: var(--verified); color: #fff; border: none; border-radius: 10px; padding: 14px 22px; font-size: 14.5px; font-weight: 600; font-family: inherit; cursor: pointer; transition: filter .15s ease, transform .1s ease; white-space: nowrap; }
+  .stop-btn { background: var(--verified); color: var(--on-verified); border: none; border-radius: 10px; padding: 14px 22px; font-size: 14.5px; font-weight: 600; font-family: inherit; cursor: pointer; transition: filter .15s ease, transform .1s ease; white-space: nowrap; }
   .stop-btn:hover:not(:disabled) { filter: brightness(0.92); }
   .stop-btn:active:not(:disabled) { transform: scale(0.98); }
   .stop-btn:disabled { background: var(--ink-faint); cursor: default; }
@@ -178,7 +186,7 @@
   .view-tab { flex: 1; border: none; background: none; padding: 11px 14px; border-radius: 9px; font-family: inherit; font-size: 14px; font-weight: 600; color: var(--ink-soft); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
   .view-tab.active { background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
   .view-tab:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
-  .tab-count { min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--pending); color: #fff; font-size: 12px; line-height: 1.6; }
+  .tab-count { min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--pending); color: var(--on-pending); font-size: 12px; line-height: 1.6; }
   .tab-count.has-critical { background: var(--alert); }
   .tab-count:empty { display: none; }
 
@@ -195,7 +203,7 @@
   .health-dot { position: absolute; top: 9px; inset-inline-start: 9px; z-index: 2; width: 16px; height: 16px; border-radius: 50%; background: var(--h); box-shadow: 0 0 0 3px var(--card), 0 1px 5px rgba(0,0,0,0.3); }
   .candidate-card.h-review { border-color: color-mix(in srgb, var(--alert) 45%, var(--line)); }
   .chip-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--h); margin-inline-end: 6px; vertical-align: middle; }
-  .chip.active .chip-dot { box-shadow: 0 0 0 2px #fff; }
+  .chip.active .chip-dot { box-shadow: 0 0 0 2px var(--on-verified); }
   .chip-count { opacity: .75; font-size: 12px; }
   .chip-count:empty { display: none; }
   .health-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-soft); }
@@ -364,8 +372,8 @@
   .view-tab { border: none; background: none; padding: 8px 16px; border-radius: 999px; font-family: inherit; font-size: 13.5px; font-weight: 600; color: var(--ink-soft); cursor: pointer; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
   .view-tab.active { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
   .view-tab:focus-visible, .icon-toggle:focus-visible, .lang-toggle:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
-  .tab-count { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--pending); color: #fff; font-size: 11.5px; line-height: 18px; }
-  .tab-count.has-critical { background: var(--alert); }
+  .tab-count { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--pending); color: var(--on-pending); font-size: 11.5px; line-height: 18px; }
+  .tab-count.has-critical { background: var(--alert); color: var(--on-alert); }
   .tab-count:empty { display: none; }
 
   /* شريط الحالة تحت الشريط العلوي + مؤشر تحميل */
@@ -477,7 +485,7 @@
   .toolbar .gallery-count { font-size: 12.5px; color: var(--ink-soft); }
   .toolbar-spacer { flex: 1 1 auto; }
   .filters-btn { display: inline-flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; font-family: inherit; }
-  .filters-btn .filter-count { background: var(--verified); color: #fff; border-radius: 999px; font-size: 11px; padding: 0 7px; line-height: 18px; }
+  .filters-btn .filter-count { background: var(--verified); color: var(--on-verified); border-radius: 999px; font-size: 11px; padding: 0 7px; line-height: 18px; }
   .filters-btn .filter-count:empty { display: none; }
   .sort-select { border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 13px; font-family: inherit; color: var(--ink); background: var(--card); }
   .active-filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -603,8 +611,8 @@
       <div class="brand-tag" id="tBrandTag" data-i18n="app.tag">تنبيهات ذكية تحمي ميزانيتك الإعلانية</div>
     </a>
     <nav class="view-tabs" role="tablist" aria-label="أقسام الصفحة" data-i18n-aria="tabs.aria">
-      <button type="button" class="view-tab active" data-view="ads" role="tab" aria-selected="true" aria-controls="viewAds"><span data-i18n="tab.ads">الإعلانات</span></button>
-      <button type="button" class="view-tab" data-view="alerts" role="tab" aria-selected="false" aria-controls="viewAlerts"><span data-i18n="tab.alerts">التنبيهات</span> <span class="tab-count" id="alertsTabCount"></span></button>
+      <button type="button" class="view-tab active" id="tabAds" data-view="ads" role="tab" aria-selected="true" aria-controls="viewAds"><span data-i18n="tab.ads">الإعلانات</span></button>
+      <button type="button" class="view-tab" id="tabAlerts" data-view="alerts" role="tab" aria-selected="false" aria-controls="viewAlerts" tabindex="-1"><span data-i18n="tab.alerts">التنبيهات</span> <span class="tab-count" id="alertsTabCount"></span></button>
     </nav>
     <span class="appbar-spacer"></span>
     <div class="appbar-actions">
@@ -622,7 +630,7 @@
 <div class="status-strip">
   <span class="spinner" aria-hidden="true"></span>
   <span id="tConnectTitle" class="sr-only" data-i18n="status.title">حالة الاتصال</span>
-  <span id="connectStatus" data-i18n="s.notConnected">غير متصل — اضغط «تسجيل الدخول» للبدء</span>
+  <span id="connectStatus" role="status" aria-live="polite" data-i18n="s.notConnected">غير متصل — اضغط «تسجيل الدخول» للبدء</span>
   <!-- بيظهر بس مع رسايل فشل دخول Meta/Google (غالباً العميل لسه مش مضاف للتجربة) — setStatus(..., { help }) في core.js -->
   <span class="status-help" id="statusHelp" hidden>
     <a href="/help" id="statusHelpLink" data-i18n="help.steps">خطوات الربط</a>
@@ -634,7 +642,7 @@
 
 <div class="wrap">
 
-  <div id="viewAds" role="tabpanel">
+  <div id="viewAds" role="tabpanel" aria-labelledby="tabAds">
 
     <section class="hero hidden" id="emptyHero">
       <h2 data-i18n="hero.title">اعرف أين تُهدر ميزانيتك الإعلانية، وأين تكمن فرص نموك</h2>
@@ -732,7 +740,7 @@
     </div>
   </div>
 
-  <section id="viewAlerts" class="hidden" role="tabpanel" aria-labelledby="alertsHeading">
+  <section id="viewAlerts" class="hidden" role="tabpanel" aria-labelledby="tabAlerts">
     <div class="alerts-head">
       <div>
         <h2 class="alerts-heading" id="alertsHeading" data-i18n="alerts.title">التنبيهات المهمة</h2>

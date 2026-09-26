@@ -14,7 +14,7 @@
 
   function loginWithSnapchat() {
     platformOverlay.classList.add('hidden');
-    var redirectUri = window.location.origin + window.location.pathname;
+    var redirectUri = oauthReturnUrl();
     var authUrl = 'https://accounts.snapchat.com/login/oauth2/authorize' +
       '?client_id=' + encodeURIComponent(SNAPCHAT_CLIENT_ID) +
       '&redirect_uri=' + encodeURIComponent(redirectUri) +
@@ -24,7 +24,7 @@
   }
 
   function exchangeSnapchatCode(code) {
-    var redirectUri = window.location.origin + window.location.pathname;
+    var redirectUri = oauthReturnUrl();
     setStatus(msg('s.finishingLogin', { platform: 'Snapchat' }));
     apiPost('/api/snapchat-token', { code: code, redirectUri: redirectUri }).then(function (res) {
       var data = res.data;

@@ -18,6 +18,18 @@
   // أي كود محتاج FB قبل ما الـ SDK يخلص تحميل (زي استرجاع الجلسة) بيستنى هنا
   var fbReadyQueue = [];
   function whenFbReady(cb) { if (fbReadyQueue) fbReadyQueue.push(cb); else cb(); }
+  // مكتبة فيسبوك ممكن تتمنع (إضافة حجب إعلانات، متصفح Brave، حماية التتبّع) — من غير ده العميل كان بيشوف
+  // «ما زالت المكتبة قيد التحميل» على طول، والجلسة المحفوظة كانت بتفضل معلّقة من غير أي رسالة
+  var fbSdkFailed = false;
+  function onFbSdkFailed() {
+    fbSdkFailed = true;
+    fbReadyQueue = [];
+    if (activeSources.meta) {
+      setPlatformState('meta', { kind: 'error', msg: msg('s.metaSdkBlocked') });
+      setStatus(msg('s.metaSdkBlocked'));
+      if (typeof render === 'function') render();
+    }
+  }
   window.fbAsyncInit = function () {
     FB.init({ appId: META_APP_ID, cookie: true, xfbml: false, version: GRAPH_VERSION });
     var queue = fbReadyQueue; fbReadyQueue = null;
@@ -28,12 +40,13 @@
     if (d.getElementById(id)) return;
     js = d.createElement(s); js.id = id;
     js.src = 'https://connect.facebook.net/en_US/sdk.js';
+    js.onerror = onFbSdkFailed;
     fjs.parentNode.insertBefore(js, fjs);
   }(document, 'script', 'facebook-jssdk'));
 
   function loginWithMeta() {
     if (typeof FB === 'undefined') {
-      setStatus(msg('s.metaSdkLoading'));
+      setStatus(msg(fbSdkFailed ? 's.metaSdkBlocked' : 's.metaSdkLoading'));
       return;
     }
     setStatus(msg('s.metaOpening'));
@@ -287,7 +300,7 @@
       var spent = {};
       [daily, periodRes].forEach(function (res) {
         if (!res || res.err) return;
-        res.data.forEach(function (row) { if (parseFloat(row.spend || 0) > 0) spent[row.ad_id] = true; });
+        res.data.forEach(function (row) { if (num(row.spend) > 0) spent[row.ad_id] = true; });
       });
       var missing = Object.keys(spent).filter(function (id) { return !adsById[id]; });
       if (!missing.length || !adFields) return Promise.resolve();
@@ -404,7 +417,9 @@
   }
   function valueForType(actionsArr, type) {
     if (!actionsArr || !type) return null;
-    for (var i = 0; i < actionsArr.length; i++) { if (actionsArr[i].action_type === type) return parseFloat(actionsArr[i].value); }
+    for (var i = 0; i < actionsArr.length; i++) {
+      if (actionsArr[i].action_type === type) { var v = parseFloat(actionsArr[i].value); return isFinite(v) ? v : null; }
+    }
     return null;
   }
 
@@ -578,7 +593,7 @@
     };
     days.forEach(function (day) {
       var row = byDate[day.key];
-      var spendVal = row ? r2(parseFloat(row.spend || 0)) : 0;
+      var spendVal = row ? r2(num(row.spend)) : 0;
       daily.push(spendVal);
       if (row) {
         var found = resultOfRow(row);
@@ -618,7 +633,7 @@
       var pResults = pFound ? Math.round(pFound.value) : (goal ? 0 : null);
       if (pMeta && !firstMeta) { resultKey = pMeta.key; resultType = pMeta.type; }
       var pSales = pType ? valueForType(periodRow.action_values, pType) : null;
-      periodData = buildPeriod(parseFloat(periodRow.spend || 0), pResults, pSales || 0);
+      periodData = buildPeriod(num(periodRow.spend), pResults, pSales || 0);
     }
 
     var dest = destinationInfo(creative);
@@ -628,8 +643,8 @@
       platform: 'Meta',
       currency: currency || null,
       reviewStatus: META_REVIEW_STATUS[ad.effective_status] || null,
-      frequency: reachRow && reachRow.frequency != null ? parseFloat(reachRow.frequency) : null,
-      reach: reachRow && reachRow.reach != null ? parseInt(reachRow.reach, 10) : null,
+      frequency: reachRow && isFinite(parseFloat(reachRow.frequency)) ? parseFloat(reachRow.frequency) : null,
+      reach: reachRow && isFinite(parseInt(reachRow.reach, 10)) ? parseInt(reachRow.reach, 10) : null,
       placement: (ad.campaign && ad.campaign.name) || (ad.adset && ad.adset.name) || '—',
       campaignId: (ad.campaign && ad.campaign.id) || null,
       campaignName: (ad.campaign && ad.campaign.name) || null,

@@ -39,6 +39,8 @@
         return;
       }
       activeSources.meta = active.meta;
+      // المكتبة اتمنعت قبل ما نوصل هنا — كارت خطأ واضح بدل جلسة معلّقة
+      if (fbSdkFailed) { onFbSdkFailed(); return; }
       whenFbReady(function () {
         FB.getLoginStatus(function (resp) {
           // بنعيد قراءة بيانات الحساب (الحالة وحد الصرف) بدل ما نعتمد على المحفوظ من جلسة قديمة —

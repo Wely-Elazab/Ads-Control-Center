@@ -105,6 +105,7 @@
     if (platform === 'meta' && typeof FB !== 'undefined') { loadAdAccounts(); return; }
     if (platform === 'google' && validToken(sessionTokens.google)) { loadGoogleAccounts(); return; }
     if (platform === 'snapchat' && validToken(sessionTokens.snapchat)) { loadSnapchatAccounts(); return; }
+    if (platform === 'tiktok' && validToken(sessionTokens.tiktok) && (platformOptions.tiktok || []).length) { loadSource('tiktok', platformOptions.tiktok[0].value); return; }
     reconnectPlatform(platform);
   }
   // فصل منصة = تسجيل خروج من الأداة بس: بيمسح إعلاناتها وحساباتها ومفتاح الدخول وآخر حساب محفوظ
@@ -113,6 +114,7 @@
     beginLoad(platform); // أي رد لسه جاي من المنصة دي بيتجاهل
     loadingPlatforms[platform] = false;
     document.body.classList.toggle('is-loading', anyLoading());
+    cardGrid.setAttribute('aria-busy', anyLoading() ? 'true' : 'false');
     candidates = candidates.filter(function (c) { return platformOfSource(c.source) !== platform; });
     delete activeSources[platform];
     delete sessionTokens[platform];
@@ -395,12 +397,20 @@
   function campaignKey(c) { return (c.source || c.platform) + '|' + (c.campaignId || c.campaignName || '-'); }
   function groupCampaigns(ads) {
     var map = {}, list = [];
+    // عدد إعلانات كل حملة (من غير فلاتر) وتنبيهات كل إعلان — بيتحسبوا مرة واحدة هنا.
+    // قبل كده كل حملة كانت بتلف على كل الإعلانات وكل التنبيهات، فالحساب الكبير كان بيتقل مع كل ضغطة
+    var totals = {}, alertsByAd = {};
+    candidates.forEach(function (x) { var k = campaignKey(x); totals[k] = (totals[k] || 0) + 1; });
+    analysis.alerts.forEach(function (al) {
+      if (!al.adId) return;
+      var e = alertsByAd[al.adId] || (alertsByAd[al.adId] = { urgent: 0, important: 0 });
+      if (al.level === 'critical') e.urgent++; else if (al.level === 'warning') e.important++;
+    });
     ads.forEach(function (c) {
       var key = campaignKey(c);
       var g = map[key];
       if (!g) {
-        g = map[key] = { key: key, name: c.campaignName, platform: c.platform, currency: c.currency, ads: [],
-          total: candidates.filter(function (x) { return campaignKey(x) === key; }).length };
+        g = map[key] = { key: key, name: c.campaignName, platform: c.platform, currency: c.currency, ads: [], total: totals[key] || 0 };
         list.push(g);
       }
       g.ads.push(c);
@@ -420,11 +430,9 @@
       });
       // عدد التنبيهات من نفس قائمة صفحة التنبيهات (فيها كمان تنبيهات الحساب المربوطة بإعلان، زي تركيز الميزانية) —
       // عشان الرقم على كارت الحملة يطابق اللي هتلاقيه في التنبيهات
-      var ids = {};
-      g.ads.forEach(function (c) { ids[c.id] = true; });
-      analysis.alerts.forEach(function (al) {
-        if (!al.adId || !ids[al.adId]) return;
-        if (al.level === 'critical') g.urgent++; else if (al.level === 'warning') g.important++;
+      g.ads.forEach(function (c) {
+        var e = alertsByAd[c.id];
+        if (e) { g.urgent += e.urgent; g.important += e.important; }
       });
       var resultKeys = Object.keys(keys);
       g.spend = spend; g.sales = sales;
@@ -802,7 +810,12 @@
     group.querySelectorAll('.chip').forEach(function (c) { c.classList.toggle('active', c.dataset.value === value); });
     filters[group.dataset.filter] = value;
   }
-  textFilter.addEventListener('input', function () { filters.text = textFilter.value; render(); });
+  // البحث بيستنى لحظة بعد آخر حرف — قبل كده كل حرف كان بيعيد التحليل والرسم كله (تقيل مع الحسابات الكبيرة)
+  var textFilterTimer = null;
+  textFilter.addEventListener('input', function () {
+    clearTimeout(textFilterTimer);
+    textFilterTimer = setTimeout(function () { filters.text = textFilter.value; render(); }, 180);
+  });
   sortSelect.addEventListener('change', function () { filters.sort = sortSelect.value; render(); });
 
 
@@ -971,7 +984,10 @@
             (posterSrc ? ' poster="' + esc(posterSrc) + '"' : '') +
             '><source src="' + esc(videoSrc) + '" type="video/mp4"></video>';
         }
-        var permalink = vidResp && vidResp.permalink_url && safeUrl('https://www.facebook.com' + vidResp.permalink_url);
+        // الرابط لازم يفضل على facebook.com — قيمة زي «@موقع-تاني.com/» كانت هتحوّل الرابط لدومين تاني
+        var permalink = vidResp && typeof vidResp.permalink_url === 'string' && vidResp.permalink_url.charAt(0) === '/' &&
+          safeUrl('https://www.facebook.com' + vidResp.permalink_url);
+        if (permalink && new URL(permalink).hostname !== 'www.facebook.com') permalink = null;
         var linkHtml = permalink
           ? '<a class="video-fallback-link" href="' + esc(permalink) + '" target="_blank" rel="noopener noreferrer">' + t('x.openVideo') + '</a>'
           : '';
@@ -997,7 +1013,17 @@
     if (e.key === 'Escape') closeOverlays();
   });
 
-  function findCandidate(id) { return candidates.filter(function (x) { return x.id === id; })[0]; }
+  // فهرس الإعلانات بالرقم — بيتبني من جديد بس لما قائمة الإعلانات نفسها تتغيّر. قبل كده كل تنبيه في الصفحة
+  // كان بيدوّر على إعلانه في القائمة كلها (آلاف التنبيهات × آلاف الإعلانات مع كل رسم)
+  var candidateIndex = { list: null, byId: {} };
+  function findCandidate(id) {
+    if (candidateIndex.list !== candidates) {
+      var byId = {};
+      candidates.forEach(function (x) { if (!(x.id in byId)) byId[x.id] = x; });
+      candidateIndex = { list: candidates, byId: byId };
+    }
+    return Object.prototype.hasOwnProperty.call(candidateIndex.byId, id) ? candidateIndex.byId[id] : undefined;
+  }
 
   // الضغط على أي مكان في الكارت بيفتح التفاصيل
   // كارت الحملة بيفتح إعلاناتها، وكارت الإعلان بيفتح تفاصيله
@@ -1024,6 +1050,7 @@
       var on = t.dataset.view === view;
       t.classList.toggle('active', on);
       t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
     });
     document.getElementById('viewAds').classList.toggle('hidden', view !== 'ads');
     document.getElementById('viewAlerts').classList.toggle('hidden', view !== 'alerts');
@@ -1033,6 +1060,18 @@
     tab.addEventListener('click', function () {
       if (tab.dataset.view === 'alerts') openAlertsView('urgent'); else showView(tab.dataset.view);
     });
+  });
+  // الأسهم (يمين/شمال) بتتنقل بين التبويبات — بالعربي السهم الشمال هو «اللي بعده»
+  document.querySelector('.view-tabs').addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return;
+    var tabs = Array.prototype.slice.call(viewTabs), i = tabs.indexOf(document.activeElement);
+    if (i === -1) return;
+    var rtl = document.documentElement.dir === 'rtl';
+    var next = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1
+      : (i + ((e.key === 'ArrowLeft') === rtl ? 1 : -1) + tabs.length) % tabs.length;
+    e.preventDefault();
+    tabs[next].focus();
+    tabs[next].click();
   });
 
 

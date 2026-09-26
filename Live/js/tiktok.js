@@ -19,7 +19,7 @@
   function loginWithTikTok() {
     if (!TIKTOK_ENABLED) { setStatus(msg('s.tiktokSoon')); return; }
     platformOverlay.classList.add('hidden');
-    var redirectUri = window.location.origin + window.location.pathname;
+    var redirectUri = oauthReturnUrl();
     var authUrl = 'https://business-api.tiktok.com/portal/auth' +
       '?app_id=' + encodeURIComponent(TIKTOK_APP_ID) +
       '&state=' + encodeURIComponent(newOauthState('tiktok')) +
@@ -28,12 +28,12 @@
     window.location.href = authUrl;
   }
 
+  // نفس طريقة باقي المنصات: apiPost (مهلة ورسالة مفهومة لو النت قطع أو الرد مش JSON) وحالة المنصة
+  // (كارت خطأ فيه «حاول مرة أخرى» بدل سطر حالة بس) — قبل كده كان fetch مباشر و r.json() بيفشل برسالة تقنية
   function exchangeTikTokCode(authCode) {
     setStatus(msg('s.finishingLogin', { platform: 'TikTok' }));
-    fetch('/api/tiktok-token', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ authCode: authCode })
-    }).then(function (r) { return r.json(); }).then(function (data) {
+    apiPost('/api/tiktok-token', { authCode: authCode }).then(function (res) {
+      var data = res.data;
       var payload = data && data.data;
       if (payload && payload.access_token) {
         tiktokAccessToken = payload.access_token;
@@ -48,7 +48,7 @@
         loadTikTokAdsForAdvertiser(ids[0]);
         accountSelect.value = ids[0];
       } else {
-        setStatus(msg('s.loginFailed', { platform: 'TikTok', msg: (data && (data.error || data.message)) || msg('s.unknownError') }));
+        setStatus(msg('s.loginFailed', { platform: 'TikTok', msg: data && (data.error || data.code) ? apiErrorText(res) : msg('s.unknownError') }));
       }
     }).catch(function (err) {
       setStatus(msg('s.backendPlatformFailed', { platform: 'TikTok', msg: err.message }));
@@ -57,21 +57,28 @@
 
   function loadTikTokAdsForAdvertiser(advertiserId) {
     selectSource('tiktok', advertiserId);
+    if (!validToken(sessionTokens.tiktok)) { markExpired('tiktok'); return; }
     var token = beginLoad('tiktok');
+    var fail = function (m) {
+      setPlatformState('tiktok', { kind: 'error', msg: m });
+      setLoading('tiktok', false, m);
+      render();
+    };
     showCachedWhileLoading('tiktok:' + advertiserId);
     setLoading('tiktok', true, msg('s.loadingAds', { platform: 'TikTok' }));
-    fetch('/api/tiktok-ads-fetch', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accessToken: tiktokAccessToken, advertiserId: advertiserId, clientTz: BROWSER_TZ, period: period })
-    }).then(function (r) { return r.json(); }).then(function (payload) {
+    apiPost('/api/tiktok-ads-fetch', { accessToken: tiktokAccessToken, advertiserId: advertiserId, clientTz: BROWSER_TZ, period: period }).then(function (res) {
       if (!isCurrentLoad('tiktok', token)) return; // المستخدم بدّل لحساب تاني قبل ما الرد ده يوصل
-      if (!payload || payload.error) {
-        setLoading('tiktok', false, msg('s.adsFailed', { platform: 'TikTok', msg: payload && payload.error ? payload.error : msg('s.unexpected') }));
+      if (isAuthFailure(res)) { markExpired('tiktok'); return; }
+      var payload = res.data;
+      if (!res.ok || payload.error) {
+        fail(msg('s.adsFailed', { platform: 'TikTok', msg: apiErrorText(res) }));
         return;
       }
       var adsList = payload.ads || [];
       if (!adsList.length) {
+        setPlatformState('tiktok', { kind: 'empty' });
         setLoading('tiktok', false, msg('s.noAdsTikTok'));
+        render();
         return;
       }
       // اسم الحساب الحقيقي بدل الرقم لو رجع
@@ -83,11 +90,12 @@
       var tiktokCandidates = transformTikTokAds(adsList, payload.report || [], daysFromRange(payload.range), payload.advertiser && payload.advertiser.currency, payload.periodReport);
       mergeCandidates(tiktokCandidates, 'tiktok:' + advertiserId);
       cacheSource('tiktok:' + advertiserId, tiktokCandidates);
+      setPlatformState('tiktok', null);
       setLoading('tiktok', false, connectedText(payload.reportError ? [msg('note.spendFailed', { msg: payload.reportError })] : []));
       render();
     }).catch(function (err) {
       if (!isCurrentLoad('tiktok', token)) return;
-      setLoading('tiktok', false, msg('s.adsFailed', { platform: 'TikTok', msg: err.message }));
+      fail(msg('s.adsFailed', { platform: 'TikTok', msg: err.message }));
     });
   }
 

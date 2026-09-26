@@ -1544,6 +1544,222 @@
     });
   });
 
+  // ---------- المراجعة الشاملة: الأمان والاعتمادية والوضوح ----------
+  describe('المراجعة الشاملة', function () {
+    function worker() { return import('/cloudflare/worker.js'); }
+    function assets() { return { ASSETS: { fetch: function (req) { return fetch(new URL(req.url).pathname + '?t=' + Date.now()); } } }; }
+    function post(w, path, body, env) {
+      return w.default.fetch(new Request(location.origin + path, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body)
+      }), Object.assign(assets(), env || {}));
+    }
+    function cleanEnv() { if (globalThis.process && globalThis.process.env) ['SNAPCHAT_CLIENT_ID', 'SNAPCHAT_CLIENT_SECRET', 'GOOGLE_CLIENT_ID'].forEach(function (k) { delete globalThis.process.env[k]; }); }
+
+    testAsync('الـ API: أي مدخل بشكل غلط = BAD_REQUEST قبل ما يوصل لأي منصة', function () {
+      var w, env = { SNAPCHAT_CLIENT_ID: 'id', SNAPCHAT_CLIENT_SECRET: 'secret' };
+      return worker().then(function (m) {
+        w = m; cleanEnv();
+        return post(w, '/api/google-ads-fetch', { accessToken: { x: 1 }, customerId: '123' }, env);
+      }).then(function (res) {
+        eq(res.status, 400, 'a token that is not text');
+        return post(w, '/api/google-ads-fetch', { accessToken: 't', customerId: '12/../34' }, env);
+      }).then(function (res) {
+        eq(res.status, 400, 'Google account id with a path in it');
+        return post(w, '/api/snapchat-ads-fetch', { accessToken: 't', action: 'ads', adAccountId: '../../me' }, env);
+      }).then(function (res) {
+        eq(res.status, 400, 'Snapchat account id with a path in it');
+        return post(w, '/api/tiktok-ads-fetch', { accessToken: 't', advertiserId: '12a' }, env);
+      }).then(function (res) {
+        eq(res.status, 400, 'TikTok account id must be digits');
+        return post(w, '/api/snapchat-token', { code: 'c', redirectUri: 'https://evil.example/app' }, env);
+      }).then(function (res) {
+        eq(res.status, 400, 'the Snapchat return link must be our own /app');
+        return post(w, '/api/google-list-accounts', { accessToken: 'x'.repeat(9000) }, env);
+      }).then(function (res) {
+        eq(res.status, 400, 'absurdly long token');
+      }).then(cleanEnv, function (e) { cleanEnv(); throw e; });
+    });
+
+    testAsync('الـ API: طلب ضخم = 413، ومسار مش موجود = JSON، وإعداد Google الناقص بيقفل الباب (مش بيفتحه)', function () {
+      var w;
+      return worker().then(function (m) {
+        w = m; cleanEnv();
+        return post(w, '/api/snapchat-token', '{"code":"' + 'x'.repeat(70 * 1024) + '"}');
+      }).then(function (res) {
+        eq(res.status, 413, 'huge body');
+        return post(w, '/api/nope', {});
+      }).then(function (res) {
+        eq(res.status, 404, 'unknown API path');
+        ok(/application\/json/.test(res.headers.get('Content-Type')), 'JSON, not the visitors\' 404 page');
+        return res.json();
+      }).then(function (data) {
+        eq(data.code, 'NOT_FOUND');
+        // GOOGLE_CLIENT_ID مش مضبوط: قبل كده أي توكن كان بيعدّي من غير تحقق
+        return post(w, '/api/google-list-accounts', { accessToken: 'any-token' });
+      }).then(function (res) {
+        eq(res.status, 500, 'missing GOOGLE_CLIENT_ID');
+        return res.json();
+      }).then(function (data) {
+        eq(data.code, 'CONFIG');
+      }).then(cleanEnv, function (e) { cleanEnv(); throw e; });
+    });
+
+    testAsync('X-Forwarded-Host المزوّر مبيوصلش للدوال، وموقع تاني مرفوض حتى لو زوّره', function () {
+      var seen = null;
+      return worker().then(function (w) {
+        var req = new Request(location.origin + '/api/x', { method: 'POST', headers: { 'X-Forwarded-Host': 'evil.example' }, body: '{}' });
+        return w.runVercelHandler(function (rq, rs) { seen = rq.headers; rs.status(200).json({}); }, req, {});
+      }).then(function () {
+        ok(seen && !('x-forwarded-host' in seen), 'header dropped by the Worker');
+        return import('/api/_cors.js');
+      }).then(function (c) {
+        var code = null, res = { setHeader: function () {}, status: function (s) { code = s; return this; }, json: function () { return this; }, end: function () { return this; } };
+        var allowed = c.guardRequest({ method: 'POST', headers: { origin: 'https://evil.example', host: 'adscenter.online', 'x-forwarded-host': 'evil.example' } }, res);
+        eq([allowed, code], [false, 403]);
+      });
+    });
+
+    testAsync('رؤوس الأمان: نوافذ تسجيل الدخول شغّالة (COOP) والصور القديمة http بتتحوّل https', function () {
+      return worker().then(function (w) {
+        eq(w.SECURITY_HEADERS['Cross-Origin-Opener-Policy'], 'same-origin-allow-popups');
+        ok(/upgrade-insecure-requests/.test(w.SECURITY_HEADERS['Content-Security-Policy']), 'upgrade-insecure-requests');
+      });
+    });
+
+    testAsync('تاريخ مخصص مش حقيقي (٣١ فبراير) بيرجع لآخر ٧ أيام بدل ما يتبعت للمنصة', function () {
+      return import('/api/_dates.js').then(function (d) {
+        var r = d.resolvePeriod({ preset: 'custom', since: '2026-02-31', until: '2026-03-05' }, 'UTC');
+        eq([r.preset, r.isDefault], ['last7', true]);
+        var ok2 = d.resolvePeriod({ preset: 'custom', since: '2026-02-01', until: '2026-02-28' }, 'UTC');
+        eq([ok2.since, ok2.until], ['2026-02-01', '2026-02-28'], 'a real custom range still works');
+      });
+    });
+
+    testAsync('Snapchat: روابط الصفحات الجاية بتتتبع على API بتاع Snapchat بس (التوكن مبيروحش لدومين تاني)', function () {
+      var realFetch = window.fetch, urls = [];
+      var json = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
+      window.fetch = function (url) {
+        var u = String(url); urls.push(u);
+        if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'UTC', currency: 'USD' } }] });
+        if (/\/ads\?/.test(u)) return json({ ads: [{ ad: { id: 'a1' } }], paging: { next_link: 'https://evil.example/steal' } });
+        return json({});
+      };
+      var res = { setHeader: function () {}, status: function () { return this; }, json: function () { return this; }, end: function () { return this; } };
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1' } }, res);
+      }).then(function () {
+        window.fetch = realFetch;
+        var outside = urls.filter(function (u) { return u.indexOf('https://adsapi.snapchat.com/') !== 0; });
+        eq(outside, [], 'requests outside Snapchat');
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+
+    testAsync('طلبات السيرفر: انقطاع النت أو طلب معلّق = رسالة مفهومة (مش خطأ تقني ولا تحميل على طول)', function () {
+      var realFetch = window.fetch, realTimeout = API_TIMEOUT_MS;
+      var restore = function () { window.fetch = realFetch; API_TIMEOUT_MS = realTimeout; };
+      window.fetch = function () { return Promise.reject(new TypeError('Failed to fetch')); };
+      return apiPost('/api/x', {}).then(function (res) {
+        eq([res.status, res.ok, res.data.code], [0, false, 'NETWORK']);
+        eq(apiErrorText(res)(), t('s.network'));
+        API_TIMEOUT_MS = 30;
+        window.fetch = function (u, init) {
+          return new Promise(function (resolve, reject) {
+            init.signal.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; reject(e); });
+          });
+        };
+        return apiPost('/api/x', {});
+      }).then(function (res) {
+        restore();
+        eq(res.data.code, 'TIMEOUT');
+        eq(apiErrorText(res)(), t('s.timeout'));
+      }, function (e) { restore(); throw e; });
+    });
+
+    test('مكتبة Meta اتمنعت (حجب إعلانات مثلاً): رسالة واضحة، والجلسة المحفوظة بتبقى كارت خطأ بدل ما تعلّق', function () {
+      var prev = fbSdkFailed;
+      try {
+        activeSources.meta = 'act_1';
+        onFbSdkFailed();
+        eq(platformState.meta && platformState.meta.kind, 'error');
+        eq(document.getElementById('connectStatus').textContent, t('s.metaSdkBlocked'));
+        if (typeof FB === 'undefined') {
+          loginWithMeta();
+          eq(document.getElementById('connectStatus').textContent, t('s.metaSdkBlocked'), 'login button says why');
+        }
+      } finally { fbSdkFailed = prev; }
+    });
+
+    test('أرقام Meta: قيمة مش رقم مبتطلعش «NaN»', function () {
+      eq(valueForType([{ action_type: 'purchase', value: 'n/a' }], 'purchase'), null);
+      eq(valueForType([{ action_type: 'purchase', value: '3' }], 'purchase'), 3);
+      eq([num('12.5'), num('x'), num(null)], [12.5, 0, 0]);
+    });
+
+    test('قارئ الشاشة: رسالة الحالة بتتقري، والتبويبات بتتنقل بالأسهم، والقائمة بتقول إنها بتتحمّل', function () {
+      var status = document.getElementById('connectStatus');
+      eq([status.getAttribute('role'), status.getAttribute('aria-live')], ['status', 'polite']);
+      var tabAds = document.getElementById('tabAds'), tabAlerts = document.getElementById('tabAlerts');
+      try {
+        showView('ads');
+        tabAds.focus();
+        var next = document.documentElement.dir === 'rtl' ? 'ArrowLeft' : 'ArrowRight';
+        tabAds.dispatchEvent(new KeyboardEvent('keydown', { key: next, bubbles: true }));
+        eq([document.activeElement && document.activeElement.id, tabAlerts.getAttribute('aria-selected'), tabAlerts.tabIndex, tabAds.tabIndex], ['tabAlerts', 'true', 0, -1]);
+        eq(document.getElementById('viewAlerts').getAttribute('aria-labelledby'), 'tabAlerts');
+      } finally { showView('ads'); }
+      setLoading('google', true);
+      eq(cardGrid.getAttribute('aria-busy'), 'true');
+      setLoading('google', false);
+      eq(cardGrid.getAttribute('aria-busy'), 'false');
+    });
+
+    test('رابط الرجوع من Snapchat وTikTok دايماً /app (مهما كانت الصفحة المفتوحة)', function () {
+      eq(oauthReturnUrl(), location.origin + '/app');
+    });
+
+    test('البحث عن إعلان برقمه بيتحدّث مع أي قائمة جديدة', function () {
+      candidates = [ad('f1'), ad('f2')];
+      eq(findCandidate('f2').id, 'f2');
+      candidates = [ad('f3')];
+      eq(findCandidate('f2'), undefined, 'old list is not reused');
+      eq(findCandidate('f3').id, 'f3');
+      eq(findCandidate('constructor'), undefined, 'no inherited properties');
+    });
+
+    testAsync('الألوان: كل نص صغير مقروء (WCAG AA ٤٫٥:١) في الوضع الفاتح والداكن — في الموقع والأداة', function () {
+      var L = function (h) {
+        var c = [1, 3, 5].map(function (i) { return parseInt(h.slice(i, i + 2), 16) / 255; })
+          .map(function (v) { return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+      };
+      var ratio = function (a, b) { var x = L(a), y = L(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+      // كل تعريف للون بالترتيب اللي في الملف: الأول = الفاتح، التاني = الداكن
+      var tokens = function (css) {
+        var out = {}, re = /--([a-z-]+):\s*(#[0-9A-Fa-f]{6})/g, m;
+        while ((m = re.exec(css))) (out[m[1]] = out[m[1]] || []).push(m[2]);
+        return out;
+      };
+      var check = function (name, tk, pairs) {
+        [0, 1].forEach(function (mode) {
+          pairs.forEach(function (p) {
+            var fg = tk[p[0]] && (tk[p[0]][mode] || tk[p[0]][0]), bg = tk[p[1]] && (tk[p[1]][mode] || tk[p[1]][0]);
+            ok(fg && bg, name + ': tokens ' + p.join(' on '));
+            var r = ratio(fg, bg);
+            ok(r >= 4.5, name + (mode ? ' dark' : ' light') + ': ' + p[0] + ' on ' + p[1] + ' = ' + r.toFixed(2));
+          });
+        });
+      };
+      return Promise.all(['/pauseproof-live.html', '/legal.css', '/site.css'].map(function (u) { return fetch(u + '?t=' + Date.now()).then(function (r) { return r.text(); }); })).then(function (files) {
+        check('tool', tokens(files[0]), [['ink-faint', 'paper'], ['ink-faint', 'card'], ['ink-faint', 'sending-bg'], ['ink-soft', 'paper'],
+          ['pending', 'pending-bg'], ['alert', 'alert-bg'], ['verified', 'verified-bg'], ['on-verified', 'verified'], ['on-pending', 'pending'], ['on-alert', 'alert']]);
+        var site = tokens(files[1]), extra = tokens(files[2]);
+        Object.keys(extra).forEach(function (k) { site[k] = extra[k]; });
+        check('site', site, [['ink-faint', 'paper'], ['ink-faint', 'card'], ['ink-faint', 'band'], ['ink-soft', 'paper'],
+          ['pending', 'pending-bg'], ['verified', 'verified-bg'], ['on-verified', 'verified']]);
+      });
+    });
+  });
+
   // ---------- التقرير ----------
   runAsync().then(finish);
   function finish() {

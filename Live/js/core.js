@@ -56,6 +56,8 @@
   // الأرقام اليومية بتتخزن بخانتين عشريتين — التقريب لأقرب رقم صحيح بيحصل وقت العرض بس،
   // عشان صرف صغير زي ٠٫٤ ميتحسبش صفر ويبوّظ تنبيهات زي "مصرفش أمس"
   function r2(n) { return Math.round((n || 0) * 100) / 100; }
+  // رقم من نص جاي من منصة — أي قيمة مش رقم بتبقى صفر، عشان «NaN» متظهرش في الأرقام ولا تبوّظ المجاميع
+  function num(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
   function numAr(n) { var r = Math.round((n || 0) * 10) / 10; return ar(String(r).replace('.', decSep())); }
   function roasStr(r) { if (!r) return '—'; return '×' + numAr(r); }
   function sinceLabel(n) {
@@ -222,10 +224,14 @@
   }
 
   // ---------- طلبات سيرفر الأداة (/api/...) ----------
-  // بيرجّع { status, ok, data } دايماً — حتى لو الرد مش JSON (زي صفحة خطأ من Vercel لو الطلب طوّل)،
-  // بدل خطأ تقني زي "Unexpected end of JSON input" يظهر للعميل
+  // بيرجّع { status, ok, data } دايماً — حتى لو الرد مش JSON (صفحة خطأ مثلاً)، أو النت قطع، أو الطلب طوّل.
+  // قبل كده انقطاع النت كان بيطلع خطأ تقني زي "Failed to fetch"، وطلب معلّق كان بيسيب مؤشر التحميل
+  // يلف على طول — دلوقتي بعد دقيقة بيتلغي برسالة واضحة والعميل يقدر يضغط «حاول مرة أخرى»
+  var API_TIMEOUT_MS = 60000;
   function apiPost(path, body) {
-    return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, API_TIMEOUT_MS) : null;
+    return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctrl ? ctrl.signal : undefined })
       .then(function (r) {
         return r.text().then(function (txt) {
           var data = null;
@@ -233,7 +239,13 @@
           if (!data || typeof data !== 'object') data = { error: r.ok ? t('s.badResponse') : t('s.serverError', { code: ar(r.status) }) };
           return { status: r.status, ok: r.ok, data: data };
         });
-      });
+      })
+      // .catch مش تاني باراميتر في then — عشان يلقط كمان المهلة لو خلصت والرد لسه بيتقري
+      .catch(function (err) {
+        var timedOut = !!(err && err.name === 'AbortError');
+        return { status: 0, ok: false, data: { error: t(timedOut ? 's.timeout' : 's.network'), code: timedOut ? 'TIMEOUT' : 'NETWORK' } };
+      })
+      .then(function (res) { clearTimeout(timer); return res; });
   }
   // الربط انتهى أو اتلغى (توكن منتهي) — ده مش عطل، العميل محتاج يربط تاني بس
   function isAuthFailure(res) { return !!res && (res.status === 401 || (res.data && res.data.code === 'AUTH')); }
@@ -242,6 +254,7 @@
   // قبل كده رسايل السيرفر كانت بالعربي بس، فالعميل اللي مختار إنجليزي كان بيشوفها بالعربي
   var SERVER_ERROR_KEYS = {
     ORIGIN: 'err.origin', WRONG_APP: 'err.wrongApp', NO_SCOPE: 'err.noScope', BAD_REQUEST: 'err.badRequest', CONFIG: 'err.config',
+    TIMEOUT: 's.timeout', NETWORK: 's.network', TOO_LARGE: 'err.badRequest',
     RESOURCE_EXHAUSTED: 'err.rateLimit', RATE_EXCEEDED: 'err.rateLimit', USER_PERMISSION_DENIED: 'err.permission', PERMISSION_DENIED: 'err.permission'
   };
   function apiErrorText(res) {
@@ -278,7 +291,7 @@
   var period = (function () {
     try {
       var p = JSON.parse(localStorage.getItem(PERIOD_KEY) || 'null');
-      if (p && PERIOD_LABELS[p.preset]) return p;
+      if (p && Object.prototype.hasOwnProperty.call(PERIOD_LABELS, p.preset)) return p;
     } catch (e) { /* تخزين مقفول */ }
     return { preset: 'last7' };
   })();
@@ -363,6 +376,7 @@
   function setLoading(platform, on, text, opts) {
     loadingPlatforms[platform] = !!on;
     document.body.classList.toggle('is-loading', anyLoading());
+    cardGrid.setAttribute('aria-busy', anyLoading() ? 'true' : 'false');
     if (text) setStatus(text, opts);
     // شاشة الانتظار بتظهر بس لما مفيش أي إعلانات معروضة — لو فيه بيانات قديمة بتفضل ظاهرة وهي بتتحدّث
     if (on && !candidates.length) showSkeletons();
@@ -470,6 +484,12 @@
     else if (platform === 'tiktok') loadTikTokAdsForAdvertiser(id);
     else if (platform === 'meta') loadAdsForAccount(id);
   }
+
+  // ---------- رابط الرجوع من تسجيل الدخول (Snapchat / TikTok) ----------
+  // دايماً /app — نفس الرابط المسجّل عند المنصات. قبل كده كان بيتاخد من رابط الصفحة الحالية، فلو العميل
+  // فتح الأداة من /pauseproof-live.html، Snapchat كان بيرفض الدخول لأن الرابط مش مطابق
+  var OAUTH_RETURN_PATH = '/app';
+  function oauthReturnUrl() { return window.location.origin + OAUTH_RETURN_PATH; }
 
   // ---------- حماية تدفّق تسجيل الدخول (state) ----------
   // قيمة state كانت ثابتة ("snapchat_auth")، يعني أي حد يقدر يبعتلك رابط رجوع بكود بتاعه

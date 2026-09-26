@@ -12,8 +12,11 @@
     if (d.getElementById(id)) return;
     js = d.createElement(s); js.id = id; js.async = true; js.defer = true;
     js.src = 'https://accounts.google.com/gsi/client';
+    // المكتبة ممكن تتمنع (إضافة حجب، إعدادات خصوصية) — بنقول كده بدل «قيد التحميل» على طول
+    js.onerror = function () { googleSdkFailed = true; };
     fjs.parentNode.insertBefore(js, fjs);
   }(document, 'script', 'google-identity-sdk'));
+  var googleSdkFailed = false;
 
   // ---------- Google Identity Services (خطوة تسجيل الدخول فقط دلوقتي) ----------
   // !!! هام: عدّل بالـ Client ID بتاعك من Google Cloud Console !!!
@@ -24,7 +27,7 @@
   var GOOGLE_ADS_SCOPE = 'https://www.googleapis.com/auth/adwords';
   function loginWithGoogle() {
     if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-      setStatus(msg('s.googleSdkLoading'));
+      setStatus(msg(googleSdkFailed ? 's.googleSdkBlocked' : 's.googleSdkLoading'));
       return;
     }
     if (!googleTokenClient) {
@@ -50,8 +53,8 @@
         },
         // النافذة اتقفلت من غير دخول (في التجربة المغلقة غالباً بعد «Access blocked» لإيميل مش مضاف)،
         // أو المتصفح منعها. من غير الدالة دي Google مكانتش بتبلّغنا بحاجة، والأداة كانت بتفضل ساكتة.
-        // تحذير: لو اتضاف للموقع هيدر Cross-Origin-Opener-Policy: same-origin، الـ popup_closed ده هيوصل غلط
-        // أول ما النافذة تفتح — لازم يبقى same-origin-allow-popups (vercel.json مفيهوش COOP حالياً)
+        // تحذير: لو هيدر Cross-Origin-Opener-Policy بقى same-origin، الـ popup_closed ده هيوصل غلط
+        // أول ما النافذة تفتح — لازم يفضل same-origin-allow-popups (زي ما هو في cloudflare/worker.js)
         error_callback: function (err) {
           if (err && err.type === 'popup_failed_to_open') setStatus(msg('s.popupBlocked', { platform: 'Google' }));
           else setStatus(msg('s.googleCancelled'), { help: 'google' });
