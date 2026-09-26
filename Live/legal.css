@@ -25,9 +25,17 @@ html[lang="en"] body { font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; lin
 /* اللغة: كل صفحة فيها النسختين، وبيظهر بس اللي بلغة الصفحة */
 html[lang="ar"] .only-en, html[lang="en"] .only-ar { display: none !important; }
 
-.legal-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 820px; margin: 0 auto; padding: 18px 16px 0; }
+/* الشريط العلوي ثابت فوق وأنت نازل، وخلفيته ممدودة لعرض الشاشة كله (box-shadow + clip-path من غير عناصر زيادة) */
+.legal-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 820px; margin: 0 auto; padding: 12px 16px; position: sticky; top: 0; z-index: 20; background: var(--paper); box-shadow: 0 0 0 100vmax var(--paper); clip-path: inset(0 -100vmax); }
+.legal-bar::after { content: ""; position: absolute; inset-inline: 0; bottom: 0; height: 1px; background: var(--line); box-shadow: 0 0 0 100vmax var(--line); clip-path: inset(0 -100vmax); opacity: 0; transition: opacity .25s ease; }
+.is-scrolled .legal-bar::after { opacity: 1; }
 .legal-brand { font-weight: 700; font-size: 18px; color: var(--ink); text-decoration: none; }
-.legal-lang { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.legal-lang { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: border-color .2s ease, transform .15s ease; }
+.legal-lang:hover { border-color: var(--ink-faint); }
+.legal-lang:active { transform: scale(.96); }
+/* أيقونة الوضع الداكن بتلف لفّة لما تتغيّر */
+[data-theme-icon] { display: inline-block; transition: transform .5s cubic-bezier(.3, 1.4, .5, 1); }
+[aria-pressed="true"] [data-theme-icon] { transform: rotate(360deg); }
 .legal-lang:focus-visible, .legal a:focus-visible, .legal-brand:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 /* زرار الوضع الداكن جنب زرار اللغة (js/theme.js) */
 .legal-bar-end { display: flex; align-items: center; gap: 8px; }
@@ -46,7 +54,10 @@ html[lang="ar"] .only-en, html[lang="en"] .only-ar { display: none !important; }
 .doc { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 24px 22px; margin-top: 14px; }
 .doc h1 { font-size: 24px; margin: 0 0 4px; }
 .doc .updated { color: var(--ink-faint); font-size: 13px; margin: 0 0 18px; }
-.doc h2 { font-size: 17px; margin: 26px 0 8px; }
+/* كل قسم مفصول بخط وعنوانه عليه علامة بلون الأداة — عشان العين تلاقي بداية كل قسم بسرعة */
+.doc h2 { display: flex; align-items: baseline; gap: 10px; font-size: 17.5px; line-height: 1.5; margin: 30px 0 10px; padding-top: 24px; border-top: 1px solid var(--line); }
+.doc h2::before { content: ""; flex-shrink: 0; width: 4px; height: .95em; border-radius: 3px; background: var(--verified); translate: 0 .12em; }
+[id] { scroll-margin-top: 76px; }
 .doc p, .doc li { font-size: 15px; color: var(--ink); }
 .doc ul, .doc ol { padding-inline-start: 22px; margin: 6px 0; }
 .doc li { margin: 4px 0; }
@@ -56,10 +67,59 @@ html[lang="ar"] .only-en, html[lang="en"] .only-ar { display: none !important; }
 .doc table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 14px; }
 .doc th, .doc td { border: 1px solid var(--line); padding: 8px 10px; text-align: start; vertical-align: top; }
 .doc th { background: var(--paper); font-weight: 600; }
-.doc code { font-family: 'IBM Plex Mono', 'Courier New', monospace; font-size: 13px; background: var(--paper); padding: 1px 5px; border-radius: 5px; }
+.doc code { font-family: 'IBM Plex Mono', 'Courier New', monospace; font-size: 13px; background: var(--paper); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
 
 .legal-foot { max-width: 820px; margin: 0 auto; padding: 0 16px 36px; display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; font-size: 13px; }
 .legal-foot a { color: var(--ink-soft); }
 
 /* العناصر المخفية مؤقتاً بـ hidden (زي رابط الأسعار) — مهما كان شكل العنصر */
 [hidden] { display: none !important; }
+
+/* =====================================================================
+   حركة وتجربة الصفحات العامة (js/site.js) — كلها بتتلغي مع «تقليل الحركة»
+   ===================================================================== */
+:root { --ease-out: cubic-bezier(.2, .7, .2, 1); }
+
+/* انتقال ناعم بين صفحات الموقع (المتصفحات اللي بتدعمه بس، والباقي بيفتح عادي) */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+}
+
+/* ظهور تدريجي: js/site.js بيحط .rv على العناصر اللي تحت الشاشة بس، و.is-in لما توصلها.
+   مع «تقليل الحركة» أو من غير الملف ده المحتوى ظاهر على طول */
+.has-reveal .rv { opacity: 0; translate: 0 22px; transition: opacity .7s var(--ease-out) var(--rv-d, 0s), translate .7s var(--ease-out) var(--rv-d, 0s), transform .25s ease, box-shadow .25s ease, border-color .25s ease, background-color .25s ease; }
+.has-reveal .rv.is-in { opacity: 1; translate: none; }
+
+/* دخول الصفحة: الكارت الرئيسي بيطلع بهدوء */
+@keyframes rise { from { opacity: 0; translate: 0 16px; } }
+@media (prefers-reduced-motion: no-preference) {
+  .legal > .doc { animation: rise .6s var(--ease-out) both; }
+}
+
+/* فهرس الصفحات الطويلة (بيتعمل تلقائي من العناوين) */
+.doc-toc { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; margin: 18px 0 6px; }
+.doc-toc-title { margin: 0 0 6px; font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+.doc-toc ol { list-style: none; margin: 0; padding: 0; columns: 2 240px; column-gap: 24px; }
+.doc .doc-toc li { margin: 0; padding: 3px 0; font-size: 14px; break-inside: avoid; }
+.doc-toc a { color: var(--ink); text-decoration: none; border-bottom: 1px solid transparent; transition: color .2s ease, border-color .2s ease; }
+.doc-toc a:hover { color: var(--verified); border-bottom-color: currentColor; }
+.doc-toc a:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+
+/* شريط تقدّم القراءة فوق الشاشة */
+.scroll-progress { position: fixed; top: 0; inset-inline: 0; height: 3px; z-index: 40; background: var(--verified); transform: scaleX(0); transform-origin: 100% 50%; pointer-events: none; }
+html[dir="ltr"] .scroll-progress { transform-origin: 0 50%; }
+
+/* زرار «لأعلى الصفحة» — بيظهر بعد ما تنزل شوية */
+.to-top { position: fixed; bottom: 18px; inset-inline-end: 18px; z-index: 30; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-family: inherit; font-size: 19px; font-weight: 700; line-height: 1; cursor: pointer; box-shadow: 0 10px 26px -14px rgba(22, 26, 31, .55); opacity: 0; translate: 0 12px; pointer-events: none; transition: opacity .25s ease, translate .25s ease, border-color .2s ease; }
+.to-top.is-visible { opacity: 1; translate: none; pointer-events: auto; }
+.to-top:hover { border-color: var(--verified); color: var(--verified); }
+.to-top:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .to-top, .legal-lang, [data-theme-icon] { transition: none; }
+}
+@media print {
+  .has-reveal .rv { opacity: 1 !important; translate: none !important; }
+  .to-top, .scroll-progress { display: none !important; }
+  .legal-bar { position: static; box-shadow: none; }
+}

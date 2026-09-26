@@ -27,17 +27,19 @@
 <header class="site-bar">
   <div class="site-bar-inner">
     <a class="site-brand" href="/">Ads Center</a>
-    <nav class="site-nav">
+    <nav class="site-nav" id="siteNav">
       <a href="#features"><span class="only-ar">المزايا</span><span class="only-en">Features</span></a>
       <a href="#how"><span class="only-ar">كيف تعمل</span><span class="only-en">How it works</span></a>
       <a href="#data"><span class="only-ar">بياناتك</span><span class="only-en">Your data</span></a>
       <a href="#faq"><span class="only-ar">الأسئلة</span><span class="only-en">FAQ</span></a>
       <a href="/help"><span class="only-ar">دليل البدء</span><span class="only-en">Getting started</span></a>
+      <a class="nav-app" href="/app"><span class="only-ar">دخول الأداة</span><span class="only-en">Open the tool</span></a>
     </nav>
     <div class="site-bar-end">
       <a class="btn btn-ghost btn-sm" href="/app"><span class="only-ar">دخول الأداة</span><span class="only-en">Open the tool</span></a>
       <button type="button" class="legal-lang theme-btn" data-theme-toggle aria-pressed="false"><span data-theme-icon aria-hidden="true">☀️</span><span class="sr-only"><span class="only-ar">الوضع الداكن</span><span class="only-en">Dark mode</span></span></button>
       <button type="button" class="legal-lang" id="legalLang">English</button>
+      <button type="button" class="legal-lang menu-btn" data-menu-toggle aria-expanded="false" aria-controls="siteNav"><span class="i-open" aria-hidden="true">☰</span><span class="i-close" aria-hidden="true">✕</span><span class="sr-only"><span class="only-ar">القائمة</span><span class="only-en">Menu</span></span></button>
     </div>
   </div>
 </header>
@@ -49,8 +51,8 @@
     <div>
       <span class="badge"><span aria-hidden="true">🔒</span><span class="only-ar">تجربة مغلقة — عدد الأماكن محدود</span><span class="only-en">Closed pilot — limited spots</span></span>
       <h1>
-        <span class="only-ar">اكتشف ما يستنزف ميزانيتك الإعلانية قبل أن يكلّفك أكثر</span>
-        <span class="only-en">Catch what's draining your ad budget before it costs you more</span>
+        <span class="only-ar">اكتشف ما يستنزف <span class="hl">ميزانيتك الإعلانية</span> قبل أن يكلّفك أكثر</span>
+        <span class="only-en">Catch what's draining your <span class="hl">ad budget</span> before it costs you more</span>
       </h1>
       <p class="lead">
         <span class="only-ar">يجمع Ads Center إعلاناتك على Meta وGoogle Ads وSnapchat في لوحة واحدة، ويقيّم أداء كل إعلان، ويكشف لك بلغة واضحة الإنفاق المعرّض للهدر والإعلانات المتعثّرة وفرص النمو، فتعرف ما يستحق انتباهك في دقائق بدل ساعات.</span>
@@ -147,8 +149,9 @@
   </section>
 
   <!-- ================= المشكلة ================= -->
-  <section class="section" id="problem">
+  <section class="section band" id="problem">
     <div class="section-head">
+      <p class="eyebrow"><span class="only-ar">المشكلة</span><span class="only-en">The problem</span></p>
       <h2><span class="only-ar">هل تعرف أين تذهب ميزانيتك الإعلانية كل يوم؟</span><span class="only-en">Do you know where your ad budget goes every day?</span></h2>
       <p class="section-lead">
         <span class="only-ar">كثير من الهدر في الإعلانات لا يُكتشف إلا بعد فوات الأوان:</span>
@@ -177,6 +180,7 @@
   <!-- ================= المزايا ================= -->
   <section class="section" id="features">
     <div class="section-head">
+      <p class="eyebrow"><span class="only-ar">المزايا</span><span class="only-en">Features</span></p>
       <h2><span class="only-ar">أدوات تساعدك على حماية ميزانيتك وتنميتها</span><span class="only-en">Tools that help you protect and grow your budget</span></h2>
       <p class="section-lead">
         <span class="only-ar">صُمّم Ads Center لأصحاب الأعمال ومديري التسويق الذين يريدون الاطمئنان على كل مبلغ يُنفَق على الإعلانات، دون التنقّل بين لوحات المنصات المعقّدة.</span>
@@ -218,8 +222,9 @@
   </section>
 
   <!-- ================= كيف تعمل ================= -->
-  <section class="section" id="how">
+  <section class="section band" id="how">
     <div class="section-head">
+      <p class="eyebrow"><span class="only-ar">كيف تعمل</span><span class="only-en">How it works</span></p>
       <h2><span class="only-ar">ابدأ في ثلاث خطوات</span><span class="only-en">Get started in three steps</span></h2>
     </div>
     <ol class="grid steps">
@@ -243,6 +248,7 @@
        وجدول الصلاحيات بالتفصيل في سياسة الخصوصية. لازم يفضلوا متطابقين -->
   <section class="section" id="data">
     <div class="section-head">
+      <p class="eyebrow"><span class="only-ar">الخصوصية والأمان</span><span class="only-en">Privacy &amp; security</span></p>
       <h2><span class="only-ar">بياناتك في أمان</span><span class="only-en">Your data stays safe</span></h2>
       <p class="section-lead"><span class="only-ar">صُمّمت الأداة للقراءة فقط، ونلتزم بما يلي:</span><span class="only-en">The tool is built to read only, and we commit to the following:</span></p>
     </div>
@@ -258,8 +264,9 @@
   </section>
 
   <!-- ================= الأسئلة ================= -->
-  <section class="section" id="faq">
+  <section class="section band" id="faq">
     <div class="section-head">
+      <p class="eyebrow"><span class="only-ar">لديك سؤال؟</span><span class="only-en">Questions?</span></p>
       <h2><span class="only-ar">الأسئلة الشائعة</span><span class="only-en">Frequently asked questions</span></h2>
     </div>
     <div class="faq">
@@ -293,6 +300,7 @@
   <!-- ================= من نحن ================= -->
   <section class="section" id="about">
     <div class="section-head">
+      <p class="eyebrow"><span class="only-ar">تعرّف إلينا</span><span class="only-en">Get to know us</span></p>
       <h2><span class="only-ar">من نحن</span><span class="only-en">About us</span></h2>
       <p class="section-lead">
         <span class="only-ar">Ads Center منصة برمجية مصرية لتحليل أداء الإعلانات الرقمية، صُمّمت خصيصاً لأصحاب الأعمال ومديري التسويق في مصر ودول الخليج. نساعد عملاءنا على متابعة إعلاناتهم على Meta وGoogle Ads وSnapchat — وTikTok قريباً — من لوحة واحدة، بصلاحيات قراءة فقط، ودون الاحتفاظ ببياناتهم الإعلانية على خوادمنا.</span>
@@ -348,5 +356,6 @@
 
 <script src="/js/join.js"></script>
 <script src="/js/demo.js"></script>
+<script src="/js/site.js"></script>
 </body>
 </html>

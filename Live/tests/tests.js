@@ -1242,6 +1242,87 @@
         });
       }).then(function () { f.remove(); }, function (e) { f.remove(); throw e; });
     });
+    // صفحة في iframe بمقاس معيّن — before (اختياري) بيتنفّذ في الصفحة قبل أي سكربت فيها
+    function framePage(url, w, h, before) {
+      var f = document.createElement('iframe');
+      f.style.cssText = 'position:fixed;left:0;top:0;width:' + w + 'px;height:' + h + 'px;opacity:0;pointer-events:none';
+      var loaded = new Promise(function (r) { f.onload = r; });
+      if (before) {
+        return getText(url).then(function (html) {
+          f.srcdoc = html.replace('<head>', '<head><script>' + before + '<\/script>');
+          document.body.appendChild(f);
+          return loaded;
+        }).then(function () { return f; });
+      }
+      f.src = url + (url.indexOf('?') === -1 ? '?' : '&') + 't=' + Date.now();
+      document.body.appendChild(f);
+      return loaded.then(function () { return f; });
+    }
+    testAsync('الصفحات العامة كلها بتحمّل js/site.js (الحركة، القائمة، الفهرس، زرار «لأعلى»)', function () {
+      return Promise.all(['/home.html', '/help.html', '/privacy.html', '/terms.html', '/data-deletion.html', '/404.html'].map(function (u) {
+        return getText(u).then(function (html) {
+          var srcs = Array.prototype.map.call(parse(html).querySelectorAll('body script[src]'), function (s) { return s.getAttribute('src'); });
+          ok(srcs.some(function (s) { return /(^|\/)js\/site\.js$/.test(s); }), u + ': loads js/site.js');
+        });
+      }));
+    });
+    testAsync('قائمة الموبايل في الرئيسية: ☰ بتفتح وبتقفل، وفيها «دخول الأداة»، وعلى الكمبيوتر الروابط ظاهرة', function () {
+      var f;
+      return framePage('/home.html', 375, 800).then(function (fr) {
+        f = fr;
+        var d = f.contentDocument, w = f.contentWindow, btn = d.querySelector('[data-menu-toggle]'), nav = d.getElementById('siteNav');
+        ok(btn && w.getComputedStyle(btn).display !== 'none', 'menu button shows on mobile');
+        eq(w.getComputedStyle(nav).display, 'none', 'links hidden until opened');
+        btn.click();
+        eq([btn.getAttribute('aria-expanded'), w.getComputedStyle(nav).display], ['true', 'flex'], 'opens');
+        ok(nav.querySelector('a[href="/app"]') && w.getComputedStyle(nav.querySelector('a[href="/app"]')).display !== 'none', '«Open the tool» is in the mobile menu');
+        d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape' }));
+        eq([btn.getAttribute('aria-expanded'), w.getComputedStyle(nav).display], ['false', 'none'], 'Escape closes it');
+        f.remove();
+        return framePage('/home.html', 1280, 800);
+      }).then(function (fr) {
+        f = fr;
+        var d = f.contentDocument, w = f.contentWindow;
+        eq(w.getComputedStyle(d.querySelector('[data-menu-toggle]')).display, 'none', 'desktop: no menu button');
+        eq(w.getComputedStyle(d.getElementById('siteNav')).display, 'flex', 'desktop: links visible');
+        eq(d.querySelectorAll('.eyebrow').length, 6, 'a small label above every section heading');
+        ok(d.querySelectorAll('main > .band').length >= 3, 'alternating section backgrounds');
+      }).then(function () { f.remove(); }, function (e) { if (f) f.remove(); throw e; });
+    });
+    testAsync('الصفحات القانونية الطويلة ليها فهرس تلقائي بروابط شغالة، والقصيرة لأ', function () {
+      var f;
+      return framePage('/privacy.html', 1000, 800).then(function (fr) {
+        f = fr;
+        var d = f.contentDocument, tocs = d.querySelectorAll('.doc-toc');
+        eq(tocs.length, 2, 'one contents box per language');
+        Array.prototype.forEach.call(tocs, function (toc) {
+          var art = toc.closest('article'), links = toc.querySelectorAll('a');
+          eq(links.length, art.querySelectorAll(':scope > h2').length, art.getAttribute('lang') + ': a link for every section');
+          ok(Array.prototype.every.call(links, function (a) { var t = d.getElementById(a.getAttribute('href').slice(1)); return t && t.tagName === 'H2' && art.contains(t); }), art.getAttribute('lang') + ': every link points to its section');
+        });
+        f.remove();
+        return framePage('/data-deletion.html', 1000, 800);
+      }).then(function (fr) {
+        f = fr;
+        eq(f.contentDocument.querySelectorAll('.doc-toc').length, 0, 'short page (3 sections): no contents box');
+      }).then(function () { f.remove(); }, function (e) { if (f) f.remove(); throw e; });
+    });
+    testAsync('مع «تقليل الحركة» مفيش أي محتوى بيستخبّى، ومن غيره اللي ظاهر أول ما الصفحة تفتح مبيستخبّاش', function () {
+      var f, fake = 'window.matchMedia = function (q) { return { matches: /reduce/.test(q), media: q, addListener: function () {}, removeListener: function () {}, addEventListener: function () {}, removeEventListener: function () {} }; };';
+      return framePage('/home.html', 1280, 800, fake).then(function (fr) {
+        f = fr;
+        var d = f.contentDocument;
+        ok(!d.documentElement.classList.contains('has-reveal') && !d.querySelector('.rv'), 'reduced motion: nothing hidden');
+        f.remove();
+        return framePage('/home.html', 1280, 800);
+      }).then(function (fr) {
+        f = fr;
+        var d = f.contentDocument, fold = f.contentWindow.innerHeight;
+        var hiddenAboveFold = Array.prototype.filter.call(d.querySelectorAll('.rv:not(.is-in)'), function (el) { return el.getBoundingClientRect().top < fold; });
+        eq(hiddenAboveFold.length, 0, 'nothing on the first screen waits to appear');
+        ok(d.querySelectorAll('.rv').length > 10, 'sections further down appear as you scroll');
+      }).then(function () { f.remove(); }, function (e) { if (f) f.remove(); throw e; });
+    });
     testAsync('الصفحات الجديدة باللغتين ومنشورة، و404 بمسارات مطلقة', function () {
       return Promise.all(['/home.html', '/help.html', '/404.html'].map(function (u) {
         return getText(u).then(function (html) {
@@ -1261,7 +1342,7 @@
         return getText('/.assetsignore');
       }).then(function (txt) {
         var ignored = txt.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s && s.charAt(0) !== '#'; });
-        ['/home.html', '/help.html', '/404.html', '/site.css', '/legal.css', '/js/join.js', '/js/legal.js'].forEach(function (f) {
+        ['/home.html', '/help.html', '/404.html', '/site.css', '/legal.css', '/js/join.js', '/js/legal.js', '/js/demo.js', '/js/site.js'].forEach(function (f) {
           ok(ignored.indexOf(f) === -1 && ignored.indexOf(f.slice(1)) === -1 && ignored.indexOf(f.split('/')[1]) === -1, f + ' is deployed');
         });
       });
