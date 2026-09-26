@@ -50,14 +50,22 @@ export const REWRITES = {
 };
 
 // رؤوس الأمان (على كل الردود، الصفحات والـ API)
+// Cross-Origin-Opener-Policy: موقع تاني فتح الأداة في نافذة ميقدرش يتحكم فيها (window.opener).
+//   لازم تفضل same-origin-allow-popups مش same-origin — نوافذ تسجيل الدخول بتاعة Google وMeta بتكلّم
+//   صفحتنا عن طريق النافذة اللي فتحتها (تحذير في js/google.js)
+// upgrade-insecure-requests: أي صورة إعلان رابطها http بتتطلب https بدل ما تتمنع
 export const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'X-Frame-Options': 'SAMEORIGIN',
   'Permissions-Policy': 'geolocation=(), microphone=(), camera=(), payment=()',
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' https://connect.facebook.net https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' https: data: blob:; media-src 'self' https: blob:; connect-src 'self' https://connect.facebook.net https://graph.facebook.com https://*.facebook.com https://accounts.google.com https://oauth2.googleapis.com; frame-src https://*.facebook.com https://accounts.google.com https://business-api.tiktok.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://accounts.snapchat.com https://business-api.tiktok.com; object-src 'none'"
+  'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' https://connect.facebook.net https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' https: data: blob:; media-src 'self' https: blob:; connect-src 'self' https://connect.facebook.net https://graph.facebook.com https://*.facebook.com https://accounts.google.com https://oauth2.googleapis.com; frame-src https://*.facebook.com https://accounts.google.com https://business-api.tiktok.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://accounts.snapchat.com https://business-api.tiktok.com; object-src 'none'; upgrade-insecure-requests"
 };
+
+// أقصى حجم لجسم طلب /api — أكبر طلب حقيقي (توكن + أرقام + فترة) أقل من ١٠ كيلوبايت
+const MAX_BODY = 64 * 1024;
 
 function withSecurityHeaders(response) {
   const res = new Response(response.body, response); // نسخة رؤوسها قابلة للتعديل
@@ -80,11 +88,16 @@ export async function runVercelHandler(handler, request, env) {
   const headers = {};
   request.headers.forEach(function (v, k) { headers[k] = v; });
   headers.host = url.host; // guardRequest بيقارن Origin بالـ host عشان يسمح لنفس الموقع
+  // مفيش proxy قدّام الـ Worker بيحط الهيدر ده — لو جاي فهو من المرسل نفسه، فمش بنعدّيه
+  delete headers['x-forwarded-host'];
 
-  // Vercel بيحوّل جسم JSON لـ object تلقائياً — جسم مش JSON بيوصل undefined والدالة بترد BAD_REQUEST
+  // Vercel بيحوّل جسم JSON لـ object تلقائياً — جسم مش JSON بيوصل undefined والدالة بترد BAD_REQUEST.
+  // جسم ضخم بيترفض قبل ما يتقري كله (413)
   let body;
   if (request.method === 'POST') {
+    if (Number(request.headers.get('content-length') || 0) > MAX_BODY) return jsonError(413, 'حجم الطلب أكبر من المسموح.', 'TOO_LARGE');
     const text = await request.text();
+    if (text.length > MAX_BODY) return jsonError(413, 'حجم الطلب أكبر من المسموح.', 'TOO_LARGE');
     if (text) { try { body = JSON.parse(text); } catch (e) { body = undefined; } }
   }
   const query = {};
@@ -120,8 +133,8 @@ export async function runVercelHandler(handler, request, env) {
   return new Response(noBody ? null : out.body, { status: out.status, headers: out.headers });
 }
 
-function jsonError(status, message) {
-  return new Response(JSON.stringify({ error: message, code: 'SERVER' }), {
+function jsonError(status, message, code) {
+  return new Response(JSON.stringify({ error: message, code: code || 'SERVER' }), {
     status: status,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
   });
@@ -160,7 +173,8 @@ export default {
       if (Object.prototype.hasOwnProperty.call(HANDLERS, name)) {
         return withSecurityHeaders(await runVercelHandler(HANDLERS[name], request, env));
       }
-      return notFound(request, env);
+      // مسار API مش موجود: رد JSON (مش صفحة 404 بتاعة الزوار) — عشان أي كود بيستدعيه يفهم الرد
+      return withSecurityHeaders(jsonError(404, 'Not found', 'NOT_FOUND'));
     }
 
     if (Object.prototype.hasOwnProperty.call(REDIRECTS, path)) {

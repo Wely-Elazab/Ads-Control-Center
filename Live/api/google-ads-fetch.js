@@ -1,28 +1,32 @@
-// نفس مجلد /api بتاع google-list-accounts.js
-// المسار النهائي: https://<مشروعك>/api/google-ads-fetch
+// المسار: https://adscenter.online/api/google-ads-fetch (بيشتغل جوه cloudflare/worker.js)
 // GOOGLE_ADS_DEVELOPER_TOKEN اختياري: من ٩ سبتمبر ٢٠٢٦ Google بتحدد الصلاحية من مشروع Google Cloud
 // اللي طلع منه مفتاح الدخول، والـ developer token لو اتبعت بيتجاهل (بنسيبه لو موجود للتوافق)
 
 import { gaql, adKey, missingSpendKeys } from './_google.js';
 import { last7DaysRange, resolvePeriod } from './_dates.js';
 import { guardRequest } from './_cors.js';
-import { verifyGoogleToken } from './_verify.js';
+import { verifyGoogleToken, sendVerifyFailure } from './_verify.js';
+import { text, shaped, periodOf, TOKEN_MAX, badRequest } from './_input.js';
+
+// أرقام حسابات Google: أرقام بس (وممكن بشرطات 123-456-7890)
+const CUSTOMER_ID = /^[\d-]{1,32}$/;
 
 export default async function handler(req, res) {
   if (!guardRequest(req, res)) return;
 
   const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || null;
 
-  const { accessToken, customerId, loginCustomerId, timeZone, clientTz, period } = req.body || {};
-  if (!accessToken || !customerId) {
-    res.status(400).json({ error: 'الحقلان accessToken وcustomerId مطلوبان في جسم الطلب.', code: 'BAD_REQUEST' });
-    return;
-  }
+  const body = req.body || {};
+  const accessToken = text(body.accessToken, TOKEN_MAX);
+  const customerId = shaped(body.customerId, CUSTOMER_ID);
+  if (!accessToken || !customerId) { badRequest(res, 'الحقلان accessToken وcustomerId مطلوبان في جسم الطلب.'); return; }
+  const loginCustomerId = shaped(body.loginCustomerId, CUSTOMER_ID);
+  const timeZone = text(body.timeZone, 64), clientTz = text(body.clientTz, 64);
+  const period = periodOf(body.period);
 
-  // التوكن لازم يكون صادر لتطبيقنا — من غير كده أي حد يستهلك حصة Developer Token بتاعنا
+  // التوكن لازم يكون صادر لتطبيقنا — من غير كده أي حد يستهلك حصة تطبيقنا
   const verified = await verifyGoogleToken(accessToken);
-  // توكن منتهي = 401 (الواجهة بتعرض «ربط تاني»)، توكن مش لتطبيقنا = 403
-  if (!verified.ok) { res.status(verified.auth ? 401 : 403).json({ error: verified.error, code: verified.auth ? 'AUTH' : (verified.code || 'FORBIDDEN') }); return; }
+  if (!verified.ok) { sendVerifyFailure(res, verified); return; }
 
   const range = last7DaysRange(timeZone || clientTz);
   // الفترة اللي المستخدم اختارها للأرقام (الصرف والنتائج) — التنبيهات بتفضل على آخر ٧ أيام دايماً

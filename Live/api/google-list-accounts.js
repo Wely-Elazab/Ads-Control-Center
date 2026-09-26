@@ -1,4 +1,4 @@
-// المسار النهائي بعد النشر: https://<مشروعك>/api/google-list-accounts
+// المسار: https://adscenter.online/api/google-list-accounts (بيشتغل جوه cloudflare/worker.js)
 //
 // GOOGLE_ADS_DEVELOPER_TOKEN اختياري: من ٩ سبتمبر ٢٠٢٦ Google بتحدد مستوى الصلاحية من مشروع Google Cloud
 // اللي طلع منه مفتاح الدخول (Test / Explorer / Basic / Standard)، والـ developer token بيتجاهل.
@@ -12,7 +12,8 @@
 
 import { GOOGLE_ADS_API, googleErrorMessage, googleErrorCode, googleHeaders, gaql } from './_google.js';
 import { guardRequest } from './_cors.js';
-import { verifyGoogleToken } from './_verify.js';
+import { verifyGoogleToken, sendVerifyFailure } from './_verify.js';
+import { text, TOKEN_MAX, badRequest } from './_input.js';
 
 const INACTIVE_CODES = { CUSTOMER_NOT_ENABLED: true };
 
@@ -21,16 +22,12 @@ export default async function handler(req, res) {
 
   const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || null;
 
-  const { accessToken } = req.body || {};
-  if (!accessToken) {
-    res.status(400).json({ error: 'الحقل accessToken مطلوب في جسم الطلب.', code: 'BAD_REQUEST' });
-    return;
-  }
+  const accessToken = text((req.body || {}).accessToken, TOKEN_MAX);
+  if (!accessToken) { badRequest(res, 'الحقل accessToken مطلوب في جسم الطلب.'); return; }
 
-  // التوكن لازم يكون صادر لتطبيقنا — من غير كده أي حد يستهلك حصة Developer Token بتاعنا
+  // التوكن لازم يكون صادر لتطبيقنا — من غير كده أي حد يستهلك حصة تطبيقنا
   const verified = await verifyGoogleToken(accessToken);
-  // توكن منتهي = 401 (الواجهة بتعرض «ربط تاني»)، توكن مش لتطبيقنا = 403
-  if (!verified.ok) { res.status(verified.auth ? 401 : 403).json({ error: verified.error, code: verified.auth ? 'AUTH' : (verified.code || 'FORBIDDEN') }); return; }
+  if (!verified.ok) { sendVerifyFailure(res, verified); return; }
 
   try {
     const response = await fetch(GOOGLE_ADS_API + '/customers:listAccessibleCustomers', {
@@ -42,7 +39,7 @@ export default async function handler(req, res) {
       res.status(response.status).json({ error: googleErrorMessage(data, response.status), code: googleErrorCode(data) });
       return;
     }
-    const rootIds = ((data && data.resourceNames) || []).map(function (rn) { return rn.replace('customers/', ''); });
+    const rootIds = ((data && data.resourceNames) || []).map(function (rn) { return String(rn).replace('customers/', ''); });
 
     const query = `
       SELECT

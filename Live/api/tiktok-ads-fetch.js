@@ -1,8 +1,8 @@
-// نفس مجلد /api
-// المسار النهائي: https://<مشروعك>.vercel.app/api/tiktok-ads-fetch
+// المسار: https://adscenter.online/api/tiktok-ads-fetch (بيشتغل جوه cloudflare/worker.js)
 
 import { last7DaysRange, resolvePeriod } from './_dates.js';
 import { guardRequest } from './_cors.js';
+import { text, shaped, periodOf, TOKEN_MAX, badRequest } from './_input.js';
 
 const TT_API = 'https://business-api.tiktok.com/open_api/v1.3';
 const PAGE_SIZE = 1000; // أقصى حجم صفحة — الافتراضي 10 بس
@@ -32,11 +32,12 @@ async function ttGetAllPages(baseUrl, headers) {
 export default async function handler(req, res) {
   if (!guardRequest(req, res)) return;
 
-  const { accessToken, advertiserId, clientTz, period } = req.body || {};
-  if (!accessToken || !advertiserId) {
-    res.status(400).json({ error: 'الحقلان accessToken وadvertiserId مطلوبان في جسم الطلب.' });
-    return;
-  }
+  const body = req.body || {};
+  const accessToken = text(body.accessToken, TOKEN_MAX);
+  // أرقام حسابات TikTok (advertiser_id) أرقام بس
+  const advertiserId = shaped(body.advertiserId, /^\d{1,32}$/);
+  if (!accessToken || !advertiserId) { badRequest(res, 'الحقلان accessToken وadvertiserId مطلوبان في جسم الطلب.'); return; }
+  const clientTz = text(body.clientTz, 64), period = periodOf(body.period);
 
   // ملاحظة: TikTok بتستخدم اسم Header مخصص (Access-Token) مش "Authorization: Bearer" العادي
   const headers = { 'Access-Token': accessToken, 'Content-Type': 'application/json' };

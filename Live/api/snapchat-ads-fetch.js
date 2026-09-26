@@ -1,12 +1,15 @@
-// نفس مجلد /api
-// المسار النهائي: https://<مشروعك>.vercel.app/api/snapchat-ads-fetch
+// المسار: https://adscenter.online/api/snapchat-ads-fetch (بيشتغل جوه cloudflare/worker.js)
 // بيستقبل action='accounts' لجلب قائمة الحسابات، أو action='ads' لجلب إعلانات حساب معيّن
 
 import { last7DaysRange, shiftDateKey, tzOffsetString, resolvePeriod } from './_dates.js';
 import { guardRequest } from './_cors.js';
+import { text, shaped, periodOf, TOKEN_MAX, badRequest } from './_input.js';
 
 const SNAP_API = 'https://adsapi.snapchat.com/v1';
 const MAX_PAGES = 20; // حد أمان للتصفّح (1000 إعلان في الصفحة)
+
+// روابط الصفحة الجاية بنتبعها بس لو على نفس API بتاع Snapchat — التوكن بيتبعت معاها
+function nextLink(u) { return typeof u === 'string' && u.indexOf(SNAP_API + '/') === 0 ? u : null; }
 
 function snapError(data, status) {
   return (data && (data.debug_message || data.display_message || data.error_description || data.error)) || ('HTTP ' + status);
@@ -15,11 +18,10 @@ function snapError(data, status) {
 export default async function handler(req, res) {
   if (!guardRequest(req, res)) return;
 
-  const { accessToken, action, adAccountId, clientTz, period } = req.body || {};
-  if (!accessToken || !action) {
-    res.status(400).json({ error: 'الحقلان accessToken وaction مطلوبان في جسم الطلب.', code: 'BAD_REQUEST' });
-    return;
-  }
+  const body = req.body || {};
+  const accessToken = text(body.accessToken, TOKEN_MAX), action = text(body.action, 16);
+  if (!accessToken || !action) { badRequest(res, 'الحقلان accessToken وaction مطلوبان في جسم الطلب.'); return; }
+  const clientTz = text(body.clientTz, 64), period = periodOf(body.period);
 
   const headers = { 'Authorization': 'Bearer ' + accessToken };
 
@@ -37,7 +39,9 @@ export default async function handler(req, res) {
     }
 
     if (action === 'ads') {
-      if (!adAccountId) { res.status(400).json({ error: 'الحقل adAccountId مطلوب لجلب الإعلانات.', code: 'BAD_REQUEST' }); return; }
+      // أرقام حسابات Snapchat على شكل UUID (حروف وأرقام وشرطات)
+      const adAccountId = shaped(body.adAccountId, /^[A-Za-z0-9-]{1,64}$/);
+      if (!adAccountId) { badRequest(res, 'الحقل adAccountId مطلوب لجلب الإعلانات.'); return; }
       const accountPath = SNAP_API + '/adaccounts/' + encodeURIComponent(adAccountId);
 
       // كل الإعلانات مع التصفّح (الافتراضي كان صفحة واحدة بس)
@@ -50,7 +54,7 @@ export default async function handler(req, res) {
           const data = await r.json().catch(function () { return null; });
           if (!r.ok || !data || data.request_status === 'ERROR') return { error: snapError(data, r.status), status: r.ok ? 502 : r.status };
           (data.ads || []).forEach(function (item) { if (item && item.ad) out.push(item.ad); });
-          url = data.paging && data.paging.next_link;
+          url = nextLink(data.paging && data.paging.next_link);
         }
         return { ads: out };
       };
@@ -69,7 +73,7 @@ export default async function handler(req, res) {
           const d = await r.json().catch(function () { return null; });
           if (!r.ok || !d || d.request_status === 'ERROR') return null;
           (d[key] || []).forEach(function (item) { if (item && item[itemKey]) out.push(item[itemKey]); });
-          u = d.paging && d.paging.next_link;
+          u = nextLink(d.paging && d.paging.next_link);
         }
         return out;
       };
@@ -80,7 +84,7 @@ export default async function handler(req, res) {
       };
 
       // السرعة: الطلبات دي كانت بتتبعت ورا بعض (الحساب ← الإعلانات ← المجموعات والحملات ← الأرقام ← الفترة)،
-      // فالحسابات الكبيرة كانت بتاخد وقت طويل وممكن توصل لحد وقت الطلب على Vercel.
+      // فالحسابات الكبيرة كانت بتاخد وقت طويل وممكن توصل لحد وقت الطلب على الخادم.
       // دلوقتي: الإعلانات والمجموعات والحملات بتبدأ مع طلب الحساب نفسه، والأرقام أول ما توقيت الحساب يوصل —
       // كلها بالتوازي. الترتيب الوحيد اللي لازم: الأرقام محتاجة توقيت الحساب (Snapchat بيرفض أي وقت مش على بداية يوم بتوقيته)
       const accountP = fetch(accountPath, { headers: headers })
@@ -88,7 +92,7 @@ export default async function handler(req, res) {
         .then(function (d) { return d && d.adaccounts && d.adaccounts[0] && d.adaccounts[0].adaccount; })
         .catch(function () { return null; });
       // كل طلب بيرجّع خطأه كقيمة بدل ما يرفض — لأننا بنستنى طلب الحساب الأول، ورفض مش متعالج في الوقت ده
-      // ممكن يوقف الدالة كلها على Vercel (Node بيعتبره unhandled rejection)
+      // ممكن يوقف الدالة كلها (unhandled rejection)
       const errOf = function (e) { return String(e && e.message ? e.message : e); };
       const adsP = fetchAdsSafe().catch(function (e) { return { error: errOf(e), status: 502 }; });
       const squadsP = fetchListSafe('/adsquads', 'adsquads', 'adsquad').catch(function () { return null; });

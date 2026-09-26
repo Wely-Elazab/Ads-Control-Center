@@ -1,5 +1,5 @@
 // أدوات Google Ads مشتركة بين google-list-accounts و google-ads-fetch
-// الاسم بيبدأ بـ "_" عشان Vercel ميحوّلوش لـ endpoint
+// الاسم بيبدأ بـ "_" فمش endpoint
 
 export const GOOGLE_ADS_API = 'https://googleads.googleapis.com/v24';
 

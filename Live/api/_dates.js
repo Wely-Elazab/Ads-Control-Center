@@ -1,4 +1,4 @@
-// أدوات تواريخ مشتركة لملفات /api — الاسم بيبدأ بـ "_" عشان Vercel ميحوّلوش لـ endpoint
+// أدوات تواريخ مشتركة لملفات /api — الاسم بيبدأ بـ "_" فمش endpoint
 // كل المنصات بتحسب "اليوم" بتوقيت الحساب الإعلاني نفسه، مش بتوقيت UTC ولا توقيت السيرفر،
 // عشان مفتاح كل يوم في الجدول يطابق التاريخ اللي المنصة بترجّعه بالظبط
 
@@ -38,6 +38,8 @@ export function last7DaysRange(tz) {
 // last7 بيرجّع null — الواجهة بتحسبها من بيانات آخر ٧ أيام اللي بتتجاب أصلاً، من غير طلب إضافي
 const PERIOD_MAX_DAYS = 93;
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+// تاريخ حقيقي بالشكل YYYY-MM-DD — «2026-02-31» أو «2026-13-01» مبتتقبلش (كانت بتتبعت للمنصة وترجع خطأ)
+function isDateKey(k) { return typeof k === 'string' && DATE_KEY.test(k) && shiftDateKey(k, 0) === k; }
 
 function daysBetweenKeys(a, b) {
   const pa = a.split('-').map(Number), pb = b.split('-').map(Number);
@@ -56,7 +58,7 @@ export function resolvePeriod(period, tz) {
   else if (preset === 'lastMonth') {
     until = shiftDateKey(today.slice(0, 8) + '01', -1);
     since = until.slice(0, 8) + '01';
-  } else if (preset === 'custom' && period && DATE_KEY.test(period.since || '') && DATE_KEY.test(period.until || '')) {
+  } else if (preset === 'custom' && period && isDateKey(period.since) && isDateKey(period.until)) {
     since = period.since; until = period.until;
     if (since > until) { const t = since; since = until; until = t; }
     if (until > today) until = today;

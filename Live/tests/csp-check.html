@@ -2,10 +2,10 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<!-- فحص سياسة الأمان (CSP) قبل تشديدها على الموقع: نفس السياسة المشددة بتاعة vercel.json (من غير 'unsafe-inline'
+<!-- فحص سياسة الأمان (CSP) قبل تشديدها على الموقع: نفس السياسة المشددة بتاعة cloudflare/worker.js (من غير 'unsafe-inline'
      و'unsafe-eval' في script-src) مطبّقة فعلياً هنا، ومكتبتا Meta وGoogle الحقيقيتين بيتحمّلوا ويتجرّبوا.
      أي حاجة المكتبات محتاجاها والسياسة بتمنعها بتظهر في الصفحة. بتتشغّل محلياً بس (مجلد tests مش بيتنشر) -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://connect.facebook.net https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' https: data: blob:; media-src 'self' https: blob:; connect-src 'self' https://connect.facebook.net https://graph.facebook.com https://*.facebook.com https://accounts.google.com https://oauth2.googleapis.com; frame-src https://*.facebook.com https://accounts.google.com https://business-api.tiktok.com; base-uri 'self'; form-action 'self' https://accounts.snapchat.com https://business-api.tiktok.com; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://connect.facebook.net https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' https: data: blob:; media-src 'self' https: blob:; connect-src 'self' https://connect.facebook.net https://graph.facebook.com https://*.facebook.com https://accounts.google.com https://oauth2.googleapis.com; frame-src https://*.facebook.com https://accounts.google.com https://business-api.tiktok.com; base-uri 'self'; form-action 'self' https://accounts.snapchat.com https://business-api.tiktok.com; object-src 'none'; upgrade-insecure-requests">
 <title>فحص CSP</title>
 <script src="/tests/csp-check.js"></script>
 </head>
