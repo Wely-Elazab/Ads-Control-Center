@@ -495,6 +495,8 @@
   .active-filter::after { content: '✕'; font-size: 10px; opacity: .8; }
   /* أسماء طويلة من غير مسافات (Ramadan_Sale_2026_Retargeting_...) كانت بتوسّع الكارت والصفحة كلها على الموبايل */
   .card-grid > * { min-width: 0; }
+  /* اسم إنجليزي في واجهة عربي (dir=auto): بيفضل في نفس محاذاة باقي الكارت، والمقطوع يبقى آخر الاسم */
+  html[dir="rtl"] .card-name[dir="auto"], html[dir="rtl"] .camp-name[dir="auto"], html[dir="rtl"] .top-alert-src[dir="auto"], html[dir="rtl"] #expandTitle { text-align: right; }
   .camp-name, .card-line1 { overflow-wrap: anywhere; }
   .active-filter { max-width: 100%; overflow-wrap: anywhere; text-align: start; }
 
@@ -882,7 +884,7 @@
     <div class="expand-preview" id="expandPreview"></div>
     <div class="expand-body">
       <div id="expandHealth"></div>
-      <div class="expand-title" id="expandTitle"></div>
+      <div class="expand-title" id="expandTitle" dir="auto"></div>
       <div class="expand-sub" id="expandSub"></div>
       <div class="expand-open" id="expandOpen"></div>
       <div class="status-line" id="expandStatus"></div>

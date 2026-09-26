@@ -101,6 +101,8 @@
     return n === 1 ? singularOf(key) : pluralOf(key);
   }
   function dayWord(n) { return global.I18N ? global.I18N.noun(n, 'n.day') : ''; }
+  // عدد + نوع النتيجة جوه جملة («عملية شراء واحدة»، «عمليتي شراء»، «٥ مشتريات»)
+  function countText(n, key, fmt) { return global.I18N ? global.I18N.countPhrase(n, key, fmt.int) : fmt.int(n) + ' ' + countOf(n, key); }
 
   // أسباب الوقوف اللي مش بقصد (المنصة أو الحساب وقّفوا الإعلان مش المعلن) — دي بس اللي بيطلع عليها تنبيه
   // لإعلان متوقف. الوقوف المقصود (إيقاف يدوي، انتهاء المدة، مجدول) مفيش عليه تنبيهات.
@@ -259,7 +261,7 @@
       if (res2 === 0 && spend2 > 0 && threshold) {
         var wasteDetail = avgCpr
           ? t('al.waste.d', { name: name, spend: money(spend2), label: label, one: one, avg: money(avgCpr),
-              expected: fmt.int(Math.max(1, spend2 / avgCpr)), labelExp: countOf(Math.round(Math.max(1, spend2 / avgCpr)), c.resultKey) })
+              expPhrase: countText(Math.round(Math.max(1, spend2 / avgCpr)), c.resultKey, fmt) })
           : t('al.waste.dNoAvg', { name: name, spend: money(spend2), label: label });
         if (spend2 >= threshold) {
           wasteRaised = true;
@@ -313,7 +315,7 @@
           // صفر نتائج: «لم يحقق أي مشتريات» بدل «حقق ٠ مشتريات فقط»
           resY === 0
             ? t('al.drop.dZero', { name: name, label: label, avg: fmt.num(prevResAvg) })
-            : t('al.drop.d', { name: name, n: fmt.int(resY), label: countOf(resY, c.resultKey), avg: fmt.num(prevResAvg) }),
+            : t('al.drop.d', { name: name, count: countText(resY, c.resultKey, fmt), avg: fmt.num(prevResAvg) }),
           t('al.drop.a')));
       }
     }
@@ -325,7 +327,7 @@
       var yCpr = resY > 0 ? spendY / resY : null;
       if (!avgCpr || yCpr == null || yCpr > avgCpr) {
         issues.push(makeIssue('warning', ['spend'], t('al.spike.t'),
-          t('al.spike.d', { name: name, spend: money(spendY), x: fmt.num(spendY / prevSpendAvg), avg: money(prevSpendAvg) }),
+          t('al.spike.d', { name: name, spend: money(spendY), times: global.I18N ? global.I18N.timesPhrase(spendY / prevSpendAvg, fmt.num) : fmt.num(spendY / prevSpendAvg) + '×', avg: money(prevSpendAvg) }),
           t('al.spike.a'), spendY - prevSpendAvg));
       }
     }
@@ -357,7 +359,7 @@
           issues.splice(greatIdx, 1);
         }
         issues.push(makeIssue('opportunity', ['results', 'cpr', 'roas'], t('al.scale.t'),
-          t('al.scale.d', { name: name, n: fmt.int(resY), label: countOf(resY, c.resultKey), cpr: money(cprY), one1: one, pct: fmt.int((1 - cprY / avgCpr) * 100), avg: money(avgCpr), note: roasNote }),
+          t('al.scale.d', { name: name, count: countText(resY, c.resultKey, fmt), cpr: money(cprY), one1: one, pct: fmt.int((1 - cprY / avgCpr) * 100), avg: money(avgCpr), note: roasNote }),
           t('al.scale.a'), 0, 'scale'));
       }
     }

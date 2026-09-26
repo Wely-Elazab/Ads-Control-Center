@@ -222,11 +222,22 @@
       render();
     };
 
-    showCachedWhileLoading(source, 'Meta');
+    // لو الحساب اتفتح قبل كده: النسخة المحفوظة بتفضل ظاهرة لحد ما الأرقام الجديدة توصل
+    // (قبل كده كانت بتتبدّل بكروت أرقامها صفر لحد ما الأرقام توصل)
+    var cachedShown = showCachedWhileLoading(source, 'Meta');
     setLoading('meta', true, msg('s.loadingAds', { platform: 'Meta' }));
 
-    var adsP = new Promise(function (resolve) {
-      fetchMetaAds(accountId, function (err, data, truncated, fields) { resolve({ err: err, data: data || [], truncated: truncated, fields: fields }); });
+    // الإعلانات على دفعتين مستقلتين: الشغّالة (أو اللي عليها ملاحظة) بتظهر أول ما توصل، والمتوقفة في الخلفية.
+    // قياس على حساب حقيقي (٢٥ شغّال و٦١٨ متوقف): الشغّالة ~٢ ثانية والأرقام ~٨، والمتوقفة ~٦٦ ثانية
+    // (بيانات التصميم عند Meta تقيلة) — قبل كده الشاشة كلها كانت بتستنى المتوقفة دقيقة كاملة.
+    // الإعلانات المتوقفة اللي صرفت في الفترة مش بتستنى الدفعة دي: fillMissing بتجيبها بالرقم مع الأرقام
+    var liveAdsP = adsPromise(accountId, { effective_status: JSON.stringify(LIVE_STATUSES) }, LIVE_ADS_CAP);
+    var stoppedP = adsPromise(accountId, { effective_status: JSON.stringify(STOPPED_STATUSES) }, PAGE_SAFETY_CAP)
+      .catch(function (e) { return { err: e || { message: 'failed' }, data: [] }; });
+    // لو Meta رفضت فلتر الحالة: طلب واحد لكل الإعلانات (زي الأول)، والمتوقفة جوّاه
+    var adsP = liveAdsP.then(function (res) {
+      if (!res.err) return res;
+      return adsPromise(accountId, {}, PAGE_SAFETY_CAP).then(function (all) { all.all = true; return all; });
     });
     var adsetsP = new Promise(function (resolve) { loadAdsetStatusMap(accountId, resolve); });
     var dailyP = insightsPromise(accountId, {
@@ -246,6 +257,17 @@
     });
 
     var order = [], adsById = {}, adsTruncated = false, adFields = null;
+    var allInOne = false, stoppedUsed = false, stoppedFailed = false;
+    var add = function (ad) { if (ad && ad.id && !adsById[ad.id]) { adsById[ad.id] = ad; order.push(ad.id); return true; } return false; };
+    var applyImages = function () {
+      if (!live()) return;
+      var changed = false;
+      candidates.forEach(function (c) {
+        var ad = c.platform === 'Meta' && adsById[c.id];
+        if (ad && ad._fullImage && c.thumbUrl !== ad._fullImage) { c.thumbUrl = ad._fullImage; changed = true; }
+      });
+      if (changed) render();
+    };
     var build = function (insightsByAd, reachByAd, adsetStatusMap, periodByAd) {
       return order.map(function (id) {
         return transformRealAd(adsById[id], (insightsByAd && insightsByAd[id]) || [], adsetStatusMap, days,
@@ -272,27 +294,32 @@
       }
       adsTruncated = ads.truncated;
       adFields = ads.fields;
-      ads.data.forEach(function (ad) { adsById[ad.id] = ad; order.push(ad.id); });
-      if (!order.length) {
-        setPlatformState('meta', { kind: 'empty' });
-        setLoading('meta', false, msg('s.noAdsMeta'));
-        render();
-        return null;
-      }
-      mergeCandidates(build(null, null, adsetStatusMap), source);
-      render();
-      setLoading('meta', true, msg('s.metaShown', { n: order.length, ads: function () { return noun(order.length, 'n.ad'); } }));
-      // الصور الأصلية بتتحمّل بالتوازي، وأول ما توصل بنحدّث الكروت
-      resolveMetaImages(accountId, ads.data, function () {
-        if (!live()) return;
-        var changed = false;
-        candidates.forEach(function (c) {
-          var ad = c.platform === 'Meta' && adsById[c.id];
-          if (ad && ad._fullImage && c.thumbUrl !== ad._fullImage) { c.thumbUrl = ad._fullImage; changed = true; }
+      allInOne = !!ads.all;
+      ads.data.forEach(add);
+      var showFirst = function (list) {
+        if (!order.length) {
+          setPlatformState('meta', { kind: 'empty' });
+          setLoading('meta', false, msg('s.noAdsMeta'));
+          render();
+          return null;
+        }
+        // لو فيه نسخة محفوظة ظاهرة بأرقامها منبدّلهاش بكروت من غير أرقام
+        if (!cachedShown) { mergeCandidates(build(null, null, adsetStatusMap), source); render(); }
+        setLoading('meta', true, msg('s.metaShown', { n: order.length, ads: function () { return noun(order.length, 'n.ad'); } }));
+        // الصور الأصلية بتتحمّل بالتوازي، وأول ما توصل بنحدّث الكروت
+        resolveMetaImages(accountId, list, applyImages);
+        return adsetStatusMap;
+      };
+      // مفيش ولا إعلان شغّال: نستنى المتوقفة قبل ما نقول «الحساب مفيهوش إعلانات»
+      if (!order.length && !allInOne) {
+        return stoppedP.then(function (s) {
+          if (!live()) return null;
+          stoppedUsed = true;
+          if (s.err) stoppedFailed = true; else { s.data.forEach(add); if (s.truncated) adsTruncated = true; }
+          return showFirst(s.err ? [] : s.data);
         });
-        if (changed) render();
-      });
-      return adsetStatusMap;
+      }
+      return showFirst(ads.data);
     });
 
     // تكملة الإعلانات اللي صرفت ومكانتش في الدفعات (بتحصل بس في الحسابات الكبيرة جداً)
@@ -306,34 +333,63 @@
       if (!missing.length || !adFields) return Promise.resolve();
       return new Promise(function (resolve) {
         fetchMetaAdsByIds(missing, adFields, function (extra) {
-          extra.forEach(function (ad) { if (!adsById[ad.id]) { adsById[ad.id] = ad; order.push(ad.id); } });
+          extra.forEach(add);
           resolveMetaImages(accountId, extra, resolve);
         });
       });
     };
 
-    // المرحلة التانية: أرقام الإنفاق والنتائج والتكرار
-    Promise.all([stage1, dailyP, reachP, periodP]).then(function (r) {
-      return fillMissing(r[1], r[3]).then(function () { return r; });
-    }).then(function (r) {
-      var adsetStatusMap = r[0], daily = r[1], reach = r[2], periodRes = r[3];
-      if (!live() || !adsetStatusMap) return;
-      var periodByAd = (periodRes && !periodRes.err) ? byAdId(periodRes.data) : null;
-      mergeCandidates(build(byAdId(daily.data, true), byAdId(reach.data), adsetStatusMap, periodByAd), source);
+    // النشر: الكروت بأرقامها. done = خلاص (مفيش إعلانات متوقفة لسه جاية في الخلفية)
+    var maps = null;
+    var needStopped = function () { return !allInOne && !stoppedUsed; };
+    var publish = function (done) {
+      var fresh = build(maps.insights, maps.reach, maps.adsets, maps.period);
+      // لسه المتوقفة جاية: الكروت المتوقفة من النسخة المحفوظة بتفضل ظاهرة لحد ما الجديدة توصل (مفيش فيها أرقام بتتغيّر)
+      if (!done && cachedShown) {
+        var ids = {};
+        fresh.forEach(function (c) { ids[c.id] = true; });
+        (sourceCache[source + '|' + periodKey()] || []).forEach(function (c) { if (!ids[c.id] && !c.active) fresh.push(c); });
+      }
+      mergeCandidates(fresh, source);
       // الصور الأصلية للإعلانات اللي اتكمّلت بالـ ID
       candidates.forEach(function (c) {
         var ad = c.platform === 'Meta' && adsById[c.id];
         if (ad && ad._fullImage) c.thumbUrl = ad._fullImage;
       });
-      cacheSource(source, candidates.filter(function (c) { return c.source === source; }));
+      if (done || !cachedShown) cacheSource(source, candidates.filter(function (c) { return c.source === source; }));
       var notes = [];
-      if (periodRes && periodRes.err) notes.push(msg('note.periodFailed'));
+      if (maps.periodRes && maps.periodRes.err) notes.push(msg('note.periodFailed'));
       if (adsTruncated) notes.push(msg('note.adsCapped', { n: PAGE_SAFETY_CAP, ads: function () { return noun(PAGE_SAFETY_CAP, 'n.ad'); } }));
-      if (daily.err) notes.push(msg('note.dailyFailed', { msg: metaErrorText(daily.err) }));
-      else if (daily.truncated) notes.push(msg('note.dailyTruncated', { n: FULL_SCAN_CAP }));
+      if (maps.daily.err) notes.push(msg('note.dailyFailed', { msg: metaErrorText(maps.daily.err) }));
+      else if (maps.daily.truncated) notes.push(msg('note.dailyTruncated', { n: FULL_SCAN_CAP }));
+      if (stoppedFailed) notes.push(msg('note.stoppedFailed'));
       setPlatformState('meta', null);
-      setLoading('meta', false, connectedText(notes));
+      var text = connectedText(notes);
+      if (done) setLoading('meta', false, text);
+      else setLoading('meta', true, function () { return text() + ' ' + t('s.metaStoppedLoading'); });
       render();
+    };
+
+    // المرحلة التانية: أرقام الإنفاق والنتائج والتكرار (من غير ما تستنى الإعلانات المتوقفة)
+    Promise.all([stage1, dailyP, reachP, periodP]).then(function (r) {
+      return fillMissing(r[1], r[3]).then(function () { return r; });
+    }).then(function (r) {
+      var adsetStatusMap = r[0], daily = r[1], reach = r[2], periodRes = r[3];
+      if (!live() || !adsetStatusMap) return null;
+      maps = {
+        insights: byAdId(daily.data, true), reach: byAdId(reach.data), adsets: adsetStatusMap,
+        period: (periodRes && !periodRes.err) ? byAdId(periodRes.data) : null, daily: daily, periodRes: periodRes
+      };
+      publish(!needStopped());
+      if (!needStopped()) return null;
+      // المرحلة التالتة: الإعلانات المتوقفة (في الخلفية) — بتنضاف بنفس الأرقام اللي اتحمّلت
+      return stoppedP.then(function (s) {
+        if (!live()) return null;
+        if (s.err) { stoppedFailed = true; return null; }
+        if (s.truncated) adsTruncated = true;
+        var added = s.data.filter(add);
+        return new Promise(function (resolve) { resolveMetaImages(accountId, added, resolve); });
+      }).then(function () { if (live()) publish(true); });
     }).catch(function (err) {
       // أي خطأ مش متوقع (بيانات بشكل غريب من Meta مثلاً) — قبل كده مؤشر التحميل كان بيفضل يلف على طول
       if (!live()) return;
@@ -463,10 +519,10 @@
     'campaign{id,name,effective_status,start_time,stop_time,' + META_ISSUES + '},';
   var META_AD_FIELDS_BASIC = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},campaign{id,name},';
   var META_CREATIVE_FULL = '{title,body,image_url,image_hash,thumbnail_url,video_id,effective_object_story_id,product_set_id,' +
-    'asset_feed_spec{images{hash,url}},' +
-    'object_story_spec{link_data{link,picture,image_hash,call_to_action,child_attachments{image_hash,picture}},video_data{call_to_action,image_url,image_hash}}}';
+    'asset_feed_spec{images{hash,url},videos{video_id,thumbnail_url}},' +
+    'object_story_spec{link_data{link,picture,image_hash,call_to_action,child_attachments{image_hash,picture}},video_data{video_id,call_to_action,image_url,image_hash}}}';
   var META_CREATIVE_BASIC = '{title,body,image_url,thumbnail_url,video_id,' +
-    'object_story_spec{link_data{link,picture,call_to_action},video_data{call_to_action,image_url}}}';
+    'object_story_spec{link_data{link,picture,call_to_action},video_data{video_id,call_to_action,image_url}}}';
   var META_AD_FIELD_ATTEMPTS = [
     META_AD_FIELDS + 'creative.thumbnail_width(1080).thumbnail_height(1080)' + META_CREATIVE_FULL,
     META_AD_FIELDS + 'creative' + META_CREATIVE_FULL,
@@ -483,29 +539,22 @@
       });
     })(0);
   }
-  // دفعتين بالتوازي: الشغّالة (من غير حد عملي) + المتوقفة (لحد PAGE_SAFETY_CAP).
-  // لو Meta رفضت فلتر الحالة لأي سبب، بنرجع للطلب القديم الواحد عشان الإعلانات متقفش
-  function fetchMetaAds(accountId, onDone) {
-    var res = [null, null], left = 2;
-    var finish = function () {
-      if (--left) return;
-      var liveRes = res[0], stoppedRes = res[1];
-      if (liveRes.err) {
-        fetchAdsWithFields(accountId, {}, PAGE_SAFETY_CAP, onDone);
-        return;
-      }
-      var seen = {}, all = [];
-      liveRes.data.concat(stoppedRes.err ? [] : stoppedRes.data).forEach(function (ad) {
-        if (!seen[ad.id]) { seen[ad.id] = true; all.push(ad); }
+  // نفس الطلب بس كـ Promise: { err, data, truncated, fields }
+  function adsPromise(accountId, extra, cap) {
+    return new Promise(function (resolve) {
+      fetchAdsWithFields(accountId, extra, cap, function (err, data, truncated, fields) {
+        resolve({ err: err, data: data || [], truncated: !!truncated, fields: fields });
       });
-      onDone(null, all, !!(liveRes.truncated || stoppedRes.truncated || stoppedRes.err), liveRes.fields);
-    };
-    fetchAdsWithFields(accountId, { effective_status: JSON.stringify(LIVE_STATUSES) }, LIVE_ADS_CAP, function (err, data, truncated, fields) {
-      res[0] = { err: err, data: data || [], truncated: truncated, fields: fields }; finish();
     });
-    fetchAdsWithFields(accountId, { effective_status: JSON.stringify(STOPPED_STATUSES) }, PAGE_SAFETY_CAP, function (err, data, truncated, fields) {
-      res[1] = { err: err, data: data || [], truncated: truncated, fields: fields }; finish();
-    });
+  }
+
+  // رقم الفيديو: في الإعلان العادي creative.video_id، وفي الإعلانات الديناميكية وAdvantage+ جوه
+  // asset_feed_spec.videos أو video_data — قبل كده الإعلانات دي كانت بتتحسب «صورة» ومعاينتها متظهرش
+  function metaVideoId(creative) {
+    creative = creative || {};
+    var spec = creative.object_story_spec || {};
+    var feedVideo = creative.asset_feed_spec && creative.asset_feed_spec.videos && creative.asset_feed_spec.videos[0];
+    return creative.video_id || (spec.video_data && spec.video_data.video_id) || (feedVideo && feedVideo.video_id) || null;
   }
 
   // الـ hash بتاع الصورة الرئيسية للإعلان (أو أول كارت في الإعلان الدوّار)
@@ -524,7 +573,7 @@
     var byHash = {}, byStory = {};
     ads.forEach(function (ad) {
       var creative = ad.creative || {};
-      if (creative.video_id) return; // الفيديو ليه غلاف ومعاينة خاصة بيه
+      if (metaVideoId(creative)) return; // الفيديو ليه غلاف ومعاينة خاصة بيه
       var hash = metaImageHash(creative);
       if (hash) { (byHash[hash] = byHash[hash] || []).push(ad); return; }
       if (creative.effective_object_story_id) (byStory[creative.effective_object_story_id] = byStory[creative.effective_object_story_id] || []).push(ad);
@@ -564,15 +613,18 @@
     var link = spec.link_data || {};
     var firstChild = link.child_attachments && link.child_attachments[0];
     var feedImage = creative.asset_feed_spec && creative.asset_feed_spec.images && creative.asset_feed_spec.images[0];
+    var feedVideo = creative.asset_feed_spec && creative.asset_feed_spec.videos && creative.asset_feed_spec.videos[0];
     return ad._fullImage || creative.image_url || link.picture || (firstChild && firstChild.picture) ||
-      (feedImage && feedImage.url) || (spec.video_data && spec.video_data.image_url) || creative.thumbnail_url || null;
+      (feedImage && feedImage.url) || (spec.video_data && spec.video_data.image_url) || (feedVideo && feedVideo.thumbnail_url) ||
+      creative.thumbnail_url || null;
   }
 
   function transformRealAd(ad, insightRows, adsetStatusMap, days, reachRow, currency, acct, periodRow) {
     var delivery = metaDelivery(ad, adsetStatusMap, acct);
     var creative = ad.creative || {};
     var imageUrl = metaImageUrl(ad);
-    var format = creative.video_id ? 'video' : (imageUrl ? 'image' : 'text');
+    var videoId = metaVideoId(creative);
+    var format = videoId ? 'video' : (imageUrl ? 'image' : 'text');
     var goal = (ad.adset && ad.adset.optimization_goal) || null;
     var byDate = {};
     (insightRows || []).forEach(function (r) { byDate[r.date_start] = r; });
@@ -652,7 +704,7 @@
       nativeId: ad.id,
       format: format,
       duration: format === 'video' ? '' : undefined,
-      videoId: creative.video_id || null,
+      videoId: videoId,
       thumbUrl: imageUrl,
       headline: creative.title || ad.name,
       desc: creative.body || '',

@@ -144,6 +144,25 @@
       'resA.conversion': 'تحويلاً', 'resA.registration': 'تسجيلاً', 'resA.subscribe': 'اشتراكاً', 'resA.reach': 'شخصاً',
       // الجمع المجرور بعد «أي» وبعد الأعداد من ٣ لـ ١٠: «دون أي عملاء محتملين»
       'resG.lead': 'عملاء محتملين',
+      // واحد واتنين جوه جملة (بعد «يحقق» أو «حقق»): «١ عملية شراء» و«٢ عملية شراء» مش فصحى
+      'resOne.purchase': 'عملية شراء واحدة', 'res2.purchase': 'عمليتي شراء',
+      'resOne.lead': 'عميلاً محتملاً واحداً', 'res2.lead': 'عميلين محتملين',
+      'resOne.message': 'محادثة واحدة', 'res2.message': 'محادثتين',
+      'resOne.click': 'نقرة واحدة', 'res2.click': 'نقرتين',
+      'resOne.lpv': 'زيارة واحدة', 'res2.lpv': 'زيارتين',
+      'resOne.install': 'تثبيتاً واحداً', 'res2.install': 'تثبيتين',
+      'resOne.engagement': 'تفاعلاً واحداً', 'res2.engagement': 'تفاعلين',
+      'resOne.video': 'مشاهدة واحدة', 'res2.video': 'مشاهدتين',
+      'resOne.reply': 'رداً واحداً', 'res2.reply': 'ردين',
+      'resOne.conversion': 'تحويلاً واحداً', 'res2.conversion': 'تحويلين',
+      'resOne.swipe': 'تمريرة واحدة', 'res2.swipe': 'تمريرتين',
+      'resOne.registration': 'تسجيلاً واحداً', 'res2.registration': 'تسجيلين',
+      'resOne.cart': 'إضافة واحدة إلى السلة', 'res2.cart': 'إضافتين إلى السلة',
+      'resOne.checkout': 'عملية بدء دفع واحدة', 'res2.checkout': 'عمليتي بدء دفع',
+      'resOne.subscribe': 'اشتراكاً واحداً', 'res2.subscribe': 'اشتراكين',
+      'resOne.contact': 'طلب تواصل واحداً', 'res2.contact': 'طلبي تواصل',
+      'resOne.reach': 'شخصاً واحداً', 'res2.reach': 'شخصين',
+      'resOne.generic': 'نتيجة واحدة', 'res2.generic': 'نتيجتين',
 
       // الكروت
       'card.staticDesign': 'صورة ثابتة',
@@ -378,6 +397,8 @@
       's.metaCancelled': 'لم يكتمل تسجيل الدخول بحساب Meta. إن ظهرت لك رسالة بأن التطبيق «غير نشط» (App not active)، فحسابك لم يُفعَّل في التجربة بعد، أو لم تقبل دعوة المختبِر على فيسبوك.',
       's.googleSdkLoading': 'ما زالت مكتبة Google قيد التحميل، حاول مرة أخرى بعد ثانية.',
       'period.trimmed': 'أقصى مدة للفترة المخصصة {n} يوماً، لذا تبدأ الفترة من {date}.',
+      's.metaStoppedLoading': '— جارٍ تحميل الإعلانات المتوقفة في الخلفية…',
+      'note.stoppedFailed': 'تعذّر تحميل الإعلانات المتوقفة',
       's.metaSdkBlocked': 'تعذّر تحميل مكتبة تسجيل الدخول من Meta — غالباً بسبب إضافة لحجب الإعلانات أو إعدادات الخصوصية في المتصفح. أوقفها لهذا الموقع، ثم حدّث الصفحة.',
       's.googleSdkBlocked': 'تعذّر تحميل مكتبة تسجيل الدخول من Google — غالباً بسبب إضافة لحجب الإعلانات أو إعدادات الخصوصية في المتصفح. أوقفها لهذا الموقع، ثم حدّث الصفحة.',
       's.timeout': 'استغرق الخادم وقتاً أطول من المعتاد — حاول مرة أخرى بعد قليل.',
@@ -464,11 +485,11 @@
       'al.noSpend7.t': 'إعلان نشط لم يُنفق شيئاً',
       'al.noSpend7.d': '{name} نشط، لكنه لم يُنفق شيئاً خلال آخر ٧ أيام.',
       'al.noSpend7.a': 'إن كان يُفترض أن يعمل هذا الإعلان، فراجع مع مسؤول الإعلانات سبب عدم ظهوره.',
-      'al.waste.t': 'إنفاق دون نتائج',
-      'al.waste.d': 'أنفق {name} مبلغ {spend} خلال آخر يومين دون أي {label}. ومتوسط تكلفة كل {one} في حسابك {avg}، أي أن هذا الإنفاق كان من المتوقع، وفق متوسط حسابك، أن يحقق نحو {expected} {labelExp}.',
+      'al.waste.t': 'إنفاق دون نتائج في آخر يومين',
+      'al.waste.d': 'أنفق {name} مبلغ {spend} خلال آخر يومين دون أي {label}. ومتوسط تكلفة كل {one} في حسابك {avg}، أي أن هذا الإنفاق كان من المتوقع، وفق متوسط حسابك، أن يحقق نحو {expPhrase}.',
       'al.waste.dNoAvg': 'أنفق {name} مبلغ {spend} خلال آخر يومين دون أي {label}، ولم يحقق أي إعلان في الحساب نتيجة خلال الفترة نفسها.',
       'al.waste.a': 'راجع الإعلان مع مسؤول الإعلانات، فقد يحتاج إلى تعديل أو إيقاف حتى لا تُهدر هذه الميزانية. وضع في الاعتبار أن بعض النتائج قد تتأخر في الظهور لدى المنصة.',
-      'al.wasteEarly.t': 'إنفاق دون نتائج حتى الآن',
+      'al.wasteEarly.t': 'لا نتائج في آخر يومين',
       'al.wasteEarly.a': 'تابعه اليوم — إن استمر على هذا النحو فسيتحول إلى هدر في الميزانية.',
       'al.roasText': 'كل {one} {cur} أُنفق عاد بـ {roas} {cur}',
       'al.loss.t': 'عائد أقل من التكلفة',
@@ -485,11 +506,11 @@
       'al.cpr.d': 'تبلغ تكلفة كل {one} في {name} {cpr}{old}، وهي أعلى بنسبة {pct}٪ من متوسط حسابك ({avg}).',
       'al.cpr.a': 'توجد في حسابك إعلانات تحقق النتيجة نفسها بتكلفة أقل، وقد يكون نقل جزء من الميزانية إليها أجدى.',
       'al.drop.t': 'نتائج أقل من المعتاد',
-      'al.drop.d': 'حقق {name} أمس {n} {label} فقط مقابل متوسط {avg} يومياً، رغم أن الإنفاق بالمعدل نفسه تقريباً.',
+      'al.drop.d': 'حقق {name} أمس {count} فقط مقابل متوسط {avg} يومياً، رغم أن الإنفاق بالمعدل نفسه تقريباً.',
       'al.drop.dZero': 'لم يحقق {name} أي {label} أمس، مقابل متوسط {avg} يومياً، رغم أن الإنفاق بالمعدل نفسه تقريباً.',
       'al.drop.a': 'ربما بدأ الجمهور يتشبّع، أو توجد مشكلة في الموقع أو وسيلة التواصل — تابعه اليوم.',
       'al.spike.t': 'إنفاق أعلى من المعتاد',
-      'al.spike.d': 'أنفق {name} أمس {spend}، أي نحو {x} أضعاف متوسطه اليومي ({avg})، دون أن تتحسن النتائج بالنسبة نفسها.',
+      'al.spike.d': 'أنفق {name} أمس {spend}، أي نحو {times} متوسطه اليومي ({avg})، دون أن تتحسن النتائج بالنسبة نفسها.',
       'al.spike.a': 'تأكّد من أن زيادة الميزانية مقصودة، وأن النتائج ستزداد معها.',
       'al.fatigue.t': 'مؤشرات على تشبّع الجمهور',
       'al.fatigue.old': '، والإعلان نشط منذ {days} {dayWord}',
@@ -497,7 +518,7 @@
       'al.fatigue.a': 'الوقت مناسب لتجديد الإعلان (صورة أو فيديو أو نص جديد) أو لتوسيع الجمهور.',
       'al.scale.note': ' كما أن كل {one} {cur} أُنفق أمس عاد بمبيعات قيمتها {roas} {cur}.',
       'al.scale.t': 'فرصة لاختبار زيادة الاستثمار',
-      'al.scale.d': 'حقق {name} أمس {n} {label} بتكلفة {cpr} لكل {one1}، أي أقل بنسبة {pct}٪ من متوسط حسابك ({avg}).{note}',
+      'al.scale.d': 'حقق {name} أمس {count} بتكلفة {cpr} لكل {one1}، أي أقل بنسبة {pct}٪ من متوسط حسابك ({avg}).{note}',
       'al.scale.a': 'يتفوّق حالياً على متوسط حسابك — يستحق اختبار زيادة ميزانيته تدريجياً مع مسؤول الإعلانات، ومتابعة تكلفة النتيجة بعد الزيادة.',
       'acct.2': 'الحساب معطّل من Meta — لن تعمل الإعلانات.',
       'acct.3': 'يوجد مبلغ مستحق غير مسدَّد — قد تتوقف الإعلانات في أي وقت.',
@@ -867,6 +888,8 @@
       's.metaCancelled': 'The Meta login wasn\'t completed. If you saw "App not active", your account hasn\'t been activated in the pilot yet, or you haven\'t accepted the tester invitation on Facebook.',
       's.googleSdkLoading': 'The Google library is still loading — try again in a second.',
       'period.trimmed': 'Custom periods can be up to {n} days, so the period now starts on {date}.',
+      's.metaStoppedLoading': '— loading paused ads in the background…',
+      'note.stoppedFailed': 'paused ads couldn\'t be loaded',
       's.metaSdkBlocked': 'The Meta login library couldn\'t load — usually because of an ad blocker or the browser\'s privacy settings. Turn it off for this site, then refresh the page.',
       's.googleSdkBlocked': 'The Google login library couldn\'t load — usually because of an ad blocker or the browser\'s privacy settings. Turn it off for this site, then refresh the page.',
       's.timeout': 'The server took longer than usual — try again shortly.',
@@ -951,11 +974,11 @@
       'al.noSpend7.t': 'Active ad hasn\'t spent at all',
       'al.noSpend7.d': '{name} is active but hasn\'t spent anything in the last 7 days.',
       'al.noSpend7.a': 'If this ad should be running, check with your ads manager why it isn\'t showing.',
-      'al.waste.t': 'Spend without results',
-      'al.waste.d': '{name} spent {spend} in the last 2 days with no {label}. Your account\'s average cost per {one} is {avg}, so based on that average this spend would be expected to bring about {expected} {labelExp}.',
+      'al.waste.t': 'Spend with no results in 2 days',
+      'al.waste.d': '{name} spent {spend} in the last 2 days with no {label}. Your account\'s average cost per {one} is {avg}, so based on that average this spend would be expected to bring about {expPhrase}.',
       'al.waste.dNoAvg': '{name} spent {spend} in the last 2 days with no {label}, and no ad in the account got any results in the same period.',
       'al.waste.a': 'Review it with your ads manager — it may need changes or a pause so this budget isn\'t wasted. Keep in mind that some results can show up late on the platform.',
-      'al.wasteEarly.t': 'No results so far',
+      'al.wasteEarly.t': 'No results in the last 2 days',
       'al.wasteEarly.a': 'Watch it today — if it stays like this it will turn into wasted budget.',
       'al.roasText': 'every {one} {cur} spent returned {roas} {cur}',
       'al.loss.t': 'Return below cost',
@@ -972,11 +995,11 @@
       'al.cpr.d': 'Each {one} from {name} costs {cpr}{old} — {pct}% above your account average ({avg}).',
       'al.cpr.a': 'Other ads in your account get the same result for less — moving some budget to them may work better.',
       'al.drop.t': 'Fewer results than usual',
-      'al.drop.d': '{name} got only {n} {label} yesterday, versus an average of {avg} a day, at roughly the same spend.',
+      'al.drop.d': '{name} got only {count} yesterday, versus an average of {avg} a day, at roughly the same spend.',
       'al.drop.dZero': '{name} got no {label} yesterday, versus an average of {avg} a day, at roughly the same spend.',
       'al.drop.a': 'The audience may be tiring, or there may be a problem with the website or contact number — watch it today.',
       'al.spike.t': 'Higher spend than usual',
-      'al.spike.d': '{name} spent {spend} yesterday — about {x}× its daily average ({avg}) — without results improving at the same rate.',
+      'al.spike.d': '{name} spent {spend} yesterday — about {times} its daily average ({avg}) — without results improving at the same rate.',
       'al.spike.a': 'Make sure the budget increase is intended and that results will grow with it.',
       'al.fatigue.t': 'Signs of audience fatigue',
       'al.fatigue.old': ', and the ad has been running for {days} {dayWord}',
@@ -984,7 +1007,7 @@
       'al.fatigue.a': 'A good time to refresh the ad (new image, video or copy) or widen the audience.',
       'al.scale.note': ' Also, every {one} {cur} spent yesterday returned {roas} {cur} in sales.',
       'al.scale.t': 'Worth testing a bigger budget',
-      'al.scale.d': '{name} got {n} {label} yesterday at {cpr} per {one1} — {pct}% cheaper than your account average ({avg}).{note}',
+      'al.scale.d': '{name} got {count} yesterday at {cpr} per {one1} — {pct}% cheaper than your account average ({avg}).{note}',
       'al.scale.a': 'It currently beats your account average — worth testing a gradual budget increase with your ads manager and watching the cost per result afterwards.',
       'acct.2': 'The account is disabled by Meta — ads won\'t run.',
       'acct.3': 'There\'s an unpaid balance — ads may stop at any time.',
@@ -1066,6 +1089,25 @@
     var k = countKey(n, 'res1.' + key, 'res.' + key, 'resA.' + key);
     return k === 'res.' + key ? resultAny(key) : t(k);
   }
+  // عدد + نوع النتيجة جوه جملة. digits = دالة كتابة الرقم (عربي/إنجليزي).
+  // في العربي ١ و٢ بيتكتبوا من غير رقم («عملية شراء واحدة»، «عمليتي شراء») — «١ عملية شراء» و«٢ عملية شراء» مش فصحى
+  function countPhrase(n, key, digits) {
+    key = key || 'generic';
+    n = Math.round(Number(n) || 0);
+    if (lang === 'ar' && n === 1 && DICT.ar['resOne.' + key] != null) return DICT.ar['resOne.' + key];
+    if (lang === 'ar' && n === 2 && DICT.ar['res2.' + key] != null) return DICT.ar['res2.' + key];
+    return (digits ? digits(n) : String(n)) + ' ' + resultNoun(n, key);
+  }
+  // «نحو ضعف متوسطه» / «٣ أضعاف» / «٢٫٦ ضعف» / «١٥ ضعفاً» — «٢ أضعاف» مش فصحى. بالإنجليزي «2.6×»
+  function timesPhrase(x, digits) {
+    var r = Math.round((Number(x) || 0) * 10) / 10;
+    var d = digits ? digits(r) : String(r);
+    if (lang !== 'ar') return d + '×';
+    if (r === 2) return 'ضعف';
+    if (r === Math.round(r) && r >= 3 && r <= 10) return d + ' أضعاف';
+    if (r === Math.round(r) && r >= 11) return d + ' ضعفاً';
+    return d + ' ضعف';
+  }
   // عدد بكسر أو من غير («٤٫٥ مرة» / «٧ مرات» / «4.5 times»): الكسر في العربي بياخد المفرد، وفي الإنجليزي الجمع
   function measureNoun(v, base) {
     var r = Math.round((Number(v) || 0) * 10) / 10;
@@ -1104,6 +1146,8 @@
     countKey: countKey,
     resultNoun: resultNoun,
     resultAny: resultAny,
+    countPhrase: countPhrase,
+    timesPhrase: timesPhrase,
     measureNoun: measureNoun,
     apply: apply,
     setLang: setLang,
@@ -1112,7 +1156,7 @@
     // للاختبارات: المفاتيح الموجودة في لغة ومش موجودة في التانية (المفروض دايماً فاضية)
     missingKeys: function () {
       // مفاتيح الإعراب (.acc و resA. و resG.) قواعد عربية بس ومالهاش مقابل إنجليزي
-      var diff = function (a, b) { return Object.keys(DICT[a]).filter(function (k) { return !(k in DICT[b]) && !/\.acc$|^res[AG]\./.test(k); }); };
+      var diff = function (a, b) { return Object.keys(DICT[a]).filter(function (k) { return !(k in DICT[b]) && !/\.acc$|^res(A|G|One|2)\./.test(k); }); };
       return { missingInEn: diff('ar', 'en'), missingInAr: diff('en', 'ar') };
     }
   };

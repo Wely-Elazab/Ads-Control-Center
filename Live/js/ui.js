@@ -355,7 +355,7 @@
       ? '<div class="card-issue ' + LEVELS[top.level].cls + '">' + esc(top.title) + (shown.length > 1 ? ' <span class="card-issue-more">+' + ar(shown.length - 1) + '</span>' : '') + '</div>'
       : '';
     var line1 = '<div class="card-line1">' + esc(c.platform) + ' <span style="color:var(--ink-faint);font-weight:400;">·</span> ' + esc(c.placement) + '</div>';
-    var name = '<div class="card-name" title="' + esc(c.offer) + '">' + esc(c.offer) + '</div>';
+    var name = '<div class="card-name" dir="auto" title="' + esc(c.offer) + '">' + esc(c.offer) + '</div>';
     var info = '<div class="card-info">' + line1 + name + issueLine + '<div class="card-metrics">' + cardChips(c) + '</div>';
 
     return (
@@ -483,7 +483,7 @@
     return '<article class="campaign-card ' + h.cls + '" data-campaign="' + ek + '" tabindex="0" role="button" aria-label="' + esc(name) + ' — ' + h.label + '">' +
         '<div class="camp-top"><span class="health-dot-inline"></span><span class="camp-platform">' + esc(g.platform) + '</span>' +
           '<span class="camp-active">' + t('camp.activeOf', { a: ar(g.active), n: ar(g.ads.length) }) + '</span></div>' +
-        '<div class="camp-name" title="' + esc(name) + '">' + esc(name) + '</div>' +
+        '<div class="camp-name" dir="auto" title="' + esc(name) + '">' + esc(name) + '</div>' +
         '<div class="camp-count">' + count + '</div>' +
         '<div class="card-metrics">' + chips + '</div>' +
         '<div class="camp-issues">' + issues.join('') + '</div>' +
@@ -724,6 +724,9 @@
       var p = periodOf(c);
       spendByCur[c.currency || ''] = (spendByCur[c.currency || ''] || 0) + (p.spend || 0);
       if (p.results == null) return;
+      // إعلانات متوقفة مصرفتش ولا جابت حاجة في الفترة: نوع نتيجتها ميدخلش الرقم —
+      // قبل كده كانت بتطلع «٠ نتائج» و«+٤ أخرى» جنب المشتريات الحقيقية
+      if (!(p.spend > 0) && !(p.results > 0)) return;
       var k = c.resultKey || 'generic';
       var g = byType[k] || (byType[k] = { results: 0, spend: 0 });
       g.results += p.results || 0;
@@ -799,7 +802,7 @@
         return '<button type="button" class="top-alert ' + LEVELS[a.level].cls + '"' + target + '>' +
           '<span class="top-alert-level">' + LEVELS[a.level].label + '</span>' +
           '<span class="top-alert-text"><span class="top-alert-title">' + esc(a.title) + '</span>' +
-          '<span class="top-alert-src">' + esc(src) + '</span></span></button>';
+          '<span class="top-alert-src" dir="auto">' + esc(src) + '</span></span></button>';
       }).join('');
   }
   document.getElementById('topAlerts').addEventListener('click', function (e) {
@@ -1097,7 +1100,7 @@
     var source = a.adName ? esc(a.platform || '') + ' · ' + esc(a.adName) : esc(a.accountName || a.platform || '');
     return '<article class="alert-item ' + LEVELS[a.level].cls + (clickable ? ' clickable' : '') + '" style="--i:' + Math.min(i || 0, 10) + '"' +
         (clickable ? ' data-ad-id="' + esc(a.adId) + '" tabindex="0" role="button"' : '') + '>' +
-      '<div class="alert-head"><span class="alert-level">' + LEVELS[a.level].label + '</span><span class="alert-source">' + source + '</span></div>' +
+      '<div class="alert-head"><span class="alert-level">' + LEVELS[a.level].label + '</span><span class="alert-source" dir="auto">' + source + '</span></div>' +
       '<div class="alert-title">' + esc(a.title) + '</div>' +
       '<p class="alert-detail">' + esc(a.detail) + '</p>' +
       (a.impactText ? '<p class="alert-impact">📊 ' + esc(a.impactText) + '</p>' : '') +

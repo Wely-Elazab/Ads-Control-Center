@@ -462,7 +462,7 @@
       var ads = baseAccount().concat([ad('waste', { daily: [100, 100, 100, 100, 100, 100, 20], res: [5, 5, 5, 5, 0, 0, 0] })]);
       withLang('en', function () {
         var i = engine(ads).byAd.waste.issues[0];
-        eq(i.title, 'Spend without results');
+        eq(i.title, 'Spend with no results in 2 days');
         ok(/SAR/.test(i.detail) && !/[؀-ۿ]/.test(i.detail), 'english detail');
       });
     });
@@ -1906,6 +1906,112 @@
         eq(f.contentDocument.querySelector('[data-count]').textContent, '$4,820');
         f.remove();
       }).then(restore, function (e) { restore(); throw e; });
+    });
+  });
+
+  // ---------- اللي ظهر مع حساب Meta حقيقي (٦٤٣ إعلان: ٢٥ شغّال و٦١٨ متوقف) ----------
+  describe('حساب حقيقي', function () {
+    // FB وهمي: كل طلب بيرد حسب المسار، والإعلانات المتوقفة بتستنى لحد ما الاختبار يسمح
+    function fakeFB(routes) {
+      var held = [];
+      return {
+        held: held,
+        api: function (path, params, cb) {
+          var status = params && params.effective_status ? JSON.parse(params.effective_status)[0] : '';
+          var key = path.replace(/act_\d+/, 'act') + (status ? ':' + status : '');
+          var reply = routes[key] || routes[path.replace(/act_\d+/, 'act')] || { data: [] };
+          if (reply === 'HOLD') { held.push(function (r) { cb(r); }); return; }
+          setTimeout(function () { cb(typeof reply === 'function' ? reply(params) : reply); }, 0);
+        }
+      };
+    }
+    function metaAd(id, status, extra) {
+      var a = { id: id, name: 'Ad ' + id, effective_status: status, created_time: '2026-09-01T00:00:00+0000', adset: { id: 's1', name: 'S', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c1', name: 'C' }, creative: { title: 'T', thumbnail_url: 'https://example.com/t.jpg' } };
+      Object.keys(extra || {}).forEach(function (k) { a[k] = extra[k]; });
+      return a;
+    }
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+    testAsync('Meta: الإعلانات الشغّالة والأرقام بتظهر من غير ما تستنى الإعلانات المتوقفة (بتيجي في الخلفية)', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      var fb = fakeFB({ '/act/ads:ACTIVE': { data: [metaAd('L1', 'ACTIVE')] }, '/act/ads:PAUSED': 'HOLD' });
+      window.FB = fb;
+      accountInfo['meta:act_7'] = { timeZone: 'UTC', currency: 'SAR' };
+      loadAdsForAccount('act_7');
+      return sleep(60).then(function () {
+        eq(candidates.map(function (c) { return c.id; }), ['L1'], 'the live ad is on screen');
+        eq(loadingPlatforms.meta, true, 'still loading paused ads in the background');
+        ok(document.getElementById('connectStatus').textContent.indexOf(t('s.metaStoppedLoading')) > -1, 'says paused ads are still coming');
+        fb.held.forEach(function (release) { release({ data: [metaAd('P1', 'PAUSED'), metaAd('P2', 'ADSET_PAUSED')] }); });
+        return sleep(60);
+      }).then(function () {
+        restore();
+        eq(candidates.map(function (c) { return c.id; }).sort(), ['L1', 'P1', 'P2'], 'paused ads added');
+        eq(loadingPlatforms.meta, false, 'done');
+      }, function (e) { restore(); throw e; });
+    });
+
+    testAsync('Meta: حساب كل إعلاناته متوقفة مبيتقالش عليه «فاضي» قبل ما المتوقفة توصل', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      window.FB = fakeFB({ '/act/ads:ACTIVE': { data: [] }, '/act/ads:PAUSED': { data: [metaAd('P9', 'PAUSED')] } });
+      accountInfo['meta:act_8'] = { timeZone: 'UTC' };
+      loadAdsForAccount('act_8');
+      return sleep(80).then(function () {
+        restore();
+        eq(candidates.map(function (c) { return c.id; }), ['P9']);
+        ok(!platformState.meta, 'not marked empty');
+        eq(loadingPlatforms.meta, false);
+      }, function (e) { restore(); throw e; });
+    });
+
+    test('Meta: الفيديو في asset_feed_spec أو video_data بيتعرف إنه فيديو (مش صورة)', function () {
+      var days = DAYS;
+      var feed = transformRealAd(metaAd('V1', 'ACTIVE', { creative: { asset_feed_spec: { videos: [{ video_id: '555', thumbnail_url: 'https://example.com/v.jpg' }] } } }), [], {}, days, null, 'SAR', null, null);
+      eq([feed.format, feed.videoId, feed.thumbUrl], ['video', '555', 'https://example.com/v.jpg']);
+      var story = transformRealAd(metaAd('V2', 'ACTIVE', { creative: { object_story_spec: { video_data: { video_id: '777', image_url: 'https://example.com/i.jpg' } } } }), [], {}, days, null, 'SAR', null, null);
+      eq([story.format, story.videoId], ['video', '777']);
+      var img = transformRealAd(metaAd('I1', 'ACTIVE', { creative: { image_url: 'https://example.com/a.jpg' } }), [], {}, days, null, 'SAR', null, null);
+      eq(img.format, 'image');
+    });
+
+    test('رقم «النتائج»: أنواع نتائج من غير أي نشاط في الفترة متظهرش («٠ نتائج» و«+٤ أخرى»)', function () {
+      var buy = ad('b1', { daily: steady(50), res: steady(2), key: 'purchase' });
+      var idle = ad('i1', { daily: steady(0), res: steady(0), key: 'lead', active: false });
+      var idle2 = ad('i2', { daily: steady(0), res: steady(0), active: false });
+      idle2.resultKey = null;
+      candidates = [buy, idle, idle2];
+      render();
+      eq(document.querySelectorAll('#kpiStrip .kpi-value')[1].textContent, ar(14) + ' ' + I18N.resultNoun(14, 'purchase'));
+    });
+
+    test('العربي في جمل التنبيهات: «عملية شراء واحدة» و«عمليتي شراء» و«ضعف» (مش «١ عملية شراء» و«٢ أضعاف»)', function () {
+      withLang('ar', function () {
+        eq(I18N.countPhrase(1, 'purchase', ar), 'عملية شراء واحدة');
+        eq(I18N.countPhrase(2, 'lead', ar), 'عميلين محتملين');
+        eq(I18N.countPhrase(5, 'purchase', ar), ar(5) + ' ' + I18N.resultNoun(5, 'purchase'));
+        eq(I18N.timesPhrase(2, numAr), 'ضعف');
+        eq(I18N.timesPhrase(3, numAr), ar(3) + ' أضعاف');
+        eq(I18N.timesPhrase(2.6, numAr), numAr(2.6) + ' ضعف');
+        // تنبيه الإنفاق دون نتائج والمتوقع عملية شراء واحدة (متوسط الحساب ٢٠، واتصرف ٢٥ في يومين)
+        var ads = baseAccount().concat([ad('w1', { daily: [0, 0, 0, 0, 12, 13, 0], res: steady(0), key: 'purchase' })]);
+        var w = engine(ads).byAd.w1.issues.filter(function (i) { return /waste/.test(i.code || ''); })[0];
+        ok(w, 'waste alert');
+        ok(w.detail.indexOf('عملية شراء واحدة') > -1 && w.detail.indexOf('١ عملية') === -1, 'reads «عملية شراء واحدة»: ' + w.detail);
+      });
+      withLang('en', function () { eq(I18N.countPhrase(2, 'purchase', String), '2 purchases'); eq(I18N.timesPhrase(2.6, String), '2.6×'); });
+    });
+
+    test('أسماء الإعلانات الإنجليزي في الواجهة العربي: الاسم بيتقص من آخره مش من أوله (dir=auto)', function () {
+      candidates = [ad('n1', { daily: steady(5), res: steady(1) })];
+      render();
+      eq(document.querySelector('#cardGrid .card-name').getAttribute('dir'), 'auto');
+      eq(document.getElementById('expandTitle').getAttribute('dir'), 'auto');
+    });
+
+    test('عنوان تنبيه الإنفاق دون نتائج بيقول الفترة (آخر يومين)', function () {
+      withLang('ar', function () { ok(/آخر يومين/.test(t('al.waste.t')) && /آخر يومين/.test(t('al.wasteEarly.t'))); });
     });
   });
 
