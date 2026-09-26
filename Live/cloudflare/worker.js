@@ -46,8 +46,20 @@ export const REWRITES = {
   '/help': '/help.html',
   '/privacy': '/privacy.html',
   '/terms': '/terms.html',
-  '/data-deletion': '/data-deletion.html'
+  '/data-deletion': '/data-deletion.html',
+  // المتصفحات بتطلب الأيقونة من المسار ده لوحدها — الأيقونة نفسها SVG
+  '/favicon.ico': '/favicon.svg'
 };
+
+// رابط بشرطة في الآخر أو بحروف كبيرة (/app/ أو /Help) — شائع في الروابط المنسوخة والمكتوبة باليد.
+// لو بيطابق صفحة من صفحاتنا بيتحوّل للرابط الرسمي بدل ما يطلع «الصفحة غير موجودة»
+export function canonicalPath(path) {
+  if (path === '/') return null;
+  const p = path.replace(/\/+$/, '').toLowerCase() || '/';
+  if (p === path) return null;
+  const known = Object.prototype.hasOwnProperty.call(REWRITES, p) || Object.prototype.hasOwnProperty.call(REDIRECTS, p);
+  return known ? p : null;
+}
 
 // رؤوس الأمان (على كل الردود، الصفحات والـ API)
 // Cross-Origin-Opener-Policy: موقع تاني فتح الأداة في نافذة ميقدرش يتحكم فيها (window.opener).
@@ -175,6 +187,11 @@ export default {
       }
       // مسار API مش موجود: رد JSON (مش صفحة 404 بتاعة الزوار) — عشان أي كود بيستدعيه يفهم الرد
       return withSecurityHeaders(jsonError(404, 'Not found', 'NOT_FOUND'));
+    }
+
+    const canonical = canonicalPath(path);
+    if (canonical) {
+      return withSecurityHeaders(new Response(null, { status: 308, headers: { Location: canonical + url.search } }));
     }
 
     if (Object.prototype.hasOwnProperty.call(REDIRECTS, path)) {

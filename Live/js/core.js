@@ -175,7 +175,7 @@
     } catch (e) { /* تخزين مقفول (وضع خاص مثلاً) — الأداة تكمل عادي من غير حفظ */ }
   }
   function readSession() {
-    try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); } catch (e) { return null; }
+    try { var v = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); return v && typeof v === 'object' && !Array.isArray(v) ? v : null; } catch (e) { return null; }
   }
   // بنقرا الجلسة المحفوظة دلوقتي، قبل أي حفظ جديد ممكن يكتب فوقها
   var savedSession = readSession();
@@ -199,7 +199,8 @@
   // بيتحفظ على الجهاز (رقم الحساب بس) — عشان المرة الجاية يفتح على نفس الحساب بدل أول واحد في القايمة
   var LAST_ACCOUNT_KEY = 'acc.lastAccount.v1';
   var lastAccounts = (function () {
-    try { return JSON.parse(localStorage.getItem(LAST_ACCOUNT_KEY) || 'null') || {}; } catch (e) { return {}; }
+    // لازم يبقى object — قيمة زي «5» كانت بتوقف زرار «فصل» بخطأ
+    try { var v = JSON.parse(localStorage.getItem(LAST_ACCOUNT_KEY) || 'null'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch (e) { return {}; }
   })();
   function saveLastAccounts() { try { localStorage.setItem(LAST_ACCOUNT_KEY, JSON.stringify(lastAccounts)); } catch (e) { /* مش مهم */ } }
   function rememberAccount(platform, id) { if (id && lastAccounts[platform] !== id) { lastAccounts[platform] = id; saveLastAccounts(); } }

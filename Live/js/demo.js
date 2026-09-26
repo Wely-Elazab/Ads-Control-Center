@@ -119,6 +119,7 @@
   // تغيير اللغة: الأرقام تتكتب بالصيغة الجديدة على طول
   new MutationObserver(function () { if (current === 1) setCounts(1); }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
 
+  setCounts(1);
   show(0);
   run();
 })();

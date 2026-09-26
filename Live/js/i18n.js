@@ -377,6 +377,7 @@
       's.metaOpening': 'جارٍ فتح نافذة تسجيل الدخول بحساب Meta…',
       's.metaCancelled': 'لم يكتمل تسجيل الدخول بحساب Meta. إن ظهرت لك رسالة بأن التطبيق «غير نشط» (App not active)، فحسابك لم يُفعَّل في التجربة بعد، أو لم تقبل دعوة المختبِر على فيسبوك.',
       's.googleSdkLoading': 'ما زالت مكتبة Google قيد التحميل، حاول مرة أخرى بعد ثانية.',
+      'period.trimmed': 'أقصى مدة للفترة المخصصة {n} يوماً، لذا تبدأ الفترة من {date}.',
       's.metaSdkBlocked': 'تعذّر تحميل مكتبة تسجيل الدخول من Meta — غالباً بسبب إضافة لحجب الإعلانات أو إعدادات الخصوصية في المتصفح. أوقفها لهذا الموقع، ثم حدّث الصفحة.',
       's.googleSdkBlocked': 'تعذّر تحميل مكتبة تسجيل الدخول من Google — غالباً بسبب إضافة لحجب الإعلانات أو إعدادات الخصوصية في المتصفح. أوقفها لهذا الموقع، ثم حدّث الصفحة.',
       's.timeout': 'استغرق الخادم وقتاً أطول من المعتاد — حاول مرة أخرى بعد قليل.',
@@ -865,6 +866,7 @@
       's.metaOpening': 'Opening the Meta login window…',
       's.metaCancelled': 'The Meta login wasn\'t completed. If you saw "App not active", your account hasn\'t been activated in the pilot yet, or you haven\'t accepted the tester invitation on Facebook.',
       's.googleSdkLoading': 'The Google library is still loading — try again in a second.',
+      'period.trimmed': 'Custom periods can be up to {n} days, so the period now starts on {date}.',
       's.metaSdkBlocked': 'The Meta login library couldn\'t load — usually because of an ad blocker or the browser\'s privacy settings. Turn it off for this site, then refresh the page.',
       's.googleSdkBlocked': 'The Google login library couldn\'t load — usually because of an ad blocker or the browser\'s privacy settings. Turn it off for this site, then refresh the page.',
       's.timeout': 'The server took longer than usual — try again shortly.',
@@ -1012,7 +1014,13 @@
     }
   };
 
+  // اللغة: ?lang=en في الرابط (وبتتحفظ) ← المحفوظة ← العربي. زي صفحات الموقع (js/legal.js) —
+  // قبل كده الأداة كانت بتتجاهل ?lang=en، فاللي جاي من رابط إنجليزي كان بيلاقيها بالعربي
   var lang = (function () {
+    try {
+      var fromUrl = new URLSearchParams(global.location.search).get('lang');
+      if (fromUrl === 'ar' || fromUrl === 'en') { localStorage.setItem(LANG_KEY, fromUrl); return fromUrl; }
+    } catch (e) { /* تخزين مقفول أو رابط غريب */ }
     try {
       var saved = localStorage.getItem(LANG_KEY);
       if (saved === 'ar' || saved === 'en') return saved;

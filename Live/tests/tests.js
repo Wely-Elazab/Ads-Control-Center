@@ -1389,7 +1389,8 @@
       return loadWorker().then(function (w) {
         eq(w.REWRITES, {
           '/': '/home.html', '/index.html': '/home.html', '/app': '/pauseproof-live.html',
-          '/help': '/help.html', '/privacy': '/privacy.html', '/terms': '/terms.html', '/data-deletion': '/data-deletion.html'
+          '/help': '/help.html', '/privacy': '/privacy.html', '/terms': '/terms.html', '/data-deletion': '/data-deletion.html',
+          '/favicon.ico': '/favicon.svg'
         }, 'rewrites');
         eq(w.REDIRECTS['/home'], { destination: '/', permanent: true }, 'old /home');
         ['X-Content-Type-Options', 'Referrer-Policy', 'X-Frame-Options', 'Permissions-Policy', 'Strict-Transport-Security', 'Content-Security-Policy'].forEach(function (h) {
@@ -1757,6 +1758,154 @@
         check('site', site, [['ink-faint', 'paper'], ['ink-faint', 'card'], ['ink-faint', 'band'], ['ink-soft', 'paper'],
           ['pending', 'pending-bg'], ['verified', 'verified-bg'], ['on-verified', 'verified']]);
       });
+    });
+  });
+
+  // ---------- اختبار المستخدم: اللي ظهر وأنا بستخدم البرنامج كمختبِر ----------
+  describe('اختبار المستخدم', function () {
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    // الأداة الحقيقية في iframe (بالستايل بتاعها)
+    function toolFrame(w, h, query) {
+      var f = document.createElement('iframe');
+      f.style.cssText = 'position:fixed;left:0;top:0;width:' + w + 'px;height:' + h + 'px;opacity:0;pointer-events:none';
+      f.src = '/pauseproof-live.html?t=' + Date.now() + (query || '');
+      var loaded = new Promise(function (r) { f.onload = r; });
+      document.body.appendChild(f);
+      return loaded.then(function () { return sleep(100); }).then(function () { return f; });
+    }
+    function keepStorage(keys) {
+      var saved = {};
+      keys.forEach(function (k) { saved[k] = localStorage.getItem(k); });
+      return function () { keys.forEach(function (k) { if (saved[k] == null) localStorage.removeItem(k); else localStorage.setItem(k, saved[k]); }); };
+    }
+
+    testAsync('رابط بشرطة في الآخر أو بحروف كبيرة (/app/ و /HELP) بيوصل للصفحة، والأيقونة موجودة', function () {
+      var w, env = { ASSETS: { fetch: function (req) { return fetch(new URL(req.url).pathname + '?t=' + Date.now()); } } };
+      var get = function (path) { return w.default.fetch(new Request(location.origin + path), env); };
+      return import('/cloudflare/worker.js').then(function (m) {
+        w = m;
+        return get('/app/');
+      }).then(function (res) {
+        eq([res.status, res.headers.get('Location')], [308, '/app'], '/app/');
+        return get('/HELP/?x=1');
+      }).then(function (res) {
+        eq([res.status, res.headers.get('Location')], [308, '/help?x=1'], '/HELP/?x=1');
+        return get('/no-such-page/');
+      }).then(function (res) {
+        eq(res.status, 404, 'unknown page with a slash is still 404');
+        return get('/favicon.ico');
+      }).then(function (res) {
+        eq(res.status, 200, 'favicon');
+        return res.text();
+      }).then(function (svg) {
+        ok(/<svg/.test(svg), 'the icon is an SVG');
+        return fetch('/home.html?t=' + Date.now()).then(function (r) { return r.text(); });
+      }).then(function (html) {
+        ok(new DOMParser().parseFromString(html, 'text/html').querySelector('link[rel="icon"][href="/favicon.svg"]'), 'pages point to the icon');
+      });
+    });
+
+    test('الإعدادات: «٢٫٥» و«2,5» بيتحفظوا ٢٫٥ (قبل كده كانوا بيتشالوا في صمت)، والنص الغلط بيطلع خطأ', function () {
+      var inp = function (k) { return settingsForm.querySelector('[name="' + k + '"]'); };
+      ['٢٫٥', '2,5', ' 2.5 ', '۲٫۵'].forEach(function (typed) {
+        alertSettings = {};
+        renderSettingsForm();
+        inp('roasTarget').value = typed;
+        document.getElementById('settingsSave').click();
+        eq(alertSettings.roasTarget, 2.5, 'typed "' + typed + '"');
+      });
+      alertSettings = {};
+      renderSettingsForm();
+      inp('roasTarget').value = 'abc';
+      document.getElementById('settingsSave').click();
+      eq(JSON.stringify(alertSettings), '{}', 'not saved');
+      ok(settingsForm.querySelector('.setting-row.invalid [name="roasTarget"]'), 'marked as an error');
+      settingsOverlay.classList.add('hidden');
+    });
+
+    test('الفترة المخصصة: مقلوبة أو في المستقبل أو أطول من ٩٣ يوم بتتحفظ صح واسمها يطابق البيانات', function () {
+      var today = todayKeyInTz(BROWSER_TZ);
+      var apply = function (a, b) { dateFrom.value = a; dateTo.value = b; document.getElementById('periodApply').click(); };
+      apply(shiftKey(today, -1), shiftKey(today, -10));
+      eq([period.since, period.until], [shiftKey(today, -10), shiftKey(today, -1)], 'swapped');
+      eq(periodLabel(), fmtRange(period.since, period.until), 'label in the right order');
+      apply(shiftKey(today, -5), shiftKey(today, 400));
+      eq(period.until, today, 'no future end date');
+      apply(shiftKey(today, -300), today);
+      eq(keyDiffDays(period.since, period.until), PERIOD_MAX_DAYS - 1, 'trimmed to 93 days');
+      eq(document.getElementById('connectStatus').textContent, t('period.trimmed', { n: ar(PERIOD_MAX_DAYS), date: fmtKey(period.since) }), 'says it was trimmed');
+    });
+
+    test('تنبيه على مستوى حساب مالوش اسم معروف بيقول اسم المنصة (مش snapchat:123)', function () {
+      var one = ad('z1', { daily: [50, 50, 50, 50, 50, 0, 0], res: steady(2) });
+      one.platform = 'Snapchat'; one.source = 'snapchat:9f3c';
+      var acct = engine([one]).alerts.filter(function (a) { return !a.adId; })[0];
+      ok(acct, 'an account alert');
+      eq(acct.accountName, 'Snapchat');
+    });
+
+    testAsync('الأداة بتفتح بالإنجليزي من ?lang=en وبتفتكرها', function () {
+      var restore = keepStorage(['acc.lang']);
+      return toolFrame(800, 600, '&lang=en').then(function (f) {
+        var d = f.contentDocument;
+        eq([d.documentElement.lang, localStorage.getItem('acc.lang')], ['en', 'en']);
+        eq(d.querySelector('[data-view="alerts"] span').textContent, 'Alerts');
+        f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
+    testAsync('بيانات محفوظة بشكل غلط (نسخة قديمة أو إضافة) متوقفش الأداة ولا زرار «فصل»', function () {
+      var restore = keepStorage(['acc.lastAccount.v1', 'pauseproof.alertSettings.v1']);
+      var oldSession = sessionStorage.getItem('pauseproof.session.v1');
+      var done = function () {
+        restore();
+        if (oldSession == null) sessionStorage.removeItem('pauseproof.session.v1'); else sessionStorage.setItem('pauseproof.session.v1', oldSession);
+      };
+      localStorage.setItem('acc.lastAccount.v1', '5');
+      localStorage.setItem('pauseproof.alertSettings.v1', '[1,2]');
+      sessionStorage.setItem('pauseproof.session.v1', JSON.stringify({ tokens: 3, active: ['x'], options: { google: 'not-a-list' }, accountInfo: 7 }));
+      return toolFrame(800, 600).then(function (f) {
+        var w = f.contentWindow, threw = null;
+        try { w.disconnectPlatform('meta'); w.disconnectAll(); } catch (e) { threw = e.message; }
+        eq(threw, null, 'disconnect works');
+        eq(JSON.stringify(w.alertSettings), '{}', 'bad settings ignored');
+        f.remove();
+      }).then(done, function (e) { done(); throw e; });
+    });
+
+    testAsync('اسم طويل من غير مسافات مبيوسّعش الصفحة على الموبايل (الإعلانات والحملات وشرائح الفلاتر)', function () {
+      return toolFrame(360, 780).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        var long = 'Ramadan_Mega_Sale_2026_Retargeting_Lookalike_1pct_Video_15s_Final_v3_'.repeat(3);
+        var one = ad('long1', { daily: steady(5), res: steady(1) });
+        one.offer = one.headline = long; one.campaignName = one.placement = long; one.campaignId = 'c-long';
+        w.candidates = [one];
+        w.render();
+        // المحتوى مش أعرض من الجزء الظاهر (من غير شريط التمرير)
+        var extra = function () { return d.documentElement.scrollWidth - d.documentElement.clientWidth; };
+        var widths = { ads: extra() };
+        w.setViewMode('campaigns');
+        widths.campaigns = extra();
+        w.setViewMode('ads');
+        w.filters.campaign = w.campaignKey(one); w.filters.campaignName = long; w.filters.text = long;
+        w.render();
+        widths.filterChips = extra();
+        eq(widths, { ads: 0, campaigns: 0, filterChips: 0 }, 'extra width in px');
+        f.remove();
+      });
+    });
+
+    testAsync('أرقام العرض التوضيحي في الرئيسية بصيغة اللغة من أول لحظة', function () {
+      var restore = keepStorage(['acc.lang']);
+      var f = document.createElement('iframe');
+      f.style.cssText = 'position:fixed;left:0;top:0;width:1000px;height:700px;opacity:0;pointer-events:none';
+      f.src = '/home.html?lang=en&t=' + Date.now();
+      var loaded = new Promise(function (r) { f.onload = r; });
+      document.body.appendChild(f);
+      return loaded.then(function () {
+        eq(f.contentDocument.querySelector('[data-count]').textContent, '$4,820');
+        f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
     });
   });
 

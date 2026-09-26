@@ -403,7 +403,7 @@
     var alerts = [];
     var cur = (meta && meta.currency) || (ads[0] && ads[0].currency);
     var money = function (n) { return fmt.money(n, cur); };
-    var accName = (meta && meta.label) || source;
+    var accName = (meta && meta.label) || (ads[0] && ads[0].platform) || source;
 
     if (meta && meta.metaAccountStatus != null && meta.metaAccountStatus !== 1) {
       alerts.push(makeIssue('critical', ['account'], t('al.acct.t'),

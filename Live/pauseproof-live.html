@@ -5,6 +5,7 @@
 <!-- من غير maximum-scale: كان بيمنع تكبير الشاشة بالصوابع على بعض الموبايلات (مهم لضعاف النظر) -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#14171C" media="(prefers-color-scheme: dark)">
 <meta name="description" content="لوحة Ads Center: إعلاناتك على Meta وGoogle Ads وSnapchat في مكان واحد، مع تقييم لأداء كل إعلان وتنبيهات واضحة — للقراءة فقط، دون أي تغيير في حساباتك.">
@@ -492,6 +493,10 @@
   .active-filters:empty { display: none; }
   .active-filter { display: inline-flex; align-items: center; gap: 6px; background: var(--verified-bg); color: var(--verified); border: 1px solid var(--verified); border-radius: 999px; padding: 5px 11px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
   .active-filter::after { content: '✕'; font-size: 10px; opacity: .8; }
+  /* أسماء طويلة من غير مسافات (Ramadan_Sale_2026_Retargeting_...) كانت بتوسّع الكارت والصفحة كلها على الموبايل */
+  .card-grid > * { min-width: 0; }
+  .camp-name, .card-line1 { overflow-wrap: anywhere; }
+  .active-filter { max-width: 100%; overflow-wrap: anywhere; text-align: start; }
 
   /* ---------- درج الفلاتر ---------- */
   .drawer { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-start; }

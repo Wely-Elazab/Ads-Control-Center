@@ -253,7 +253,7 @@
 
   // إعدادات حدود التنبيهات بتتحفظ في متصفح المستخدم نفسه
   var SETTINGS_KEY = 'pauseproof.alertSettings.v1';
-  function loadAlertSettings() { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null') || {}; } catch (e) { return {}; } }
+  function loadAlertSettings() { try { var v = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch (e) { return {}; } }
   function storeAlertSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); return true; } catch (e) { return false; } }
   var alertSettings = loadAlertSettings();
 
@@ -651,7 +651,16 @@
   });
   document.getElementById('periodApply').addEventListener('click', function () {
     if (!dateFrom.value || !dateTo.value) { setStatus(msg('period.pickDates')); return; }
-    applyPeriod({ preset: 'custom', since: dateFrom.value, until: dateTo.value });
+    // بنحفظها مترتبة ومقصوصة (مش في المستقبل، وأقصاها ٩٣ يوم) — عشان اسم الفترة على الأرقام يطابق البيانات.
+    // قبل كده «من ٢٠ لـ ١» كانت بتظهر «٢٠–١ سبتمبر» وتاريخ في المستقبل كان بيظهر كأن فيه بيانات ليه
+    var since = dateFrom.value, until = dateTo.value, today = todayKeyInTz(BROWSER_TZ);
+    if (since > until) { var tmp = since; since = until; until = tmp; }
+    if (until > today) until = today;
+    if (since > until) since = until;
+    var trimmed = keyDiffDays(since, until) > PERIOD_MAX_DAYS - 1;
+    if (trimmed) since = shiftKey(until, -(PERIOD_MAX_DAYS - 1));
+    applyPeriod({ preset: 'custom', since: since, until: until });
+    if (trimmed) setStatus(msg('period.trimmed', { n: PERIOD_MAX_DAYS, date: function () { return fmtKey(since); } }));
   });
   syncPeriodUi();
 
@@ -1175,8 +1184,9 @@
   function settingRow(m, value) {
     var shown = m.kind === 'ratio' ? Math.round(value * 100) : value;
     var step = m.kind === 'multiple' ? '0.1' : '1';
+    // نص مش number: خانة الأرقام بتعتبر «٢٫٥» أو «2,5» قيمة فاضية، فكانت بتتشال في صمت وترجع للافتراضي
     return '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(m.label) + '</span><span class="setting-help">' + esc(m.help) + '</span></span>' +
-      '<span class="setting-input"><input type="number" inputmode="decimal" min="' + m.min + '" max="' + m.max + '" step="' + step + '" name="' + m.key + '" value="' + shown + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
+      '<span class="setting-input"><input type="text" inputmode="decimal" dir="ltr" autocomplete="off" spellcheck="false" data-step="' + step + '" name="' + m.key + '" value="' + shown + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
   }
 
   function renderSettingsForm() {
@@ -1232,6 +1242,13 @@
     settingsForm.querySelectorAll('.setting-error').forEach(function (e) { e.remove(); });
     if (settingsErrorEl) settingsErrorEl.textContent = '';
   }
+  // الأرقام العربية (٠-٩) والفارسية (۰-۹) والفاصلة (٫ أو ,) → رقم عادي. «١٫٥» و«1,5» و«1.5» كلهم ١٫٥
+  function settingNumberText(v) {
+    return String(v == null ? '' : v).trim()
+      .replace(/[\u0660-\u0669]/g, function (d) { return String(d.charCodeAt(0) - 0x0660); })
+      .replace(/[\u06F0-\u06F9]/g, function (d) { return String(d.charCodeAt(0) - 0x06F0); })
+      .replace(/[\u066B,]/g, '.').replace(/\s+/g, '');
+  }
   function readSettingsForm() {
     var picked = settingsForm.querySelector('[name="_preset"]:checked');
     var next = { _preset: picked ? picked.value : 'balanced' }, errors = [];
@@ -1239,9 +1256,9 @@
     PauseProofAlerts.SETTINGS_META.forEach(function (m) {
       var input = inputOf(m.key);
       if (!input) return;
-      var txt = String(input.value).trim().replace(',', '.');
+      var txt = settingNumberText(input.value);
       if (txt === '') return; // فاضي = قيمة النمط المختار
-      var raw = parseFloat(txt);
+      var raw = /^\d*\.?\d+$/.test(txt) ? parseFloat(txt) : NaN;
       if (!isFinite(raw) || raw < m.min || raw > m.max) {
         errors.push({ input: input, text: t('set.err.range', { min: numAr(m.min), max: numAr(m.max) }) });
         return;

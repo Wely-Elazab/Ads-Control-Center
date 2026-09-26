@@ -3,7 +3,9 @@
 (function () {
   var KEY = 'acc.lang';
   var lang = new URLSearchParams(location.search).get('lang');
-  if (lang !== 'ar' && lang !== 'en') { try { lang = localStorage.getItem(KEY); } catch (e) { /* تخزين مقفول */ } }
+  // لغة الرابط بتتحفظ — قبل كده الصفحة الجاية (أو الأداة) كانت بترجع للعربي
+  if (lang === 'ar' || lang === 'en') { try { localStorage.setItem(KEY, lang); } catch (e) { /* مش مهم */ } }
+  else { try { lang = localStorage.getItem(KEY); } catch (e) { /* تخزين مقفول */ } }
   if (lang !== 'ar' && lang !== 'en') lang = 'ar';
 
   function apply(l) {

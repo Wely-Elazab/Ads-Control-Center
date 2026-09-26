@@ -12,11 +12,13 @@
   function restoreSession(saved, pending) {
     if (!saved) return;
     pending = pending || {};
-    Object.keys(saved.accountInfo || {}).forEach(function (k) { accountInfo[k] = saved.accountInfo[k]; });
+    var obj = function (v) { return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; };
+    var savedInfo = obj(saved.accountInfo), savedTokens = obj(saved.tokens), savedOptions = obj(saved.options);
+    Object.keys(savedInfo).forEach(function (k) { accountInfo[k] = savedInfo[k]; });
 
     var expired = [];
-    Object.keys(saved.tokens || {}).forEach(function (p) {
-      if (validToken(saved.tokens[p])) sessionTokens[p] = saved.tokens[p];
+    Object.keys(savedTokens).forEach(function (p) {
+      if (validToken(savedTokens[p])) sessionTokens[p] = savedTokens[p];
       else if (!pending[p]) expired.push(p);
     });
     googleAccessToken = googleAccessToken || validToken(sessionTokens.google);
@@ -25,11 +27,11 @@
 
     // Meta: الـ SDK هو اللي يقرر لو الجلسة لسه شغّالة، فبنتأكد منه قبل ما نعرض حساباتها
     var hasSession = function (p) { return p === 'meta' || !!sessionTokens[p]; };
-    Object.keys(saved.options || {}).forEach(function (p) {
-      if (hasSession(p)) setPlatformOptions(p, saved.options[p]);
+    Object.keys(savedOptions).forEach(function (p) {
+      if (hasSession(p) && Array.isArray(savedOptions[p])) setPlatformOptions(p, savedOptions[p]);
     });
 
-    var active = saved.active || {};
+    var active = obj(saved.active);
     Object.keys(active).forEach(function (p) {
       if (!hasSession(p)) return;
       if (p !== 'meta') {
