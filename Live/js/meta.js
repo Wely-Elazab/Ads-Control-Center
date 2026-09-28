@@ -96,7 +96,7 @@
       }
       data.forEach(function (a) {
         accountInfo['meta:' + a.id] = {
-          timeZone: a.timezone_name || null, currency: a.currency || null,
+          name: a.name || null, timeZone: a.timezone_name || null, currency: a.currency || null,
           accountStatus: a.account_status, spendCap: a.spend_cap || null, amountSpent: a.amount_spent || null
         };
       });
@@ -394,6 +394,8 @@
         period: (periodRes && !periodRes.err) ? byAdId(periodRes.data) : null, daily: daily, periodRes: periodRes
       };
       publish(!needStopped());
+      // ملخص المتجر بيبدأ بعد ما الأرقام تظهر (مش قبلها) — عشان طلباته متأخرش الكروت
+      loadMetaDiagnosis(accountId, info, live);
       if (!needStopped()) return null;
       // المرحلة التالتة: الإعلانات المتوقفة (في الخلفية) — بتنضاف بنفس الأرقام اللي اتحمّلت
       return stoppedP.then(function (s) {
@@ -808,4 +810,101 @@
     if (acct && acct.accountStatus != null && META_ACCOUNT_BLOCKING[Number(acct.accountStatus)]) return off('account');
 
     return { active: true, level: null, reason: null };
+  }
+
+  // ---------- ملخص المتجر: أرقام الحساب يوم بيوم + تقسيماته (قراءة بس) ----------
+  // طلب يومي واحد (كل الفترات اللي المحرك محتاجها) + ١١ تقسيم × ٣ فترات، ٦ طلبات في نفس الوقت —
+  // اتقاس على حساب حقيقي: ~٩ ثواني. أي تقسيم طلبه فشل أو اتقطع بيتشال كله (أحسن من نص صورة)،
+  // والمحرك بيشتغل بالباقي. المنطق نفسه كله في js/diagnosis.js
+  var DX_DIMS = [
+    { id: 'campaign', p: { level: 'campaign' }, key: 'campaign_id', name: 'campaign_name' },
+    { id: 'adset', p: { level: 'adset' }, key: 'adset_id', name: 'adset_name' },
+    { id: 'ad', p: { level: 'ad' }, key: 'ad_id', name: 'ad_name' },
+    { id: 'country', p: { breakdowns: 'country' }, key: 'country' },
+    { id: 'region', p: { breakdowns: 'region' }, key: 'region' },
+    { id: 'age', p: { breakdowns: 'age' }, key: 'age' },
+    { id: 'gender', p: { breakdowns: 'gender' }, key: 'gender' },
+    { id: 'publisher', p: { breakdowns: 'publisher_platform' }, key: 'publisher_platform' },
+    { id: 'placement', p: { breakdowns: 'publisher_platform,platform_position' }, key: ['publisher_platform', 'platform_position'] },
+    { id: 'device', p: { breakdowns: 'device_platform' }, key: 'device_platform' },
+    { id: 'impDevice', p: { breakdowns: 'impression_device' }, key: 'impression_device' }
+  ];
+  var DX_FIELDS = 'spend,impressions,inline_link_clicks,actions,action_values';
+  // الشراء بأنواعه: omni = كل القنوات (الموقع والتطبيق) وهو اللي بيعرضه Ads Manager؛ لو مش موجود بنرجع للبيكسل
+  var DX_PUR = ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase'];
+  var DX_ATC = ['omni_add_to_cart', 'add_to_cart', 'offsite_conversion.fb_pixel_add_to_cart'];
+  var DX_IC = ['omni_initiated_checkout', 'initiate_checkout', 'offsite_conversion.fb_pixel_initiate_checkout'];
+  function dxFirst(arr, types) {
+    for (var i = 0; i < types.length; i++) { var v = valueForType(arr, types[i]); if (v != null) return v; }
+    return 0;
+  }
+  function dxBundle(row) {
+    return { spend: num(row.spend), imp: num(row.impressions), clicks: num(row.inline_link_clicks),
+      atc: dxFirst(row.actions, DX_ATC), ic: dxFirst(row.actions, DX_IC), pur: dxFirst(row.actions, DX_PUR), rev: dxFirst(row.action_values, DX_PUR) };
+  }
+  function metaDiagnosisInput(accountId, since, until) {
+    var ws = DX.windows(since, until);
+    var range = function (w) { return JSON.stringify({ since: w.since, until: w.until }); };
+    var dailyP = fbPagesPromise('/' + accountId + '/insights', {
+      time_range: JSON.stringify({ since: ws[ws.length - 1].since, until: until }), time_increment: 1,
+      fields: 'date_start,' + DX_FIELDS, limit: 500
+    }, FULL_SCAN_CAP);
+    var jobs = [];
+    DX_DIMS.forEach(function (d) { [0, 1, 2].forEach(function (i) { jobs.push({ d: d, i: i }); }); });
+    var results = {}, next = 0;
+    var worker = function () {
+      if (next >= jobs.length) return Promise.resolve();
+      var job = jobs[next++], params = { time_range: range(ws[job.i]), fields: DX_FIELDS + (job.d.p.level ? ',' + job.d.key + ',' + job.d.name : ''), limit: 500 };
+      for (var k in job.d.p) params[k] = job.d.p[k];
+      return fbPagesPromise('/' + accountId + '/insights', params, FULL_SCAN_CAP).then(function (res) { results[job.d.id + ':' + job.i] = res; }).then(worker);
+    };
+    var pool = [];
+    for (var n = 0; n < 6; n++) pool.push(worker());
+    return Promise.all([dailyP, Promise.all(pool)]).then(function (r) {
+      var daily = r[0];
+      if (daily.err) throw daily.err;
+      var dims = [];
+      DX_DIMS.forEach(function (d) {
+        var segs = {}, broken = false;
+        [0, 1, 2].forEach(function (i) {
+          var res = results[d.id + ':' + i];
+          if (!res || res.err || res.truncated) { broken = true; return; }
+          res.data.forEach(function (row) {
+            var key = Array.isArray(d.key) ? d.key.map(function (k) { return row[k]; }).join('|') : row[d.key];
+            if (key == null) return;
+            var s = segs[key] = segs[key] || { key: String(key), name: d.name ? (row[d.name] || null) : null, w: [null, null, null] };
+            s.w[i] = dxBundle(row);
+          });
+        });
+        if (!broken) dims.push({ id: d.id, segs: Object.keys(segs).map(function (k) { return segs[k]; }) });
+      });
+      return {
+        since: since, until: until,
+        daily: daily.data.map(function (row) { var b = dxBundle(row); b.date = row.date_start; return b; }),
+        dims: dims
+      };
+    });
+  }
+  // بيتنادى بعد ما أرقام الإعلانات تظهر. نفس الحساب ونفس الفترة = مفيش تحميل تاني
+  function loadMetaDiagnosis(accountId, info, live) {
+    if (!DX_ON || !window.DX) return;
+    var tz = info.timeZone || BROWSER_TZ, p = dxPeriodFor(tz);
+    var key = accountId + '|' + p.since + '|' + p.until;
+    if (dxState.key === key && dxState.status !== 'error') return;
+    dxState = { status: 'loading', key: key, report: null, account: info.name || null };
+    renderDiagnosis();
+    metaDiagnosisInput(accountId, p.since, p.until).then(function (input) {
+      if (!live() || dxState.key !== key) return;
+      input.currency = info.currency || null;
+      input.timezone = tz;
+      dxState.report = DX.analyze(input);
+      dxState.status = 'ready';
+      renderDiagnosis();
+    }).catch(function (err) {
+      if (dxState.key !== key) return;
+      if (isMetaAuthError(err)) { markExpired('meta'); return; }
+      dxState.status = 'error';
+      dxState.err = err;
+      renderDiagnosis();
+    });
   }

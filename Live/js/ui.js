@@ -118,6 +118,7 @@
     candidates = candidates.filter(function (c) { return platformOfSource(c.source) !== platform; });
     delete activeSources[platform];
     delete sessionTokens[platform];
+    if (platform === 'meta') dxReset();
     if (platform === 'google') googleAccessToken = null;
     else if (platform === 'snapchat') snapchatAccessToken = null;
     else if (platform === 'tiktok') tiktokAccessToken = null;
@@ -604,7 +605,97 @@
     renderKpis();
     renderTopAlerts();
     renderAlerts();
+    renderDiagnosis();
   }
+
+  // ---------- ملخص المتجر (js/diagnosis.js) ----------
+  // النص كله بيتركّب من التقرير وقت الرسم — فتغيير اللغة بيبان على طول من غير تحميل تاني
+  var DX_KIND_LABEL = { urgent: 'dx.kind.urgent', decision: 'dx.kind.decision', watch: 'dx.kind.watch', opportunity: 'dx.kind.opportunity' };
+  function dxPct(x) { return ar(Math.round(Math.abs(x) * 100)) + (isAr() ? '٪' : '%'); }
+  function dxKpiHtml(k) {
+    // اللون (أخضر/أحمر) بس لو التغيّر حقيقي — تذبذب عادي بيفضل رمادي
+    var tone = !k.sig || k.goodUp == null ? '' : ((k.sig > 0) === k.goodUp ? ' good' : ' bad');
+    var pct = k.pct == null || Math.abs(k.pct) < 0.005 ? '' :
+      '<span class="dx-kpi-pct' + tone + '">' + (k.pct > 0 ? '↑ ' : '↓ ') + dxPct(k.pct) + '</span>';
+    return '<div class="dx-kpi"><div class="dx-kpi-label">' + esc(k.label) + '</div>' +
+      '<div class="dx-kpi-value">' + esc(k.value) + ' ' + pct + '</div>' +
+      '<div class="dx-kpi-sub">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</div></div>';
+  }
+  function dxBlockHtml(b, i) {
+    var p = function (cls, s) { return '<p' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(s) + '</p>'; };
+    var html = '<article class="dx-block dx-' + b.kind + '">';
+    if (DX_KIND_LABEL[b.kind]) html += '<span class="dx-kind">' + esc(t(DX_KIND_LABEL[b.kind])) + '</span>';
+    html += '<h3>' + esc(b.title) + '</h3>';
+    (b.lines || []).forEach(function (l) { html += p('', l); });
+    if (b.bullets && b.bullets.length) html += '<ul>' + b.bullets.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
+    (b.after || []).forEach(function (l) { html += p('', l); });
+    if (b.causes && b.causes.length) html += '<p class="dx-causes"><strong>' + esc(t('dx.causes')) + '</strong> ' + esc(DX.listText(b.causes) + '.') + '</p>';
+    if (b.check) html += '<p class="dx-check"><strong>' + esc(t('dx.check')) + '</strong> ' + esc(b.check) + '</p>';
+    if (b.next) html += '<p class="dx-next"><strong>' + esc(t('dx.next')) + '</strong> ' + esc(b.next) + '</p>';
+    if (b.evidence) {
+      html += '<details class="dx-evidence"><summary>' + esc(t('dx.evidence')) + '</summary><table><thead><tr>' +
+        b.evidence.head.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        b.evidence.rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') +
+        '</tbody></table></details>';
+    }
+    var foot = [];
+    if (b.owner) foot.push('<span class="dx-owner">' + esc(t('dx.owner')) + ': ' + esc(t('dx.owner.' + b.owner)) + '</span>');
+    if (b.conf) foot.push('<span class="dx-conf dx-conf-' + b.conf + '">' + esc(t('dx.conf.' + b.conf)) + '</span>');
+    if (b.kind !== 'note') foot.push('<button type="button" class="ghost-btn dx-copy-one" data-dx-copy="' + i + '">' + esc(t('dx.copyOne')) + '</button>');
+    if (foot.length) html += '<div class="dx-foot">' + foot.join('') + '</div>';
+    return html + '</article>';
+  }
+  function renderDiagnosis() {
+    var sec = document.getElementById('storeSec');
+    if (!sec) return;
+    var show = DX_ON && isConnected('meta') && dxState.status !== 'idle';
+    sec.hidden = !show;
+    if (!show) return;
+    var body = document.getElementById('dxBody'), period = document.getElementById('dxPeriod'), copy = document.getElementById('dxCopy');
+    copy.hidden = dxState.status !== 'ready';
+    if (dxState.status !== 'ready') {
+      period.textContent = '';
+      body.innerHTML = '<p class="dx-wait">' + esc(t(dxState.status === 'loading' ? 'dx.loading' : 'dx.failed')) + '</p>';
+      body.setAttribute('aria-busy', dxState.status === 'loading' ? 'true' : 'false');
+      return;
+    }
+    body.setAttribute('aria-busy', 'false');
+    var o = dxState.composed = DX.compose(dxState.report);
+    period.textContent = o.period;
+    body.innerHTML = '<div class="dx-head ' + esc(o.tone) + '"><p class="dx-headline">' + esc(o.title) + '</p>' +
+      '<div class="dx-kpis">' + (o.kpis || []).map(dxKpiHtml).join('') + '</div></div>' +
+      '<div class="dx-blocks">' + o.blocks.map(dxBlockHtml).join('') + '</div>' +
+      (o.notes || []).map(function (n) { return '<p class="dx-notes">' + esc(n) + '</p>'; }).join('');
+  }
+  // النسخ: الملخص كله أو بلوك واحد (عشان يتبعت لمسؤول الإعلانات على الواتساب)
+  function dxCopyText(text, btn) {
+    var done = function (ok) {
+      var old = btn.textContent;
+      btn.textContent = t(ok ? 'dx.copied' : 'dx.copyFailed');
+      setTimeout(function () { btn.textContent = old; }, 2500);
+    };
+    var legacy = function () {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { /* مش مدعوم */ }
+      ta.remove();
+      return ok;
+    };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(legacy()); });
+    else done(legacy());
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('#dxCopy, [data-dx-copy]');
+    if (!btn || !dxState.composed) return;
+    var o = dxState.composed;
+    if (btn.id === 'dxCopy') dxCopyText(DX.toText(o, dxState.account), btn);
+    else {
+      var b = o.blocks[Number(btn.getAttribute('data-dx-copy'))];
+      if (b) dxCopyText('📊 ' + t('dx.title') + (dxState.account ? ' — ' + dxState.account : '') + '\n' + o.period + '\n\n' + DX.blockText(b), btn);
+    }
+  });
 
   // عدد الإعلانات في كل اختيار — بيظهر جنبه في فلتر "الحالة".
   // "متوقف" = كل المتوقف، فالإعلان اللي وقف فجأة بيتعد فيها وفي "يحتاج مراجعة" الاتنين
@@ -1309,7 +1400,8 @@
   }
 
   // إعادة تحميل كل الحسابات المحمّلة من كل المنصات (مش Meta بس)
-  function refreshAll() { Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); }); }
+  // «تحديث البيانات» بيجيب ملخص المتجر من جديد هو كمان (من غيرها كان بيفضل على نسخته القديمة لنفس الفترة)
+  function refreshAll() { dxReset(); Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); }); }
   resetAllBtn.addEventListener('click', refreshAll);
 
   // ---------- آخر تحديث ----------

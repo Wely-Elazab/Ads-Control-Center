@@ -549,6 +549,49 @@
   .app-sec-summary .kpi-strip { margin: 0; }
   .top-alerts { margin: 22px 0 0; }
   .app-sec-ads { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
+
+  /* ملخص المتجر: العنوان والأرقام فوق، وبعدين بلوك لكل حاجة (لماذا، يحتاج قرارك، فرصة...) بلون حسب نوعها */
+  .dx-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .dx-top .sec-title { margin: 0; }
+  .dx-period { margin: 4px 0 12px; font-size: 12.5px; color: var(--ink-soft); }
+  .dx-wait { margin: 0; padding: 16px 18px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px; color: var(--ink-soft); }
+  .dx-head { background: var(--card); border: 1px solid var(--line); border-inline-start: 4px solid var(--ink-faint); border-radius: var(--radius); padding: 16px 18px; }
+  .dx-head.good { border-inline-start-color: var(--verified); }
+  .dx-head.bad { border-inline-start-color: var(--alert); }
+  .dx-head.mixed { border-inline-start-color: var(--pending); }
+  .dx-headline { margin: 0 0 12px; font-size: 16px; font-weight: 700; line-height: 1.5; }
+  .dx-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .dx-kpi { background: var(--paper); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+  .dx-kpi-label { font-size: 12px; color: var(--ink-soft); }
+  .dx-kpi-value { font-size: 17px; font-weight: 700; margin-top: 2px; overflow-wrap: anywhere; }
+  .dx-kpi-pct { font-size: 12px; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
+  .dx-kpi-pct.good { color: var(--verified); }
+  .dx-kpi-pct.bad { color: var(--alert); }
+  .dx-kpi-sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; }
+  .dx-blocks { display: grid; gap: 12px; margin-top: 12px; }
+  .dx-block { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; min-width: 0; }
+  .dx-block.dx-urgent { border-color: var(--alert); background: var(--alert-bg); }
+  .dx-block.dx-decision { border-inline-start: 4px solid var(--alert); }
+  .dx-block.dx-watch { border-inline-start: 4px solid var(--pending); }
+  .dx-block.dx-opportunity { border-inline-start: 4px solid var(--verified); }
+  .dx-kind { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 9px; margin-bottom: 6px; background: var(--sending-bg); color: var(--ink-soft); }
+  .dx-urgent .dx-kind, .dx-decision .dx-kind { background: var(--alert); color: var(--on-alert); }
+  .dx-watch .dx-kind { background: var(--pending); color: var(--on-pending); }
+  .dx-opportunity .dx-kind { background: var(--verified); color: var(--on-verified); }
+  .dx-block h3 { margin: 0; font-size: 14.5px; line-height: 1.55; overflow-wrap: anywhere; }
+  .dx-block p { margin: 8px 0 0; font-size: 13.5px; line-height: 1.8; overflow-wrap: anywhere; }
+  .dx-block ul { margin: 6px 0 0; padding-inline-start: 20px; font-size: 13.5px; line-height: 1.8; }
+  .dx-causes { color: var(--ink-soft); }
+  .dx-check, .dx-next { background: var(--paper); border-radius: 10px; padding: 8px 12px; }
+  .dx-evidence { margin-top: 10px; font-size: 12.5px; }
+  .dx-evidence summary { cursor: pointer; color: var(--ink-soft); font-weight: 600; }
+  .dx-evidence table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  .dx-evidence th, .dx-evidence td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: start; font-weight: 400; }
+  .dx-evidence th { color: var(--ink-soft); font-weight: 600; }
+  .dx-foot { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--ink-faint); }
+  .dx-foot .dx-copy-one { margin-inline-start: auto; }
+  .dx-conf-high { color: var(--verified); font-weight: 600; }
+  .dx-notes { margin: 10px 2px 0; font-size: 12px; color: var(--ink-faint); line-height: 1.7; }
   /* فترة البيانات: لوحة تحكّم واضحة فوق الأرقام */
   .period-bar { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
   .period-bar .sort-select, .period-bar .date-input { background: var(--paper); }
@@ -704,6 +747,17 @@
           <li data-i18n="diff.compare">للمقارنة السريعة: افتح أي إعلان واضغط الزر الذي يفتحه في المنصة (مثل «افتح في Google Ads»).</li>
         </ul>
       </details>
+
+      <!-- ملخص المتجر: إيه اللي اتغيّر في النتايج، وفين، وليه على الأرجح (js/diagnosis.js).
+           مخفي لحد ما يتراجع على حسابات حقيقية — بيظهر بـ ?dx=1 في الرابط -->
+      <section class="app-sec app-sec-store" id="storeSec" aria-labelledby="secStore" hidden>
+        <div class="dx-top">
+          <h2 class="sec-title" id="secStore" data-i18n="dx.title">ملخص المتجر</h2>
+          <button type="button" class="ghost-btn" id="dxCopy" data-i18n="dx.copy" hidden>انسخ الملخص</button>
+        </div>
+        <p class="dx-period" id="dxPeriod"></p>
+        <div id="dxBody" aria-live="polite"></div>
+      </section>
 
       <!-- كل قسم في الصفحة ليه عنوان بعلامة خضرا (.sec-title) — عشان العين تفرّق بين الملخص والتنبيهات والإعلانات -->
       <section class="app-sec app-sec-summary" aria-labelledby="secSummary">
@@ -921,6 +975,7 @@
 <!-- الملفات بتتحمّل بالترتيب ده وبتتشارك نفس النطاق — ما تغيّرش الترتيب -->
 <script src="js/alerts.js"></script>
 <script src="js/core.js"></script>
+<script src="js/diagnosis.js"></script>
 <script src="js/meta.js"></script>
 <script src="js/google.js"></script>
 <script src="js/snapchat.js"></script>

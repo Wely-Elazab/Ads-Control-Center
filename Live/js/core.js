@@ -356,6 +356,31 @@
     };
   }
 
+  // ---------- ملخص المتجر (js/diagnosis.js) ----------
+  // مخفي لحد ما يتراجع على حسابات حقيقية: بيظهر بـ ?dx=1 في الرابط (وبيفضل ظاهر على الجهاز ده لحد ?dx=0)
+  var DX_ON = (function () {
+    try {
+      var q = new URLSearchParams(location.search).get('dx');
+      if (q === '1') localStorage.setItem('acc.dx', '1');
+      if (q === '0') localStorage.removeItem('acc.dx');
+      return localStorage.getItem('acc.dx') === '1';
+    } catch (e) { return false; }
+  })();
+  // status: idle (مفيش) / loading / ready / error — key = الحساب + الفترة (عشان رد قديم ميكتبش فوق جديد)
+  var dxState = { status: 'idle', key: null, report: null, account: null };
+  function dxReset() { dxState = { status: 'idle', key: null, report: null, account: null }; }
+  // فترة التشخيص = الفترة المختارة بس أيام مكتملة (أرقام النهارده لسه بتتحسب ومينفعش تتقارن بيوم كامل):
+  // الفترات المتحركة (اليوم/آخر ٧/١٤/٣٠) بتترجع يوم لورا بنفس طولها، والباقي بيقف عند أمس
+  function dxPeriodFor(tz) {
+    var p = resolvePeriodFor(tz), today = todayKeyInTz(tz), since = p.since, until = p.until;
+    if (until >= today) {
+      if (/^(today|last7|last14|last30)$/.test(p.preset)) { since = shiftKey(since, -1); until = shiftKey(until, -1); }
+      else until = shiftKey(today, -1);
+    }
+    if (since > until) since = until;
+    return { since: since, until: until };
+  }
+
   // ---------- التحميل: نسخة محفوظة + حالة واضحة ----------
   // آخر تحميل لكل حساب بيتحفظ في الذاكرة، فلما ترجع لحساب فتحته قبل كده بيظهر فوراً
   // وبيتحدّث في الخلفية بدل ما تقعد مستني قدام شاشة فاضية.

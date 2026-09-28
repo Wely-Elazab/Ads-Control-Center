@@ -21,8 +21,8 @@
     var s = document.createElement('script'); s.id = id; s.type = 'text/plain'; document.head.appendChild(s);
   });
 
-  var SCRIPTS = ['/js/theme.js', '/js/i18n.js', '/js/alerts.js', '/js/core.js', '/js/meta.js', '/js/google.js', '/js/snapchat.js',
-    '/js/tiktok.js', '/js/ui.js', '/js/main.js', '/js/join.js', '/js/pricing.js', '/tests/tests.js'];
+  var SCRIPTS = ['/js/theme.js', '/js/i18n.js', '/js/alerts.js', '/js/core.js', '/js/diagnosis.js', '/js/meta.js', '/js/google.js', '/js/snapchat.js',
+    '/js/tiktok.js', '/js/ui.js', '/js/main.js', '/js/join.js', '/js/pricing.js', '/tests/dx-sim.js', '/tests/tests.js'];
 
   function loadScript(src) {
     return new Promise(function (resolve, reject) {

@@ -2015,6 +2015,216 @@
     });
   });
 
+  // =====================================================================
+  // ملخص المتجر (js/diagnosis.js) — أكتر حتة حساسة: تشخيص غلط واحد بيخلّي العميل يشك في الأداة كلها.
+  // الاختبارات هنا على ٣ مستويات: الحسابات نفسها، المحاكاة (حسابات بأرقام عشوائية بـ seed ثابت فيها
+  // مشكلة معروفة أو مفيهاش خالص)، والنص (مفيش مفتاح ناقص ولا {متغيّر} ظاهر في اللغتين).
+  // المحاكاة الكاملة (مئات الحسابات) اتعملت وقت المعايرة — هنا عيّنة ثابتة سريعة بحدود فيها هامش.
+  // =====================================================================
+  describe('ملخص المتجر — الحسابات', function () {
+    var X = DX._;
+    test('الدالة البيتا غير الكاملة ومقلوب التوزيع الطبيعي', function () {
+      ok(Math.abs(X.betai(2, 3, 0.5) - 0.6875) < 1e-9, 'I_0.5(2,3) = 11/16');
+      ok(Math.abs(X.normInv(0.975) - 1.959964) < 1e-4, 'z(0.975)');
+    });
+    test('مقارنة معدّلين: مفيش تغيّر ← z قريب من صفر، وتغيّر كبير ← z كبير بالإشارة الصح', function () {
+      ok(Math.abs(X.rateTest(50, 100, 50, 100, 1).z) < 0.3);
+      ok(X.rateTest(100, 100, 40, 100, 1).z < -3, 'drop');
+      ok(X.rateTest(40, 100, 100, 100, 1).z > 3, 'rise');
+      // طلب واحد بدل ٢٥ متوقع: الاختبار «الشرطي» لازم يشوفه قوي (التقريب الطبيعي كان بيضعفه)
+      ok(X.rateTest(302, 10646, 1, 895, 1.5).z < -4, 'tiny counts');
+    });
+    test('التشتت الأكبر بيخلّي الحكم أحوط', function () {
+      ok(Math.abs(X.rateTest(100, 100, 70, 100, 3).z) < Math.abs(X.rateTest(100, 100, 70, 100, 1).z));
+    });
+    test('توزيع تغيّر تكلفة الطلب على المراحل مجموعه بالظبط = تغيّر تكلفة الطلب', function () {
+      var a = { spend: 1975, imp: 75741, clicks: 656, atc: 149, ic: 91, pur: 33 };
+      var b = { spend: 2794, imp: 100978, clicks: 1084, atc: 309, ic: 209, pur: 99 };
+      var d = X.decompose(X.stagesFor({ imp: true, clicks: true, atc: true, ic: true, pur: true }), a, b);
+      var sum = d.parts.reduce(function (s, p) { return s + p.contrib; }, 0);
+      ok(Math.abs(sum - Math.log((b.spend / b.pur) / (a.spend / a.pur))) < 1e-9, 'identity');
+    });
+    test('مرحلة مش متسجلة بتتدمج في اللي بعدها', function () {
+      eq(X.stagesFor({ imp: true, clicks: true, atc: false, ic: true, pur: true }).map(function (s) { return s.id; }), ['reach', 'ctr', 'checkout', 'pay']);
+      // «إضافة للسلة» أقل من الشراء نفسه = الحدث مش متركّب صح
+      eq(X.trackingOf({ pur: 50, atc: 20, ic: 60, imp: 1, clicks: 1 }).atc, false);
+    });
+    test('الفترات: أسبوع ← الأسبوع اللي قبله، ويوم ← نفس اليوم من الأسبوع اللي فات', function () {
+      var w = DX.windows('2026-09-21', '2026-09-27');
+      eq([w[1].since, w[1].until], ['2026-09-14', '2026-09-20']);
+      eq(DX.windows('2026-09-27', '2026-09-27')[1].since, '2026-09-20');
+    });
+    test('فترة التشخيص أيام مكتملة بس (اليوم لسه بيتحسب)', function () {
+      var today = todayKeyInTz('Asia/Riyadh');
+      period = { preset: 'last7' };
+      var p = dxPeriodFor('Asia/Riyadh');
+      eq(p.until, shiftKey(today, -1)); eq(keyDiffDays(p.since, p.until), 6);
+      period = { preset: 'today' };
+      p = dxPeriodFor('Asia/Riyadh');
+      eq([p.since, p.until], [shiftKey(today, -1), shiftKey(today, -1)]);
+      period = { preset: 'last7' };
+    });
+    test('المناسبات: اليوم الوطني السعودي والجمعة البيضاء ورمضان', function () {
+      ok(X.eventsOn('2026-09-23', ['SA']).indexOf('saNational') > -1);
+      ok(X.eventsOn('2026-09-23', ['EG']).indexOf('saNational') < 0, 'only for Saudi stores');
+      ok(X.isWhiteFridayWeekend('2026-11-27') && !X.isWhiteFridayWeekend('2026-11-20'), 'Friday after the 4th Thursday');
+      // رمضان ١٤٤٧ تقريباً ١٨ فبراير – ١٩ مارس ٢٠٢٦: أول مارس جوه رمضان أياً كان فرق يوم في الرؤية
+      if (X.hijriSupported) {
+        ok(X.eventsOn('2026-03-01', ['SA']).indexOf('ramadan') > -1, 'Ramadan');
+        ok(X.eventsOn('2026-03-15', ['SA']).indexOf('ramadanLast') > -1, 'last ten days');
+      }
+    });
+    test('جدول الأسباب: كل سبب وكل «تحقّق أولاً» ليه نص في اللغتين، والبحث بيرجع للأعم لو مفيش صف بالظبط', function () {
+      var missing = [];
+      ['ar', 'en'].forEach(function (l) {
+        withLang(l, function () {
+          Object.keys(DX.PLAYBOOK).forEach(function (k) {
+            var pb = DX.PLAYBOOK[k];
+            pb.causes.forEach(function (c) { if (t('dx.cause.' + c) === 'dx.cause.' + c) missing.push(l + ':cause.' + c); });
+            if (t('dx.chk.' + pb.check) === 'dx.chk.' + pb.check) missing.push(l + ':chk.' + pb.check);
+            ok(/^(ads|store|ops|tracking)$/.test(pb.owner), k + ' owner');
+          });
+        });
+      });
+      eq(missing, []);
+      eq(DX.playbook('cart', 'market', 'worse').check, 'market');
+      eq(DX.playbook('ctr', 'device', 'better').causes, ['segBetter']);
+    });
+  });
+
+  describe('ملخص المتجر — المحاكاة', function () {
+    var S = '2026-09-21';
+    var runMany = function (n, cfg, seed0) {
+      var out = [];
+      for (var s = 1; s <= n; s++) out.push(DX.analyze(DX_SIM.simulate(Object.assign({ seed: s * (seed0 || 7919) }, cfg))));
+      return out;
+    };
+    var KW = [{ key: 'c1', name: 'A', country: 'SA', share: 0.35, mult: {} }, { key: 'c2', name: 'B', country: 'SA', share: 0.3, mult: {} },
+      { key: 'c3', name: 'C', country: 'SA', share: 0.2, mult: {} }, { key: 'c4', name: 'KW', country: 'KW', share: 0.15, mult: { cart: 0.2 } }];
+    test('حساب مفيهوش أي مشكلة: مفيش تفسير ولا مشاكل ولا فرص وهمية (٦٠ حساب)', function () {
+      var reps = runMany(60, { spend: 400 });
+      var why = reps.filter(function (r) { return r.why; }).length;
+      var segs = reps.reduce(function (s, r) { return s + r.segments.length; }, 0);
+      var zeros = reps.reduce(function (s, r) { return s + r.zeroRuns.length; }, 0);
+      var opp = reps.filter(function (r) { return r.opportunity; }).length;
+      ok(why <= 3, 'false why: ' + why);
+      eq([segs, zeros, opp], [0, 0, 0], 'false segments / zero days / opportunities');
+    });
+    test('حساب حملاته مختلفة شوية (±٣٠٪) مش المفروض يطلع فيه «جزء متأخر»', function () {
+      var mixed = [{ key: 'c1', name: 'A', country: 'SA', share: 0.35, mult: { pay: 1.2 } }, { key: 'c2', name: 'B', country: 'SA', share: 0.3, mult: { cart: 0.8 } },
+        { key: 'c3', name: 'C', country: 'SA', share: 0.2, mult: { ctr: 1.3 } }, { key: 'c4', name: 'KW', country: 'KW', share: 0.15, mult: { checkout: 0.75 } }];
+      var segs = runMany(40, { spend: 2000, campaigns: mixed }).reduce(function (s, r) { return s + r.segments.filter(function (g) { return g.kind === 'under'; }).length; }, 0);
+      ok(segs <= 1, 'false under: ' + segs);
+    });
+    test('إكمال الدفع وقع ٤٥٪ في الحساب كله: التفسير «بعد الضغط على الإعلان» والمرحلة «الدفع»', function () {
+      var reps = runMany(20, { spend: 2000, changes: [{ from: S, stage: 'pay', factor: 0.55 }] }, 104729);
+      var right = reps.filter(function (r) { return r.why && r.why.dir === 'worse' && r.why.kind === 'after'; });
+      ok(right.length >= 18, 'detected ' + right.length + '/20');
+      var named = right.filter(function (r) { return r.why.drivers[0].stages.length; });
+      ok(named.every(function (r) { return r.why.drivers[0].stages[0].id === 'pay'; }), 'named stage is always pay');
+      ok(right.every(function (r) { return !r.why.scope || r.why.scope.type === 'general'; }), 'never blamed on one campaign');
+    });
+    test('دولة زوارها مبيضيفوش للسلة: بتظهر «يحتاج قرارك» في المرحلة الصح، ومفيش دولة تانية بتتظلم', function () {
+      var reps = runMany(30, { spend: 400, campaigns: KW }, 104729);
+      var hit = reps.filter(function (r) { return r.segments.some(function (g) { return g.kind === 'under' && g.key === 'KW' && g.stage && g.stage.id === 'cart'; }); }).length;
+      ok(hit >= 21, 'KW found ' + hit + '/30');
+      ok(reps.every(function (r) { return !r.segments.some(function (g) { return g.kind === 'under' && g.key === 'SA'; }); }), 'SA never flagged');
+    });
+    test('المشتريات وقفت آخر يومين والزيارات مستمرة: تنبيه عاجل', function () {
+      var reps = runMany(20, { spend: 400, changes: [{ from: '2026-09-26', stage: 'pay', factor: 0 }] }, 104729);
+      var hit = reps.filter(function (r) { return r.zeroRuns.some(function (z) { return z.now && z.kind === 'cart'; }); }).length;
+      ok(hit >= 18, 'urgent ' + hit + '/20');
+    });
+    test('الميزانية اتقصّت ٤٥٪: «طلبات أقل ومعظم ذلك بسبب انخفاض الإنفاق» — مش «مستقر» ومش مشكلة أداء', function () {
+      var reps = runMany(30, { spend: 400, changes: [{ from: S, spendFactor: 0.55 }] }, 104729);
+      var hit = reps.filter(function (r) { return r.head.type === 'budgetDown'; }).length;
+      ok(hit >= 25, 'budgetDown ' + hit + '/30');
+      ok(reps.every(function (r) { return r.head.type !== 'stable'; }), 'never called steady');
+    });
+    test('بيانات قليلة (أقل من ١٢ طلب في الفترتين): «البيانات لا تكفي» من غير أي حكم', function () {
+      var r = DX.analyze(DX_SIM.simulate({ seed: 3, spend: 12 }));
+      ok(r.status === 'insufficient' || r.status === 'noPurchases', r.status);
+    });
+    test('تقسيم أرقامه مش مطابقة للإجمالي (زي المشتريات حسب المنطقة في Meta) بيتشال من التحليل', function () {
+      var inp = DX_SIM.simulate({ seed: 5, spend: 400 });
+      inp.dims.push({ id: 'region', segs: inp.dims[1].segs.map(function (s) {
+        return { key: s.key + '-R', name: null, w: s.w.map(function (w) { return w && Object.assign({}, w, { pur: 0, atc: 0, ic: 0, rev: 0 }); }) };
+      }) });
+      var r = DX.analyze(inp);
+      var region = r.dims.filter(function (d) { return d.id === 'region'; })[0];
+      eq([region.cover.pur, region.cover.spend], [false, true]);
+    });
+  });
+
+  describe('ملخص المتجر — النص والعرض', function () {
+    var scenarios = function () {
+      var S = '2026-09-21';
+      return [
+        { spend: 400 }, { spend: 2000, changes: [{ from: S, stage: 'pay', factor: 0.55 }] },
+        { spend: 2000, changes: [{ from: S, stage: 'cart', factor: 1.6 }] },
+        { spend: 400, changes: [{ from: S, spendFactor: 0.55 }] },
+        { spend: 400, changes: [{ from: '2026-09-26', stage: 'pay', factor: 0 }] },
+        { spend: 2000, changes: [{ from: S, spendFactor: 1.9 }, { from: S, stage: 'pay', factor: 0.65 }] },
+        { spend: 600, campaigns: [{ key: 'c1', name: 'Scale <A>', country: 'SA', share: 0.5, mult: {} }, { key: 'c2', name: 'B', country: 'SA', share: 0.3, mult: {} },
+          { key: 'c3', name: 'حملة الكويت', country: 'KW', share: 0.2, mult: { cart: 0.2 } }] }
+      ].map(function (cfg, i) { return DX.analyze(DX_SIM.simulate(Object.assign({ seed: 104729 * (i + 1) }, cfg))); });
+    };
+    test('كل النصوص في اللغتين: مفيش مفتاح ناقص ولا {متغيّر} ظاهر ولا undefined/NaN', function () {
+      var reps = scenarios(), bad = [];
+      ['ar', 'en'].forEach(function (l) {
+        withLang(l, function () {
+          reps.forEach(function (r, i) {
+            var txt = DX.toText(DX.compose(r), 'Store');
+            if (/\{\w+\}|\bdx\.[a-z]|undefined|NaN|null/.test(txt)) bad.push(l + ' #' + i + ': ' + (txt.match(/\{\w+\}|\bdx\.[a-zA-Z.]+|undefined|NaN|null/) || [])[0]);
+          });
+        });
+      });
+      eq(bad, []);
+    });
+    test('الأسماء جوه البلوكات بتتعرض كنص (مفيش HTML من اسم حملة)', function () {
+      var r = scenarios()[6], o = DX.compose(r);
+      var html = o.blocks.map(dxBlockHtml).join('');
+      ok(html.indexOf('<A>') < 0, 'raw tag leaked');
+    });
+    test('«تحقّق أولاً» ووسائل الدفع: كي-نت بتتذكر بس لو الخلل عند الدفع، مش عند السلة', function () {
+      var r = scenarios()[6];
+      var kw = r.segments.filter(function (g) { return g.key === 'KW'; })[0];
+      ok(kw && kw.stage && kw.stage.id === 'cart', 'KW at cart');
+      withLang('ar', function () { ok(DX.toText(DX.compose(r)).indexOf('كي-نت') < 0, 'no KNET for a cart problem'); });
+    });
+    test('الألوان (أخضر/أحمر) على الأرقام بس لو التغيّر حقيقي', function () {
+      var calm = scenarios()[0];
+      ok(DX.compose(calm).kpis.every(function (k) { return !k.sig; }), 'no colours on a steady account');
+    });
+  });
+
+  testAsync('ملخص المتجر على بيانات حساب حقيقي (محلي فقط — لو الملف موجود)', function () {
+    return new Promise(function (resolve) {
+      var x = new XMLHttpRequest();
+      x.open('GET', '/tests/private/dx-real.json');
+      x.onload = function () { resolve(x.status === 200 ? x.responseText : null); };
+      x.onerror = function () { resolve(null); };
+      x.send();
+    }).then(function (txt) {
+      if (!txt) return;   // المستودع عام: البيانات الحقيقية مش مرفوعة، فالاختبار ده بيشتغل على جهاز المطوّر بس
+      var fx = JSON.parse(txt), F = ['spend', 'imp', 'clicks', 'atc', 'ic', 'pur', 'rev'];
+      var obj = function (a) { if (!a) return null; var o = {}; F.forEach(function (f, i) { o[f] = a[i]; }); return o; };
+      var r = DX.analyze({ since: fx.since, until: fx.until, currency: fx.currency, timezone: fx.timezone,
+        daily: fx.daily.map(function (d) { var o = obj(d.slice(1)); o.date = d[0]; return o; }),
+        dims: fx.dims.map(function (d) { return { id: d.id, segs: d.segs.map(function (s) { return { key: s.k, name: s.n, w: s.w.map(obj) }; }) }; }) });
+      // ٣٣ ← ٩٩ طلب: الزيادة حقيقية، لكن فرق تكلفة الطلب في حدود تذبذب الحساب اليومي (اتقاس بمعزل: p ≈ ٠٫٠٥)
+      eq(r.head.type, 'moreOrders');
+      ok(!r.why, 'no cause claimed for a change within the account swings');
+      // الكويت: ٨٧١ ريال وطلب واحد، والخلل عند الإضافة للسلة (٤٫٩٪ مقابل ٢٩٪) — مستمر
+      var kw = r.segments.filter(function (g) { return g.key === 'KW'; })[0];
+      ok(kw && kw.kind === 'under' && kw.stage.id === 'cart' && kw.persistent, 'Kuwait');
+      ok(r.context.inCur.indexOf('saNational') > -1, 'National Day in context');
+      // تقسيمات Meta اللي مفيهاش مشتريات (المنطقة) أو فيها جهاز واحد تقريباً اتشالت
+      var dim = function (id) { return r.dims.filter(function (d) { return d.id === id; })[0]; };
+      eq([dim('region').cover.pur, dim('impDevice').informative], [false, false]);
+    });
+  });
+
   // ---------- التقرير ----------
   runAsync().then(finish);
   function finish() {
