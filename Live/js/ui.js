@@ -659,8 +659,90 @@
     if (b.conf) foot.push('<span class="dx-conf dx-conf-' + b.conf + '">' + esc(t('dx.conf.' + b.conf)) + '</span>');
     if (b.kind !== 'note') foot.push('<button type="button" class="ghost-btn dx-copy-one" data-dx-copy="' + i + '">' + esc(t('dx.copyOne')) + '</button>');
     if (foot.length) html += '<div class="dx-foot">' + foot.join('') + '</div>';
+    if (b.fbKey) html += dxFeedbackHtml(b, i);
     return html + '</article>';
   }
+
+  // ---------- «هل كان هذا التشخيص صحيحاً؟» (اختياري) ----------
+  // الإجابة بتتحفظ على الجهاز ده بس (localStorage) لكل حساب إعلاني — ومحرك التشخيص بيستخدمها في التقارير الجاية:
+  // «حسب ملاحظتك الفترة السابقة كان فيها عرض»، والأسباب اللي حصلت قبل كده في المتجر بتطلع الأول.
+  // لما يبقى فيه سيرفر (إرسال الواتساب) ممكن تتنقل هناك بموافقة العميل — دلوقتي مفيش حاجة بتخرج من جهازه
+  var DX_FB_KEY = 'acc.dx.fb.v1';
+  var dxFbOpen = null;   // البلوك اللي نموذج «ما الذي حدث فعلاً؟» مفتوح فيه (رقمه)
+  function dxFbAll() {
+    try { var v = JSON.parse(localStorage.getItem(DX_FB_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
+    catch (e) { return {}; }
+  }
+  function dxFbFor(accountId) {
+    var list = dxFbAll()[accountId];
+    return Array.isArray(list) ? list.filter(function (f) { return f && typeof f === 'object' && typeof f.block === 'string'; }) : [];
+  }
+  function dxFbEntry(b) {
+    var r = dxState.report;
+    return dxFbFor(dxState.accountId).filter(function (f) { return f.block === b.fbKey && f.since === r.since && f.until === r.until; })[0] || null;
+  }
+  function dxFbSave(b, patch) {
+    var r = dxState.report, all = dxFbAll(), id = dxState.accountId;
+    var list = Array.isArray(all[id]) ? all[id] : [];
+    var old = dxFbEntry(b) || { block: b.fbKey, since: r.since, until: r.until, reasons: [], note: '' };
+    var entry = { block: old.block, since: old.since, until: old.until, at: new Date().toISOString(),
+      verdict: patch.verdict || old.verdict, reasons: patch.reasons || old.reasons || [], note: patch.note != null ? String(patch.note).slice(0, 500) : (old.note || '') };
+    list = list.filter(function (f) { return !(f && f.block === entry.block && f.since === entry.since && f.until === entry.until); });
+    list.push(entry);
+    all[id] = list.slice(-200);   // آخر ٢٠٠ ملاحظة للحساب — كفاية للتعلّم ومتملاش التخزين
+    try { localStorage.setItem(DX_FB_KEY, JSON.stringify(all)); } catch (e) { /* تخزين مقفول: الإجابة مش هتتحفظ */ }
+    return entry;
+  }
+  function dxFeedbackHtml(b, i) {
+    var f = dxFbEntry(b), open = dxFbOpen === i;
+    var html = '<div class="dx-fb">';
+    if (!f) {
+      html += '<span>' + esc(t('dx.fb.q')) + '</span>' +
+        '<button type="button" class="dx-fb-btn" data-dx-fb="yes" data-i="' + i + '">' + esc(t('dx.fb.yes')) + '</button>' +
+        '<button type="button" class="dx-fb-btn" data-dx-fb="no" data-i="' + i + '">' + esc(t('dx.fb.no')) + '</button>';
+    } else {
+      html += '<span class="dx-fb-done">✓ ' + esc(t(f.verdict === 'yes' ? 'dx.fb.thanksYes' : 'dx.fb.thanksNo')) + '</span>';
+      if (!open) html += '<button type="button" class="dx-fb-link" data-dx-fb-open="' + i + '">' + esc(t((f.reasons || []).length || f.note ? 'dx.fb.edit' : 'dx.fb.addMore')) + '</button>';
+    }
+    html += '</div>';
+    if (f && open) {
+      html += '<div class="dx-fb-form" data-dx-fb-form="' + i + '"><p class="dx-fb-label">' + esc(t('dx.fb.what')) + '</p><div class="dx-fb-reasons">' +
+        DX.REASONS.map(function (rs) {
+          var on = (f.reasons || []).indexOf(rs) > -1;
+          return '<button type="button" class="dx-fb-reason' + (on ? ' on' : '') + '" data-dx-reason="' + rs + '" aria-pressed="' + on + '">' + esc(t('dx.fb.r.' + rs)) + '</button>';
+        }).join('') + '</div>' +
+        '<textarea class="dx-fb-note" rows="2" maxlength="500" dir="auto" placeholder="' + esc(t('dx.fb.notePh')) + '">' + esc(f.note || '') + '</textarea>' +
+        '<p class="dx-fb-hint">' + esc(t('dx.fb.hint')) + '</p>' +
+        '<button type="button" class="ghost-btn" data-dx-fb-save="' + i + '">' + esc(t('dx.fb.save')) + '</button></div>';
+    }
+    return html;
+  }
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest || !dxState.composed) return;
+    var blocks = dxState.composed.blocks, el;
+    if ((el = e.target.closest('[data-dx-fb]'))) {
+      var i = Number(el.getAttribute('data-i')), verdict = el.getAttribute('data-dx-fb');
+      if (!blocks[i]) return;
+      dxFbSave(blocks[i], { verdict: verdict });
+      // «لا» بتفتح «ما الذي حدث فعلاً؟» على طول — دي أكتر معلومة مفيدة. «نعم» بتسيبها اختيارية
+      dxFbOpen = verdict === 'no' ? i : null;
+      renderDiagnosis();
+    } else if ((el = e.target.closest('[data-dx-fb-open]'))) {
+      dxFbOpen = Number(el.getAttribute('data-dx-fb-open'));
+      renderDiagnosis();
+    } else if ((el = e.target.closest('[data-dx-reason]'))) {
+      var on = !el.classList.contains('on');
+      el.classList.toggle('on', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    } else if ((el = e.target.closest('[data-dx-fb-save]'))) {
+      var j = Number(el.getAttribute('data-dx-fb-save')), form = el.closest('.dx-fb-form');
+      if (!blocks[j] || !form) return;
+      var reasons = Array.prototype.map.call(form.querySelectorAll('.dx-fb-reason.on'), function (x) { return x.getAttribute('data-dx-reason'); });
+      dxFbSave(blocks[j], { reasons: reasons, note: form.querySelector('.dx-fb-note').value.trim() });
+      dxFbOpen = null;
+      renderDiagnosis();
+    }
+  });
   function renderDiagnosis() {
     var sec = document.getElementById('storeSec');
     if (!sec) return;

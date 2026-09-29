@@ -542,6 +542,36 @@ var DX = (function () {
     return kept;
   }
 
+  // ---------- تغيّر حاد في حملة (أو دولة) كبيرة — حتى لو إجمالي الحساب ما اتغيّرش ----------
+  // حملة كبيرة ساءت وحملة تانية اتحسنت بنفس القدر = الحساب يبان «مستقر» والمشكلة موجودة.
+  // بنفحص الأجزاء الكبيرة بس (١٥٪ من الإنفاق على الأقل)، بعتبة التقسيمات العالية، وبتذبذب الحساب اليومي
+  // الأجزاء اللي بتتفحص هنا قليلة (الكبيرة بس: ٢–٥ في العادة)، فعتبتها أقل من فحص كل التقسيمات (٣٫٥)
+  var Z_CHANGE = 3;
+  var CHANGE_DIMS = { campaign: 1, country: 1 };
+  function segmentChanges(dims, stages, tr, phiD) {
+    var out = [];
+    dims.forEach(function (dim) {
+      if (!CHANGE_DIMS[dim.id] || !dim.informative || !dim.cover.pur || !dim.cover.spend) return;
+      var totA = 0, totB = 0;
+      dim.segs.forEach(function (s) { totA += (s.w[1] && s.w[1].spend) || 0; totB += (s.w[0] && s.w[0].spend) || 0; });
+      if (!(totA > 0 && totB > 0)) return;
+      dim.segs.forEach(function (s) {
+        var A = s.w[1], B = s.w[0];
+        if (!A || !B || !(A.spend > 0 && B.spend > 0) || A.pur < 10) return;
+        if (Math.max(A.spend / totA, B.spend / totB) < 0.15) return;
+        // الإنفاق نفسه اتقص للنص أو أكتر = قرار ميزانية مش تغيّر أداء، ومتوقع أقل من ١٠ طلبات = مفيش حكم
+        if (B.spend < 0.5 * A.spend || A.pur / A.spend * B.spend < 10) return;
+        var test = rateTest(A.pur, A.spend, B.pur, B.spend, Math.max(PHI_SAMPLING, phiD));
+        var cpaA = cpaOf(A), cpaB = cpaOf(B);
+        if (!(test.z <= -Z_CHANGE && (cpaB == null || cpaB / cpaA >= 1.4))) return;
+        out.push({ dim: dim.id, dimKind: dim.kind, key: s.key, name: s.name, share: B.spend / totB, z: test.z,
+          cpaFrom: cpaA, cpaTo: cpaB, purFrom: A.pur, purTo: B.pur, conf: -test.z >= Z_SEG_STRONG ? 'high' : 'medium',
+          why: B.pur > 0 ? explainEfficiency(stages, tr, A, B) : null });
+      });
+    });
+    return out.sort(function (a, b) { return a.z - b.z; });
+  }
+
   // ---------- أيام من غير أي مبيعات مسجلة رغم إن الزيارات مستمرة (عطل دفع أو تتبّع) ----------
   // المتوقع من معدّلات الفترات اللي قبلها. الاحتمال إن يوم كامل (أو أيام) يعدّوا صفر بالصدفة = e^(−المتوقع)
   function baseRates(W, from) {
@@ -661,6 +691,31 @@ var DX = (function () {
     return out;
   }
 
+  // ---------- ملاحظات صاحب المتجر على تشخيصات سابقة (زر «كان التشخيص صحيحاً؟») ----------
+  // كل ملاحظة: { since, until, verdict: 'yes'|'no', reasons: [...], note }. بنستخدمها في حاجتين بس:
+  //  ١) سياق: «حسب ملاحظتك، الفترة السابقة كان فيها عرض» — معلومة من صاحب المتجر نفسه، مش استنتاج
+  //  ٢) ترتيب الأسباب: السبب اللي حصل قبل كده في المتجر ده بيطلع الأول ومتعلّم عليه
+  // النص الحر نفسه مش بيدخل الحسابات (مش بنحاول نفهمه آلياً) — بيتحفظ عشان صاحب المتجر يرجعله
+  var REASON_CAUSES = {
+    offer: ['offerLess', 'offerNew'], stock: ['stock'], price: ['price'], site: ['siteSlow', 'payFail', 'cartChange'],
+    shipping: ['shippingCost', 'marketShipping'], ads: ['targeting', 'weakerCreative', 'fatigue', 'creativeBetter'],
+    season: ['season', 'seasonUp'], tracking: ['trackingPur']
+  };
+  function ownerContext(feedback, W) {
+    var inCur = {}, inPrev = {}, seen = {};
+    var overlaps = function (f, w) { return f.since <= w.until && f.until >= w.since; };
+    (feedback || []).forEach(function (f) {
+      if (!f || !/^\d{4}-\d{2}-\d{2}$/.test(f.since || '') || !/^\d{4}-\d{2}-\d{2}$/.test(f.until || '')) return;
+      (f.reasons || []).forEach(function (rs) {
+        if (!REASON_CAUSES[rs]) return;
+        REASON_CAUSES[rs].forEach(function (c) { seen[c] = (seen[c] || 0) + 1; });
+        if (overlaps(f, W[0])) inCur[rs] = 1;
+        else if (overlaps(f, W[1])) inPrev[rs] = 1;
+      });
+    });
+    return { inCur: Object.keys(inCur), inPrev: Object.keys(inPrev), seen: seen };
+  }
+
   // ---------- المتابعة: اللي اتقال في الفترة اللي فاتت، اتحل؟ (من غير تخزين: بنعيد الحساب على الفترة السابقة) ----------
   function followUps(daily, W, dims, stages, tr, phi) {
     var out = [];
@@ -742,6 +797,15 @@ var DX = (function () {
     }
     var idx = dims.length && dims[0].segs.length && dims[0].segs[0].w.length >= 3 ? [0, 1, 2] : [0, 1];
     report.segments = dims.length ? segmentGaps(dims, W, stages, idx) : [];
+    // تغيّرات حادة في حملة/دولة كبيرة — من غير تكرار اللي اتقال في «لماذا» أو «يحتاج قرارك»
+    var said = function (dimId, key) {
+      var sc = report.why && report.why.scope;
+      if (sc && sc.seg && sc.dim === dimId && sc.seg.key === key) return true;
+      return report.segments.some(function (s) {
+        return (s.dim === dimId && s.key === key) || (s.alsoAs || []).some(function (x) { return x.dim === dimId && x.key === key; });
+      });
+    };
+    report.changes = segmentChanges(dims, stages, tr, phiD).filter(function (c) { return !said(c.dim, c.key); }).slice(0, 2);
     report.zeroRuns = zeroRuns(daily, W[0], baseRates(W, 1), tr, phiD);
     // المشكلة اللي لسه قايمة وظاهرة أصلاً في «يحتاج قرارك» مش بتتكرر في المتابعة
     var shown = function (f) {
@@ -752,6 +816,7 @@ var DX = (function () {
     report.followUps = followUps(daily, W, dims, stages, tr, phiD).filter(function (f) { return !(f.type === 'segment' && f.status === 'ongoing' && shown(f)); });
     report.opportunity = scaleOpportunity(W, phiH);
     report.context = contextOf(W, countriesOf(dims, input.timezone));
+    report.owner = ownerContext(input.feedback, W);
     return report;
   }
 
@@ -892,12 +957,25 @@ var DX = (function () {
     var mth = ctx.stage && !PAY_STAGES[ctx.stage] ? '' : methodsOf(ctx);
     return t('dx.chk.' + id, { seg: ctx.seg || '', payHint: mth ? t('dx.payHint', { methods: mth }) : '' });
   }
+  // الأسباب اللي صاحب المتجر نفسه قال إنها حصلت قبل كده (زر «كان التشخيص صحيحاً؟») بتطلع الأول ومتعلّم عليها.
+  // SEEN بيتملي في بداية compose من التقرير — الترتيب بس اللي بيتغيّر، القائمة نفسها ثابتة من الجدول
+  var SEEN = {};
   function applyPlaybook(b, stage, kind, dir, ctx) {
     var pb = playbook(stage, kind, dir);
     if (!pb) return;
-    b.causes = pb.causes.map(function (c) { return causeText(c, ctx); });
+    var list = pb.causes.map(function (c, i) { return { id: c, i: i, n: SEEN[c] || 0 }; })
+      .sort(function (x, y) { return (y.n - x.n) || (x.i - y.i); });
+    b.causes = list.map(function (c) { return causeText(c.id, ctx) + (c.n ? t('dx.cause.seen') : ''); });
     b.check = checkText(pb.check, ctx);
     b.owner = pb.owner;
+  }
+  // سياق من صاحب المتجر نفسه («حسب ملاحظتك عن الفترة السابقة: عرض أو خصم»)
+  function ownerLines(r) {
+    var o = r.owner || { inCur: [], inPrev: [] }, out = [];
+    var names = function (ids) { return listText(ids.map(function (id) { return t('dx.fb.r.' + id); })); };
+    if (o.inPrev.length) out.push(t('dx.ctx.ownerPrev', { list: names(o.inPrev) }));
+    if (o.inCur.length) out.push(t('dx.ctx.ownerCur', { list: names(o.inCur) }));
+    return out;
   }
 
   // جملة مرحلة واحدة. p.pct > 0 = المعدّل زاد (أحسن)
@@ -1031,7 +1109,9 @@ var DX = (function () {
     var evNames = function (ids) { return listText(ids.map(function (id) { return t('dx.event.' + id); })); };
     if (c.inCur.length) after.push(t('dx.ctx.cur', { events: evNames(c.inCur) }));
     if (c.inPrev.length) after.push(t('dx.ctx.prev', { events: evNames(c.inPrev) }));
+    ownerLines(r).forEach(function (l) { after.push(l); });
     if (!lines.length && !bullets.length) return null;
+    blk.fbKey = 'why';
     if (h.dOrd < 0 && h.dEff === 0 && !blk.check) blk.owner = 'ads';
     return blk;
   }
@@ -1051,15 +1131,35 @@ var DX = (function () {
     } else lines.push(t('dx.seg.stageNone'));
     lines.push(t(s.persistent ? 'dx.seg.persist' : 'dx.seg.new'));
     if (s.alsoAs && s.alsoAs.length) lines.push(t('dx.seg.alsoAs', { list: listText(s.alsoAs.map(function (x) { return segName(x.dim, x.key, x.name); })) }));
-    var blk = { kind: 'decision', title: title, lines: lines, after: [t('dx.seg.decide', { seg: name })], conf: s.conf };
+    var blk = { kind: 'decision', title: title, lines: lines, after: [t('dx.seg.decide', { seg: name })], conf: s.conf, fbKey: 'seg:' + s.dim + ':' + s.key };
     ctx.stage = s.stage ? s.stage.id : 'any';
     applyPlaybook(blk, ctx.stage, s.dimKind, 'worse', ctx);
+    return blk;
+  }
+  // تغيّر حاد في حملة/دولة كبيرة: الرقم، وحجمها من الإنفاق، ومكان التغيّر جوّاها (لو اتحدد)، والأسباب المعتادة
+  function changeBlock(c, r, M) {
+    var ctx = ctxOf(c.dim, c.key, c.name), lines = [], bullets = [];
+    var title = c.cpaTo == null ? t('dx.chg.titleZero', { seg: ctx.seg, orders: ordersText(c.purFrom) })
+      : t('dx.chg.title', { seg: ctx.seg, pct: pctText(c.cpaTo / c.cpaFrom - 1) });
+    lines.push(c.cpaTo == null ? t('dx.chg.bodyZero', { share: pctText(c.share) })
+      : t('dx.chg.body', { from: M(c.cpaFrom), to: M(c.cpaTo), share: pctText(c.share) }));
+    var w = c.why, stage = 'any';
+    if (w && (w.kind === 'after' || w.kind === 'before')) {
+      lines.push(t('dx.why.' + w.kind, { share: '' }));
+      groupBullets(w.drivers[0]).forEach(function (s) { bullets.push(s); });
+      stage = w.drivers[0].stages && w.drivers[0].stages.length === 1 ? w.drivers[0].stages[0].id : w.kind;
+    }
+    var after = [];
+    if (r.head && (r.head.type === 'stable' || r.head.type === 'withinNoise')) after.push(t('dx.chg.hidden'));
+    var blk = { kind: 'watch', title: title, lines: lines, bullets: bullets, after: after, conf: c.conf, fbKey: 'chg:' + c.dim + ':' + c.key };
+    ctx.stage = stage;
+    applyPlaybook(blk, stage, c.dimKind, 'worse', ctx);
     return blk;
   }
   function zeroBlock(z) {
     var days = z.days === 1 ? fmtKey(z.start) : fmtRange(z.start, z.end);
     return {
-      kind: z.now ? 'urgent' : 'watch', conf: 'high', owner: 'tracking',
+      kind: z.now ? 'urgent' : 'watch', conf: 'high', owner: 'tracking', fbKey: 'zero:' + z.start,
       title: z.now ? t('dx.zero.titleNow', { since: fmtKey(z.start) }) : t('dx.zero.titlePast', { days: days }),
       lines: [t('dx.zero.body.' + z.kind, { expected: ordersText(Math.round(z.expected)) })],
       check: t('dx.zero.check.' + z.kind, { days: days })
@@ -1071,11 +1171,11 @@ var DX = (function () {
     var lines = [t('dx.opp.scale', { cpa: M(o.cpa), med: M(o.medCpa) })];
     var ev = (r.context && r.context.cur || []).filter(function (id) { return id !== 'monthEnd'; });
     if (ev.length) lines.push(t('dx.opp.season', { events: listText(ev.map(function (id) { return t('dx.event.' + id); })) }));
-    return { kind: 'opportunity', title: t('dx.opp.title'), lines: lines, next: t('dx.opp.check'), owner: 'ads', conf: 'medium' };
+    return { kind: 'opportunity', title: t('dx.opp.title'), lines: lines, next: t('dx.opp.check'), owner: 'ads', conf: 'medium', fbKey: 'opp' };
   }
   function overBlock(s, M) {
     var name = segName(s.dim, s.key, s.name);
-    return { kind: 'opportunity', title: t('dx.over.title', { seg: name }), conf: s.conf, owner: 'ads',
+    return { kind: 'opportunity', title: t('dx.over.title', { seg: name }), conf: s.conf, owner: 'ads', fbKey: 'over:' + s.dim + ':' + s.key,
       lines: [t('dx.over.body', { seg: name, cpa: M(s.cpa), rest: M(s.restCpa) })], next: t('dx.over.check', { seg: name }) };
   }
   function followBlock(r) {
@@ -1090,6 +1190,7 @@ var DX = (function () {
   // التقرير كله جاهز للعرض — بالترتيب: العاجل، ثم «لماذا»، ثم اللي يحتاج قرار، ثم المتابعة والفرص
   function compose(r) {
     var M = function (v) { return money(v, r.currency); };
+    SEEN = (r.owner && r.owner.seen) || {};
     var o = { status: r.status, blocks: [], kpis: [], notes: [],
       period: t('dx.compare', { cur: fmtRange(r.since, r.until), prev: fmtRange(r.prevSince, r.prevUntil) }) };
     if (r.status === 'noPurchases') {
@@ -1111,9 +1212,10 @@ var DX = (function () {
     if (why) o.blocks.push(why);
     else if (calm) {
       o.blocks.push({ kind: 'note', title: t('dx.head.' + h.type),
-        lines: [h.dSpend !== 0 ? t('dx.stable.spend', { pct: pctText(h.spendPct) }) : t('dx.stable')] });
+        lines: [h.dSpend !== 0 ? t('dx.stable.spend', { pct: pctText(h.spendPct) }) : t('dx.stable')].concat(ownerLines(r)) });
     }
     r.segments.filter(function (s) { return s.kind === 'under'; }).slice(0, 3).forEach(function (s) { o.blocks.push(segBlock(s, M)); });
+    (r.changes || []).forEach(function (c) { o.blocks.push(changeBlock(c, r, M)); });
     r.zeroRuns.filter(function (z) { return !z.now; }).forEach(function (z) { o.blocks.push(zeroBlock(z)); });
     var opp = oppBlock(r, M);
     if (opp) o.blocks.push(opp);
@@ -1152,6 +1254,8 @@ var DX = (function () {
     blockText: blockText,
     segName: segName,
     listText: listText,
+    // اختيارات «ما الذي حدث فعلاً؟» في زر التقييم (بنفس ترتيب ظهورها)
+    REASONS: Object.keys(REASON_CAUSES).concat(['other']),
     windows: windowsFor,
     playbook: playbook,
     PLAYBOOK: PLAYBOOK,

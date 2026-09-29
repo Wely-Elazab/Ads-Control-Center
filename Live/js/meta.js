@@ -908,12 +908,14 @@
     var tz = info.timeZone || BROWSER_TZ, p = dxPeriodFor(tz);
     var key = accountId + '|' + p.since + '|' + p.until;
     if (dxState.key === key && dxState.status !== 'error') return;
-    dxState = { status: 'loading', key: key, report: null, account: info.name || null };
+    dxState = { status: 'loading', key: key, report: null, account: info.name || null, accountId: 'meta:' + accountId };
     renderDiagnosis();
     metaDiagnosisInput(accountId, p.since, p.until).then(function (input) {
       if (!live() || dxState.key !== key) return;
       input.currency = info.currency || null;
       input.timezone = tz;
+      // ملاحظات صاحب المتجر على تشخيصات سابقة لنفس الحساب (محفوظة على جهازه)
+      input.feedback = dxFbFor('meta:' + accountId);
       dxState.report = DX.analyze(input);
       dxState.status = 'ready';
       renderDiagnosis();

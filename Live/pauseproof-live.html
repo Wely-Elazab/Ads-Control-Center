@@ -595,6 +595,20 @@
   .dx-foot .dx-copy-one { margin-inline-start: auto; }
   .dx-conf-high { color: var(--verified); font-weight: 600; }
   .dx-notes { margin: 10px 2px 0; font-size: 12px; color: var(--ink-faint); line-height: 1.7; }
+  /* «هل كان هذا التشخيص صحيحاً؟» — سطر صغير اختياري تحت كل بلوك */
+  .dx-fb { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 12.5px; color: var(--ink-soft); }
+  .dx-fb-btn { border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 4px 14px; font-family: inherit; font-size: 12.5px; cursor: pointer; }
+  .dx-fb-btn:hover { border-color: var(--ink-faint); }
+  .dx-fb-done { color: var(--verified); font-weight: 600; }
+  .dx-fb-link { border: 0; background: none; color: var(--ink-soft); text-decoration: underline; font-family: inherit; font-size: 12.5px; cursor: pointer; padding: 0; }
+  .dx-fb-form { margin-top: 8px; background: var(--paper); border-radius: 10px; padding: 10px 12px; }
+  .dx-fb-label { margin: 0 0 8px; font-size: 12.5px; font-weight: 600; }
+  .dx-fb-reasons { display: flex; flex-wrap: wrap; gap: 6px; }
+  .dx-fb-reason { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 4px 12px; font-family: inherit; font-size: 12px; cursor: pointer; }
+  .dx-fb-reason.on { background: var(--verified); border-color: var(--verified); color: var(--on-verified); }
+  .dx-fb-note { display: block; width: 100%; margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); padding: 8px 10px; font-family: inherit; font-size: 13px; resize: vertical; }
+  .dx-fb-hint { margin: 6px 0 8px; font-size: 11.5px; color: var(--ink-faint); line-height: 1.6; }
+  .dx-fb-btn:focus-visible, .dx-fb-reason:focus-visible, .dx-fb-link:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   /* فترة البيانات: لوحة تحكّم واضحة فوق الأرقام */
   .period-bar { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
   .period-bar .sort-select, .period-bar .date-input { background: var(--paper); }

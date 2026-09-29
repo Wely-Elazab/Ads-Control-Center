@@ -2172,6 +2172,15 @@
       ok(hit >= 25, 'budgetDown ' + hit + '/30');
       ok(reps.every(function (r) { return r.head.type !== 'stable'; }), 'never called steady');
     });
+    test('حملة كبيرة ساءت وحملة تانية عوّضتها: بتظهر «تغيّر حاد» في الحملة الصح بس، ومفيش تغيّرات وهمية', function () {
+      var S2 = '2026-09-21';
+      var reps = runMany(20, { spend: 2000, changes: [{ from: S2, campaign: 'c1', stage: 'pay', factor: 0.45 }, { from: S2, campaign: 'c2', stage: 'pay', factor: 1.6 }] }, 104729);
+      var hit = reps.filter(function (r) { return (r.changes || []).some(function (c) { return c.key === 'c1'; }); }).length;
+      ok(hit >= 10, 'c1 found ' + hit + '/20');
+      ok(reps.every(function (r) { return !(r.changes || []).some(function (c) { return c.dim === 'campaign' && c.key !== 'c1'; }); }), 'never the wrong campaign');
+      var calm = runMany(40, { spend: 2000 }).reduce(function (s, r) { return s + (r.changes || []).length; }, 0);
+      eq(calm, 0, 'no changes on a steady account');
+    });
     test('بيانات قليلة (أقل من ١٢ طلب في الفترتين): «البيانات لا تكفي» من غير أي حكم', function () {
       var r = DX.analyze(DX_SIM.simulate({ seed: 3, spend: 12 }));
       ok(r.status === 'insufficient' || r.status === 'noPurchases', r.status);
@@ -2196,6 +2205,7 @@
         { spend: 400, changes: [{ from: S, spendFactor: 0.55 }] },
         { spend: 400, changes: [{ from: '2026-09-26', stage: 'pay', factor: 0 }] },
         { spend: 2000, changes: [{ from: S, spendFactor: 1.9 }, { from: S, stage: 'pay', factor: 0.65 }] },
+        { spend: 2000, changes: [{ from: S, campaign: 'c1', stage: 'pay', factor: 0.3 }, { from: S, campaign: 'c2', stage: 'pay', factor: 1.7 }] },
         { spend: 600, campaigns: [{ key: 'c1', name: 'Scale <A>', country: 'SA', share: 0.5, mult: {} }, { key: 'c2', name: 'B', country: 'SA', share: 0.3, mult: {} },
           { key: 'c3', name: 'حملة الكويت', country: 'KW', share: 0.2, mult: { cart: 0.2 } }] }
       ].map(function (cfg, i) { return DX.analyze(DX_SIM.simulate(Object.assign({ seed: 104729 * (i + 1) }, cfg))); });
@@ -2213,15 +2223,52 @@
       eq(bad, []);
     });
     test('الأسماء جوه البلوكات بتتعرض كنص (مفيش HTML من اسم حملة)', function () {
-      var r = scenarios()[6], o = DX.compose(r);
+      var r = scenarios()[7], o = DX.compose(r);
       var html = o.blocks.map(dxBlockHtml).join('');
       ok(html.indexOf('<A>') < 0, 'raw tag leaked');
     });
     test('«تحقّق أولاً» ووسائل الدفع: كي-نت بتتذكر بس لو الخلل عند الدفع، مش عند السلة', function () {
-      var r = scenarios()[6];
+      var r = scenarios()[7];
       var kw = r.segments.filter(function (g) { return g.key === 'KW'; })[0];
       ok(kw && kw.stage && kw.stage.id === 'cart', 'KW at cart');
       withLang('ar', function () { ok(DX.toText(DX.compose(r)).indexOf('كي-نت') < 0, 'no KNET for a cart problem'); });
+    });
+    test('ملاحظة صاحب المتجر («كان فيه عرض») بتظهر كسياق في الفترة اللي بعدها، والسبب اللي حصل قبل كده بيطلع الأول', function () {
+      var inp = DX_SIM.simulate({ seed: 104729 * 2, spend: 2000, changes: [{ from: '2026-09-21', stage: 'pay', factor: 0.55 }] });
+      inp.feedback = [{ since: '2026-09-14', until: '2026-09-20', block: 'why', verdict: 'no', reasons: ['offer', 'price'] },
+        { since: '2026-08-01', until: '2026-08-07', block: 'why', verdict: 'yes', reasons: ['site'] }];
+      var r = DX.analyze(inp);
+      eq(r.owner.inPrev.sort(), ['offer', 'price']);
+      withLang('ar', function () {
+        var txt = DX.toText(DX.compose(r));
+        ok(txt.indexOf('حسب ملاحظتك عن الفترة السابقة') > -1, 'owner context shown');
+        var why = DX.compose(r).blocks.filter(function (b) { return b.kind === 'why'; })[0];
+        ok(why && why.causes[0].indexOf(t('dx.cause.seen').trim()) > -1, 'the cause the owner reported comes first, marked');
+      });
+    });
+    test('زر التقييم: «لا» بتتحفظ على الجهاز وبتفتح «ما الذي حدث فعلاً؟»، وبعد الحفظ بيظهر الشكر', function () {
+      var saved = localStorage.getItem('acc.dx.fb.v1');
+      try {
+        localStorage.removeItem('acc.dx.fb.v1');
+        var r = DX.analyze(DX_SIM.simulate({ seed: 104729 * 2, spend: 2000, changes: [{ from: '2026-09-21', stage: 'pay', factor: 0.55 }] }));
+        DX_ON = true; activeSources.meta = 'act_1';
+        dxState = { status: 'ready', key: 'k', report: r, account: 'Store', accountId: 'meta:act_1' };
+        renderDiagnosis();
+        var no = document.querySelector('#dxBody [data-dx-fb="no"]');
+        ok(no, 'question shown');
+        no.click();
+        ok(document.querySelector('#dxBody .dx-fb-form'), 'details form opened');
+        document.querySelector('#dxBody [data-dx-reason="stock"]').click();
+        document.querySelector('#dxBody .dx-fb-note').value = 'نفد المقاس الأكثر طلباً';
+        document.querySelector('#dxBody [data-dx-fb-save]').click();
+        var list = JSON.parse(localStorage.getItem('acc.dx.fb.v1'))['meta:act_1'];
+        eq([list.length, list[0].verdict, list[0].reasons[0], list[0].note], [1, 'no', 'stock', 'نفد المقاس الأكثر طلباً']);
+        ok(document.querySelector('#dxBody .dx-fb-done'), 'thanks shown');
+        ok(!document.querySelector('#dxBody .dx-fb-form'), 'form closed');
+      } finally {
+        if (saved == null) localStorage.removeItem('acc.dx.fb.v1'); else localStorage.setItem('acc.dx.fb.v1', saved);
+        DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
+      }
     });
     test('الألوان (أخضر/أحمر) على الأرقام بس لو التغيّر حقيقي', function () {
       var calm = scenarios()[0];
