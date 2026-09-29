@@ -20,6 +20,7 @@
       ar: [
         'الاسم:',
         'اسم النشاط:',
+        'رابط المتجر:',
         'البلد:',
         'المنصات التي تعلن عليها (Meta / Google Ads / Snapchat / TikTok):',
         'لربط Meta — رابط حسابك الشخصي على فيسبوك (الذي تدخل به إلى مدير الإعلانات):',
@@ -31,6 +32,7 @@
       en: [
         'Name:',
         'Business name:',
+        'Store link:',
         'Country:',
         'Platforms you advertise on (Meta / Google Ads / Snapchat / TikTok):',
         'If connecting Meta — your personal Facebook profile link (the one you use for Ads Manager):',

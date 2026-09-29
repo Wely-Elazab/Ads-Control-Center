@@ -13,7 +13,7 @@
     ar: {
       // عام — كل النص العربي في الواجهة بالفصحى
       'app.name': 'Ads Center',
-      'app.tag': 'تنبيهات واضحة تساعدك على حماية ميزانيتك الإعلانية',
+      'app.tag': 'افهم ما يحدث في إعلانات متجرك الإلكتروني ولماذا',
       'brand.home': 'الصفحة الرئيسية',
       'lang.toggle': 'EN',
       'theme.aria': 'المظهر',
@@ -41,8 +41,8 @@
       'n.day.one': 'يوم', 'n.day.acc': 'يوماً', 'n.day.many': 'أيام',
 
       // شاشة البداية
-      'hero.title': 'اعرف أين قد تُهدر ميزانيتك الإعلانية، وأين تكمن فرص نموك',
-      'hero.body': 'اربط حساباتك الإعلانية، ليجمع Ads Center إعلاناتك من مختلف المنصات في لوحة واحدة، ويقيّم أداء كل إعلان، وينبّهك بلغة واضحة إلى الإنفاق المعرّض للهدر، وإلى الإعلانات التي تستحق اختبار زيادة الاستثمار — دون أن يغيّر أي شيء في حساباتك.',
+      'hero.title': 'اعرف لماذا تغيّرت مبيعات متجرك من الإعلانات، ومن أين تبدأ',
+      'hero.body': 'اربط حساباتك الإعلانية، ليخبرك Ads Center بلغة واضحة ما الذي تغيّر في طلباتك وتكلفة كل طلب، وفي أي مرحلة حدث التغيّر بين الإعلان وإتمام الشراء، وما الأسباب الأرجح وما الذي تتحقق منه أولاً، مع تقييم لكل إعلان وتنبيهات بما يحتاج إلى انتباهك — دون أن يغيّر أي شيء في حساباتك.',
       'hero.cta': 'اربط حسابك الإعلاني',
 
       // فترة البيانات
@@ -884,7 +884,7 @@
 
     en: {
       'app.name': 'Ads Center',
-      'app.tag': 'Clear alerts that help protect your ad budget',
+      'app.tag': 'Understand what\'s happening in your online store\'s ads, and why',
       'brand.home': 'Home page',
       'lang.toggle': 'العربية',
       'theme.aria': 'Theme',
@@ -909,8 +909,8 @@
       'n.account.one': 'account', 'n.account.many': 'accounts',
       'n.day.one': 'day', 'n.day.many': 'days',
 
-      'hero.title': 'See where your ad budget may be wasted — and where your growth opportunities are',
-      'hero.body': 'Connect your ad accounts and Ads Center brings your ads from every platform into one dashboard, scores each ad, and tells you in plain language which spend is at risk of waste and which ads are worth testing a bigger budget on — without changing anything in your accounts.',
+      'hero.title': 'Know why your store\'s ad sales changed — and where to start',
+      'hero.body': 'Connect your ad accounts and Ads Center tells you in plain language what changed in your orders and cost per order, at which step between the ad and the checkout it happened, the most likely reasons and what to check first — plus a rating for every ad and alerts for what needs your attention, without changing anything in your accounts.',
       'hero.cta': 'Connect your ad account',
 
       'period.label': 'Data period',

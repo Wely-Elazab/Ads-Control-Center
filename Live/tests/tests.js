@@ -1257,11 +1257,11 @@
         }).then(function () {
           eq(scene(), 1, 'reduced motion: still moves to the next scene (no animation, but not frozen)');
           ok(Date.now() - t0 >= 4500, 'resumed with the time that was left (' + (Date.now() - t0) + 'ms)');
-          eq(Array.prototype.map.call(d.querySelectorAll('[data-count]'), function (el) { return el.textContent; }), ['٤٬٨٢٠ $', '٦١٢', '٣٤٥ $'], 'reduced motion: figures at full value right away, in dollars');
+          eq(Array.prototype.map.call(d.querySelectorAll('[data-count]'), function (el) { return el.textContent; }), ['٤١٢', '١٢ $', '٢١٬٤٠٠ $'], 'reduced motion: figures at full value right away, in dollars');
           d.documentElement.lang = 'en';
           return sleep(50);
         }).then(function () {
-          eq(d.querySelector('[data-count]').textContent, '$4,820', 'English: $4,820');
+          eq(d.querySelector('[data-count][data-money]').textContent, '$12', 'English money: $12');
         });
       }).then(function () { f.remove(); }, function (e) { f.remove(); throw e; });
     });
@@ -1906,7 +1906,7 @@
       var loaded = new Promise(function (r) { f.onload = r; });
       document.body.appendChild(f);
       return loaded.then(function () {
-        eq(f.contentDocument.querySelector('[data-count]').textContent, '$4,820');
+        eq(f.contentDocument.querySelector('[data-count][data-money]').textContent, '$12');
         f.remove();
       }).then(restore, function (e) { restore(); throw e; });
     });

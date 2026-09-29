@@ -374,14 +374,15 @@
   }
 
   // ---------- ملخص المتجر (js/diagnosis.js) ----------
-  // مخفي لحد ما يتراجع على حسابات حقيقية: بيظهر بـ ?dx=1 في الرابط (وبيفضل ظاهر على الجهاز ده لحد ?dx=0)
+  // ظاهر للكل من ٢٩ سبتمبر ٢٠٢٦ (بقى الميزة الأساسية في الصفحة الرئيسية). ?dx=0 بيخفيه على الجهاز ده
+  // (للمراجعة أو لو فيه مشكلة)، و?dx=1 بيرجّعه
   var DX_ON = (function () {
     try {
       var q = new URLSearchParams(location.search).get('dx');
-      if (q === '1') localStorage.setItem('acc.dx', '1');
-      if (q === '0') localStorage.removeItem('acc.dx');
-      return localStorage.getItem('acc.dx') === '1';
-    } catch (e) { return false; }
+      if (q === '0') localStorage.setItem('acc.dx', '0');
+      if (q === '1') localStorage.removeItem('acc.dx');
+      return localStorage.getItem('acc.dx') !== '0';
+    } catch (e) { return true; }
   })();
   // sources = حالة كل منصة لوحدها { status: loading/ready/error, key (الحساب + الفترة)، input، report }،
   // views = العروض الجاهزة (كل منصة + «كل المنصات» لو ينفع)، و report/account/accountId = العرض الظاهر دلوقتي
