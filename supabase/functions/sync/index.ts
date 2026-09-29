@@ -4,6 +4,7 @@
 //   seen  ← { token, accountId } الحساب فتح الأداة (سجل عملاء التجربة)
 //   list  ← { token, viewKey } إجابات «هل كان التشخيص صحيحاً؟» للعرض ده
 //   save  ← { token, viewKey, entry, info } حفظ إجابة واحدة
+//   selfcheck ← { token } لمدير تطبيق Meta بس: الأسرار موجودة وسليمة؟ (حالة بس — عمره ما بيرجّع قيمة سر)
 //
 // الأمان: الدالة عامة (verify_jwt = false) لأن الأداة مفيهاش حسابات دخول خاصة بيها. بدل كده كل طلب فيه
 // مفتاح Meta بتاع صاحب المتجر، والدالة بتسأل Meta نفسها إن المفتاح ده عنده صلاحية على الحساب الإعلاني
@@ -13,6 +14,7 @@
 
 const ORIGINS = ['https://adscenter.online'];
 const GRAPH = 'https://graph.facebook.com/v26.0';
+const META_APP_ID = '2950488078638871';   // نفس js/meta.js — رقم التطبيق عام، السر بس اللي في Secrets
 const MAX_BODY = 16 * 1024;
 const REASONS = ['offer', 'stock', 'price', 'site', 'shipping', 'ads', 'season', 'tracking', 'other'];
 const KINDS = ['urgent', 'why', 'decision', 'watch', 'opportunity', 'follow', 'note'];
@@ -65,6 +67,47 @@ async function metaAccount(token: string, id: string): Promise<Record<string, st
   if (!r.ok) return null;
   const j = await r.json().catch(() => null);
   return j && j.id === id ? j : null;
+}
+
+// صاحب المفتاح مدير (administrators) لتطبيق Meta بتاعنا؟ بوابة العمليات الإدارية.
+// null = مش قادرين نتأكد (سر التطبيق ناقص أو غلط) — ده في حد ذاته بيقول إن META_APP_SECRET فيه مشكلة
+async function isAppAdmin(token: string): Promise<boolean | null> {
+  const secret = Deno.env.get('META_APP_SECRET');
+  if (!secret) return null;
+  const get = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const roles = await get(GRAPH + '/' + META_APP_ID + '/roles?limit=200&access_token=' + encodeURIComponent(META_APP_ID + '|' + secret));
+  if (!roles || !Array.isArray(roles.data)) return null;
+  const me = await get(GRAPH + '/me?fields=id&access_token=' + encodeURIComponent(token));
+  if (!me || !me.id) return false;
+  return roles.data.some((x: any) => String(x.user) === String(me.id) && x.role === 'administrators');
+}
+
+// حالة الأسرار من غير قيمها: موجودة؟ طولها صح؟ المزوّد قابلها؟ + أسماء الأسرار اللي ضفناها إحنا (أسماء بس)
+async function secretsStatus(): Promise<Record<string, unknown>> {
+  const enc = Deno.env.get('TOKEN_ENC_KEY') || '';
+  const t = enc.trim();
+  let bytes = 0;
+  try { bytes = t ? atob(t).length : 0; } catch (_) { bytes = -1; }
+  // شكل المفتاح بس (عدد حروفه وأنواعها) — عشان نعرف لو اتلزق غلط، من غير ما نكشف أي جزء منه
+  const shape = {
+    chars: t.length, trimmed: enc.length - t.length, base64: /^[A-Za-z0-9+/]+={0,2}$/.test(t),
+    quotes: /["'«»]/.test(t), spaces: /\s/.test(t), upper: /[A-Z]/.test(t), lower: /[a-z]/.test(t), digits: /\d/.test(t), symbols: /[^A-Za-z0-9]/.test(t)
+  };
+  const out: Record<string, any> = {
+    tokenKey: { set: !!enc, bytes, ok: bytes === 32, shape },
+    metaSecret: { set: !!Deno.env.get('META_APP_SECRET') },
+    custom: Object.keys(Deno.env.toObject()).filter((k) => !/^(SUPABASE_|SB_|DENO_)/.test(k)).sort()
+  };
+  const rk = Deno.env.get('RESEND_API_KEY');
+  out.resend = { set: !!rk };
+  if (rk) {
+    const r = await fetch('https://api.resend.com/domains', { headers: { authorization: 'Bearer ' + rk } }).catch(() => null);
+    const j = r ? await r.json().catch(() => null) : null;
+    out.resend.http = r ? r.status : 0;
+    if (r && r.ok && j && Array.isArray(j.data)) out.resend.domains = j.data.map((d: any) => ({ name: d.name, status: d.status, region: d.region }));
+    else if (j) out.resend.error = String(j.name || j.message || '').slice(0, 80);
+  }
+  return out;
 }
 
 // «meta:act_1» → «act_1» (الحساب اللي لازم نتحقق منه). أي شكل تاني = مرفوض
@@ -124,6 +167,13 @@ Deno.serve(async (req: Request) => {
       return reply(200, { ok: true }, origin);
     }
     if (typeof body.token !== 'string' || !TOKEN.test(body.token)) return reply(400, { error: 'token' }, origin);
+
+    if (action === 'selfcheck') {
+      const admin = await isAppAdmin(body.token);
+      if (admin === null) return reply(503, { error: 'meta app secret missing or invalid' }, origin);
+      if (!admin) return reply(403, { error: 'admins only' }, origin);
+      return reply(200, { ok: true, metaSecretValid: true, ...(await secretsStatus()) }, origin);
+    }
 
     if (action === 'seen') {
       const id = body.accountId;
