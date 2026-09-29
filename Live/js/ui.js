@@ -664,10 +664,90 @@
   }
 
   // ---------- «هل كان هذا التشخيص صحيحاً؟» (اختياري) ----------
-  // الإجابة بتتحفظ على الجهاز ده بس (localStorage) لكل حساب إعلاني — ومحرك التشخيص بيستخدمها في التقارير الجاية:
+  // الإجابة بتتحفظ على الجهاز (localStorage) لكل حساب إعلاني — ومحرك التشخيص بيستخدمها في التقارير الجاية:
   // «حسب ملاحظتك الفترة السابقة كان فيها عرض»، والأسباب اللي حصلت قبل كده في المتجر بتطلع الأول.
-  // لما يبقى فيه سيرفر (إرسال الواتساب) ممكن تتنقل هناك بموافقة العميل — دلوقتي مفيش حاجة بتخرج من جهازه
+  // وكمان بتتبعت لـ Supabase (تحت) لو العرض فيه حساب Meta: عشان نقيس دقة التشخيص، وتظهر على أي جهاز
   var DX_FB_KEY = 'acc.dx.fb.v1';
+
+  // ---------- مزامنة التجربة (Supabase — supabase/functions/sync) ----------
+  // الدالة بتسأل Meta نفسها إن صاحب مفتاح الدخول عنده صلاحية على الحساب قبل ما تقرا أو تكتب — المفتاح
+  // بيتبعت مع الطلب بس ومبيتحفظش عندنا. عروض Meta بس اللي بتتزامن: عرض «كل المنصات» فيه أسماء حملات Google
+  // وأرقام حساباتها، وسياسة الخصوصية بتقول إننا مش بنحفظ أي بيانات Google عندنا — فهو وGoogle وSnapchat على الجهاز بس.
+  // أي فشل (شبكة، الجلسة خلصت) مبيأثرش على الأداة: الإجابة محفوظة على الجهاز وبتتبعت في أول مرة ينجح فيها الاتصال
+  var SYNC_URL = 'https://rhrrnxsgodiideqeollo.supabase.co/functions/v1/sync';
+  var syncPulled = {};     // العروض اللي جبنا إجاباتها من السيرفر في الجلسة دي
+  var syncSeenDone = {};   // الحسابات اللي سجّلنا فتحها في الجلسة دي
+  function metaAccessToken() {
+    try { var a = window.FB && FB.getAuthResponse ? FB.getAuthResponse() : null; return a && a.accessToken ? a.accessToken : null; }
+    catch (e) { return null; }
+  }
+  // العرض ده بيتزامن؟ عرض حساب Meta لوحده بس («meta:act_1»)
+  function syncableView(viewKey) { return typeof viewKey === 'string' && /^meta:act_\d{1,30}$/.test(viewKey); }
+  function syncCall(body) {
+    return fetch(SYNC_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+  }
+  // حساب Meta فتح الأداة (سجل عملاء التجربة) — مرة واحدة لكل حساب في الجلسة
+  function syncSeen(accountId) {
+    if (!/^act_\d+$/.test(accountId || '') || syncSeenDone[accountId]) return;
+    var token = metaAccessToken();
+    if (!token) return;
+    syncSeenDone[accountId] = true;
+    syncCall({ action: 'seen', token: token, accountId: accountId }).catch(function () { syncSeenDone[accountId] = false; });
+  }
+  // إجابات السيرفر → الجهاز (الأحدث يكسب). بترجع true لو حاجة اتغيّرت
+  function dxFbMerge(viewKey, entries) {
+    if (!Array.isArray(entries) || !entries.length) return false;
+    var all = dxFbAll(), list = Array.isArray(all[viewKey]) ? all[viewKey] : [], changed = false;
+    entries.forEach(function (s) {
+      if (!s || typeof s.block !== 'string') return;
+      var i = -1;
+      for (var k = 0; k < list.length; k++) if (list[k] && list[k].block === s.block && list[k].since === s.since && list[k].until === s.until) { i = k; break; }
+      var mine = i > -1 ? list[i] : null;
+      if (mine && mine.at && s.at && Date.parse(mine.at) >= Date.parse(s.at)) return;
+      var e = { block: s.block, since: s.since, until: s.until, at: s.at, verdict: s.verdict, reasons: s.reasons || [], note: s.note || '', synced: true };
+      if (i > -1) list[i] = e; else list.push(e);
+      changed = true;
+    });
+    if (!changed) return false;
+    all[viewKey] = list.slice(-200);
+    try { localStorage.setItem(DX_FB_KEY, JSON.stringify(all)); } catch (e) { /* تخزين مقفول */ }
+    return true;
+  }
+  function dxFbMarkSynced(viewKey, entry) {
+    var all = dxFbAll(), list = Array.isArray(all[viewKey]) ? all[viewKey] : [];
+    list.forEach(function (f) { if (f && f.block === entry.block && f.since === entry.since && f.until === entry.until && f.at === entry.at) f.synced = true; });
+    try { localStorage.setItem(DX_FB_KEY, JSON.stringify(all)); } catch (e) { /* تخزين مقفول */ }
+  }
+  function dxSyncPush(viewKey, entry, token) {
+    if (!syncableView(viewKey)) return;
+    token = token || metaAccessToken();
+    if (!token) return;
+    syncCall({ action: 'save', token: token, viewKey: viewKey, info: entry.info || null,
+      entry: { block: entry.block, since: entry.since, until: entry.until, verdict: entry.verdict, reasons: entry.reasons || [], note: entry.note || '', at: entry.at } })
+      .then(function () { dxFbMarkSynced(viewKey, entry); }, function () { /* بتفضل synced: false وبتتبعت المرة الجاية */ });
+  }
+  // أول مرة العرض يظهر في الجلسة: نجيب إجاباته من السيرفر، ونبعت أي إجابة اتسجلت والاتصال مقطوع.
+  // لو جه جديد (من جهاز تاني مثلاً) بنعيد التحليل عشان يدخل في «حسب ملاحظتك...»
+  function dxSyncPull(viewKey) {
+    if (!syncableView(viewKey) || syncPulled[viewKey]) return;
+    var token = metaAccessToken();
+    if (!token) return;
+    syncPulled[viewKey] = true;
+    syncCall({ action: 'list', token: token, viewKey: viewKey }).then(function (res) {
+      var changed = dxFbMerge(viewKey, res && res.entries);
+      dxFbFor(viewKey).filter(function (f) { return f.synced === false; }).forEach(function (f) { dxSyncPush(viewKey, f, token); });
+      if (changed) dxRefeed(viewKey);
+    }, function () { syncPulled[viewKey] = false; });
+  }
+  function dxRefeed(viewKey) {
+    var S = dxState.sources;
+    Object.keys(S).forEach(function (p) {
+      var s = S[p];
+      if (s && s.accountId === viewKey && s.status === 'ready' && s.input) { s.input.feedback = dxFbFor(viewKey); s.report = DX.analyze(s.input); }
+    });
+    dxRecompute();
+  }
   var dxFbOpen = null;   // البلوك اللي نموذج «ما الذي حدث فعلاً؟» مفتوح فيه (رقمه)
   function dxFbAll() {
     try { var v = JSON.parse(localStorage.getItem(DX_FB_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
@@ -687,10 +767,16 @@
     var old = dxFbEntry(b) || { block: b.fbKey, since: r.since, until: r.until, reasons: [], note: '' };
     var entry = { block: old.block, since: old.since, until: old.until, at: new Date().toISOString(),
       verdict: patch.verdict || old.verdict, reasons: patch.reasons || old.reasons || [], note: patch.note != null ? String(patch.note).slice(0, 500) : (old.note || '') };
+    // نوع البطاقة وعنوانها ونوع الملخص — للسيرفر بس (قياس الدقة لكل نوع تشخيص)
+    if (syncableView(id)) {
+      entry.synced = false;
+      entry.info = { kind: b.kind, title: String(b.title || '').slice(0, 300), head: r.head ? r.head.type : null, lang: isAr() ? 'ar' : 'en' };
+    }
     list = list.filter(function (f) { return !(f && f.block === entry.block && f.since === entry.since && f.until === entry.until); });
     list.push(entry);
     all[id] = list.slice(-200);   // آخر ٢٠٠ ملاحظة للحساب — كفاية للتعلّم ومتملاش التخزين
     try { localStorage.setItem(DX_FB_KEY, JSON.stringify(all)); } catch (e) { /* تخزين مقفول: الإجابة مش هتتحفظ */ }
+    dxSyncPush(id, entry);
     return entry;
   }
   function dxFeedbackHtml(b, i) {
@@ -712,7 +798,7 @@
           return '<button type="button" class="dx-fb-reason' + (on ? ' on' : '') + '" data-dx-reason="' + rs + '" aria-pressed="' + on + '">' + esc(t('dx.fb.r.' + rs)) + '</button>';
         }).join('') + '</div>' +
         '<textarea class="dx-fb-note" rows="2" maxlength="500" dir="auto" placeholder="' + esc(t('dx.fb.notePh')) + '">' + esc(f.note || '') + '</textarea>' +
-        '<p class="dx-fb-hint">' + esc(t('dx.fb.hint')) + '</p>' +
+        '<p class="dx-fb-hint">' + esc(t(syncableView(dxState.accountId) ? 'dx.fb.hint' : 'dx.fb.hintLocal')) + '</p>' +
         '<button type="button" class="ghost-btn" data-dx-fb-save="' + i + '">' + esc(t('dx.fb.save')) + '</button></div>';
     }
     return html;
@@ -760,6 +846,7 @@
     s.report = DX.analyze(input);
     s.status = 'ready';
     dxRecompute();
+    dxSyncPull(s.accountId);
   }
   function dxFail(platform, key, err) {
     var s = dxState.sources[platform];

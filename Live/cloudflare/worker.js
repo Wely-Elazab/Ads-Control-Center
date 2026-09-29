@@ -75,7 +75,7 @@ export const SECURITY_HEADERS = {
   'Permissions-Policy': 'geolocation=(), microphone=(), camera=(), payment=()',
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
   'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' https://connect.facebook.net https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' https: data: blob:; media-src 'self' https: blob:; connect-src 'self' https://connect.facebook.net https://graph.facebook.com https://*.facebook.com https://accounts.google.com https://oauth2.googleapis.com; frame-src https://*.facebook.com https://accounts.google.com https://business-api.tiktok.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://accounts.snapchat.com https://business-api.tiktok.com; object-src 'none'; upgrade-insecure-requests"
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' https://connect.facebook.net https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' https: data: blob:; media-src 'self' https: blob:; connect-src 'self' https://connect.facebook.net https://graph.facebook.com https://*.facebook.com https://accounts.google.com https://oauth2.googleapis.com https://rhrrnxsgodiideqeollo.supabase.co; frame-src https://*.facebook.com https://accounts.google.com https://business-api.tiktok.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://accounts.snapchat.com https://business-api.tiktok.com; object-src 'none'; upgrade-insecure-requests"
 };
 
 // أقصى حجم لجسم طلب /api — أكبر طلب حقيقي (توكن + أرقام + فترة) أقل من ١٠ كيلوبايت
@@ -210,5 +210,18 @@ export default {
     const asset = await env.ASSETS.fetch(new Request(assetUrl, request));
     if (asset.status === 404) return notFound(request, env);
     return withSecurityHeaders(stripHtmlComments(asset));
+  },
+
+  // نبض يومي لمشروع Supabase (الجدول في wrangler.jsonc → triggers). الخطة المجانية بتوقف المشروع بعد أسبوع
+  // من غير نشاط، وده مصدر تاني مستقل عن pg_cron اللي جوه المشروع نفسه. طلب واحد من غير أي أسرار
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(pingSupabase());
   }
 };
+
+export const SUPABASE_SYNC_URL = 'https://rhrrnxsgodiideqeollo.supabase.co/functions/v1/sync';
+export function pingSupabase() {
+  return fetch(SUPABASE_SYNC_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'ping' }) })
+    .then(function (r) { if (!r.ok) console.error('supabase ping', r.status); return r.ok; })
+    .catch(function (e) { console.error('supabase ping failed', String(e && e.message ? e.message : e)); return false; });
+}

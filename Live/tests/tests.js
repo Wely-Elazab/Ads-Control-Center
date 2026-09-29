@@ -2459,6 +2459,132 @@
     });
   });
 
+  // ---------- مزامنة التجربة مع Supabase (supabase/functions/sync) ----------
+  describe('مزامنة التجربة (Supabase)', function () {
+    var FB_KEY = 'acc.dx.fb.v1';
+    // بيئة معزولة: مفتاح Meta وهمي + fetch وهمي بيسجّل الطلبات، وبعدها كل حاجة بترجع زي ما كانت
+    var withSync = function (serve, fn) {
+      var realFetch = window.fetch, hadFB = 'FB' in window, realFB = window.FB, saved = localStorage.getItem(FB_KEY), calls = [];
+      window.FB = { getAuthResponse: function () { return { accessToken: 'tok-test-1234567890' }; } };
+      window.fetch = function (url, opts) {
+        var body = opts && opts.body ? JSON.parse(opts.body) : null;
+        calls.push({ url: String(url), body: body });
+        return serve(body);
+      };
+      syncPulled = {}; syncSeenDone = {};
+      localStorage.removeItem(FB_KEY);
+      var restore = function () {
+        window.fetch = realFetch;
+        if (hadFB) window.FB = realFB; else delete window.FB;
+        if (saved == null) localStorage.removeItem(FB_KEY); else localStorage.setItem(FB_KEY, saved);
+        syncPulled = {}; syncSeenDone = {}; dxReset();
+      };
+      return Promise.resolve().then(function () { return fn(calls); }).then(function (v) { restore(); return v; }, function (e) { restore(); throw e; });
+    };
+    var reply = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
+    var tick2 = function () { return new Promise(function (r) { setTimeout(r, 0); }).then(function () { return new Promise(function (r) { setTimeout(r, 0); }); }); };
+    var sim = function () { return DX_SIM.simulate({ seed: 104729 * 2, spend: 2000, changes: [{ from: '2026-09-21', stage: 'pay', factor: 0.55 }] }); };
+    var WHY = { fbKey: 'why', kind: 'why', title: 'لماذا؟' };
+
+    test('عرض Meta لوحده بس اللي بيتزامن — Google وSnapchat و«كل المنصات» على الجهاز', function () {
+      ok(syncableView('meta:act_123'), 'meta');
+      ['google:123', 'snapchat:abc', 'all:meta:act_1,google:123', 'meta:123', 'meta:act_1x', null].forEach(function (k) { ok(!syncableView(k), String(k)); });
+    });
+    testAsync('التقييم بيتبعت مع مفتاح Meta ونوع البطاقة، وبيتعلّم «اتزامن» لما ينجح', function () {
+      return withSync(function () { return reply({ ok: true }); }, function (calls) {
+        var r = DX.analyze(sim());
+        dxState = { status: 'ready', report: r, accountId: 'meta:act_1', sources: {} };
+        dxFbSave(WHY, { verdict: 'no' });
+        eq(calls.length, 1);
+        var c = calls[0].body;
+        eq([calls[0].url, c.action, c.token, c.viewKey, c.entry.block, c.entry.verdict, c.entry.since, c.info.kind, c.info.head],
+          [SYNC_URL, 'save', 'tok-test-1234567890', 'meta:act_1', 'why', 'no', r.since, 'why', r.head.type]);
+        eq(dxFbFor('meta:act_1')[0].synced, false, 'pending until the server answers');
+        return tick2().then(function () { eq(dxFbFor('meta:act_1')[0].synced, true); });
+      });
+    });
+    testAsync('عرض Google: التقييم على الجهاز بس، ومفيش أي طلب', function () {
+      return withSync(function () { return reply({ ok: true }); }, function (calls) {
+        dxState = { status: 'ready', report: DX.analyze(sim()), accountId: 'google:123', sources: {} };
+        dxFbSave(WHY, { verdict: 'yes' });
+        return tick2().then(function () {
+          eq(calls.length, 0);
+          var e = dxFbFor('google:123')[0];
+          ok(e && e.verdict === 'yes' && !('synced' in e) && !e.info, 'saved locally only');
+        });
+      });
+    });
+    testAsync('الاتصال مقطوع: التقييم محفوظ على الجهاز، وبيتبعت أول مرة الاتصال ينجح', function () {
+      var offline = true;
+      return withSync(function (body) {
+        if (offline) return Promise.reject(new Error('offline'));
+        return reply(body.action === 'list' ? { entries: [] } : { ok: true });
+      }, function (calls) {
+        dxState = { status: 'ready', report: DX.analyze(sim()), accountId: 'meta:act_1', sources: {} };
+        dxFbSave(WHY, { verdict: 'yes' });
+        return tick2().then(function () {
+          eq(dxFbFor('meta:act_1')[0].synced, false);
+          offline = false;
+          dxSyncPull('meta:act_1');
+          return tick2();
+        }).then(function () {
+          eq(calls.map(function (c) { return c.body.action; }), ['save', 'list', 'save']);
+          eq(dxFbFor('meta:act_1')[0].synced, true);
+        });
+      });
+    });
+    testAsync('إجابة من جهاز تاني بتدخل التحليل («حسب ملاحظتك…»)، والإجابة الأحدث على الجهاز بتكسب', function () {
+      var inp = sim(), r0 = DX.analyze(inp);
+      var server = [
+        { block: 'why', since: r0.prevSince, until: r0.prevUntil, verdict: 'no', reasons: ['offer'], note: '', at: '2026-09-22T10:00:00.000Z' },
+        { block: 'opp', since: r0.since, until: r0.until, verdict: 'no', reasons: [], note: 'قديمة', at: '2026-09-20T10:00:00.000Z' }
+      ];
+      return withSync(function (body) { return reply(body.action === 'list' ? { entries: server } : { ok: true }); }, function (calls) {
+        localStorage.setItem(FB_KEY, JSON.stringify({ 'meta:act_1': [{ block: 'opp', since: r0.since, until: r0.until, verdict: 'yes', reasons: [], note: 'أحدث', at: '2026-09-29T10:00:00.000Z', synced: true }] }));
+        dxState = dxFresh();
+        dxState.sources.meta = { status: 'ready', key: 'k', account: 'Store', accountId: 'meta:act_1', input: inp, report: r0 };
+        dxSyncPull('meta:act_1');
+        return tick2().then(function () {
+          var list = dxFbFor('meta:act_1');
+          eq(list.filter(function (f) { return f.block === 'opp'; })[0].note, 'أحدث', 'newer local answer kept');
+          ok(list.some(function (f) { return f.block === 'why' && f.synced === true; }), 'server answer merged');
+          ok(dxState.sources.meta.report.owner.inPrev.indexOf('offer') > -1, 're-analyzed with the merged answer');
+          eq(calls.length, 1, 'nothing pending to push');
+        });
+      });
+    });
+    testAsync('التقييمات القديمة (اتقالها «على هذا الجهاز فقط») عمرها ما بتتبعت للسيرفر', function () {
+      return withSync(function (body) { return reply(body.action === 'list' ? { entries: [] } : { ok: true }); }, function (calls) {
+        localStorage.setItem(FB_KEY, JSON.stringify({ 'meta:act_1': [{ block: 'why', since: '2026-09-14', until: '2026-09-20', verdict: 'no', reasons: [], note: 'خاص', at: '2026-09-21T00:00:00.000Z' }] }));
+        dxSyncPull('meta:act_1');
+        return tick2().then(function () { eq(calls.map(function (c) { return c.body.action; }), ['list']); });
+      });
+    });
+    testAsync('فتح حساب Meta بيتسجّل مرة واحدة في الجلسة، ومن غير جلسة Meta مفيش طلب', function () {
+      return withSync(function () { return reply({ ok: true }); }, function (calls) {
+        syncSeen('act_1'); syncSeen('act_1'); syncSeen('act_2'); syncSeen('123');
+        eq(calls.map(function (c) { return c.body.action + ':' + c.body.accountId; }), ['seen:act_1', 'seen:act_2']);
+        window.FB = { getAuthResponse: function () { return null; } };
+        syncSeen('act_3');
+        eq(calls.length, 2, 'no token, no request');
+      });
+    });
+    testAsync('Cloudflare: النبض اليومي بيوصل لدالة المزامنة (عشان المشروع المجاني ميتوقفش)', function () {
+      var realFetch = window.fetch, sent = null;
+      window.fetch = function (url, opts) { sent = { url: String(url), body: JSON.parse(opts.body) }; return Promise.resolve({ ok: true, status: 200 }); };
+      return import('/cloudflare/worker.js').then(function (w) {
+        var waits = [];
+        w.default.scheduled({}, {}, { waitUntil: function (p) { waits.push(p); } });
+        eq(waits.length, 1);
+        return waits[0].then(function (res) {
+          window.fetch = realFetch;
+          eq([sent.url, sent.body.action, res], [w.SUPABASE_SYNC_URL, 'ping', true]);
+          ok(/connect-src[^;]*https:\/\/rhrrnxsgodiideqeollo\.supabase\.co/.test(w.SECURITY_HEADERS['Content-Security-Policy']), 'CSP allows the sync function');
+        });
+      }).then(null, function (e) { window.fetch = realFetch; throw e; });
+    });
+  });
+
   testAsync('Google — ملخص المتجر (السيرفر): الأرقام اليومية والحملات والدول بشكل محرك التشخيص', function () {
     var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process;
     window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
