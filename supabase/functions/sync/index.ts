@@ -5,6 +5,7 @@
 //   list  ← { token, viewKey } إجابات «هل كان التشخيص صحيحاً؟» للعرض ده
 //   save  ← { token, viewKey, entry, info } حفظ إجابة واحدة
 //   selfcheck ← { token } لمدير تطبيق Meta بس: الأسرار موجودة وسليمة؟ (حالة بس — عمره ما بيرجّع قيمة سر)
+//   testmail  ← { token } لمدير التطبيق بس: رسالة تجريبية لـ support@adscenter.online (العنوان ثابت — مش بياخد مستلم)
 //
 // الأمان: الدالة عامة (verify_jwt = false) لأن الأداة مفيهاش حسابات دخول خاصة بيها. بدل كده كل طلب فيه
 // مفتاح Meta بتاع صاحب المتجر، والدالة بتسأل Meta نفسها إن المفتاح ده عنده صلاحية على الحساب الإعلاني
@@ -110,6 +111,30 @@ async function secretsStatus(): Promise<Record<string, unknown>> {
   return out;
 }
 
+// ---------- البريد (Resend — المفتاح بصلاحية «إرسال فقط») ----------
+const MAIL_FROM = 'Ads Center <support@adscenter.online>';
+const MAIL_REPLY_TO = 'support@adscenter.online';
+// بيرجّع رقم الرسالة عند Resend، أو بيرمي خطأ فيه حالة Resend بس (من غير محتوى الرسالة)
+async function sendEmail(to: string, subject: string, html: string, text: string): Promise<string> {
+  const key = Deno.env.get('RESEND_API_KEY');
+  if (!key) throw new Error('resend key missing');
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'authorization': 'Bearer ' + key, 'content-type': 'application/json' },
+    body: JSON.stringify({ from: MAIL_FROM, to: [to], reply_to: MAIL_REPLY_TO, subject, html, text })
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j || !j.id) throw new Error('resend ' + r.status + ' ' + String((j && (j.name || j.message)) || '').slice(0, 80));
+  return j.id;
+}
+// غلاف الرسائل: عربي من اليمين للشمال، خط النظام، من غير صور ولا روابط تتبّع
+function mailHtml(title: string, paragraphs: string[]): string {
+  const p = paragraphs.map((x) => '<p style="margin:0 0 14px;line-height:1.8">' + x + '</p>').join('');
+  return '<div dir="rtl" lang="ar" style="font-family:Tahoma,Arial,sans-serif;font-size:15px;color:#1f2933;max-width:560px;margin:0 auto;padding:24px">' +
+    '<h1 style="font-size:19px;margin:0 0 18px">' + title + '</h1>' + p +
+    '<p style="margin:24px 0 0;font-size:13px;color:#6b7280">Ads Center — adscenter.online</p></div>';
+}
+
 // «meta:act_1» → «act_1» (الحساب اللي لازم نتحقق منه). أي شكل تاني = مرفوض
 function metaIdOf(viewKey: unknown): string | null {
   const m = typeof viewKey === 'string' ? META_VIEW.exec(viewKey) : null;
@@ -173,6 +198,20 @@ Deno.serve(async (req: Request) => {
       if (admin === null) return reply(503, { error: 'meta app secret missing or invalid' }, origin);
       if (!admin) return reply(403, { error: 'admins only' }, origin);
       return reply(200, { ok: true, metaSecretValid: true, ...(await secretsStatus()) }, origin);
+    }
+
+    if (action === 'testmail') {
+      const admin = await isAppAdmin(body.token);
+      if (admin === null) return reply(503, { error: 'meta app secret missing or invalid' }, origin);
+      if (!admin) return reply(403, { error: 'admins only' }, origin);
+      const title = 'رسالة تجريبية: إرسال البريد في Ads Center يعمل';
+      const lines = [
+        'مرحباً،',
+        'هذه رسالة تجريبية أرسلها نظام Ads Center عبر مزوّد البريد Resend.',
+        'وصولها إلى بريدك يعني أن إرسال رسائل التفعيل والملخصات من support@adscenter.online يعمل بشكل صحيح. لا يلزم أي إجراء.'
+      ];
+      const id = await sendEmail(MAIL_REPLY_TO, title, mailHtml(title, lines), title + '\n\n' + lines.join('\n'));
+      return reply(200, { ok: true, id }, origin);
     }
 
     if (action === 'seen') {
