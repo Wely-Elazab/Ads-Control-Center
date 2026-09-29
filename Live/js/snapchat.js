@@ -115,10 +115,33 @@
       setPlatformState('snapchat', null);
       setLoading('snapchat', false, connectedText(payload.statsError ? [msg('note.spendFailed', { msg: payload.statsError })] : []));
       render();
+      loadSnapchatDiagnosis(adAccountId, payload.account || {}, token);
     }).catch(function (err) {
       if (!isCurrentLoad('snapchat', token)) return;
       fail(msg('s.adsFailed', { platform: 'Snapchat', msg: err.message }));
     });
+  }
+
+  // ملخص المتجر (Snapchat): بعد ما الإعلانات تظهر، بتوقيت الحساب وعملته اللي رجعوا مع الإعلانات.
+  // السيرفر (action=diagnosis في api/snapchat-ads-fetch.js) بيرجّع أرقام محرك التشخيص. لم يُختبر على حساب حقيقي بعد
+  function loadSnapchatDiagnosis(adAccountId, account, token) {
+    if (!DX_ON || !window.DX) return;
+    var tz = account.timezone || BROWSER_TZ, p = dxPeriodFor(tz), ws = DX.windows(p.since, p.until);
+    var key = adAccountId + '|' + p.since + '|' + p.until;
+    var opt = (platformOptions.snapchat || []).filter(function (o) { return o.value === adAccountId; })[0];
+    var name = opt ? String(opt.label).replace(/^Snapchat — /, '') : adAccountId;
+    if (!dxBegin('snapchat', key, name, 'snapchat:' + adAccountId)) return;
+    apiPost('/api/snapchat-ads-fetch', {
+      accessToken: snapchatAccessToken, action: 'diagnosis', adAccountId: adAccountId, clientTz: BROWSER_TZ,
+      daily: { since: ws[ws.length - 1].since, until: p.until },
+      windows: ws.slice(0, 3).map(function (w) { return { since: w.since, until: w.until }; })
+    }).then(function (res) {
+      if (!isCurrentLoad('snapchat', token)) return;
+      if (isAuthFailure(res)) { markExpired('snapchat'); dxFail('snapchat', key, null); return; }
+      if (!res.ok || !res.data || res.data.error) { dxFail('snapchat', key, res.data); return; }
+      dxDone('snapchat', key, { since: p.since, until: p.until, currency: account.currency || null, timezone: tz,
+        daily: res.data.daily || [], dims: res.data.dims || [] });
+    }).catch(function (err) { dxFail('snapchat', key, err); });
   }
 
   // حالة التشغيل الفعلية لإعلان Snapchat: الإعلان نفسه + المجموعة (Ad Squad) + الحملة، ومواعيد البداية والنهاية

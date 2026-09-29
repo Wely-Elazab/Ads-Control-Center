@@ -907,23 +907,14 @@
     if (!DX_ON || !window.DX) return;
     var tz = info.timeZone || BROWSER_TZ, p = dxPeriodFor(tz);
     var key = accountId + '|' + p.since + '|' + p.until;
-    if (dxState.key === key && dxState.status !== 'error') return;
-    dxState = { status: 'loading', key: key, report: null, account: info.name || null, accountId: 'meta:' + accountId };
-    renderDiagnosis();
+    if (!dxBegin('meta', key, info.name || null, 'meta:' + accountId)) return;
     metaDiagnosisInput(accountId, p.since, p.until).then(function (input) {
-      if (!live() || dxState.key !== key) return;
+      if (!live()) return;
       input.currency = info.currency || null;
       input.timezone = tz;
-      // ملاحظات صاحب المتجر على تشخيصات سابقة لنفس الحساب (محفوظة على جهازه)
-      input.feedback = dxFbFor('meta:' + accountId);
-      dxState.report = DX.analyze(input);
-      dxState.status = 'ready';
-      renderDiagnosis();
+      dxDone('meta', key, input);
     }).catch(function (err) {
-      if (dxState.key !== key) return;
-      if (isMetaAuthError(err)) { markExpired('meta'); return; }
-      dxState.status = 'error';
-      dxState.err = err;
-      renderDiagnosis();
+      if (isMetaAuthError(err)) markExpired('meta');
+      dxFail('meta', key, err);
     });
   }

@@ -4,6 +4,7 @@
 import { last7DaysRange, shiftDateKey, tzOffsetString, resolvePeriod } from './_dates.js';
 import { guardRequest } from './_cors.js';
 import { text, shaped, periodOf, TOKEN_MAX, badRequest } from './_input.js';
+import { dxRanges, dxSegments, dxDaily } from './_dx.js';
 
 const SNAP_API = 'https://adsapi.snapchat.com/v1';
 const MAX_PAGES = 20; // حد أمان للتصفّح (1000 إعلان في الصفحة)
@@ -162,7 +163,88 @@ export default async function handler(req, res) {
       return;
     }
 
-    res.status(400).json({ error: 'قيمة action غير معروفة — استخدم accounts أو ads.', code: 'BAD_REQUEST' });
+    // ملخص المتجر: الحساب يوم بيوم + الحملات والدول لكل فترة من الـ ٣ (بشكل js/diagnosis.js). قراءة بس.
+    // لم يُختبر على حساب Snapchat حقيقي بعد — التقسيم بالدولة بالذات (report_dimension) مش مضمون الشكل،
+    // فلو ماتفهمش بيتشال، ومحرك التشخيص كمان بيشيل أي تقسيم أرقامه مش مطابقة لإجمالي الحساب
+    if (action === 'diagnosis') {
+      const adAccountId = shaped(body.adAccountId, /^[A-Za-z0-9-]{1,64}$/);
+      const ranges = dxRanges(body);
+      if (!adAccountId || !ranges) { badRequest(res, 'الحقول adAccountId وdaily وwindows مطلوبة وبتواريخ صحيحة.'); return; }
+      const accountPath = SNAP_API + '/adaccounts/' + encodeURIComponent(adAccountId);
+      const accR = await fetch(accountPath, { headers: headers });
+      const accD = await accR.json().catch(function () { return null; });
+      if (!accR.ok || !accD || accD.request_status === 'ERROR') { res.status(accR.ok ? 502 : accR.status).json({ error: snapError(accD, accR.status) }); return; }
+      const acc = accD.adaccounts && accD.adaccounts[0] && accD.adaccounts[0].adaccount;
+      const tz = (acc && acc.timezone) || clientTz;
+      const at = function (key) { return encodeURIComponent(key + 'T00:00:00.000' + tzOffsetString(key, tz)); };
+      const span = function (r) { return '&start_time=' + at(r.since) + '&end_time=' + at(shiftDateKey(r.until, 1)); };
+      const FULL = 'spend,impressions,swipes,conversion_purchases,conversion_purchases_value,conversion_add_cart,conversion_start_checkout';
+      const BASIC = 'spend,impressions,swipes';
+      const get = async function (query) {
+        const r = await fetch(accountPath + '/stats?' + query, { headers: headers });
+        const d = await r.json().catch(function () { return null; });
+        if (!r.ok || !d || d.request_status === 'ERROR') { const e = new Error(snapError(d, r.status)); e.status = r.ok ? 502 : r.status; throw e; }
+        return d;
+      };
+      // حساب مش بيدعم التحويلات بيرفض الطلب كله — بنرجع للإنفاق والظهور والسوايب (والمحرك هيقول «لا تُسجَّل مشتريات»)
+      const getStats = function (query) { return get(query + '&fields=' + FULL).catch(function () { return get(query + '&fields=' + BASIC); }); };
+      const row = function (st, extra) {
+        st = st || {};
+        return Object.assign({
+          spend: Number(st.spend || 0) / 1e6, imp: Number(st.impressions || 0), clicks: Number(st.swipes || 0),
+          pur: Number(st.conversion_purchases || 0), rev: Number(st.conversion_purchases_value || 0) / 1e6,
+          atc: Number(st.conversion_add_cart || 0), ic: Number(st.conversion_start_checkout || 0)
+        }, extra);
+      };
+      // الأرقام اليومية: Snapchat بيحدد مدى طلب اليوم الواحد — بنقسّمه على دفعات ٢٨ يوم
+      const dailyRows = [];
+      for (let s = ranges.daily.since; s <= ranges.daily.until; s = shiftDateKey(s, 28)) {
+        const u = shiftDateKey(s, 27) < ranges.daily.until ? shiftDateKey(s, 27) : ranges.daily.until;
+        const d = await getStats('granularity=DAY' + span({ since: s, until: u }));
+        (d.timeseries_stats || []).forEach(function (e) {
+          const ts = e.timeseries_stat || e;
+          (ts.timeseries || []).forEach(function (p) { if (p && p.start_time) dailyRows.push(row(p.stats, { date: String(p.start_time).slice(0, 10) })); });
+        });
+      }
+      // أسماء الحملات (فشلها = الحملات بتظهر بأرقامها)
+      const names = {};
+      try {
+        const lr = await fetch(accountPath + '/campaigns?limit=1000', { headers: headers });
+        const ld = await lr.json().catch(function () { return null; });
+        ((ld && ld.campaigns) || []).forEach(function (c) { if (c && c.campaign) names[c.campaign.id] = c.campaign.name || null; });
+      } catch (e) { /* مش ضروري */ }
+      const dims = [];
+      const campaignRows = [], countryRows = [];
+      let campaignsOk = true, countriesOk = true;
+      for (let i = 0; i < 3; i++) {
+        const w = ranges.windows[i];
+        try {
+          const d = await getStats('granularity=TOTAL&breakdown=campaign' + span(w));
+          (d.total_stats || []).forEach(function (e) {
+            const ts = e.total_stat || e;
+            ((ts.breakdown_stats && ts.breakdown_stats.campaign) || []).forEach(function (b) {
+              if (b && b.id) campaignRows.push(row(b.stats, { w: i, key: b.id, name: names[b.id] || null }));
+            });
+          });
+        } catch (e) { campaignsOk = false; }
+        try {
+          const d = await getStats('granularity=TOTAL&report_dimension=country' + span(w));
+          (d.total_stats || []).forEach(function (e) {
+            const ts = e.total_stat || e;
+            (ts.dimension_stats || []).forEach(function (x) {
+              const code = x && (x.country || (x.dimension && x.dimension.country));
+              if (code) countryRows.push(row(x.stats || x, { w: i, key: String(code).toUpperCase() }));
+            });
+          });
+        } catch (e) { countriesOk = false; }
+      }
+      if (campaignsOk && campaignRows.length) dims.push({ id: 'campaign', segs: dxSegments(campaignRows, ranges.windows) });
+      if (countriesOk && countryRows.length) dims.push({ id: 'country', segs: dxSegments(countryRows, ranges.windows) });
+      res.status(200).json({ daily: dxDaily(dailyRows), dims: dims, account: acc ? { timezone: acc.timezone || null, currency: acc.currency || null } : null });
+      return;
+    }
+
+    res.status(400).json({ error: 'قيمة action غير معروفة — استخدم accounts أو ads أو diagnosis.', code: 'BAD_REQUEST' });
   } catch (err) {
     res.status(500).json({ error: String(err && err.message ? err.message : err) });
   }

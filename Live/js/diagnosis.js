@@ -350,10 +350,12 @@ var DX = (function () {
 
   // ---------- التقسيمات: هل التغيّر عام ولا محصور؟ ----------
   // نوع كل تقسيم بيحدد مين المسؤول والأسباب المعتادة (جدول PLAYBOOK)
-  var DIM_KIND = { campaign: 'ads', adset: 'ads', ad: 'ads', placement: 'ads', publisher: 'ads',
-    country: 'market', region: 'market', age: 'audience', gender: 'audience', device: 'device', impDevice: 'device' };
-  // لو أكتر من تقسيم بيقول نفس الحاجة (دولة الكويت = حملات الكويت) بنفضّل الأوضح لصاحب المتجر
-  var DIM_ORDER = ['country', 'campaign', 'placement', 'publisher', 'impDevice', 'device', 'age', 'gender', 'region', 'adset', 'ad'];
+  // platform = المنصة نفسها (Meta / Google / Snapchat) في عرض «كل المنصات»؛ gDevice وnetwork من Google
+  var DIM_KIND = { platform: 'ads', campaign: 'ads', adset: 'ads', ad: 'ads', placement: 'ads', publisher: 'ads', network: 'ads',
+    country: 'market', region: 'market', age: 'audience', gender: 'audience', device: 'device', impDevice: 'device', gDevice: 'device' };
+  // لو أكتر من تقسيم بيقول نفس الحاجة (دولة الكويت = حملات الكويت) بنفضّل الأوضح لصاحب المتجر.
+  // «المنصة» الأول: «النزول في Snapchat بس» أوضح إجابة ممكنة لصاحب المتجر
+  var DIM_ORDER = ['platform', 'country', 'campaign', 'placement', 'publisher', 'network', 'impDevice', 'device', 'gDevice', 'age', 'gender', 'region', 'adset', 'ad'];
   var SKIP_KEYS = { unknown: 1, '': 1 };
 
   // التقسيم ينفع للحقل ده؟ مجموع التقسيمات لازم يطابق إجمالي الحساب (±١٠٪) في كل فترة فيها أرقام كفاية
@@ -749,6 +751,64 @@ var DX = (function () {
     return d ? d.segs.filter(function (s) { return s.key === key; })[0] : null;
   }
 
+  // ---------- «كل المنصات»: دمج أكتر من منصة في مدخل واحد ----------
+  // sources: [{ platform: 'meta'|'google'|'snapchat', input }] — بنفس العملة والفترة (الواجهة بتتأكد قبل الدمج).
+  //  - الأرقام اليومية بتتجمع بالتاريخ
+  //  - تقسيم «المنصة» بيتضاف (أرقام كل منصة في كل فترة) — ده اللي بيكشف «المشكلة في Snapchat بس»
+  //  - الحملات بتتحط جنب بعض بمفتاح فيه المنصة («google:123»)، والدول بتتجمع بالرمز —
+  //    بس لو كل المنصات رجّعت التقسيم ده (وإلا مجموعه مش هيطابق الإجمالي، والمحرك كان هيشيله أصلاً)
+  function combine(sources) {
+    var first = sources[0].input, ws = windowsFor(first.since, first.until).slice(0, 3);
+    var norm = function (list) { return (list || []).filter(function (d) { return d && d.date; }).map(function (d) { var b = bundle(d); b.date = d.date; return b; }); };
+    var byDate = {};
+    sources.forEach(function (s) {
+      norm(s.input.daily).forEach(function (d) {
+        var tt = byDate[d.date] = byDate[d.date] || (function () { var b = bundle(); b.date = d.date; return b; })();
+        addTo(tt, d);
+      });
+    });
+    var dims = [{ id: 'platform', segs: sources.map(function (s) {
+      var days = norm(s.input.daily);
+      return { key: s.platform, name: null, w: ws.map(function (w) { return sumDays(days, w); }) };
+    }) }];
+    var dimOf = function (input, id) { return (input.dims || []).filter(function (d) { return d && d.id === id; })[0]; };
+    if (sources.every(function (s) { return dimOf(s.input, 'campaign'); })) {
+      var camps = [];
+      sources.forEach(function (s) {
+        dimOf(s.input, 'campaign').segs.forEach(function (sg) { camps.push({ key: s.platform + ':' + sg.key, name: sg.name || null, w: sg.w }); });
+      });
+      dims.push({ id: 'campaign', segs: camps });
+    }
+    if (sources.every(function (s) { return dimOf(s.input, 'country'); })) {
+      var byKey = {};
+      sources.forEach(function (s) {
+        dimOf(s.input, 'country').segs.forEach(function (sg) {
+          var key = String(sg.key).toUpperCase();
+          var c = byKey[key] = byKey[key] || { key: key, name: null, w: [null, null, null] };
+          (sg.w || []).forEach(function (b, i) { if (b && i < 3) c.w[i] = addTo(c.w[i] || bundle(), b); });
+        });
+      });
+      dims.push({ id: 'country', segs: Object.keys(byKey).map(function (k) { return byKey[k]; }) });
+    }
+    return { since: first.since, until: first.until, currency: first.currency, timezone: first.timezone,
+      daily: Object.keys(byDate).sort().map(function (k) { return byDate[k]; }), dims: dims };
+  }
+  // اللي خاص بمنصة واحدة وبيضيع في الدمج: توقف تسجيل مشتريات منصة (المنصات التانية بتبيع عادي فالإجمالي
+  // مش صفر)، ومشاكل تقسيماتها اللي مش في الدمج (المواضع، الأعمار، الأجهزة، الشبكات). بيتضافوا للتقرير المدموج
+  // بعلامة المنصة — والأيام اللي الدمج نفسه اكتشفها مش بتتكرر
+  function attachPlatforms(rep, list) {
+    if (!rep || rep.status !== 'ok') return rep;
+    var covered = function (z) { return rep.zeroRuns.some(function (c) { return !c.platform && z.start <= c.end && z.end >= c.start; }); };
+    list.forEach(function (p) {
+      var r = p.report;
+      if (!r || r.status !== 'ok') return;
+      r.zeroRuns.forEach(function (z) { if (!covered(z)) rep.zeroRuns.push(Object.assign({ platform: p.platform }, z)); });
+      r.segments.filter(function (g) { return g.dim !== 'campaign' && g.dim !== 'country'; })
+        .forEach(function (g) { rep.segments.push(Object.assign({ platform: p.platform }, g)); });
+    });
+    return rep;
+  }
+
   // ---------- التحليل كله ----------
   // input: { since, until (أيام مكتملة)، currency، timezone،
   //          daily: [{ date, spend, imp, clicks, atc, ic, pur, rev }] بتغطي كل الفترات (DX.windows)،
@@ -923,7 +983,12 @@ var DX = (function () {
   // اسم الجزء بلغة صاحب المتجر: «حملة «...»» / «الكويت» / «الفئة العمرية ٢٥–٣٤ سنة» / «ريلز إنستغرام»
   function segName(dim, key, name) {
     var k = String(key), m;
+    if (dim === 'platform') return tOr('dx.plat.' + k, null, k);
+    // حملة في عرض «كل المنصات»: مفتاحها فيه المنصة («google:123») — بنقول «حملة «...» على Google Ads»
+    if (dim === 'campaign' && (m = k.match(/^(meta|google|snapchat):/))) return t('dx.seg.campaignOn', { name: iso(name || k.slice(m[0].length)), plat: t('dx.plat.' + m[1]) });
     if (dim === 'campaign' || dim === 'adset' || dim === 'ad') return t('dx.seg.' + dim, { name: iso(name || k) });
+    if (dim === 'gDevice') return tOr('dx.gdev.' + k, null, k);
+    if (dim === 'network') return tOr('dx.net.' + k, null, k);
     if (dim === 'country') return countryName(k);
     if (dim === 'age') {
       if ((m = k.match(/^(\d+)-(\d+)$/))) return t('dx.seg.age', { a: ar(m[1]), b: ar(m[2]) });
@@ -1131,7 +1196,8 @@ var DX = (function () {
     } else lines.push(t('dx.seg.stageNone'));
     lines.push(t(s.persistent ? 'dx.seg.persist' : 'dx.seg.new'));
     if (s.alsoAs && s.alsoAs.length) lines.push(t('dx.seg.alsoAs', { list: listText(s.alsoAs.map(function (x) { return segName(x.dim, x.key, x.name); })) }));
-    var blk = { kind: 'decision', title: title, lines: lines, after: [t('dx.seg.decide', { seg: name })], conf: s.conf, fbKey: 'seg:' + s.dim + ':' + s.key };
+    var blk = { kind: 'decision', title: onPlat(s.platform, title), lines: lines, after: [t('dx.seg.decide', { seg: name })], conf: s.conf,
+      fbKey: (s.platform ? s.platform + ':' : '') + 'seg:' + s.dim + ':' + s.key };
     ctx.stage = s.stage ? s.stage.id : 'any';
     applyPlaybook(blk, ctx.stage, s.dimKind, 'worse', ctx);
     return blk;
@@ -1156,11 +1222,13 @@ var DX = (function () {
     applyPlaybook(blk, stage, c.dimKind, 'worse', ctx);
     return blk;
   }
+  // عطل أو مشكلة خاصة بمنصة واحدة في عرض «كل المنصات»: اسم المنصة قبل العنوان («Snapchat: ...»)
+  function onPlat(platform, title) { return platform ? t('dx.onPlat', { plat: t('dx.plat.' + platform), text: title }) : title; }
   function zeroBlock(z) {
     var days = z.days === 1 ? fmtKey(z.start) : fmtRange(z.start, z.end);
     return {
-      kind: z.now ? 'urgent' : 'watch', conf: 'high', owner: 'tracking', fbKey: 'zero:' + z.start,
-      title: z.now ? t('dx.zero.titleNow', { since: fmtKey(z.start) }) : t('dx.zero.titlePast', { days: days }),
+      kind: z.now ? 'urgent' : 'watch', conf: 'high', owner: 'tracking', fbKey: (z.platform ? z.platform + ':' : '') + 'zero:' + z.start,
+      title: onPlat(z.platform, z.now ? t('dx.zero.titleNow', { since: fmtKey(z.start) }) : t('dx.zero.titlePast', { days: days })),
       lines: [t('dx.zero.body.' + z.kind, { expected: ordersText(Math.round(z.expected)) })],
       check: t('dx.zero.check.' + z.kind, { days: days })
     };
@@ -1249,6 +1317,8 @@ var DX = (function () {
 
   return {
     analyze: analyze,
+    combine: combine,
+    attachPlatforms: attachPlatforms,
     compose: compose,
     toText: toText,
     blockText: blockText,

@@ -383,9 +383,18 @@
       return localStorage.getItem('acc.dx') === '1';
     } catch (e) { return false; }
   })();
-  // status: idle (مفيش) / loading / ready / error — key = الحساب + الفترة (عشان رد قديم ميكتبش فوق جديد)
-  var dxState = { status: 'idle', key: null, report: null, account: null };
-  function dxReset() { dxState = { status: 'idle', key: null, report: null, account: null }; }
+  // sources = حالة كل منصة لوحدها { status: loading/ready/error, key (الحساب + الفترة)، input، report }،
+  // views = العروض الجاهزة (كل منصة + «كل المنصات» لو ينفع)، و report/account/accountId = العرض الظاهر دلوقتي
+  function dxFresh() { return { status: 'idle', sources: {}, views: [], view: 'all', report: null, account: null, accountId: null }; }
+  var dxState = dxFresh();
+  // من غير منصة = كله من الأول («تحديث البيانات»)، ومع منصة = المنصة دي بس (فصلها)
+  function dxReset(platform) {
+    if (!platform) { dxState = dxFresh(); return; }
+    if (dxState.sources && dxState.sources[platform]) {
+      delete dxState.sources[platform];
+      if (typeof dxRecompute === 'function') dxRecompute();
+    }
+  }
   // فترة التشخيص = الفترة المختارة بس أيام مكتملة (أرقام النهارده لسه بتتحسب ومينفعش تتقارن بيوم كامل):
   // الفترات المتحركة (اليوم/آخر ٧/١٤/٣٠) بتترجع يوم لورا بنفس طولها، والباقي بيقف عند أمس
   function dxPeriodFor(tz) {

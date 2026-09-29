@@ -118,7 +118,7 @@
     candidates = candidates.filter(function (c) { return platformOfSource(c.source) !== platform; });
     delete activeSources[platform];
     delete sessionTokens[platform];
-    if (platform === 'meta') dxReset();
+    dxReset(platform);
     if (platform === 'google') googleAccessToken = null;
     else if (platform === 'snapchat') snapchatAccessToken = null;
     else if (platform === 'tiktok') tiktokAccessToken = null;
@@ -743,10 +743,62 @@
       renderDiagnosis();
     }
   });
+  // ---------- المنصات: كل منصة ليها تحميلها، وبعدين بنكوّن العروض ----------
+  // مصدر (منصة) بيبدأ: لو نفس الحساب ونفس الفترة جاهزين أو جاريين → مفيش تحميل تاني
+  function dxBegin(platform, key, account, accountId) {
+    var s = dxState.sources[platform];
+    if (s && s.key === key && s.status !== 'error') return false;
+    dxState.sources[platform] = { status: 'loading', key: key, account: account, accountId: accountId };
+    dxRecompute();
+    return true;
+  }
+  function dxDone(platform, key, input) {
+    var s = dxState.sources[platform];
+    if (!s || s.key !== key) return;   // رد قديم (العميل بدّل الحساب أو الفترة)
+    input.feedback = dxFbFor(s.accountId);
+    s.input = input;
+    s.report = DX.analyze(input);
+    s.status = 'ready';
+    dxRecompute();
+  }
+  function dxFail(platform, key, err) {
+    var s = dxState.sources[platform];
+    if (!s || s.key !== key) return;
+    s.status = 'error';
+    s.err = err;
+    dxRecompute();
+  }
+  var DX_PLATFORM_ORDER = ['meta', 'google', 'snapchat'];
+  // العروض: كل منصة جاهزة لوحدها، و«كل المنصات» الأول لو فيه أكتر من منصة جاهزة بنفس العملة ونفس الفترة
+  // (جمع ريال مع دولار أو أسبوعين مختلفين يطلع رقم بلا معنى)
+  function dxRecompute() {
+    var S = dxState.sources, ids = DX_PLATFORM_ORDER.filter(function (p) { return S[p]; });
+    var ready = ids.filter(function (p) { return S[p].status === 'ready'; });
+    var views = ready.map(function (p) { return { id: p, report: S[p].report, account: S[p].account, accountId: S[p].accountId }; });
+    if (ready.length >= 2) {
+      var f = S[ready[0]].input;
+      var same = ready.every(function (p) { var x = S[p].input; return x.currency === f.currency && x.since === f.since && x.until === f.until; });
+      if (same) {
+        var accId = 'all:' + ready.map(function (p) { return S[p].accountId; }).join(',');
+        var input = DX.combine(ready.map(function (p) { return { platform: p, input: S[p].input }; }));
+        input.feedback = dxFbFor(accId);
+        var rep = DX.attachPlatforms(DX.analyze(input), ready.map(function (p) { return { platform: p, report: S[p].report }; }));
+        views.unshift({ id: 'all', report: rep, account: ready.map(function (p) { return S[p].account; }).filter(Boolean).join(' + '), accountId: accId });
+      }
+    }
+    dxState.views = views;
+    dxState.status = views.length ? 'ready' : (ids.some(function (p) { return S[p].status === 'loading'; }) ? 'loading' : (ids.length ? 'error' : 'idle'));
+    if (!views.some(function (v) { return v.id === dxState.view; })) dxState.view = views.length ? views[0].id : 'all';
+    var cur = views.filter(function (v) { return v.id === dxState.view; })[0];
+    dxState.report = cur ? cur.report : null;
+    dxState.account = cur ? cur.account : null;
+    dxState.accountId = cur ? cur.accountId : null;
+    renderDiagnosis();
+  }
   function renderDiagnosis() {
     var sec = document.getElementById('storeSec');
     if (!sec) return;
-    var show = DX_ON && isConnected('meta') && dxState.status !== 'idle';
+    var show = DX_ON && PLATFORMS.some(isConnected) && dxState.status !== 'idle';
     sec.hidden = !show;
     if (!show) return;
     var body = document.getElementById('dxBody'), period = document.getElementById('dxPeriod'), copy = document.getElementById('dxCopy');
@@ -760,11 +812,30 @@
     body.setAttribute('aria-busy', 'false');
     var o = dxState.composed = DX.compose(dxState.report);
     period.textContent = o.period;
-    body.innerHTML = '<div class="dx-head ' + esc(o.tone) + '"><p class="dx-headline">' + esc(o.title) + '</p>' +
+    // أكتر من عرض: أزرار «كل المنصات / Meta / Google Ads / Snapchat»
+    var views = dxState.views || [], tabs = '';
+    if (views.length > 1) {
+      tabs = '<div class="dx-views" role="group" aria-label="' + esc(t('dx.view.aria')) + '">' + views.map(function (v) {
+        var on = v.id === dxState.view;
+        return '<button type="button" class="chip' + (on ? ' active' : '') + '" data-dx-view="' + esc(v.id) + '" aria-pressed="' + on + '">' +
+          esc(t(v.id === 'all' ? 'dx.view.all' : 'dx.plat.' + v.id)) + '</button>';
+      }).join('') + '</div>';
+    }
+    // منصة لسه بتتحمّل بعد ما التانية خلصت
+    var pending = DX_PLATFORM_ORDER.filter(function (p) { return dxState.sources && dxState.sources[p] && dxState.sources[p].status === 'loading'; });
+    var more = pending.length ? '<p class="dx-notes">' + esc(t('dx.loadingMore', { platforms: DX.listText(pending.map(function (p) { return t('dx.plat.' + p); })) })) + '</p>' : '';
+    body.innerHTML = tabs + more + '<div class="dx-head ' + esc(o.tone) + '"><p class="dx-headline">' + esc(o.title) + '</p>' +
       '<div class="dx-kpis">' + (o.kpis || []).map(dxKpiHtml).join('') + '</div></div>' +
       '<div class="dx-blocks">' + o.blocks.map(dxBlockHtml).join('') + '</div>' +
       (o.notes || []).map(function (n) { return '<p class="dx-notes">' + esc(n) + '</p>'; }).join('');
   }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-dx-view]');
+    if (!b) return;
+    dxState.view = b.getAttribute('data-dx-view');
+    dxFbOpen = null;
+    dxRecompute();
+  });
   // النسخ: الملخص كله أو بلوك واحد (عشان يتبعت لمسؤول الإعلانات على الواتساب)
   function dxCopyText(text, btn) {
     var done = function (ok) {

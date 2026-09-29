@@ -147,10 +147,31 @@
       setPlatformState('google', null);
       setLoading('google', false, connectedText(payload.pmaxError ? [msg('note.pmaxFailed', { msg: payload.pmaxError })] : []));
       render();
+      loadGoogleDiagnosis(customerId, info, token);
     }).catch(function (err) {
       if (!isCurrentLoad('google', token)) return;
       fail(msg('s.adsFailed', { platform: 'Google Ads', msg: err.message }));
     });
+  }
+
+  // ملخص المتجر (Google Ads): بيبدأ بعد ما الإعلانات تظهر، بنفس فترة التشخيص (أيام مكتملة بتوقيت الحساب).
+  // السيرفر (api/google-diagnosis.js) بيرجّع الأرقام بشكل محرك التشخيص على طول. لم يُختبر على حساب حقيقي بعد
+  function loadGoogleDiagnosis(customerId, info, token) {
+    if (!DX_ON || !window.DX) return;
+    var tz = info.timeZone || BROWSER_TZ, p = dxPeriodFor(tz), ws = DX.windows(p.since, p.until);
+    var key = customerId + '|' + p.since + '|' + p.until;
+    if (!dxBegin('google', key, info.name || customerId, 'google:' + customerId)) return;
+    apiPost('/api/google-diagnosis', {
+      accessToken: googleAccessToken, customerId: customerId, loginCustomerId: info.loginCustomerId,
+      daily: { since: ws[ws.length - 1].since, until: p.until },
+      windows: ws.slice(0, 3).map(function (w) { return { since: w.since, until: w.until }; })
+    }).then(function (res) {
+      if (!isCurrentLoad('google', token)) return;
+      if (isAuthFailure(res)) { markExpired('google'); dxFail('google', key, null); return; }
+      if (!res.ok || !res.data || res.data.error) { dxFail('google', key, res.data); return; }
+      dxDone('google', key, { since: p.since, until: p.until, currency: info.currency || null, timezone: tz,
+        daily: res.data.daily || [], dims: res.data.dims || [] });
+    }).catch(function (err) { dxFail('google', key, err); });
   }
 
   function ggPick(obj, path) {

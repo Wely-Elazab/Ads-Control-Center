@@ -39,9 +39,9 @@ export function last7DaysRange(tz) {
 const PERIOD_MAX_DAYS = 93;
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 // تاريخ حقيقي بالشكل YYYY-MM-DD — «2026-02-31» أو «2026-13-01» مبتتقبلش (كانت بتتبعت للمنصة وترجع خطأ)
-function isDateKey(k) { return typeof k === 'string' && DATE_KEY.test(k) && shiftDateKey(k, 0) === k; }
+export function isDateKey(k) { return typeof k === 'string' && DATE_KEY.test(k) && shiftDateKey(k, 0) === k; }
 
-function daysBetweenKeys(a, b) {
+export function daysBetweenKeys(a, b) {
   const pa = a.split('-').map(Number), pb = b.split('-').map(Number);
   return Math.round((Date.UTC(pb[0], pb[1] - 1, pb[2]) - Date.UTC(pa[0], pa[1] - 1, pa[2])) / 86400000);
 }

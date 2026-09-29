@@ -2276,6 +2276,135 @@
     });
   });
 
+  describe('ملخص المتجر — كل المنصات', function () {
+    var S = '2026-09-21';
+    var src = function (platform, seed, cfg) {
+      return { platform: platform, input: DX_SIM.simulate(Object.assign({ seed: seed, spend: 2000 }, cfg || {})) };
+    };
+    test('النزول في Google بس: التفسير بيحدد «Google Ads» كمكان التغيّر', function () {
+      var hit = 0;
+      for (var s = 1; s <= 8; s++) {
+        var list = [src('meta', s * 104729), src('google', s * 7919, { changes: [{ from: S, stage: 'pay', factor: 0.3 }] })];
+        var r = DX.analyze(DX.combine(list));
+        if (r.why && r.why.scope && r.why.scope.dim === 'platform' && r.why.scope.seg.key === 'google') hit++;
+      }
+      ok(hit >= 6, 'localized to Google ' + hit + '/8');
+    });
+    test('المشتريات وقفت في Snapchat بس: بتظهر في «كل المنصات» باسم المنصة حتى لو الإجمالي فيه مبيعات', function () {
+      var list = [src('meta', 104729), src('snapchat', 7919, { spend: 600, changes: [{ from: '2026-09-26', stage: 'pay', factor: 0 }] })];
+      var reps = list.map(function (x) { return { platform: x.platform, report: DX.analyze(x.input) }; });
+      var r = DX.attachPlatforms(DX.analyze(DX.combine(list)), reps);
+      ok(r.zeroRuns.some(function (z) { return z.platform === 'snapchat' && z.now; }), 'snapchat zero run attached');
+      withLang('ar', function () { ok(DX.toText(DX.compose(r)).indexOf('Snapchat: ') > -1, 'title names the platform'); });
+    });
+    test('الحملات بتتحط جنب بعض بمفتاح فيه المنصة، والدول بتتجمع بالرمز', function () {
+      var list = [src('meta', 11), src('google', 13)];
+      var c = DX.combine(list);
+      var camp = c.dims.filter(function (d) { return d.id === 'campaign'; })[0];
+      ok(camp.segs.some(function (sg) { return sg.key === 'google:c1'; }) && camp.segs.some(function (sg) { return sg.key === 'meta:c1'; }), 'prefixed keys');
+      var sa = c.dims.filter(function (d) { return d.id === 'country'; })[0].segs.filter(function (sg) { return sg.key === 'SA'; })[0];
+      var sum = list.reduce(function (s, x) { return s + x.input.dims[1].segs.filter(function (g) { return g.key === 'SA'; })[0].w[0].spend; }, 0);
+      ok(Math.abs(sa.w[0].spend - sum) < 1e-6, 'countries summed');
+      withLang('ar', function () { eq(DX.segName('campaign', 'google:c1', 'Search'), 'حملة «⁨Search⁩» على Google Ads'); });
+    });
+    test('العروض: «كل المنصات» الأول لو العملة والفترة واحدة، والأزرار بتبدّل العرض', function () {
+      var a = src('meta', 21), b = src('google', 23);
+      DX_ON = true; activeSources.meta = 'act_1'; activeSources.google = '123';
+      try {
+        dxState.sources = { meta: { status: 'ready', key: 'm', input: a.input, report: DX.analyze(a.input), account: 'M', accountId: 'meta:1' },
+          google: { status: 'ready', key: 'g', input: b.input, report: DX.analyze(b.input), account: 'G', accountId: 'google:1' } };
+        dxRecompute();
+        eq(dxState.views.map(function (v) { return v.id; }), ['all', 'meta', 'google']);
+        ok(document.querySelector('#dxBody [data-dx-view="google"]'), 'tabs shown');
+        document.querySelector('#dxBody [data-dx-view="google"]').click();
+        eq([dxState.view, dxState.accountId], ['google', 'google:1']);
+        // عملة مختلفة = مفيش «كل المنصات»
+        b.input.currency = 'USD';
+        dxState.sources.google.input = b.input;
+        dxRecompute();
+        eq(dxState.views.map(function (v) { return v.id; }), ['meta', 'google']);
+      } finally { DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true; }
+    });
+  });
+
+  testAsync('Google — ملخص المتجر (السيرفر): الأرقام اليومية والحملات والدول بشكل محرك التشخيص', function () {
+    var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process;
+    window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
+    var rows = function (results) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve([{ results: results }]); } }); };
+    window.fetch = function (url, opts) {
+      var u = String(url);
+      if (u.indexOf('tokeninfo') > -1) return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ aud: 'cid', scope: 'https://www.googleapis.com/auth/adwords' }); } });
+      var q = JSON.parse(opts.body).query, conv = q.indexOf('conversion_action_category') > -1, date = '2026-09-25';
+      var seg = function (extra) { return Object.assign({ date: date }, extra || {}); };
+      var base = function (extra) { return Object.assign({ segments: seg(extra && extra.segments) }, extra || {}); };
+      if (q.indexOf('campaign.id') > -1) return rows(conv
+        ? [base({ campaign: { id: '11', name: 'Search' }, segments: seg({ conversionActionCategory: 'PURCHASE' }), metrics: { conversions: 4, allConversions: 4, conversionsValue: 400, allConversionsValue: 400 } })]
+        : [base({ campaign: { id: '11', name: 'Search' }, metrics: { costMicros: '80000000', impressions: '900', clicks: '40' } })]);
+      if (q.indexOf('user_location_view') > -1) return rows(conv
+        ? [base({ userLocationView: { countryCriterionId: '2682' }, segments: seg({ conversionActionCategory: 'PURCHASE' }), metrics: { conversions: 4, allConversions: 4, conversionsValue: 400, allConversionsValue: 400 } })]
+        : [base({ userLocationView: { countryCriterionId: '2682' }, metrics: { costMicros: '80000000', impressions: '900', clicks: '40' } })]);
+      if (q.indexOf('segments.device') > -1 || q.indexOf('ad_network_type') > -1) return rows([]);
+      return rows(conv
+        ? [{ segments: seg({ conversionActionCategory: 'PURCHASE' }), metrics: { conversions: 4, allConversions: 5, conversionsValue: 400, allConversionsValue: 500 } },
+          { segments: seg({ conversionActionCategory: 'ADD_TO_CART' }), metrics: { conversions: 0, allConversions: 20 } },
+          { segments: seg({ conversionActionCategory: 'BEGIN_CHECKOUT' }), metrics: { conversions: 0, allConversions: 9 } }]
+        : [{ segments: seg(), metrics: { costMicros: '80000000', impressions: '900', clicks: '40' } }]);
+    };
+    var out = null, code = null;
+    var res = { setHeader: function () {}, status: function (c) { code = c; return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+    var restore = function () { window.fetch = realFetch; if (hadProcess) window.process = prevProcess; else delete window.process; };
+    var ws = DX.windows('2026-09-21', '2026-09-27');
+    return import('/api/google-diagnosis.js').then(function (m) {
+      return m.default({ method: 'POST', headers: {}, body: { accessToken: 'tok-dx', customerId: '1234567890',
+        daily: { since: ws[ws.length - 1].since, until: '2026-09-27' }, windows: ws.slice(0, 3).map(function (w) { return { since: w.since, until: w.until }; }) } }, res);
+    }).then(function () {
+      restore();
+      eq(code, 200);
+      var d = out.daily[0];
+      eq([d.date, d.spend, d.imp, d.clicks, d.pur, d.rev, d.atc, d.ic], ['2026-09-25', 80, 900, 40, 4, 400, 20, 9]);
+      eq(out.purchases, 'primary', 'purchases from the primary conversions');
+      var camp = out.dims.filter(function (x) { return x.id === 'campaign'; })[0].segs[0];
+      eq([camp.key, camp.name, camp.w[0].spend, camp.w[0].pur, camp.w[1]], ['11', 'Search', 80, 4, null]);
+      eq(out.dims.filter(function (x) { return x.id === 'country'; })[0].segs[0].key, 'SA', 'criterion 2682 = Saudi Arabia');
+    }, function (e) { restore(); throw e; });
+  });
+
+  testAsync('Snapchat — ملخص المتجر (السيرفر): المايكرو بيتقسم، والحملات بأسمائها، والدول بالرمز', function () {
+    var realFetch = window.fetch;
+    var json = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
+    var st = { spend: 50000000, impressions: 1000, swipes: 30, conversion_purchases: 3, conversion_purchases_value: 300000000, conversion_add_cart: 9, conversion_start_checkout: 5 };
+    window.fetch = function (url) {
+      var u = String(url);
+      if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'Asia/Riyadh', currency: 'SAR' } }] });
+      if (/\/campaigns\?/.test(u)) return json({ campaigns: [{ campaign: { id: 'c1', name: 'Story ads' } }] });
+      if (/granularity=DAY/.test(u)) {
+        // الأيام بتتطلب على دفعات — اليوم بيرجع بس في الدفعة اللي مداها فيه (زي Snapchat نفسه)
+        var from = decodeURIComponent((u.match(/start_time=([^&]+)/) || [])[1] || '').slice(0, 10);
+        var to = decodeURIComponent((u.match(/end_time=([^&]+)/) || [])[1] || '').slice(0, 10);
+        var inRange = '2026-09-25' >= from && '2026-09-25' < to;
+        return json({ timeseries_stats: [{ timeseries_stat: { timeseries: inRange ? [{ start_time: '2026-09-25T00:00:00.000+03:00', stats: st }] : [] } }] });
+      }
+      if (/breakdown=campaign/.test(u)) return json({ total_stats: [{ total_stat: { breakdown_stats: { campaign: [{ id: 'c1', stats: st }] } } }] });
+      if (/report_dimension=country/.test(u)) return json({ total_stats: [{ total_stat: { dimension_stats: [{ country: 'sa', stats: st }] } }] });
+      return json({});
+    };
+    var out = null, code = null;
+    var res = { setHeader: function () {}, status: function (c) { code = c; return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+    var ws = DX.windows('2026-09-21', '2026-09-27');
+    return import('/api/snapchat-ads-fetch.js').then(function (m) {
+      return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'diagnosis', adAccountId: 'acc1',
+        daily: { since: ws[ws.length - 1].since, until: '2026-09-27' }, windows: ws.slice(0, 3).map(function (w) { return { since: w.since, until: w.until }; }) } }, res);
+    }).then(function () {
+      window.fetch = realFetch;
+      eq(code, 200);
+      var d = out.daily[0];
+      eq([d.date, d.spend, d.clicks, d.pur, d.rev, d.atc, d.ic], ['2026-09-25', 50, 30, 3, 300, 9, 5]);
+      var camp = out.dims.filter(function (x) { return x.id === 'campaign'; })[0].segs[0];
+      eq([camp.key, camp.name, camp.w[0].spend], ['c1', 'Story ads', 50]);
+      eq(out.dims.filter(function (x) { return x.id === 'country'; })[0].segs[0].key, 'SA');
+    }, function (e) { window.fetch = realFetch; throw e; });
+  });
+
   testAsync('ملخص المتجر على بيانات حساب حقيقي (محلي فقط — لو الملف موجود)', function () {
     return new Promise(function (resolve) {
       var x = new XMLHttpRequest();

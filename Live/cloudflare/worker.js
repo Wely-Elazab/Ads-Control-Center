@@ -13,6 +13,7 @@
 
 import googleListAccounts from '../api/google-list-accounts.js';
 import googleAdsFetch from '../api/google-ads-fetch.js';
+import googleDiagnosis from '../api/google-diagnosis.js';
 import snapchatToken from '../api/snapchat-token.js';
 import snapchatAdsFetch from '../api/snapchat-ads-fetch.js';
 import tiktokToken from '../api/tiktok-token.js';
@@ -23,6 +24,7 @@ import tiktokAdsFetch from '../api/tiktok-ads-fetch.js';
 export const HANDLERS = {
   'google-list-accounts': googleListAccounts,
   'google-ads-fetch': googleAdsFetch,
+  'google-diagnosis': googleDiagnosis,
   'snapchat-token': snapchatToken,
   'snapchat-ads-fetch': snapchatAdsFetch,
   'tiktok-token': tiktokToken,
