@@ -243,10 +243,18 @@
     // الإعلانات على دفعتين مستقلتين: الشغّالة (أو اللي عليها ملاحظة) بتظهر أول ما توصل، والمتوقفة في الخلفية.
     // قياس على حساب حقيقي (٢٥ شغّال و٦١٨ متوقف): الشغّالة ~٢ ثانية والأرقام ~٨، والمتوقفة ~٦٦ ثانية
     // (بيانات التصميم عند Meta تقيلة) — قبل كده الشاشة كلها كانت بتستنى المتوقفة دقيقة كاملة.
-    // الإعلانات المتوقفة اللي صرفت في الفترة مش بتستنى الدفعة دي: fillMissing بتجيبها بالرقم مع الأرقام
+    // الإعلانات المتوقفة اللي صرفت في الفترة مش بتستنى الدفعة دي: fillMissing بتجيبها بالرقم مع الأرقام.
+    // ودفعة المتوقفة نفسها مبتبدأش غير لما العميل يطلبها (requestStoppedAds) أو لو الحساب مفيهوش ولا إعلان شغّال
     var liveAdsP = adsPromise(accountId, { effective_status: JSON.stringify(LIVE_STATUSES) }, LIVE_ADS_CAP);
-    var stoppedP = adsPromise(accountId, { effective_status: JSON.stringify(STOPPED_STATUSES) }, PAGE_SAFETY_CAP)
-      .catch(function (e) { return { err: e || { message: 'failed' }, data: [] }; });
+    var stoppedPromise = null;
+    var stoppedP = function () {
+      if (!stoppedPromise) {
+        stoppedPromise = adsPromise(accountId, { effective_status: JSON.stringify(STOPPED_STATUSES) }, PAGE_SAFETY_CAP)
+          .catch(function (e) { return { err: e || { message: 'failed' }, data: [] }; });
+      }
+      return stoppedPromise;
+    };
+    stoppedLoaders.meta = null;
     // لو Meta رفضت فلتر الحالة: طلب واحد لكل الإعلانات (زي الأول)، والمتوقفة جوّاه
     var adsP = liveAdsP.then(function (res) {
       if (!res.err) return res;
@@ -325,7 +333,7 @@
       };
       // مفيش ولا إعلان شغّال: نستنى المتوقفة قبل ما نقول «الحساب مفيهوش إعلانات»
       if (!order.length && !allInOne) {
-        return stoppedP.then(function (s) {
+        return stoppedP().then(function (s) {
           if (!live()) return null;
           stoppedUsed = true;
           if (s.err) stoppedFailed = true; else { s.data.forEach(add); if (s.truncated) adsTruncated = true; }
@@ -393,18 +401,27 @@
         insights: byAdId(daily.data, true), reach: byAdId(reach.data), adsets: adsetStatusMap,
         period: (periodRes && !periodRes.err) ? byAdId(periodRes.data) : null, daily: daily, periodRes: periodRes
       };
-      publish(!needStopped());
+      // المرحلة التالتة: الإعلانات المتوقفة (في الخلفية) — بتنضاف بنفس الأرقام اللي اتحمّلت.
+      // مبتبدأش لوحدها: الزرار في آخر القايمة أو فلتر «متوقف» بينادوها (stoppedLoaders.meta)
+      var stage3Started = false;
+      var stage3 = function () {
+        if (stage3Started || !live() || !needStopped()) return;
+        stage3Started = true;
+        if (stoppedLoaders.meta === stage3) stoppedLoaders.meta = null;
+        publish(false);   // الحالة: «جارٍ تحميل الإعلانات المتوقفة في الخلفية…»
+        stoppedP().then(function (s) {
+          if (!live()) return null;
+          if (s.err) { stoppedFailed = true; return null; }
+          if (s.truncated) adsTruncated = true;
+          var added = s.data.filter(add);
+          return new Promise(function (resolve) { resolveMetaImages(accountId, added, resolve); });
+        }).then(function () { if (live()) publish(true); });
+      };
+      stoppedLoaders.meta = needStopped() ? stage3 : null;
+      publish(true);
       // ملخص المتجر بيبدأ بعد ما الأرقام تظهر (مش قبلها) — عشان طلباته متأخرش الكروت
       loadMetaDiagnosis(accountId, info, live);
-      if (!needStopped()) return null;
-      // المرحلة التالتة: الإعلانات المتوقفة (في الخلفية) — بتنضاف بنفس الأرقام اللي اتحمّلت
-      return stoppedP.then(function (s) {
-        if (!live()) return null;
-        if (s.err) { stoppedFailed = true; return null; }
-        if (s.truncated) adsTruncated = true;
-        var added = s.data.filter(add);
-        return new Promise(function (resolve) { resolveMetaImages(accountId, added, resolve); });
-      }).then(function () { if (live()) publish(true); });
+      if (showStopped) stage3();
     }).catch(function (err) {
       // أي خطأ مش متوقع (بيانات بشكل غريب من Meta مثلاً) — قبل كده مؤشر التحميل كان بيفضل يلف على طول
       if (!live()) return;

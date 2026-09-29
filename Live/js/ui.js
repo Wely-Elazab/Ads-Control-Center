@@ -374,8 +374,15 @@
   }
 
 
+  // الافتراضي: الإعلانات المتوقفة مستخبية (إلا اللي عليها تنبيه عاجل) — لحد ما العميل يطلبها، أو يدوّر بالاسم،
+  // أو يختار فلتر حالة، أو الحساب كله مفيهوش ولا إعلان شغّال
+  function hidesStopped() {
+    return !showStopped && filters.health === 'all' && !filters.text && candidates.some(function (c) { return c.active; });
+  }
   function visibleCandidates() {
+    var hide = hidesStopped();
     return candidates.filter(function (c) {
+      if (hide && !c.active && adAnalysis(c).health !== 'review') return false;
       if (filters.platform !== 'all' && c.platform !== filters.platform) return false;
       if (filters.format !== 'all' && c.format !== filters.format) return false;
       // «متوقف» = كل الإعلانات المتوقفة. الإعلان اللي وقف فجأة وعليه تنبيه عاجل بيظهر كمان تحت «يحتاج مراجعة»
@@ -532,8 +539,17 @@
   var RENDER_STEP = 60;
   var renderLimit = RENDER_STEP, renderSignature = '';
   function moreButton(shown, total) {
-    if (total <= shown) return '';
+    if (total <= shown) return stoppedButton();
     return '<button type="button" class="show-more" data-show-more>' + t('more.show', { n: ar(Math.min(RENDER_STEP, total - shown)) }) + '</button>';
+  }
+  // زرار «عرض الإعلانات المتوقفة» في آخر القايمة (بعد ما كل الظاهر يتعرض) — لو فيه متوقفة مستخبية أو لسه متحمّلتش
+  function stoppedButton() {
+    if (!hidesStopped()) return '';
+    var hidden = candidates.some(function (c) { return !c.active && adAnalysis(c).health !== 'review'; });
+    var pending = Object.keys(stoppedLoaders).some(function (p) { return typeof stoppedLoaders[p] === 'function'; });
+    if (!hidden && !pending) return '';
+    return '<div class="stopped-more"><button type="button" class="show-more" data-show-stopped>' + esc(t('more.stopped')) + '</button>' +
+      '<p class="stopped-note">' + esc(t('more.stoppedNote')) + '</p></div>';
   }
 
   // ---------- حركة الكروت ----------
@@ -585,12 +601,12 @@
       var camps = sortCampaigns(groupCampaigns(visible), filters.sort);
       cardGrid.innerHTML = camps.length
         ? camps.slice(0, renderLimit).map(campaignMarkup).join('') + moreButton(renderLimit, camps.length)
-        : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
+        : (stoppedButton() || '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>');
       galleryCount.textContent = t('gallery.countCampaigns', { n: ar(camps.length), camps: noun(camps.length, 'n.campaign'), m: ar(visible.length), ads: noun(visible.length, 'n.ad') });
     } else {
       cardGrid.innerHTML = visible.length
         ? visible.slice(0, renderLimit).map(cardMarkup).join('') + moreButton(renderLimit, visible.length)
-        : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
+        : (stoppedButton() || '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>');
       galleryCount.textContent = t('gallery.count', { n: ar(visible.length), total: ar(candidates.length), ads: noun(candidates.length, 'n.ad') });
     }
     animateCards(reshuffled);
@@ -906,6 +922,7 @@
     group.addEventListener('click', function (e) {
       var btn = e.target.closest('.chip'); if (!btn) return;
       setFilterChip(group, btn.dataset.value);
+      if (group.dataset.filter === 'health' && btn.dataset.value === 'stopped') loadStoppedAds();
       render();
     });
   });
@@ -917,7 +934,12 @@
   var textFilterTimer = null;
   textFilter.addEventListener('input', function () {
     clearTimeout(textFilterTimer);
-    textFilterTimer = setTimeout(function () { filters.text = textFilter.value; render(); }, 180);
+    textFilterTimer = setTimeout(function () {
+      filters.text = textFilter.value;
+      // البحث بالاسم بيدوّر في المتوقفة كمان — فبتتحمّل لو لسه
+      if (filters.text) loadStoppedAds();
+      render();
+    }, 180);
   });
   sortSelect.addEventListener('change', function () { filters.sort = sortSelect.value; render(); });
 
@@ -1132,6 +1154,7 @@
   // كارت الحملة بيفتح إعلاناتها، وكارت الإعلان بيفتح تفاصيله
   function activateCard(e) {
     if (e.target.closest('[data-show-more]')) { renderLimit += RENDER_STEP; render(); return true; }
+    if (e.target.closest('[data-show-stopped]')) { requestStoppedAds(); return true; }
     var camp = e.target.closest('.campaign-card');
     if (camp) { openCampaign(camp); return true; }
     var card = e.target.closest('.candidate-card');

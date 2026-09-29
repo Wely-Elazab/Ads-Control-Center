@@ -86,6 +86,9 @@
     Object.keys(loadingPlatforms).forEach(function (p) { loadingPlatforms[p] = false; });
     googleAccessToken = null; snapchatAccessToken = null;
     lastUpdatedAt = null;
+    showStopped = false;
+    Object.keys(stoppedLoaders).forEach(function (k) { delete stoppedLoaders[k]; });
+    dxReset();
     I18N.setLang('ar');
   }
 
@@ -1932,24 +1935,52 @@
     }
     function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-    testAsync('Meta: الإعلانات الشغّالة والأرقام بتظهر من غير ما تستنى الإعلانات المتوقفة (بتيجي في الخلفية)', function () {
+    // اقتراح صاحب المنتج: الإعلانات الشغّالة بس افتراضياً، والمتوقفة القديمة مبتتحمّلش غير لما العميل يطلبها
+    testAsync('Meta: الشغّالة والأرقام بتظهر ويخلص التحميل، والمتوقفة مبتتطلبش غير بالزرار', function () {
       var hadFB = 'FB' in window, prevFB = window.FB;
-      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; showStopped = false; };
       var fb = fakeFB({ '/act/ads:ACTIVE': { data: [metaAd('L1', 'ACTIVE')] }, '/act/ads:PAUSED': 'HOLD' });
       window.FB = fb;
+      showStopped = false;
       accountInfo['meta:act_7'] = { timeZone: 'UTC', currency: 'SAR' };
       loadAdsForAccount('act_7');
       return sleep(60).then(function () {
         eq(candidates.map(function (c) { return c.id; }), ['L1'], 'the live ad is on screen');
-        eq(loadingPlatforms.meta, true, 'still loading paused ads in the background');
-        ok(document.getElementById('connectStatus').textContent.indexOf(t('s.metaStoppedLoading')) > -1, 'says paused ads are still coming');
+        eq(loadingPlatforms.meta, false, 'done without the paused ads');
+        eq(fb.held.length, 0, 'paused ads not even requested');
+        ok(document.querySelector('#cardGrid [data-show-stopped]'), 'button at the end of the list');
+        document.querySelector('#cardGrid [data-show-stopped]').click();
+        return sleep(30);
+      }).then(function () {
+        eq(fb.held.length, 1, 'requested after the click');
+        eq(loadingPlatforms.meta, true, 'loading them in the background');
+        ok(document.getElementById('connectStatus').textContent.indexOf(t('s.metaStoppedLoading')) > -1, 'says paused ads are coming');
         fb.held.forEach(function (release) { release({ data: [metaAd('P1', 'PAUSED'), metaAd('P2', 'ADSET_PAUSED')] }); });
         return sleep(60);
       }).then(function () {
-        restore();
         eq(candidates.map(function (c) { return c.id; }).sort(), ['L1', 'P1', 'P2'], 'paused ads added');
         eq(loadingPlatforms.meta, false, 'done');
+        eq(document.querySelectorAll('#cardGrid .candidate-card').length, 3, 'and shown');
+        restore();
       }, function (e) { restore(); throw e; });
+    });
+
+    test('الإعلانات المتوقفة: مستخبية افتراضياً — إلا اللي عليها تنبيه عاجل، ومع البحث أو فلتر «متوقف»', function () {
+      var live = ad('a1', { daily: steady(50), res: steady(2) });
+      var old = ad('p1', { daily: steady(0), res: steady(0), active: false });
+      candidates = [live, old];
+      showStopped = false;
+      render();
+      eq(visibleCandidates().map(function (c) { return c.id; }), ['a1'], 'default');
+      ok(document.querySelector('#cardGrid [data-show-stopped]'), 'button shown');
+      filters.health = 'stopped';
+      eq(visibleCandidates().map(function (c) { return c.id; }), ['p1'], 'stopped filter');
+      filters.health = 'all'; filters.text = 'x';
+      ok(!hidesStopped(), 'searching looks in stopped ads too');
+      filters.text = '';
+      // حساب كله متوقف: مفيش حاجة تستخبى
+      candidates = [old];
+      eq(visibleCandidates().map(function (c) { return c.id; }), ['p1'], 'all-stopped account');
     });
 
     testAsync('Meta: حساب كل إعلاناته متوقفة مبيتقالش عليه «فاضي» قبل ما المتوقفة توصل', function () {
