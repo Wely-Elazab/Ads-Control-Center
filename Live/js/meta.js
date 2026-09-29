@@ -833,10 +833,33 @@
   // طلب يومي واحد (كل الفترات اللي المحرك محتاجها) + ١١ تقسيم × ٣ فترات، ٦ طلبات في نفس الوقت —
   // اتقاس على حساب حقيقي: ~٩ ثواني. أي تقسيم طلبه فشل أو اتقطع بيتشال كله (أحسن من نص صورة)،
   // والمحرك بيشتغل بالباقي. المنطق نفسه كله في js/diagnosis.js
+  // هدف كل حملة (js/diagnosis.js بيحكم بالطلبات على sales وtraffic بس): الهدف من objective الحملة،
+  // و optimization_goal بتاع المجموعة الإعلانية بيغلبه لو واضح إنه مش طلبات من الموقع
+  // (حملة «مبيعات» بتتحسّن على المحادثات = الطلب بيتم في الواتساب ومش بيتسجل هنا)
+  var META_GOAL_BY_OBJECTIVE = {
+    OUTCOME_AWARENESS: 'awareness', BRAND_AWARENESS: 'awareness', REACH: 'awareness', VIDEO_VIEWS: 'awareness', LOCAL_AWARENESS: 'awareness', STORE_VISITS: 'awareness',
+    OUTCOME_ENGAGEMENT: 'engagement', POST_ENGAGEMENT: 'engagement', PAGE_LIKES: 'engagement', EVENT_RESPONSES: 'engagement', OFFER_CLAIMS: 'engagement',
+    MESSAGES: 'messages', OUTCOME_LEADS: 'leads', LEAD_GENERATION: 'leads',
+    OUTCOME_APP_PROMOTION: 'app', APP_INSTALLS: 'app', MOBILE_APP_INSTALLS: 'app', MOBILE_APP_ENGAGEMENT: 'app', CANVAS_APP_INSTALLS: 'app', CANVAS_APP_ENGAGEMENT: 'app',
+    OUTCOME_TRAFFIC: 'traffic', LINK_CLICKS: 'traffic'
+  };
+  var META_GOAL_BY_OPT = {
+    CONVERSATIONS: 'messages', REACH: 'awareness', IMPRESSIONS: 'awareness', AD_RECALL_LIFT: 'awareness', THRUPLAY: 'awareness', TWO_SECOND_CONTINUOUS_VIDEO_VIEWS: 'awareness',
+    POST_ENGAGEMENT: 'engagement', PAGE_LIKES: 'engagement', EVENT_RESPONSES: 'engagement', LEAD_GENERATION: 'leads', QUALITY_LEAD: 'leads', QUALITY_CALL: 'leads', APP_INSTALLS: 'app'
+  };
+  function metaGoal(objective, optGoal) {
+    return META_GOAL_BY_OPT[optGoal] || META_GOAL_BY_OBJECTIVE[objective] || 'sales';
+  }
+  // نفس التصنيف بالظبط كفلتر على التقسيمات (الدول، المواضع، الأعمار...): Meta بتشيل حملات الأهداف التانية
+  // قبل ما ترجّع الأرقام — اتجرّب على حساب حقيقي، والقيم اللي مش موجودة في الحساب مش بتعمل خطأ
+  var DX_JUDGED_FILTER = JSON.stringify([
+    { field: 'campaign.objective', operator: 'NOT_IN', value: Object.keys(META_GOAL_BY_OBJECTIVE).filter(function (k) { return META_GOAL_BY_OBJECTIVE[k] !== 'traffic'; }) },
+    { field: 'adset.optimization_goal', operator: 'NOT_IN', value: Object.keys(META_GOAL_BY_OPT) }
+  ]);
   var DX_DIMS = [
-    { id: 'campaign', p: { level: 'campaign' }, key: 'campaign_id', name: 'campaign_name' },
-    { id: 'adset', p: { level: 'adset' }, key: 'adset_id', name: 'adset_name' },
-    { id: 'ad', p: { level: 'ad' }, key: 'ad_id', name: 'ad_name' },
+    { id: 'campaign', p: { level: 'campaign' }, key: 'campaign_id', name: 'campaign_name', goal: true },
+    { id: 'adset', p: { level: 'adset' }, key: 'adset_id', name: 'adset_name', goal: true },
+    { id: 'ad', p: { level: 'ad' }, key: 'ad_id', name: 'ad_name', goal: true },
     { id: 'country', p: { breakdowns: 'country' }, key: 'country' },
     { id: 'region', p: { breakdowns: 'region' }, key: 'region' },
     { id: 'age', p: { breakdowns: 'age' }, key: 'age' },
@@ -871,8 +894,9 @@
     var results = {}, next = 0;
     var worker = function () {
       if (next >= jobs.length) return Promise.resolve();
-      var job = jobs[next++], params = { time_range: range(ws[job.i]), fields: DX_FIELDS + (job.d.p.level ? ',' + job.d.key + ',' + job.d.name : ''), limit: 500 };
+      var job = jobs[next++], params = { time_range: range(ws[job.i]), fields: DX_FIELDS + (job.d.p.level ? ',' + job.d.key + ',' + job.d.name : '') + (job.d.goal ? ',objective,optimization_goal' : ''), limit: 500 };
       for (var k in job.d.p) params[k] = job.d.p[k];
+      if (!job.d.goal) params.filtering = DX_JUDGED_FILTER;
       return fbPagesPromise('/' + accountId + '/insights', params, FULL_SCAN_CAP).then(function (res) { results[job.d.id + ':' + job.i] = res; }).then(worker);
     };
     var pool = [];
@@ -890,10 +914,12 @@
             var key = Array.isArray(d.key) ? d.key.map(function (k) { return row[k]; }).join('|') : row[d.key];
             if (key == null) return;
             var s = segs[key] = segs[key] || { key: String(key), name: d.name ? (row[d.name] || null) : null, w: [null, null, null] };
+            if (d.goal && !s.goal) s.goal = metaGoal(row.objective, row.optimization_goal);
             s.w[i] = dxBundle(row);
           });
         });
-        if (!broken) dims.push({ id: d.id, segs: Object.keys(segs).map(function (k) { return segs[k]; }) });
+        // التقسيمات (غير الحملات والمجموعات والإعلانات) رجعت من غير حملات الأهداف التانية (DX_JUDGED_FILTER)
+        if (!broken) dims.push({ id: d.id, scope: d.goal ? undefined : 'judged', segs: Object.keys(segs).map(function (k) { return segs[k]; }) });
       });
       return {
         since: since, until: until,

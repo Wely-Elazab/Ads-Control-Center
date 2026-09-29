@@ -27,10 +27,23 @@ const CATEGORY_FIELD = { PURCHASE: 'pur', ADD_TO_CART: 'atc', BEGIN_CHECKOUT: 'i
 function micros(v) { const n = Number(v); return isFinite(n) ? n / 1e6 : 0; }
 function num(v) { const n = Number(v); return isFinite(n) ? n : 0; }
 
-// التقسيمات: from = الجدول، key/name = إزاي نطلّع مفتاح الجزء واسمه من الصف
+// هدف الحملة (js/diagnosis.js بيحكم بالطلبات على sales وtraffic بس): الدفع مقابل الظهور أو المشاهدة = وعي
+// (فيديو يوتيوب أو شبكة إعلانية)، حملات التطبيقات = تطبيق، و«أقصى عدد نقرات» = زيارات.
+// أي حاجة تانية (تحسين للتحويلات، Performance Max، تسوّق، CPC يدوي) = مبيعات زي الأول
+const AWARENESS_BIDDING = { TARGET_CPM: 1, MANUAL_CPM: 1, FIXED_CPM: 1, TARGET_CPV: 1, MANUAL_CPV: 1, FIXED_SHARE_OF_VOICE: 1 };
+export function googleGoal(c) {
+  const ch = c && c.advertisingChannelType, bid = c && c.biddingStrategyType;
+  if (ch === 'MULTI_CHANNEL') return 'app';
+  if (AWARENESS_BIDDING[bid]) return 'awareness';
+  if (bid === 'TARGET_SPEND') return 'traffic';
+  return 'sales';
+}
+
+// التقسيمات: from = الجدول، key/name/goal = إزاي نطلّع مفتاح الجزء واسمه وهدفه من الصف
 const DIMS = [
-  { id: 'campaign', from: 'campaign', select: 'campaign.id, campaign.name',
-    key: function (r) { return r.campaign && r.campaign.id; }, name: function (r) { return r.campaign && r.campaign.name; } },
+  { id: 'campaign', from: 'campaign', select: 'campaign.id, campaign.name, campaign.advertising_channel_type, campaign.bidding_strategy_type',
+    key: function (r) { return r.campaign && r.campaign.id; }, name: function (r) { return r.campaign && r.campaign.name; },
+    goal: function (r) { return googleGoal(r.campaign); } },
   { id: 'gDevice', from: 'customer', select: 'segments.device',
     key: function (r) { return r.segments && r.segments.device; } },
   { id: 'network', from: 'customer', select: 'segments.ad_network_type',
@@ -80,17 +93,17 @@ export default async function handler(req, res) {
       if (r.segments && r.segments.conversionActionCategory === 'PURCHASE') { primary += num(r.metrics && r.metrics.conversions); all += num(r.metrics && r.metrics.allConversions); }
     });
     const usePrimary = primary > 0;
-    const toRows = function (cost, conv, keyFn, nameFn) {
+    const toRows = function (cost, conv, keyFn, nameFn, goalFn) {
       const out = [];
       cost.forEach(function (r) {
         const m = r.metrics || {};
-        out.push({ date: r.segments && r.segments.date, key: keyFn ? keyFn(r) : 'all', name: nameFn ? nameFn(r) : null,
+        out.push({ date: r.segments && r.segments.date, key: keyFn ? keyFn(r) : 'all', name: nameFn ? nameFn(r) : null, goal: goalFn ? goalFn(r) : null,
           spend: micros(m.costMicros), imp: num(m.impressions), clicks: num(m.clicks) });
       });
       conv.forEach(function (r) {
         const m = r.metrics || {}, cat = r.segments && r.segments.conversionActionCategory, f = CATEGORY_FIELD[cat];
         if (!f) return;
-        const row = { date: r.segments && r.segments.date, key: keyFn ? keyFn(r) : 'all', name: nameFn ? nameFn(r) : null };
+        const row = { date: r.segments && r.segments.date, key: keyFn ? keyFn(r) : 'all', name: nameFn ? nameFn(r) : null, goal: goalFn ? goalFn(r) : null };
         if (f === 'pur') {
           row.pur = usePrimary ? num(m.conversions) : num(m.allConversions);
           row.rev = usePrimary ? num(m.conversionsValue) : num(m.allConversionsValue);
@@ -103,7 +116,7 @@ export default async function handler(req, res) {
     DIMS.forEach(function (d, i) {
       const r = dimRes[i];
       if (!Array.isArray(r)) return;
-      dims.push({ id: d.id, segs: dxSegments(toRows(r[0], r[1], d.key, d.name), ranges.windows) });
+      dims.push({ id: d.id, segs: dxSegments(toRows(r[0], r[1], d.key, d.name, d.goal), ranges.windows) });
     });
     res.status(200).json({
       daily: dxDaily(toRows(dailyRes[0], dailyRes[1])),

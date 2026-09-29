@@ -16,6 +16,19 @@ function snapError(data, status) {
   return (data && (data.debug_message || data.display_message || data.error_description || data.error)) || ('HTTP ' + status);
 }
 
+// هدف الحملة لملخص المتجر (js/diagnosis.js بيحكم بالطلبات على sales وtraffic بس). Snapchat عنده نظامين:
+// objective_v2_properties الجديد، وobjective القديم. أي قيمة مش معروفة = مبيعات (زي الأول). لم يُختبر على حساب حقيقي
+const SNAP_GOAL_V2 = { SALES: 'sales', TRAFFIC: 'traffic', AWARENESS_AND_ENGAGEMENT: 'awareness', LEADS: 'leads', APP_PROMOTION: 'app' };
+const SNAP_GOAL = {
+  BRAND_AWARENESS: 'awareness', VIDEO_VIEW: 'awareness', VIDEO_VIEWS: 'awareness', PROMOTE_STORIES: 'awareness', PROMOTE_PLACES: 'awareness',
+  ENGAGEMENT: 'engagement', LEAD_GENERATION: 'leads', APP_INSTALL: 'app', APP_INSTALLS: 'app', APP_CONVERSION: 'app', APP_REENGAGEMENT: 'app',
+  WEB_VIEW: 'traffic', WEB_CONVERSION: 'sales', CATALOG_SALES: 'sales'
+};
+export function snapGoal(c) {
+  const v2 = c && c.objective_v2_properties && c.objective_v2_properties.objective_v2_type;
+  return SNAP_GOAL_V2[v2] || SNAP_GOAL[c && c.objective] || 'sales';
+}
+
 export default async function handler(req, res) {
   if (!guardRequest(req, res)) return;
 
@@ -206,12 +219,14 @@ export default async function handler(req, res) {
           (ts.timeseries || []).forEach(function (p) { if (p && p.start_time) dailyRows.push(row(p.stats, { date: String(p.start_time).slice(0, 10) })); });
         });
       }
-      // أسماء الحملات (فشلها = الحملات بتظهر بأرقامها)
-      const names = {};
+      // أسماء الحملات وأهدافها (فشلها = الحملات بتظهر بأرقامها، وكلها بتتعامل كحملات مبيعات زي الأول)
+      const names = {}, goals = {};
       try {
         const lr = await fetch(accountPath + '/campaigns?limit=1000', { headers: headers });
         const ld = await lr.json().catch(function () { return null; });
-        ((ld && ld.campaigns) || []).forEach(function (c) { if (c && c.campaign) names[c.campaign.id] = c.campaign.name || null; });
+        ((ld && ld.campaigns) || []).forEach(function (c) {
+          if (c && c.campaign) { names[c.campaign.id] = c.campaign.name || null; goals[c.campaign.id] = snapGoal(c.campaign); }
+        });
       } catch (e) { /* مش ضروري */ }
       const dims = [];
       const campaignRows = [], countryRows = [];
@@ -223,7 +238,7 @@ export default async function handler(req, res) {
           (d.total_stats || []).forEach(function (e) {
             const ts = e.total_stat || e;
             ((ts.breakdown_stats && ts.breakdown_stats.campaign) || []).forEach(function (b) {
-              if (b && b.id) campaignRows.push(row(b.stats, { w: i, key: b.id, name: names[b.id] || null }));
+              if (b && b.id) campaignRows.push(row(b.stats, { w: i, key: b.id, name: names[b.id] || null, goal: goals[b.id] || null }));
             });
           });
         } catch (e) { campaignsOk = false; }

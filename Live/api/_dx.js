@@ -34,7 +34,8 @@ export function windowIndex(date, ws) {
   for (let i = 0; i < ws.length; i++) if (date >= ws[i].since && date <= ws[i].until) return i;
   return -1;
 }
-// صفوف { date, key, name, ...أرقام } → أجزاء التقسيم بأرقام كل فترة (اللي برّه الفترات بيتجاهل)
+// صفوف { date, key, name, goal, ...أرقام } → أجزاء التقسيم بأرقام كل فترة (اللي برّه الفترات بيتجاهل).
+// goal = هدف الحملة (sales / traffic / awareness ...) — بيتبعت بس لو المنصة رجّعته
 export function dxSegments(rows, ws) {
   const map = {};
   (rows || []).forEach(function (r) {
@@ -44,6 +45,7 @@ export function dxSegments(rows, ws) {
     const key = String(r.key);
     const s = map[key] = map[key] || { key: key, name: r.name || null, w: [null, null, null] };
     if (!s.name && r.name) s.name = r.name;
+    if (!s.goal && r.goal) s.goal = r.goal;
     s.w[i] = dxAdd(s.w[i] || dxEmpty(), r);
   });
   return Object.keys(map).map(function (k) { return map[k]; });

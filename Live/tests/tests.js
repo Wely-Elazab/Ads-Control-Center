@@ -2196,6 +2196,138 @@
     });
   });
 
+  // حملات الوعي والتفاعل والرسائل مش هدفها الطلبات — اتقاس على حساب حقيقي: حملة وعي كلها على إنستغرام
+  // خلّت «إنستغرام أضعف من فيسبوك» وهو في الحقيقة أقوى، وحملة الوعي نفسها طلعت في «يحتاج قرارك»
+  describe('ملخص المتجر — هدف الحملة', function () {
+    var S = '2026-09-21';
+    var AW = function (goal) {
+      return [{ key: 'c1', name: 'A', country: 'SA', share: 0.35, mult: {} }, { key: 'c2', name: 'B', country: 'SA', share: 0.25, mult: {} },
+        { key: 'c3', name: 'C', country: 'SA', share: 0.1, mult: {} }, { key: 'c4', name: 'KW', country: 'KW', share: 0.1, mult: {} },
+        { key: 'aw', name: 'Brand', country: 'KW', share: 0.2, goal: goal, mult: { ctr: 0.15, cart: 0.3, cpm: 0.4 } }];
+    };
+    var runMany = function (n, cfg) {
+      var out = [];
+      for (var s = 1; s <= n; s++) out.push(DX.analyze(DX_SIM.simulate(Object.assign({ seed: s * 7919, spend: 1500 }, cfg))));
+      return out;
+    };
+    var flagged = function (reps, fn) { return reps.filter(function (r) { return r.segments.some(fn); }).length; };
+    test('حملة وعي (٢٠٪ من الإنفاق) مركّزة في دولة: مش بيتحكم عليها بالطلبات، ولا بتظلم الدولة (٣٠ حساب × نوعين تقسيم)', function () {
+      // من غير معلومة الهدف (زي قبل كده) الغلط بيطلع في كل حساب تقريباً — ده اللي بيأكد إن الاختبار بيقيس حاجة
+      var blind = runMany(30, { campaigns: AW(null) });
+      ok(flagged(blind, function (g) { return g.key === 'aw'; }) >= 27, 'without goals the awareness campaign is (wrongly) flagged');
+      [undefined, 'judged'].forEach(function (scope) {
+        var reps = runMany(30, { campaigns: AW('awareness'), countryScope: scope });
+        eq(reps.reduce(function (s, r) { return s + r.segments.length; }, 0), 0, 'no segments (' + (scope || 'all') + ')');
+        ok(reps.every(function (r) { return r.other && r.other.share > 0.1; }), 'other spend reported');
+      });
+      withLang('ar', function () {
+        var txt = DX.toText(DX.compose(runMany(1, { campaigns: AW('awareness') })[0]));
+        ok(txt.indexOf(t('dx.other.title')) > -1 && txt.indexOf(t('dx.goal.awareness')) > -1, 'note explains it');
+        ok(!/dx\.[a-z]/.test(txt), 'no raw keys');
+      });
+    });
+    test('مشكلة حقيقية جنب حملة الوعي بتتكشف: في الدولة (لو الدول متفلترة) أو في الحملة (لو لأ)', function () {
+      var ch = [{ from: '2026-08-01', campaign: 'c4', stage: 'cart', factor: 0.35 }];
+      var judgedReps = runMany(30, { campaigns: AW('awareness'), countryScope: 'judged', changes: ch });
+      ok(flagged(judgedReps, function (g) { return g.dim === 'country' && g.key === 'KW' && g.kind === 'under' && g.stage && g.stage.id === 'cart'; }) >= 22, 'KW at cart');
+      var allReps = runMany(30, { campaigns: AW('awareness'), changes: ch });
+      ok(flagged(allReps, function (g) { return g.dim === 'campaign' && g.key === 'c4' && g.kind === 'under'; }) >= 22, 'campaign c4');
+      ok(allReps.every(function (r) { return !r.segments.some(function (g) { return g.dim === 'country'; }); }), 'mixed country dim never judged');
+    });
+    test('ميزانية حملة الوعي زادت ٣ أضعاف: «لماذا» بيقول إن الإنفاق انتقل لها — من غير أسباب أداء', function () {
+      var reps = runMany(30, { campaigns: AW('awareness'), changes: [{ from: S, campaign: 'aw', spendFactor: 3 }] });
+      var withWhy = reps.filter(function (r) { return r.why; });
+      var mix = withWhy.filter(function (r) { return r.why.scope && r.why.scope.type === 'mix' && r.why.scope.seg.key === 'aw'; });
+      ok(withWhy.length >= 12 && mix.length >= 0.7 * withWhy.length, 'mix toward awareness ' + mix.length + '/' + withWhy.length);
+      withLang('ar', function () {
+        var b = DX.compose(mix[0]).blocks.filter(function (x) { return x.kind === 'why'; })[0];
+        ok(!b.causes && b.check === t('dx.chk.otherMix', { seg: DX.segName('campaign', 'aw', 'Brand') }), 'budget question, not performance causes');
+        ok(b.after.some(function (l) { return l.indexOf(t('dx.goal.awareness')) > -1; }), 'names the goal');
+      });
+      ok(reps.filter(function (r) { return r.other && r.other.spendShift && r.other.spendShift.dir > 0; }).length >= 25, 'spend increase attributed');
+    });
+    test('حملة هدفها «الزيارات» ومفيش سلة: بتظهر، وأول سبب هو هدف الحملة نفسه', function () {
+      var camps = AW('awareness').slice(0, 4).concat([{ key: 'tr', name: 'Boost', country: 'SA', share: 0.2, goal: 'traffic', mult: { cart: 0.02 } }]);
+      var r = DX.analyze(DX_SIM.simulate({ seed: 7, spend: 1500, campaigns: camps }));
+      var g = r.segments.filter(function (x) { return x.key === 'tr'; })[0];
+      ok(g && g.kind === 'under' && g.goal === 'traffic', 'traffic campaign flagged');
+      withLang('ar', function () {
+        var b = DX.compose(r).blocks.filter(function (x) { return x.fbKey === 'seg:campaign:tr'; })[0];
+        eq(b.causes[0], t('dx.cause.goalTraffic'));
+        eq(b.check, t('dx.chk.goalTraffic', { seg: DX.segName('campaign', 'tr', 'Boost') }));
+      });
+    });
+    test('جزء بياخد أغلب الإنفاق مش بيتقال عليه «متأخر»، والمواضع والأجهزة مفيهاش «فرصة»', function () {
+      var camps = [{ key: 'c1', name: 'Main', country: 'SA', share: 0.85, mult: { pay: 0.4 } }, { key: 'c2', name: 'Small', country: 'KW', share: 0.15, mult: {} }];
+      var inp = DX_SIM.simulate({ seed: 11, spend: 2000, campaigns: camps });
+      var r = DX.analyze(inp);
+      ok(!r.segments.some(function (g) { return g.kind === 'under'; }), 'the 85% segment is not «behind the rest»');
+      ok(r.segments.some(function (g) { return g.kind === 'over' && g.key === 'KW'; }), 'the small one shows as the opportunity');
+      inp.dims[1].id = 'publisher';
+      ok(!DX.analyze(inp).segments.some(function (g) { return g.dim === 'publisher'; }), 'no budget advice on a placement dimension');
+    });
+    test('حملة بصفر طلبات مش بتخلّي حملة عادية تبان «أرخص بكتير من الباقي»', function () {
+      var camps = [{ key: 'c1', name: 'A', country: 'SA', share: 0.25, mult: {} }, { key: 'c2', name: 'B', country: 'SA', share: 0.25, mult: {} },
+        { key: 'z', name: 'Zero', country: 'SA', share: 0.35, mult: { cart: 0 } }, { key: 'c4', name: 'Good', country: 'SA', share: 0.15, mult: { pay: 1.5 } }];
+      var inputs = [];
+      for (var s = 1; s <= 20; s++) inputs.push(DX_SIM.simulate({ seed: s * 7919, spend: 2000, campaigns: camps }));
+      var reps = inputs.map(function (x) { return DX.analyze(x); });
+      ok(flagged(reps, function (g) { return g.key === 'z' && g.kind === 'under'; }) >= 18, 'zero campaign flagged');
+      // من غير التعديل: «Good» (أحسن ١٫٥ مرة بس) قدّام باقي فيه حملة الصفر = أحسن مرتين ونص — كانت هتطلع «فرصة» في أغلب الحسابات
+      var rate = function (x, keys) {
+        var sp = 0, pu = 0;
+        x.dims[0].segs.forEach(function (g) { if (keys.indexOf(g.key) > -1) g.w.forEach(function (w) { if (w) { sp += w.spend; pu += w.pur; } }); });
+        return pu / sp;
+      };
+      ok(inputs.filter(function (x) { return rate(x, ['c4']) / rate(x, ['c1', 'c2', 'z']) >= 2; }).length >= 18, 'the scenario would mislead without the fix');
+      // ومعاه: بتطلع بس لو الأرقام نفسها بيّنتها أحسن من الحملات العادية مرتين فعلاً (صدفة نادرة: ١ من ٢٠٠ في المحاكاة)
+      var wrong = reps.filter(function (r, i) {
+        return r.segments.some(function (g) { return g.key === 'c4' && g.kind === 'over'; }) && rate(inputs[i], ['c4']) / rate(inputs[i], ['c1', 'c2']) < 2;
+      }).length;
+      eq(wrong, 0, 'never called «much cheaper» unless it really is vs the normal campaigns');
+      ok(flagged(reps, function (g) { return g.key === 'c4' && g.kind === 'over'; }) <= 1, 'rare');
+    });
+    test('كل المنصات: أرقام «المنصة» من غير حملات الأهداف التانية، والأهداف بتتنقل مع الحملات', function () {
+      var meta = DX_SIM.simulate({ seed: 21, spend: 1500, campaigns: AW('awareness') }), google = DX_SIM.simulate({ seed: 23, spend: 800 });
+      var c = DX.combine([{ platform: 'meta', input: meta }, { platform: 'google', input: google }]);
+      var plat = c.dims.filter(function (d) { return d.id === 'platform'; })[0];
+      var awW0 = meta.dims[0].segs.filter(function (s) { return s.key === 'aw'; })[0].w[0].spend;
+      var metaW0 = meta.daily.filter(function (d) { return d.date >= '2026-09-21'; }).reduce(function (s, d) { return s + d.spend; }, 0);
+      eq(plat.scope, 'judged');
+      ok(Math.abs(plat.segs[0].w[0].spend - (metaW0 - awW0)) < 0.01, 'meta platform numbers exclude awareness');
+      ok(c.other && Math.abs(c.other.w[0].spend - awW0) < 0.01 && c.other.goals.awareness > 0, 'other passed to the engine');
+      eq(c.dims.filter(function (d) { return d.id === 'campaign'; })[0].segs.filter(function (s) { return s.key === 'meta:aw'; })[0].goal, 'awareness');
+      eq(DX.analyze(c).segments.filter(function (g) { return g.key === 'meta:aw' || g.key === 'meta'; }).length, 0, 'nothing wrongly flagged');
+    });
+  });
+
+  testAsync('Meta — ملخص المتجر: هدف كل حملة، والتقسيمات من غير حملات الأهداف التانية', function () {
+    var real = window.fbPagesPromise, calls = [];
+    var row = function (extra) { return Object.assign({ spend: '10', impressions: '1000', inline_link_clicks: '10', actions: [], action_values: [] }, extra); };
+    window.fbPagesPromise = function (path, params) {
+      calls.push(params);
+      if (params.time_increment) return Promise.resolve({ data: [row({ date_start: '2026-09-25' })] });
+      if (params.level === 'campaign') return Promise.resolve({ data: [
+        row({ campaign_id: '1', campaign_name: 'Brand', objective: 'OUTCOME_AWARENESS', optimization_goal: 'REACH' }),
+        row({ campaign_id: '2', campaign_name: 'WhatsApp', objective: 'OUTCOME_SALES', optimization_goal: 'CONVERSATIONS' }),
+        row({ campaign_id: '3', campaign_name: 'Boost', objective: 'LINK_CLICKS', optimization_goal: 'NONE' }),
+        row({ campaign_id: '4', campaign_name: 'Sales', objective: 'OUTCOME_SALES', optimization_goal: 'Unknown Optimization Goal' })] });
+      return Promise.resolve({ data: [row({ country: 'KW', adset_id: 'a', adset_name: 'x', ad_id: 'd', ad_name: 'y', region: 'r', age: '25-34', gender: 'male',
+        publisher_platform: 'instagram', platform_position: 'feed', device_platform: 'mobile_app', impression_device: 'iphone' })] });
+    };
+    return metaDiagnosisInput('act_1', '2026-09-22', '2026-09-28').then(function (inp) {
+      window.fbPagesPromise = real;
+      eq(inp.dims.filter(function (d) { return d.id === 'campaign'; })[0].segs.map(function (s) { return s.goal; }), ['awareness', 'messages', 'traffic', 'sales']);
+      eq(inp.dims.filter(function (d) { return d.id === 'country'; })[0].scope, 'judged');
+      ok(calls.filter(function (p) { return p.breakdowns; }).every(function (p) { return p.filtering === DX_JUDGED_FILTER; }), 'breakdowns filtered');
+      ok(calls.filter(function (p) { return p.level; }).every(function (p) { return !p.filtering && p.fields.indexOf('objective,optimization_goal') > -1; }), 'levels carry goals, unfiltered');
+      ok(!calls.some(function (p) { return p.time_increment && p.filtering; }), 'daily totals unfiltered (match Ads Manager)');
+      var f = JSON.parse(DX_JUDGED_FILTER);
+      ok(f[0].value.indexOf('OUTCOME_AWARENESS') > -1 && f[0].value.indexOf('OUTCOME_TRAFFIC') < 0 && f[0].value.indexOf('LINK_CLICKS') < 0 && f[0].value.indexOf('OUTCOME_SALES') < 0, 'objective filter');
+      ok(f[1].value.indexOf('CONVERSATIONS') > -1 && f[1].value.indexOf('OFFSITE_CONVERSIONS') < 0, 'messaging ad sets filtered');
+    }, function (e) { window.fbPagesPromise = real; throw e; });
+  });
+
   describe('ملخص المتجر — النص والعرض', function () {
     var scenarios = function () {
       var S = '2026-09-21';
@@ -2331,15 +2463,20 @@
     var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process;
     window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
     var rows = function (results) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve([{ results: results }]); } }); };
+    var campaignQuery = '';
     window.fetch = function (url, opts) {
       var u = String(url);
       if (u.indexOf('tokeninfo') > -1) return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ aud: 'cid', scope: 'https://www.googleapis.com/auth/adwords' }); } });
       var q = JSON.parse(opts.body).query, conv = q.indexOf('conversion_action_category') > -1, date = '2026-09-25';
       var seg = function (extra) { return Object.assign({ date: date }, extra || {}); };
       var base = function (extra) { return Object.assign({ segments: seg(extra && extra.segments) }, extra || {}); };
-      if (q.indexOf('campaign.id') > -1) return rows(conv
-        ? [base({ campaign: { id: '11', name: 'Search' }, segments: seg({ conversionActionCategory: 'PURCHASE' }), metrics: { conversions: 4, allConversions: 4, conversionsValue: 400, allConversionsValue: 400 } })]
-        : [base({ campaign: { id: '11', name: 'Search' }, metrics: { costMicros: '80000000', impressions: '900', clicks: '40' } })]);
+      if (q.indexOf('campaign.id') > -1) {
+        campaignQuery = q;
+        var cp = { id: '11', name: 'Search', advertisingChannelType: 'SEARCH', biddingStrategyType: 'TARGET_SPEND' };
+        return rows(conv
+          ? [base({ campaign: cp, segments: seg({ conversionActionCategory: 'PURCHASE' }), metrics: { conversions: 4, allConversions: 4, conversionsValue: 400, allConversionsValue: 400 } })]
+          : [base({ campaign: cp, metrics: { costMicros: '80000000', impressions: '900', clicks: '40' } })]);
+      }
       if (q.indexOf('user_location_view') > -1) return rows(conv
         ? [base({ userLocationView: { countryCriterionId: '2682' }, segments: seg({ conversionActionCategory: 'PURCHASE' }), metrics: { conversions: 4, allConversions: 4, conversionsValue: 400, allConversionsValue: 400 } })]
         : [base({ userLocationView: { countryCriterionId: '2682' }, metrics: { costMicros: '80000000', impressions: '900', clicks: '40' } })]);
@@ -2365,8 +2502,18 @@
       eq(out.purchases, 'primary', 'purchases from the primary conversions');
       var camp = out.dims.filter(function (x) { return x.id === 'campaign'; })[0].segs[0];
       eq([camp.key, camp.name, camp.w[0].spend, camp.w[0].pur, camp.w[1]], ['11', 'Search', 80, 4, null]);
+      // هدف الحملة من طريقة المزايدة: «أقصى عدد نقرات» = زيارات
+      ok(campaignQuery.indexOf('campaign.bidding_strategy_type') > -1 && campaignQuery.indexOf('campaign.advertising_channel_type') > -1, 'goal fields requested');
+      eq(camp.goal, 'traffic');
       eq(out.dims.filter(function (x) { return x.id === 'country'; })[0].segs[0].key, 'SA', 'criterion 2682 = Saudi Arabia');
-    }, function (e) { restore(); throw e; });
+      return import('/api/google-diagnosis.js');
+    }).then(function (m) {
+      var g = m.googleGoal;
+      eq([g({ advertisingChannelType: 'VIDEO', biddingStrategyType: 'TARGET_CPV' }), g({ advertisingChannelType: 'DISPLAY', biddingStrategyType: 'MANUAL_CPM' }),
+        g({ advertisingChannelType: 'MULTI_CHANNEL', biddingStrategyType: 'TARGET_CPA' }), g({ advertisingChannelType: 'VIDEO', biddingStrategyType: 'MAXIMIZE_CONVERSIONS' }),
+        g({ advertisingChannelType: 'PERFORMANCE_MAX', biddingStrategyType: 'MAXIMIZE_CONVERSION_VALUE' }), g({ advertisingChannelType: 'SEARCH', biddingStrategyType: 'MANUAL_CPC' }), g(null)],
+        ['awareness', 'awareness', 'app', 'sales', 'sales', 'sales', 'sales']);
+    }).then(null, function (e) { restore(); throw e; });
   });
 
   testAsync('Snapchat — ملخص المتجر (السيرفر): المايكرو بيتقسم، والحملات بأسمائها، والدول بالرمز', function () {
@@ -2376,7 +2523,7 @@
     window.fetch = function (url) {
       var u = String(url);
       if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'Asia/Riyadh', currency: 'SAR' } }] });
-      if (/\/campaigns\?/.test(u)) return json({ campaigns: [{ campaign: { id: 'c1', name: 'Story ads' } }] });
+      if (/\/campaigns\?/.test(u)) return json({ campaigns: [{ campaign: { id: 'c1', name: 'Story ads', objective: 'BRAND_AWARENESS' } }] });
       if (/granularity=DAY/.test(u)) {
         // الأيام بتتطلب على دفعات — اليوم بيرجع بس في الدفعة اللي مداها فيه (زي Snapchat نفسه)
         var from = decodeURIComponent((u.match(/start_time=([^&]+)/) || [])[1] || '').slice(0, 10);
@@ -2400,9 +2547,16 @@
       var d = out.daily[0];
       eq([d.date, d.spend, d.clicks, d.pur, d.rev, d.atc, d.ic], ['2026-09-25', 50, 30, 3, 300, 9, 5]);
       var camp = out.dims.filter(function (x) { return x.id === 'campaign'; })[0].segs[0];
-      eq([camp.key, camp.name, camp.w[0].spend], ['c1', 'Story ads', 50]);
+      eq([camp.key, camp.name, camp.w[0].spend, camp.goal], ['c1', 'Story ads', 50, 'awareness']);
       eq(out.dims.filter(function (x) { return x.id === 'country'; })[0].segs[0].key, 'SA');
-    }, function (e) { window.fetch = realFetch; throw e; });
+      return import('/api/snapchat-ads-fetch.js');
+    }).then(function (m) {
+      // النظام الجديد (objective_v2) بيغلب القديم، وأي قيمة مش معروفة = مبيعات
+      var g = m.snapGoal;
+      eq([g({ objective: 'WEB_CONVERSION' }), g({ objective: 'VIDEO_VIEW' }), g({ objective: 'WEB_CONVERSION', objective_v2_properties: { objective_v2_type: 'AWARENESS_AND_ENGAGEMENT' } }),
+        g({ objective_v2_properties: { objective_v2_type: 'TRAFFIC' } }), g({ objective: 'SOMETHING_NEW' }), g(null)],
+        ['sales', 'awareness', 'awareness', 'traffic', 'sales', 'sales']);
+    }).then(null, function (e) { window.fetch = realFetch; throw e; });
   });
 
   testAsync('ملخص المتجر على بيانات حساب حقيقي (محلي فقط — لو الملف موجود)', function () {
@@ -2429,6 +2583,30 @@
       // تقسيمات Meta اللي مفيهاش مشتريات (المنطقة) أو فيها جهاز واحد تقريباً اتشالت
       var dim = function (id) { return r.dims.filter(function (d) { return d.id === id; })[0]; };
       eq([dim('region').cover.pur, dim('impDevice').informative], [false, false]);
+    });
+  });
+
+  testAsync('ملخص المتجر على حساب حقيقي فيه حملة وعي ومنشور مروَّج (محلي فقط — لو الملف موجود)', function () {
+    return new Promise(function (resolve) {
+      var x = new XMLHttpRequest();
+      x.open('GET', '/tests/private/dx-real-kw.json');
+      x.onload = function () { resolve(x.status === 200 ? x.responseText : null); };
+      x.onerror = function () { resolve(null); };
+      x.send();
+    }).then(function (txt) {
+      if (!txt) return;
+      var fx = JSON.parse(txt), F = ['spend', 'imp', 'clicks', 'atc', 'ic', 'pur', 'rev'];
+      var obj = function (a) { if (!a) return null; var o = {}; F.forEach(function (f, i) { o[f] = a[i]; }); return o; };
+      var r = DX.analyze({ since: fx.since, until: fx.until, currency: fx.currency, timezone: fx.timezone,
+        daily: fx.daily.map(function (d) { var o = obj(d.slice(1)); o.date = d[0]; return o; }),
+        dims: fx.dims.map(function (d) { return { id: d.id, scope: d.scope, segs: d.segs.map(function (s) { return { key: s.k, name: s.n, goal: s.g, w: s.w.map(obj) }; }) }; }) });
+      // قبل التعديل: «إنستغرام» (بسبب حملة الوعي) وحملة الوعي نفسها ومجموعتها في «يحتاج قرارك» — كلهم غلط.
+      // دلوقتي: المنشور المروَّج بس (٦٢٩ $ من غير أي طلب ولا إضافة للسلة)، وبسبب «هدف الزيارات»
+      eq(r.segments.map(function (g) { return [g.kind, g.dim, g.key, g.goal]; }), [['under', 'campaign', 'c6', 'traffic']]);
+      eq(r.segments[0].stage.id, 'cart');
+      ok(r.other && Math.abs(r.other.share - 0.179) < 0.01 && r.other.goals.awareness > 0, 'awareness share noted');
+      eq(r.head.type, 'scaled');
+      withLang('ar', function () { ok(DX.compose(r).blocks.some(function (b) { return b.title === t('dx.other.title'); }), 'note block'); });
     });
   });
 

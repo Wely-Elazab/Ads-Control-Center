@@ -358,15 +358,49 @@ var DX = (function () {
   var DIM_ORDER = ['platform', 'country', 'campaign', 'placement', 'publisher', 'network', 'impDevice', 'device', 'gDevice', 'age', 'gender', 'region', 'adset', 'ad'];
   var SKIP_KEYS = { unknown: 1, '': 1 };
 
+  // ---------- هدف الحملة: مش كل حملة غرضها الطلبات ----------
+  // حملة وعي أو تفاعل أو رسائل بتجيب طلبات قليلة بطبيعتها — الحكم عليها بعدد الطلبات غلط، وكمان بتشوّه مقارنة
+  // الأجزاء. اتقاس على حساب حقيقي: حملة وعي كلها على إنستغرام نزّلت معدل النقر فيه لـ ٠٫٥٦٪ بدل ١٫٤٣٪،
+  // فطلع «إنستغرام أضعف من فيسبوك» وهو في الحقيقة أقوى.
+  // الأهداف (seg.goal في تقسيمات الحملات): sales وtraffic بيتحكم عليهم بالطلبات؛ awareness وengagement
+  // وmessages وleads وapp لأ. جزء من غير هدف = sales (زي الأول بالظبط).
+  // تقسيم scope: 'judged' = المنصة شالت منه حملات الأهداف التانية قبل ما ترجّعه (Meta بتعمل كده) —
+  // بيتقارن بإجمالي الحساب من غيرها (Wj)، مش بالإجمالي كله
+  var JUDGED_GOALS = { sales: 1, traffic: 1 };
+  var OTHER_MIX = 0.03;   // لو حملات الأهداف التانية ≥ ٣٪ من الإنفاق: التقسيم اللي أرقامه مخلوطة بيها مبيتحكمش عليه
+  var OTHER_NOTE = 0.05;  // ملاحظة لصاحب المتجر لو ≥ ٥٪ من إنفاق الفترة الحالية
+  function judged(goal) { return !goal || !!JUDGED_GOALS[goal]; }
+  // أرقام حملات الأهداف التانية في كل فترة، من أدق تقسيم فيه أهداف (المجموعات الإعلانية ← الحملات ← الإعلانات)
+  // + إنفاق كل هدف في الفترة الحالية. null = مفيش معلومات أهداف خالص
+  function otherOf(dims) {
+    var src = null;
+    ['adset', 'campaign', 'ad'].some(function (id) { src = dims.filter(function (d) { return d.id === id && d.goals; })[0]; return !!src; });
+    if (!src) return null;
+    var n = src.segs.length ? src.segs[0].w.length : 0, w = [], goals = {};
+    for (var i = 0; i < n; i++) w.push(bundle());
+    src.segs.forEach(function (s) {
+      if (judged(s.goal)) return;
+      s.w.forEach(function (b, i) { if (b && i < n) addTo(w[i], b); });
+      if (s.w[0] && s.w[0].spend > 0) goals[s.goal] = (goals[s.goal] || 0) + s.w[0].spend;
+    });
+    return { w: w, goals: goals };
+  }
+  // التقسيم بالحملات (أو المجموعات أو الإعلانات) من غير حملات الأهداف التانية — ده اللي بيتحكم عليه
+  function judgedView(dim, Wj) {
+    return coverDim({ id: dim.id, kind: dim.kind, scope: 'judged', goals: true, segs: dim.segs.filter(function (s) { return judged(s.goal); }) }, Wj);
+  }
+
   // التقسيم ينفع للحقل ده؟ مجموع التقسيمات لازم يطابق إجمالي الحساب (±١٠٪) في كل فترة فيها أرقام كفاية
   function dimCovers(dim, W, field) {
-    var n = Math.min(dim.segs.length ? dim.segs[0].w.length : 0, W.length), any = false;
+    // الأجزاء المجهولة («unknown») مش بتتحلل بس بتدخل في المطابقة — هي جزء من الإجمالي فعلاً
+    var segs = dim.coverSegs || dim.segs;
+    var n = Math.min(segs.length ? segs[0].w.length : 0, W.length), any = false;
     for (var i = 0; i < n; i++) {
       var tot = W[i][field];
       if (!(tot >= 5)) continue;
       any = true;
       var s = 0;
-      dim.segs.forEach(function (sg) { s += (sg.w[i] && sg.w[i][field]) || 0; });
+      segs.forEach(function (sg) { s += (sg.w[i] && sg.w[i][field]) || 0; });
       if (s < 0.9 * tot || s > 1.1 * tot) return false;
     }
     return any;
@@ -380,15 +414,19 @@ var DX = (function () {
     });
     return tot > 0 && top / tot < 0.95 && dim.segs.length >= 2;
   }
-  function prepareDims(dims, W) {
+  // الأجزاء بس (المطابقة بعدين بـ coverDim — لأن التقسيم «judged» محتاج إجمالي الحساب من غير الأهداف التانية الأول)
+  function prepareDims(dims) {
     return (dims || []).filter(function (d) { return d && d.segs && d.segs.length; }).map(function (d) {
-      var segs = d.segs.filter(function (s) { return !SKIP_KEYS[String(s.key).toLowerCase()]; })
-        .map(function (s) { return { key: s.key, name: s.name, w: (s.w || []).map(bundle) }; });
-      var dim = { id: d.id, kind: DIM_KIND[d.id] || 'ads', segs: segs };
-      dim.cover = { pur: dimCovers(d, W, 'pur'), atc: dimCovers(d, W, 'atc'), ic: dimCovers(d, W, 'ic'), clicks: dimCovers(d, W, 'clicks'), imp: dimCovers(d, W, 'imp'), spend: dimCovers(d, W, 'spend') };
-      dim.informative = dimInformative(dim);
-      return dim;
+      var all = d.segs.map(function (s) { return { key: s.key, name: s.name, goal: s.goal || null, w: (s.w || []).map(bundle) }; });
+      var segs = all.filter(function (s) { return !SKIP_KEYS[String(s.key).toLowerCase()]; });
+      return { id: d.id, kind: DIM_KIND[d.id] || 'ads', segs: segs, coverSegs: all, scope: d.scope === 'judged' ? 'judged' : 'all',
+        goals: segs.some(function (s) { return !!s.goal; }) };
     });
+  }
+  function coverDim(dim, W) {
+    dim.cover = { pur: dimCovers(dim, W, 'pur'), atc: dimCovers(dim, W, 'atc'), ic: dimCovers(dim, W, 'ic'), clicks: dimCovers(dim, W, 'clicks'), imp: dimCovers(dim, W, 'imp'), spend: dimCovers(dim, W, 'spend') };
+    dim.informative = dimInformative(dim);
+    return dim;
   }
   function dimRank(id) { var i = DIM_ORDER.indexOf(id); return i < 0 ? 99 : i; }
 
@@ -419,7 +457,7 @@ var DX = (function () {
     var numTot = rows.reduce(function (s, x) { return s + x.num; }, 0);
     rows.forEach(function (x) { x.w = numTot !== 0 ? x.num / numTot : 0; });
     var material = rows.filter(function (x) { return x.shareA >= 0.05 || x.shareB >= 0.05; });
-    var seg = function (x) { return { key: x.s.key, name: x.s.name, share: x.w, z: x.z, from: x.A[e] > 0 ? x.A[k] / x.A[e] : null, to: x.B[e] > 0 ? x.B[k] / x.B[e] : null, expShare: x.shareB }; };
+    var seg = function (x) { return { key: x.s.key, name: x.s.name, goal: x.s.goal || null, share: x.w, z: x.z, from: x.A[e] > 0 ? x.A[k] / x.A[e] : null, to: x.B[e] > 0 ? x.B[k] / x.B[e] : null, expShare: x.shareB }; };
 
     // مزيج: نص التغيّر أو أكتر جه من انتقال الميزانية (مش من أداء الأجزاء نفسها)
     if (Math.abs(mix) >= 0.5 * Math.abs(total) && Math.abs(mix) >= Math.log(1.1)) {
@@ -454,6 +492,10 @@ var DX = (function () {
   // كل التقسيمات: أوضح «محصور» يكسب، وإلا «مزيج»، وإلا «عام» (من الحملات لو ممكن — أسماؤها مفهومة للعميل)
   function locateChange(dims, k, e) {
     var res = dims.map(function (d) { return localize(d, k, e); }).filter(Boolean);
+    // الميزانية راحت لحملة وعي (أو جت منها) = ده التفسير، حتى لو تقسيم تاني شايف حاجة «محصورة»:
+    // التقسيمات التانية ممكن تكون متفلترة من غير حملات الأهداف التانية، فمش شايفة الانتقال ده أصلاً
+    var otherMix = res.filter(function (r) { return r.type === 'mix' && r.seg && !judged(r.seg.goal); })[0];
+    if (otherMix) return otherMix;
     var local = res.filter(function (r) { return r.type === 'local'; }).sort(function (x, y) { return (y.score - x.score) || (dimRank(x.dim) - dimRank(y.dim)); });
     if (local.length) return local[0];
     var mix = res.filter(function (r) { return r.type === 'mix'; }).sort(function (x, y) { return dimRank(x.dim) - dimRank(y.dim); });
@@ -467,6 +509,13 @@ var DX = (function () {
   // ---------- أجزاء أداؤها مختلف بوضوح عن باقي الحساب (مشكلة مستمرة أو فرصة) ----------
   // بنجمع آخر ٣ فترات (الإشارة بتقوى)، وبنقيس كل فترة لوحدها عشان نعرف إذا كانت المشكلة مستمرة.
   function sumWins(s, idx) { var t = bundle(); idx.forEach(function (i) { addTo(t, s.w[i]); }); return t; }
+  // جزء بياخد أكتر من ٧٠٪ من الإنفاق مش بيتقارن بـ«باقي الحساب» كمتأخر: الباقي أقلية صغيرة مختلفة بطبيعتها،
+  // و«قلّل الإنفاق عليه» معناها توقّف الحساب تقريباً (حساب حقيقي: إنستغرام ٩٣٪ من الإنفاق مقابل فيسبوك ٦٪)
+  var UNDER_MAX_SHARE = 0.7;
+  // التقسيمات اللي المنصة بتوزّع عليها الإعلانات لوحدها (المواضع، الأجهزة، الشبكات): «أرخص» فيها مش فرصة
+  // تتنقل لها ميزانية — المنصة بتديها الحجم اللي يناسب تكلفتها الحدّية. المتأخر فيها بس اللي بيتقال
+  // (زي Audience Network اللي بيجيب نقرات من غير سلة)
+  var NO_OVER_DIMS = { publisher: 1, placement: 1, device: 1, impDevice: 1, gDevice: 1, network: 1 };
   function segmentGaps(dims, W, stages, idx) {
     var T = bundle(); idx.forEach(function (i) { addTo(T, W[i]); });
     var out = [];
@@ -486,8 +535,8 @@ var DX = (function () {
         // والدليل القاطع ممكن ييجي من الطلبات أو من مرحلة واحدة أعدادها أكبر (الإضافة للسلة مثلاً) —
         // جزء فيه ٦ طلبات بدل ٢٣ متوقعة، و٢٦ إضافة للسلة بدل ١٣٠، واضح بالمرحلة أكتر من الطلبات
         var kind = null;
-        if (test.z <= -2 && ratio <= 0.5) kind = 'under';
-        else if (test.z >= Z_SEG && ratio >= 2 && curShare <= 0.6) kind = 'over';
+        if (test.z <= -2 && ratio <= 0.5 && Math.max(share, curShare) <= UNDER_MAX_SHARE) kind = 'under';
+        else if (test.z >= Z_SEG && ratio >= 2 && curShare <= 0.6 && !NO_OVER_DIMS[dim.id]) kind = 'over';
         if (!kind) return;
         var dirSign = kind === 'under' ? -1 : 1;
         // كل فترة لوحدها: الحالية لازم تأكد (وإلا المشكلة «كانت» مش «موجودة»)، واللي قبلها بتحدد الاستمرار
@@ -517,15 +566,29 @@ var DX = (function () {
         if (kind === 'under' && strength < Z_SEG) return;
         var S0 = s.w[idx[0]], R0 = minus(W[idx[0]], S0);
         out.push({
-          kind: kind, dim: dim.id, dimKind: dim.kind, key: s.key, name: s.name, z: kind === 'under' ? -strength : test.z,
+          kind: kind, dim: dim.id, dimKind: dim.kind, key: s.key, name: s.name, goal: s.goal || null, z: kind === 'under' ? -strength : test.z,
           conf: (kind === 'under' ? strength : test.z) >= Z_SEG_STRONG ? 'high' : 'medium', ratio: ratio,
           spend: S.spend, pur: S.pur, expected: expected, restCpa: restCpa, cpa: cpaOf(S),
           since: W[idx[idx.length - 1]].since, persistent: persistent, stage: stage,
           curSpend: S0.spend, curPur: S0.pur,
-          curExcess: R0.pur > 0 ? Math.max(0, S0.spend - S0.pur * (R0.spend / R0.pur)) : null
+          curExcess: R0.pur > 0 ? Math.max(0, S0.spend - S0.pur * (R0.spend / R0.pur)) : null,
+          _S: S
         });
       });
     });
+    // ثبات المقارنة: الجزء لازم يفضل «أحسن/أسوأ بكتير» حتى لو شلنا من «باقي الحساب» الأجزاء اللي في الاتجاه
+    // العكسي في نفس التقسيم. حملة بصفر طلبات بتخلّي أي حملة عادية تبان «أرخص بكتير من الباقي»
+    // (حساب حقيقي: ٥٫٥ مقابل ١١ بالمنشور المروَّج، و٥٫٥ مقابل ٨٫٩ من غيره). الأرقام المعروضة بتفضل زي ما هي
+    out = out.filter(function (f) {
+      var opp = out.filter(function (g) { return g.dim === f.dim && g.kind !== f.kind; });
+      if (!opp.length) return true;
+      var R = minus(T, f._S);
+      opp.forEach(function (g) { R = minus(R, g._S); });
+      if (!(R.spend > 0 && R.pur >= 10)) return false;
+      var tt = rateTest(R.pur, R.spend, f._S.pur, f._S.spend, PHI_SAMPLING), ratio = (f._S.pur / f._S.spend) / (R.pur / R.spend);
+      return f.kind === 'under' ? (tt.z <= -2 && ratio <= 0.5) : (tt.z >= Z_SEG && ratio >= 2);
+    });
+    out.forEach(function (f) { delete f._S; });
     // نفس المشكلة من تقسيمين (دولة الكويت = حملات الكويت): إنفاق وطلبات متقاربين → واحدة بس، بالتقسيم الأوضح
     out.sort(function (x, y) { return (dimRank(x.dim) - dimRank(y.dim)) || (Math.abs(y.z) - Math.abs(x.z)); });
     var kept = [];
@@ -566,7 +629,7 @@ var DX = (function () {
         var test = rateTest(A.pur, A.spend, B.pur, B.spend, Math.max(PHI_SAMPLING, phiD));
         var cpaA = cpaOf(A), cpaB = cpaOf(B);
         if (!(test.z <= -Z_CHANGE && (cpaB == null || cpaB / cpaA >= 1.4))) return;
-        out.push({ dim: dim.id, dimKind: dim.kind, key: s.key, name: s.name, share: B.spend / totB, z: test.z,
+        out.push({ dim: dim.id, dimKind: dim.kind, key: s.key, name: s.name, goal: s.goal || null, share: B.spend / totB, z: test.z,
           cpaFrom: cpaA, cpaTo: cpaB, purFrom: A.pur, purTo: B.pur, conf: -test.z >= Z_SEG_STRONG ? 'high' : 'medium',
           why: B.pur > 0 ? explainEfficiency(stages, tr, A, B) : null });
       });
@@ -719,7 +782,8 @@ var DX = (function () {
   }
 
   // ---------- المتابعة: اللي اتقال في الفترة اللي فاتت، اتحل؟ (من غير تخزين: بنعيد الحساب على الفترة السابقة) ----------
-  function followUps(daily, W, dims, stages, tr, phi) {
+  // W = الحساب كله (أيام بلا مبيعات)، Wj = من غير حملات الأهداف التانية (مشاكل الأجزاء، زي segmentGaps بالظبط)
+  function followUps(daily, W, Wj, dims, stages, tr, phi) {
     var out = [];
     if (W.length >= 3) {
       zeroRuns(daily, W[1], baseRates(W, 2), tr, phi).forEach(function (r) {
@@ -728,9 +792,9 @@ var DX = (function () {
     }
     if (dims.length && dims[0].segs.length && dims[0].segs[0].w.length >= 3) {
       // مشاكل الأجزاء في الفترة السابقة (بنفس القواعد، على الفترتين اللي قبل الحالية)
-      var prevGaps = segmentGapsOn(dims, W, stages, [1, 2]);
+      var prevGaps = segmentGapsOn(dims, Wj, stages, [1, 2]);
       prevGaps.filter(function (g) { return g.kind === 'under'; }).forEach(function (g) {
-        var s = findSeg(dims, g.dim, g.key), now = s && s.w[0], rest = now && minus(W[0], now);
+        var s = findSeg(dims, g.dim, g.key), now = s && s.w[0], rest = now && minus(Wj[0], now);
         if (!now) return;
         var status;
         if (now.spend < 0.2 * (s.w[1].spend || 0)) status = 'stopped';
@@ -767,15 +831,25 @@ var DX = (function () {
         addTo(tt, d);
       });
     });
-    var dims = [{ id: 'platform', segs: sources.map(function (s) {
-      var days = norm(s.input.daily);
-      return { key: s.platform, name: null, w: ws.map(function (w) { return sumDays(days, w); }) };
+    // حملات الأهداف التانية (وعي، تفاعل...) في كل منصة: بتتشال من أرقام «المنصة» عشان مقارنة المنصات
+    // تبقى على حملات الطلبات بس، ومجموعها بيروح للمحرك (other) عشان يقارن بإجمالي من غيرها
+    var others = sources.map(function (s) { return otherOf(prepareDims(s.input.dims)); });
+    var otherW = null, otherGoals = {};
+    others.forEach(function (o) {
+      if (!o) return;
+      otherW = otherW || ws.map(function () { return bundle(); });
+      o.w.forEach(function (b, i) { if (i < otherW.length) addTo(otherW[i], b); });
+      Object.keys(o.goals).forEach(function (g) { otherGoals[g] = (otherGoals[g] || 0) + o.goals[g]; });
+    });
+    var dims = [{ id: 'platform', scope: otherW ? 'judged' : 'all', segs: sources.map(function (s, si) {
+      var days = norm(s.input.daily), o = others[si];
+      return { key: s.platform, name: null, w: ws.map(function (w, i) { var b = sumDays(days, w); return o && o.w[i] ? minus(b, o.w[i]) : b; }) };
     }) }];
     var dimOf = function (input, id) { return (input.dims || []).filter(function (d) { return d && d.id === id; })[0]; };
     if (sources.every(function (s) { return dimOf(s.input, 'campaign'); })) {
       var camps = [];
       sources.forEach(function (s) {
-        dimOf(s.input, 'campaign').segs.forEach(function (sg) { camps.push({ key: s.platform + ':' + sg.key, name: sg.name || null, w: sg.w }); });
+        dimOf(s.input, 'campaign').segs.forEach(function (sg) { camps.push({ key: s.platform + ':' + sg.key, name: sg.name || null, goal: sg.goal || null, w: sg.w }); });
       });
       dims.push({ id: 'campaign', segs: camps });
     }
@@ -788,10 +862,17 @@ var DX = (function () {
           (sg.w || []).forEach(function (b, i) { if (b && i < 3) c.w[i] = addTo(c.w[i] || bundle(), b); });
         });
       });
-      dims.push({ id: 'country', segs: Object.keys(byKey).map(function (k) { return byKey[k]; }) });
+      // الدول المدموجة «من غير الأهداف التانية» بس لو كل منصة فيها حملات أهداف تانية رجّعت دولها متفلترة
+      var clean = sources.every(function (s, si) {
+        var o = others[si];
+        return dimOf(s.input, 'country').scope === 'judged' || !o || !o.w.some(function (b) { return b.spend > 0; });
+      });
+      dims.push({ id: 'country', scope: otherW && clean ? 'judged' : 'all', segs: Object.keys(byKey).map(function (k) { return byKey[k]; }) });
     }
-    return { since: first.since, until: first.until, currency: first.currency, timezone: first.timezone,
+    var out = { since: first.since, until: first.until, currency: first.currency, timezone: first.timezone,
       daily: Object.keys(byDate).sort().map(function (k) { return byDate[k]; }), dims: dims };
+    if (otherW) out.other = { w: otherW, goals: otherGoals };
+    return out;
   }
   // اللي خاص بمنصة واحدة وبيضيع في الدمج: توقف تسجيل مشتريات منصة (المنصات التانية بتبيع عادي فالإجمالي
   // مش صفر)، ومشاكل تقسيماتها اللي مش في الدمج (المواضع، الأعمار، الأجهزة، الشبكات). بيتضافوا للتقرير المدموج
@@ -836,8 +917,44 @@ var DX = (function () {
     phiH = Math.max(phiH, phiD);
     report.phiHist = phiH; report.phiDaily = phiD;
     report.head = headline(prev, cur, cur.len, phiD, phiH, W);
-    var dims = prepareDims(input.dims, W);
-    report.dims = dims.map(function (d) { return { id: d.id, informative: d.informative, cover: d.cover }; });
+    var dims = prepareDims(input.dims);
+    // حملات الأهداف التانية (وعي، تفاعل، رسائل...): أرقامها في كل فترة، و Wj = إجمالي الحساب من غيرها.
+    // العنوان والأرقام الإجمالية و«لماذا» على الحساب كله (زي ما صاحب المتجر شايفه في المنصة)،
+    // لكن الحكم على الأجزاء («يحتاج قرارك» والفرص والتغيّرات الحادة) على حملات الطلبات بس
+    var oth = input.other && Array.isArray(input.other.w) ? { w: input.other.w.map(bundle), goals: input.other.goals || {} } : otherOf(dims);
+    var Wj = W.map(function (w, i) {
+      var o = oth && oth.w[i];
+      if (!o || !(o.spend > 0)) return w;
+      var j = minus(w, o); j.since = w.since; j.until = w.until; j.len = w.len;
+      return j;
+    });
+    dims.forEach(function (d) { coverDim(d, d.scope === 'judged' ? Wj : W); });
+    report.dims = dims.map(function (d) { return { id: d.id, scope: d.scope, informative: d.informative, cover: d.cover }; });
+    var idx = dims.length && dims[0].segs.length && dims[0].segs[0].w.length >= 3 ? [0, 1, 2] : [0, 1];
+    var oSpend = 0, tSpend = 0;
+    idx.forEach(function (i) { oSpend += (oth && oth.w[i] && oth.w[i].spend) || 0; tSpend += W[i].spend || 0; });
+    var otherShare = tSpend > 0 ? oSpend / tSpend : 0;
+    // اللي بيتحكم عليه: الحملات من غير الأهداف التانية، والتقسيمات المتفلترة منها، والتقسيمات المخلوطة
+    // بس لو الأهداف التانية أقل من ٣٪ (تأثيرها مهمَل)
+    var gapDims = [];
+    dims.forEach(function (d) {
+      if (d.goals) gapDims.push(judgedView(d, Wj));
+      else if (d.scope === 'judged' || otherShare < OTHER_MIX) gapDims.push(d);
+    });
+    var o0 = (oth && oth.w[0] && oth.w[0].spend) || 0, o1 = (oth && oth.w[1] && oth.w[1].spend) || 0;
+    if (o0 > 0 || o1 > 0) {
+      var campDim = dims.filter(function (d) { return d.id === 'campaign' && d.goals; })[0];
+      report.other = { spend: o0, pur: oth.w[0] ? oth.w[0].pur : 0, share: cur.spend > 0 ? o0 / cur.spend : 0, shareAll: otherShare, goals: oth.goals,
+        campaigns: campDim ? campDim.segs.filter(function (s) { return !judged(s.goal) && s.w[0] && s.w[0].spend > 0; })
+          .sort(function (x, y) { return y.w[0].spend - x.w[0].spend; })
+          .map(function (s) { return { key: s.key, name: s.name, goal: s.goal, spend: s.w[0].spend, pur: s.w[0].pur }; }) : [] };
+      // الإنفاق اتغيّر كتير، ونصّ التغيير أو أكتر كان في حملات الأهداف التانية (زاد عليها أو اتقص منها) —
+      // ده بيفسّر ليه الطلبات ما اتحركتش بنفس نسبة الإنفاق
+      var dO = o0 - o1, dT = cur.spend - prev.spend;
+      if (Math.abs(dT) >= SPEND_MOVE * prev.spend && sign(dO) === sign(dT) && Math.abs(dO) >= 0.5 * Math.abs(dT)) {
+        report.other.spendShift = { dir: sign(dT), share: Math.min(1, dO / dT) };
+      }
+    }
 
     // لماذا — بس لو تكلفة الطلب اتغيّرت فعلاً
     if (report.head.dEff !== 0) {
@@ -855,8 +972,7 @@ var DX = (function () {
       }
       report.why = why;
     }
-    var idx = dims.length && dims[0].segs.length && dims[0].segs[0].w.length >= 3 ? [0, 1, 2] : [0, 1];
-    report.segments = dims.length ? segmentGaps(dims, W, stages, idx) : [];
+    report.segments = gapDims.length ? segmentGaps(gapDims, Wj, stages, idx) : [];
     // تغيّرات حادة في حملة/دولة كبيرة — من غير تكرار اللي اتقال في «لماذا» أو «يحتاج قرارك»
     var said = function (dimId, key) {
       var sc = report.why && report.why.scope;
@@ -865,7 +981,7 @@ var DX = (function () {
         return (s.dim === dimId && s.key === key) || (s.alsoAs || []).some(function (x) { return x.dim === dimId && x.key === key; });
       });
     };
-    report.changes = segmentChanges(dims, stages, tr, phiD).filter(function (c) { return !said(c.dim, c.key); }).slice(0, 2);
+    report.changes = segmentChanges(gapDims, stages, tr, phiD).filter(function (c) { return !said(c.dim, c.key); }).slice(0, 2);
     report.zeroRuns = zeroRuns(daily, W[0], baseRates(W, 1), tr, phiD);
     // المشكلة اللي لسه قايمة وظاهرة أصلاً في «يحتاج قرارك» مش بتتكرر في المتابعة
     var shown = function (f) {
@@ -873,7 +989,7 @@ var DX = (function () {
         return (s.dim === f.dim && s.key === f.key) || (s.alsoAs || []).some(function (x) { return x.dim === f.dim && x.key === f.key; });
       });
     };
-    report.followUps = followUps(daily, W, dims, stages, tr, phiD).filter(function (f) { return !(f.type === 'segment' && f.status === 'ongoing' && shown(f)); });
+    report.followUps = followUps(daily, W, Wj, gapDims, stages, tr, phiD).filter(function (f) { return !(f.type === 'segment' && f.status === 'ongoing' && shown(f)); });
     report.opportunity = scaleOpportunity(W, phiH);
     report.context = contextOf(W, countriesOf(dims, input.timezone));
     report.owner = ownerContext(input.feedback, W);
@@ -1124,6 +1240,8 @@ var DX = (function () {
       else spendFact();
     } else if (h.dSpend !== 0 && (h.type === 'fewer' || h.type === 'moreOrders')) spendFact();
     if (h.type === 'spendUpFlat') lines.push(t('dx.vol.spendUpFlat', { pct: pctText(h.spendPct) }));
+    var shift = r.other && r.other.spendShift;
+    if (shift && h.dSpend !== 0) lines.push(t(shift.dir > 0 ? 'dx.vol.otherUp' : 'dx.vol.otherDown', { pct: pctText(shift.share) }));
     // تكلفة الطلب اتحركت كتير بس في حدود تذبذب الحساب: نقول الرقم، ومن غير سبب
     if (!w && h.effUncertain && !byBudget) {
       lines.push(t('dx.eff.uncertain', { from: M(cpaOf(r.prev)), to: M(cpaOf(r.cur)) }));
@@ -1157,13 +1275,16 @@ var DX = (function () {
         after.push(t('dx.scope.local', { share: pctText(Math.min(1, sc.seg.share)), seg: ctx.seg }));
       } else if (sc && sc.type === 'mix') {
         ctx = ctxOf(sc.dim, sc.seg.key, sc.seg.name); kind = sc.kind;
-        after.push(t('dx.scope.mix.' + (sc.toward ? 'to' : 'away') + (sc.segBetter ? 'Good' : 'Bad'), { seg: ctx.seg }));
+        if (!judged(sc.seg.goal)) after.push(t('dx.scope.mix.other.' + (sc.toward ? 'to' : 'away'), { seg: ctx.seg, goal: t('dx.goal.' + sc.seg.goal) }));
+        else after.push(t('dx.scope.mix.' + (sc.toward ? 'to' : 'away') + (sc.segBetter ? 'Good' : 'Bad'), { seg: ctx.seg }));
       }
       // الأسباب المعتادة: أدق مرحلة اتحددت، وإلا المجموعة، وإلا أي مرحلة
       var d0 = w.drivers.length === 1 ? w.drivers[0] : null;
       var stage = d0 ? ((d0.stages && d0.stages.length === 1) ? d0.stages[0].id : d0.id) : 'any';
       ctx.stage = stage;
-      applyPlaybook(blk, stage, kind, w.dir, ctx);
+      // الميزانية راحت لحملة وعي (أو جت منها): ده قرار ميزانية مش مشكلة أداء — مفيش «أسباب معتادة» (تعب الجمهور...)
+      if (sc && sc.type === 'mix' && !judged(sc.seg.goal)) { blk.check = t('dx.chk.otherMix', { seg: ctx.seg }); blk.owner = 'ads'; }
+      else applyPlaybook(blk, stage, kind, w.dir, ctx);
       // هل ده غير معتاد؟ وترتيبه بين الفترات
       after.push(t(h.unusual ? 'dx.hist.unusual' : 'dx.hist.normal'));
       blk.conf = Math.abs(h.effZ) >= 3 && h.unusual ? 'high' : 'medium';
@@ -1200,6 +1321,12 @@ var DX = (function () {
       fbKey: (s.platform ? s.platform + ':' : '') + 'seg:' + s.dim + ':' + s.key };
     ctx.stage = s.stage ? s.stage.id : 'any';
     applyPlaybook(blk, ctx.stage, s.dimKind, 'worse', ctx);
+    // حملة هدفها «الزيارات»: المنصة بتدوّر على اللي بيضغط مش اللي بيشتري — ده أول سبب يتقال
+    if (s.goal === 'traffic') {
+      blk.causes = [causeText('goalTraffic', ctx)].concat(blk.causes || []).slice(0, 3);
+      blk.check = checkText('goalTraffic', ctx);
+      blk.owner = 'ads';
+    }
     return blk;
   }
   // تغيّر حاد في حملة/دولة كبيرة: الرقم، وحجمها من الإنفاق، ومكان التغيّر جوّاها (لو اتحدد)، والأسباب المعتادة
@@ -1217,13 +1344,15 @@ var DX = (function () {
     }
     var after = [];
     if (r.head && (r.head.type === 'stable' || r.head.type === 'withinNoise')) after.push(t('dx.chg.hidden'));
-    var blk = { kind: 'watch', title: title, lines: lines, bullets: bullets, after: after, conf: c.conf, fbKey: 'chg:' + c.dim + ':' + c.key };
+    var blk = { kind: 'watch', title: capFirst(title), lines: lines, bullets: bullets, after: after, conf: c.conf, fbKey: 'chg:' + c.dim + ':' + c.key };
     ctx.stage = stage;
     applyPlaybook(blk, stage, c.dimKind, 'worse', ctx);
     return blk;
   }
-  // عطل أو مشكلة خاصة بمنصة واحدة في عرض «كل المنصات»: اسم المنصة قبل العنوان («Snapchat: ...»)
-  function onPlat(platform, title) { return platform ? t('dx.onPlat', { plat: t('dx.plat.' + platform), text: title }) : title; }
+  // عطل أو مشكلة خاصة بمنصة واحدة في عرض «كل المنصات»: اسم المنصة قبل العنوان («Snapchat: ...»).
+  // بالإنجليزي العنوان اللي بيبدأ باسم جزء («campaign “X”: ...») بيبدأ بحرف كبير
+  function onPlat(platform, title) { return platform ? t('dx.onPlat', { plat: t('dx.plat.' + platform), text: title }) : capFirst(title); }
+  function capFirst(s) { return isAr() || !s ? s : s.charAt(0).toUpperCase() + s.slice(1); }
   function zeroBlock(z) {
     var days = z.days === 1 ? fmtKey(z.start) : fmtRange(z.start, z.end);
     return {
@@ -1245,6 +1374,20 @@ var DX = (function () {
     var name = segName(s.dim, s.key, s.name);
     return { kind: 'opportunity', title: t('dx.over.title', { seg: name }), conf: s.conf, owner: 'ads', fbKey: 'over:' + s.dim + ':' + s.key,
       lines: [t('dx.over.body', { seg: name, cpa: M(s.cpa), rest: M(s.restCpa) })], next: t('dx.over.check', { seg: name }) };
+  }
+  // حملات مش هدفها الطلبات (وعي، تفاعل، رسائل...): بنقول إنها موجودة وإننا مش بنحكم عليها بالطلبات —
+  // عشان صاحب المتجر يفهم ليه مش ظاهرة في «يحتاج قرارك» رغم إن طلباتها قليلة
+  function otherBlock(r, M) {
+    var o = r.other;
+    if (!o || !(o.share >= OTHER_NOTE)) return null;
+    var goals = Object.keys(o.goals || {}).sort(function (x, y) { return o.goals[y] - o.goals[x]; });
+    var gl = listText(goals.map(function (g) { return t('dx.goal.' + g); }));
+    var names = o.campaigns.slice(0, 3).map(function (c) { return segName('campaign', c.key, c.name); });
+    var list = o.campaigns.length > 3 ? t('dx.other.more', { list: listText(names) }) : listText(names);
+    var vars = { list: list, goals: gl, spend: money(o.spend, r.currency), share: pctText(o.share) };
+    var lines = [t(names.length ? 'dx.other.body' : 'dx.other.bodyNoNames', vars), t('dx.other.how')];
+    if (o.goals && o.goals.messages) lines.push(t('dx.other.messages'));
+    return { kind: 'note', title: t('dx.other.title'), lines: lines };
   }
   function followBlock(r) {
     var lines = [];
@@ -1280,8 +1423,12 @@ var DX = (function () {
     if (why) o.blocks.push(why);
     else if (calm) {
       o.blocks.push({ kind: 'note', title: t('dx.head.' + h.type),
-        lines: [h.dSpend !== 0 ? t('dx.stable.spend', { pct: pctText(h.spendPct) }) : t('dx.stable')].concat(ownerLines(r)) });
+        lines: [h.dSpend !== 0 ? t('dx.stable.spend', { pct: pctText(h.spendPct) }) : t('dx.stable')]
+          .concat(h.dSpend !== 0 && r.other && r.other.spendShift ? [t(r.other.spendShift.dir > 0 ? 'dx.vol.otherUp' : 'dx.vol.otherDown', { pct: pctText(r.other.spendShift.share) })] : [])
+          .concat(ownerLines(r)) });
     }
+    var oth = otherBlock(r, M);
+    if (oth) o.blocks.push(oth);
     r.segments.filter(function (s) { return s.kind === 'under'; }).slice(0, 3).forEach(function (s) { o.blocks.push(segBlock(s, M)); });
     (r.changes || []).forEach(function (c) { o.blocks.push(changeBlock(c, r, M)); });
     r.zeroRuns.filter(function (z) { return !z.now; }).forEach(function (z) { o.blocks.push(zeroBlock(z)); });

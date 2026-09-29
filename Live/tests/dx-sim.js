@@ -40,8 +40,9 @@
   function jitter(r, cv) { return Math.exp(cv * normal(r) - cv * cv / 2); }
   function addKey(date, n) { var p = date.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2] + n)).toISOString().slice(0, 10); }
 
-  // opts: { seed, until, days, spend (يومي), campaigns: [{ key, name, country, share, mult: { ctr, cart, checkout, pay } }],
-  //         base: { cpm, ctr, cart, checkout, pay, aov }, dayCv, spendCv, changes: [{ from (تاريخ), campaign أو country أو '*', stage, factor, spendFactor }] }
+  // opts: { seed, until, days, spend (يومي), campaigns: [{ key, name, country, share, goal, mult: { ctr, cart, checkout, pay, cpm } }],
+  //         base: { cpm, ctr, cart, checkout, pay, aov }, dayCv, spendCv, changes: [{ from (تاريخ), campaign أو country أو '*', stage, factor, spendFactor }],
+  //         countryScope: 'judged' (الدول من غير حملات الأهداف التانية — زي Meta) أو من غير (الدول بكل الحملات — زي Snapchat) }
   function simulate(opts) {
     var r = rng(opts.seed || 1);
     var base = Object.assign({ cpm: 30, ctr: 0.01, cart: 0.25, checkout: 0.6, pay: 0.45, aov: 350 }, opts.base || {});
@@ -86,23 +87,27 @@
     var since = opts.since || addKey(until, -6);
     var ws = DX.windows(since, until).slice(0, 3);
     var inW = function (x, w) { return x.date >= w.since && x.date <= w.until; };
-    var dimOf = function (keyFn, nameFn) {
+    var dimOf = function (keyFn, nameFn, onlyJudged) {
       var segs = {};
       rows.forEach(function (x) {
+        if (onlyJudged && x.camp.goal && x.camp.goal !== 'sales' && x.camp.goal !== 'traffic') return;
         var k = keyFn(x);
-        var s = segs[k] = segs[k] || { key: k, name: nameFn ? nameFn(x) : null, rows: [] };
+        var s = segs[k] = segs[k] || { key: k, name: nameFn ? nameFn(x) : null, goal: nameFn ? (x.camp.goal || null) : null, rows: [] };
         s.rows.push(x);
       });
       return Object.keys(segs).map(function (k) {
-        var s = segs[k];
-        return { key: s.key, name: s.name, w: ws.map(function (w) { var list = s.rows.filter(function (x) { return inW(x, w); }); return list.length ? sum(list) : null; }) };
+        var s = segs[k], o = { key: s.key, name: s.name, w: ws.map(function (w) { var list = s.rows.filter(function (x) { return inW(x, w); }); return list.length ? sum(list) : null; }) };
+        if (s.goal) o.goal = s.goal;
+        return o;
       });
     };
+    var country = { id: 'country', segs: dimOf(function (x) { return x.camp.country; }, null, opts.countryScope === 'judged') };
+    if (opts.countryScope === 'judged') country.scope = 'judged';
     return {
       since: since, until: until, currency: 'SAR', timezone: 'Asia/Riyadh', daily: daily,
       dims: [
         { id: 'campaign', segs: dimOf(function (x) { return x.camp.key; }, function (x) { return x.camp.name; }) },
-        { id: 'country', segs: dimOf(function (x) { return x.camp.country; }) }
+        country
       ]
     };
   }
