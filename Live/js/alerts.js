@@ -461,6 +461,8 @@
       var acctAlreadyFlagged = alerts.length > 0;
       if (spendY === 0 && acctAlreadyFlagged) {
         // مفيش تنبيه تاني
+      } else if (spendY === 0 && !acc.activeCount) {
+        // مفيش ولا إعلان شغّال: صاحب الحساب وقّف كل حاجة بنفسه (نهاية حملة، إجازة) — ده مش عطل
       } else if (spendY === 0) {
         alerts.push(makeIssue('critical', ['account'], t('al.acctZero.t'),
           t('al.acctZero.d', { acc: accName, avg: money(prevAvg) }), t('al.acctZero.a'), 0, 'acct-zero'));

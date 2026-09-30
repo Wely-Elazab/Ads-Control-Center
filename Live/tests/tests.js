@@ -478,6 +478,13 @@
       var waste = alerts.filter(function (x) { return x.title === t('al.waste.t'); }).map(function (x) { return x.adId; });
       eq(waste, ['w2', 'w1'], 'bigger ad first');
     });
+    test('الحساب مصرفش أمس: عاجل لو فيه إعلانات شغّالة، ولا حاجة لو صاحبه وقّفها كلها بنفسه', function () {
+      var running = [ad('r1', { daily: [100, 100, 100, 100, 100, 0, 0], res: [2, 2, 2, 2, 2, 0, 0] }), ad('r2', { daily: [100, 100, 100, 100, 100, 0, 0], res: [2, 2, 2, 2, 2, 0, 0] })];
+      ok(engine(running).alerts.some(function (a) { return a.code === 'acct-zero' && a.level === 'critical'; }), 'active ads, no spend');
+      var paused = [ad('p1', { daily: [100, 100, 100, 100, 100, 0, 0], res: [2, 2, 2, 2, 2, 0, 0], active: false, pausedLevel: 'campaign' }),
+        ad('p2', { daily: [100, 100, 100, 100, 100, 0, 0], res: [2, 2, 2, 2, 2, 0, 0], active: false, pausedLevel: 'ad' })];
+      ok(!engine(paused).alerts.some(function (a) { return !a.adId && (a.level === 'critical' || a.level === 'warning'); }), 'owner paused everything');
+    });
     test('مشكلة الحساب = تنبيه واحد للحساب مش لكل إعلان', function () {
       var ads = baseAccount().concat([
         ad('a1', { daily: [100, 100, 100, 100, 100, 100, 0], active: false, pausedLevel: 'account' }),
