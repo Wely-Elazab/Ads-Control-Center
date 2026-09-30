@@ -313,10 +313,14 @@
       }
 
       // 6) تكلفة النتيجة أعلى من متوسط الحساب (على مدار الأسبوع)
+      //    بشرط إن الفرق صعب يكون صدفة: إعلان جاب نتيجتين بس ممكن تكلفته تطلع ضعف المتوسط بالحظ.
+      //    المتوقع بمتوسط الحساب = صرفه ÷ المتوسط — «مهم» لو احتمال إن نتائجه تطلع بالقلة دي صدفة أقل من ١٠٪،
+      //    و«عاجل» أقل من ١٪ (حالة حقيقية: ٣ إعلانات بنتيجتين لكل واحد كانت بتطلع «عاجل» واحتمال الصدفة ١٠–٢٢٪)
       if (avgCpr && c.results >= 2 && c.cpr != null) {
         var ratio = c.cpr / avgCpr;
-        if (ratio >= s.cprWarnMultiple) {
-          var critical = ratio >= s.cprCriticalMultiple;
+        var cprChance = poissonAtMost(c.results, c.spend / avgCpr);
+        if (ratio >= s.cprWarnMultiple && cprChance < 0.1) {
+          var critical = ratio >= s.cprCriticalMultiple && cprChance < 0.01;
           var oldNote = age != null && age >= s.oldAdDays ? t('al.cpr.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '';
           issues.push(makeIssue(critical ? 'critical' : 'warning', ['cpr'], t('al.cpr.t', { label: label, one1: one }),
             t('al.cpr.d', { one: one, name: name, cpr: money(c.cpr), old: oldNote, pct: fmt.int((ratio - 1) * 100), avg: money(avgCpr) }),
@@ -362,7 +366,8 @@
     if (c.frequency != null) {
       var isOld = age != null && age >= s.oldAdDays;
       if (c.frequency >= s.frequencyHigh || (isOld && c.frequency >= s.frequencyWarn)) {
-        var hurting = avgCpr && c.cpr != null && c.cpr >= avgCpr * s.cprWarnMultiple;
+        // الزهق «بيضر» (عاجل) بس لو غلو التكلفة مش صدفة — نفس شرط قاعدة التكلفة فوق
+        var hurting = avgCpr && c.cpr != null && c.cpr >= avgCpr * s.cprWarnMultiple && poissonAtMost(c.results, c.spend / avgCpr) < 0.01;
         issues.push(makeIssue(hurting ? 'critical' : 'warning', ['frequency'], t('al.fatigue.t'),
           t('al.fatigue.d', { name: name, f: fmt.num(c.frequency), times: global.I18N ? global.I18N.measureNoun(c.frequency, 'n.time') : 'times', old: isOld ? t('al.fatigue.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '' }),
           t('al.fatigue.a'), 0, 'fatigue'));

@@ -406,6 +406,15 @@
       var lumpy = ad('lw', { daily: steady(10), res: [2, 1, 2, 1, 0, 0, 1] });
       ok(!issuesOf(engine(baseAccount().concat([lumpy])), 'lw').some(function (i) { return /^waste/.test(i.code || ''); }));
     });
+    test('تكلفة النتيجة العالية: نتيجتين بس = مفيش حكم، وفرق واضح بعدد كافٍ = عاجل (حالة حقيقية)', function () {
+      // ٣ إعلانات في حساب حقيقي: ~٣٠–٣٧ في الأسبوع ونتيجتين لكل واحد، والمتوسط ~٧ — كانت بتطلع «عاجل»
+      var few = ad('few', { daily: [7, 5.97, 3.78, 4.45, 4.72, 7.56, 3.71], res: [0, 1, 0, 0, 0, 1, 0] });
+      var cheap = [ad('c1', { daily: steady(20), res: steady(3) }), ad('c2', { daily: steady(20), res: steady(3) })];
+      ok(!issuesOf(engine(cheap.concat([few])), 'few').some(function (i) { return i.code === 'cpr'; }), 'two purchases prove nothing');
+      var many = ad('many', { daily: steady(100), res: [1, 1, 2, 1, 1, 2, 2] });
+      var i = issuesOf(engine(baseAccount().concat([many])), 'many').filter(function (x) { return x.code === 'cpr'; })[0];
+      ok(i && i.level === 'critical', 'ten purchases at ~2.7x the average');
+    });
     test('فرصة زيادة الاستثمار على آخر ٣ أيام مش يوم واحد', function () {
       var oneDay = ad('od', { daily: steady(100), res: [5, 5, 5, 0, 0, 12, 3] });
       ok(!issuesOf(engine(baseAccount().concat([oneDay])), 'od').some(function (i) { return i.code === 'scale'; }), 'one great day');
