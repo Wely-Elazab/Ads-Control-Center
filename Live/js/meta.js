@@ -886,8 +886,9 @@
     return { spend: num(row.spend), imp: num(row.impressions), clicks: num(row.inline_link_clicks),
       atc: dxFirst(row.actions, DX_ATC), ic: dxFirst(row.actions, DX_IC), pur: dxFirst(row.actions, DX_PUR), rev: dxFirst(row.action_values, DX_PUR) };
   }
-  function metaDiagnosisInput(accountId, since, until) {
-    var ws = DX.windows(since, until);
+  // consecutive: الفترة السابقة مباشرةً (الملخص التلقائي بالبريد) بدل نفس أيام الأسبوع اللي قبله
+  function metaDiagnosisInput(accountId, since, until, consecutive) {
+    var ws = DX.windows(since, until, !!consecutive);
     var range = function (w) { return JSON.stringify({ since: w.since, until: w.until }); };
     var dailyP = fbPagesPromise('/' + accountId + '/insights', {
       time_range: JSON.stringify({ since: ws[ws.length - 1].since, until: until }), time_increment: 1,
@@ -926,10 +927,43 @@
         if (!broken) dims.push({ id: d.id, scope: d.goal ? undefined : 'judged', segs: Object.keys(segs).map(function (k) { return segs[k]; }) });
       });
       return {
-        since: since, until: until,
+        since: since, until: until, consecutive: !!consecutive,
         daily: daily.data.map(function (row) { var b = dxBundle(row); b.date = row.date_start; return b; }),
         dims: dims
       };
+    });
+  }
+  // ---------- سجل التعديلات وأرقام العناصر المعدَّلة (الملخص التلقائي بالبريد: DX.actionGroups / DX.evalActions) ----------
+  // ads_read بتكفي. الصفحات بنفس شكل باقي الطلبات (cursors.after) — اتجرّب على حساب حقيقي: ٦٧٨ حدث في ٢١ يوم
+  var META_ACTIVITY_FIELDS = 'event_type,event_time,object_id,object_name,object_type,extra_data,actor_name';
+  function metaActivities(accountId, sinceKey) {
+    // يوم زيادة قبل البداية عشان فرق التوقيت (الأوقات في السجل UTC) — التصنيف بيتم بتوقيت الحساب بعدها
+    var since = Math.floor(Date.parse(sinceKey + 'T00:00:00Z') / 1000) - 86400;
+    return fbPagesPromise('/' + accountId + '/activities', { fields: META_ACTIVITY_FIELDS, since: since, limit: 500 }, FULL_SCAN_CAP);
+  }
+  var META_LEVEL_KEY = { campaign: 'campaign_id', adset: 'adset_id', ad: 'ad_id' };
+  // أرقام العناصر اللي في المجموعات بس (فلتر بالرقم) يوم بيوم: { رقم العنصر: [{ date, spend, pur, rev, ... }] }
+  function metaObjectDaily(accountId, groups, since, until) {
+    var ids = { campaign: {}, adset: {}, ad: {} };
+    (groups || []).forEach(function (g) { g.ids.forEach(function (id) { if (ids[g.level]) ids[g.level][id] = true; }); });
+    var jobs = Object.keys(ids).filter(function (l) { return Object.keys(ids[l]).length; }).map(function (level) {
+      return fbPagesPromise('/' + accountId + '/insights', {
+        level: level, time_increment: 1, time_range: JSON.stringify({ since: since, until: until }),
+        fields: 'date_start,' + META_LEVEL_KEY[level] + ',' + DX_FIELDS,
+        filtering: JSON.stringify([{ field: level + '.id', operator: 'IN', value: Object.keys(ids[level]) }]), limit: 500
+      }, FULL_SCAN_CAP).then(function (res) { return { key: META_LEVEL_KEY[level], res: res }; });
+    });
+    return Promise.all(jobs).then(function (all) {
+      var out = {};
+      all.forEach(function (j) {
+        if (j.res.err) throw j.res.err;
+        j.res.data.forEach(function (row) {
+          var b = dxBundle(row), id = String(row[j.key]);
+          b.date = row.date_start;
+          (out[id] = out[id] || []).push(b);
+        });
+      });
+      return out;
     });
   }
   // بيتنادى بعد ما أرقام الإعلانات تظهر. نفس الحساب ونفس الفترة = مفيش تحميل تاني

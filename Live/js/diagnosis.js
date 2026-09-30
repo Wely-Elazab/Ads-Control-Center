@@ -140,12 +140,14 @@ var DX = (function () {
   // الفترة الحالية والفترات اللي قبلها بنفس الطول. أقل من أسبوع: بنقارن بنفس أيام الأسبوع اللي قبله
   // (أمس الجمعة بالجمعة اللي قبلها) — لأن يوم الأسبوع نفسه بيفرق في المبيعات.
   // عدد الفترات: كفاية لقياس تذبذب الحساب (٤ مقارنات على الأقل للفترات القصيرة) من غير ما نسحب سنين
-  function windowCount(len) {
-    var step = len < 7 ? 7 : len;
+  // consecutive = الفترة اللي قبلها مباشرةً بنفس الطول حتى لو أقل من أسبوع — ده اللي بيستخدمه الملخص التلقائي بالبريد
+  // (قرار صاحب المنتج: الملخص بيتقارن بالفترة اللي قبله مباشرةً بس). الأداة نفسها بتقارن الفترات القصيرة بنفس أيام الأسبوع
+  function windowCount(len, consecutive) {
+    var step = len < 7 && !consecutive ? 7 : len;
     return Math.max(5, Math.min(9, Math.floor(210 / step) + 1));
   }
-  function windowsFor(since, until) {
-    var len = keyDiffDays(since, until) + 1, step = len < 7 ? 7 : len, n = windowCount(len), out = [];
+  function windowsFor(since, until, consecutive) {
+    var len = keyDiffDays(since, until) + 1, step = len < 7 && !consecutive ? 7 : len, n = windowCount(len, consecutive), out = [];
     for (var i = 0; i < n; i++) out.push({ since: shiftKey(since, -step * i), until: shiftKey(until, -step * i), days: len });
     return out;
   }
@@ -822,7 +824,7 @@ var DX = (function () {
   //  - الحملات بتتحط جنب بعض بمفتاح فيه المنصة («google:123»)، والدول بتتجمع بالرمز —
   //    بس لو كل المنصات رجّعت التقسيم ده (وإلا مجموعه مش هيطابق الإجمالي، والمحرك كان هيشيله أصلاً)
   function combine(sources) {
-    var first = sources[0].input, ws = windowsFor(first.since, first.until).slice(0, 3);
+    var first = sources[0].input, ws = windowsFor(first.since, first.until, !!first.consecutive).slice(0, 3);
     var norm = function (list) { return (list || []).filter(function (d) { return d && d.date; }).map(function (d) { var b = bundle(d); b.date = d.date; return b; }); };
     var byDate = {};
     sources.forEach(function (s) {
@@ -869,7 +871,7 @@ var DX = (function () {
       });
       dims.push({ id: 'country', scope: otherW && clean ? 'judged' : 'all', segs: Object.keys(byKey).map(function (k) { return byKey[k]; }) });
     }
-    var out = { since: first.since, until: first.until, currency: first.currency, timezone: first.timezone,
+    var out = { since: first.since, until: first.until, currency: first.currency, timezone: first.timezone, consecutive: !!first.consecutive,
       daily: Object.keys(byDate).sort().map(function (k) { return byDate[k]; }), dims: dims };
     if (otherW) out.other = { w: otherW, goals: otherGoals };
     return out;
@@ -895,7 +897,7 @@ var DX = (function () {
   //          daily: [{ date, spend, imp, clicks, atc, ic, pur, rev }] بتغطي كل الفترات (DX.windows)،
   //          dims: [{ id, segs: [{ key, name, w: [الحالية، السابقة، اللي قبلها] }] }] }
   function analyze(input) {
-    var ws = windowsFor(input.since, input.until);
+    var ws = windowsFor(input.since, input.until, !!input.consecutive);
     var daily = (input.daily || []).filter(function (d) { return d && /^\d{4}-\d{2}-\d{2}$/.test(d.date); })
       .map(function (d) { var b = bundle(d); b.date = d.date; return b; });
     var W = ws.map(function (w) { return sumDays(daily, w); });
@@ -994,6 +996,177 @@ var DX = (function () {
     report.context = contextOf(W, countriesOf(dims, input.timezone));
     report.owner = ownerContext(input.feedback, W);
     return report;
+  }
+
+  // ---------- التعديلات على الإعلانات ونتيجتها (الملخص التلقائي بالبريد) ----------
+  // من سجل تعديلات Meta (/act_x/activities): كل قرار مهم (ميزانية، إيقاف، تشغيل، إطلاق، استهداف، تصميم)
+  // بيتحكم عليه بمقارنة العنصر نفسه قبل التعديل وبعده، بعد استبعاد اللي حصل لباقي الحساب في نفس الأيام
+  // (لو الحساب كله اتحسّن ٢٠٪ في الأيام دي، التعديل مش هو السبب في الـ٢٠٪ دول) — فرق الفروق.
+  // أحداث المراجعة والمعالجة («قيد المراجعة»، «بدأ الظهور»، «جارٍ المعالجة») مش قرارات. كل الأحداث متسجّلة
+  // باسم شخص حتى أحداث النظام (اتقاس على حساب حقيقي)، فبنفرّق بنوع الحدث وتفاصيله مش باسم اللي عمله.
+  // مفيش حالة محفوظة: كل تعديل بيتحكم عليه في الملخص اللي فيه يومه التالت الكامل بعد التعديل (ولو الطلبات
+  // كانت قليلة، تاني مرة في الملخص اللي فيه يومه السابع) — فبيظهر مرة واحدة من غير ما نحفظ أي ملخص.
+  var ACT_LEVEL = { CAMPAIGN_GROUP: 'campaign', CAMPAIGN: 'adset', ADGROUP: 'ad' };   // تسمية Meta القديمة
+  var ACT_MIN_BUDGET = 0.2;   // تغيير الميزانية أقل من ٢٠٪ مش قرار يستاهل تقييم
+  var ACT_MERGE_DAYS = 3;     // تعديلات على نفس العنصر خلال ٣ أيام = حزمة واحدة (مستحيل نفصل أثر كل واحد)
+  var ACT_MIN_DAYS = 3;       // أقل عدد أيام كاملة بعد التعديل عشان نحكم
+  var ACT_MAX_DAYS = 7;
+  var ACT_MIN_ORDERS = 6;     // طلبات العنصر قبل وبعد مع بعض — أقل من كده «البيانات قليلة»
+  var ACT_Z = 2;
+  var ACT_SHOW = 6;
+  function keyInTz(when, tz) {
+    var d = new Date(String(when).replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+    if (isNaN(d.getTime())) return null;
+    try { return new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); }
+    catch (e) { return d.toISOString().slice(0, 10); }
+  }
+  function parseExtra(s) { try { return typeof s === 'string' ? JSON.parse(s) : (s || {}); } catch (e) { return {}; } }
+  // حدث واحد من السجل ← قرار (أو null لو مش قرار)
+  function actionOf(ev, tz) {
+    var level = ev && ACT_LEVEL[ev.object_type], type = String((ev && ev.event_type) || ''), x = parseExtra(ev && ev.extra_data);
+    if (!level || !ev.object_id || !ev.event_time) return null;
+    var date = keyInTz(ev.event_time, tz);
+    if (!date) return null;
+    var parent = x.campaign_id && typeof x.campaign_id === 'object' ? (x.campaign_id.new || x.campaign_id.mutation_input) : x.campaign_id;
+    var a = { level: level, id: String(ev.object_id), name: ev.object_name || null, actor: ev.actor_name || null, date: date,
+      time: String(ev.event_time), parent: level === 'ad' && parent != null ? String(parent) : null };
+    if (/_budget$/.test(type)) {
+      var o = x.old_value && typeof x.old_value === 'object' ? Number(x.old_value.old_value) : NaN;
+      var n = x.new_value && typeof x.new_value === 'object' ? Number(x.new_value.new_value) : NaN;
+      if (!(o > 0) || !(n > 0) || Math.abs(n / o - 1) < ACT_MIN_BUDGET) return null;
+      a.kind = 'budget'; a.from = o; a.to = n;
+      a.lifetime = !/day/i.test(String((x.new_value && x.new_value.additional_value) || ''));
+      return a;
+    }
+    if (/_run_status$/.test(type)) {
+      var from = String(x.old_value || ''), to = String(x.new_value || ''), on = /^active$/i, off = /^(inactive|paused)$/i;
+      if (on.test(from) && off.test(to)) { a.kind = 'pause'; return a; }
+      if (off.test(from) && on.test(to)) { a.kind = 'resume'; return a; }
+      return null;
+    }
+    if (type === 'create_ad' || type === 'create_ad_set' || type === 'create_campaign_group') { a.kind = 'launch'; return a; }
+    if ((type === 'update_ad_set_target_spec' || type === 'update_ad_targets_spec') && x.old_value) { a.kind = 'targeting'; return a; }
+    if (type === 'update_ad_creative' && x.old_value) { a.kind = 'creative'; return a; }
+    return null;
+  }
+  // التعديلات ← مجموعات: نفس العنصر خلال ٣ أيام = حزمة، والإعلانات الجديدة في نفس المجموعة خلال ٣ أيام = إطلاق واحد.
+  // بيرجّع المجموعات اللي ليها مكان في ملخص الفترة [since, until] بس، ومعاها أرقام العناصر اللي محتاجينها
+  function actionGroups(events, tz, since, until) {
+    var list = (events || []).map(function (e) { return actionOf(e, tz); }).filter(Boolean)
+      .sort(function (a, b) { return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0); });
+    var open = {}, groups = [];
+    list.forEach(function (a) {
+      var key = a.kind === 'launch' && a.level === 'ad' && a.parent ? 'ads|' + a.parent : a.level + '|' + a.id;
+      var g = open[key];
+      if (!g || keyDiffDays(g.first, a.date) > ACT_MERGE_DAYS) {
+        g = open[key] = { key: key, level: a.level, ids: [], names: [], kinds: [], events: [], first: a.date, last: a.date, actors: [] };
+        groups.push(g);
+      }
+      if (g.ids.indexOf(a.id) < 0) { g.ids.push(a.id); if (a.name) g.names.push(a.name); }
+      if (g.kinds.indexOf(a.kind) < 0) g.kinds.push(a.kind);
+      if (a.actor && g.actors.indexOf(a.actor) < 0) g.actors.push(a.actor);
+      g.events.push(a);
+      g.last = a.date;
+    });
+    // إطلاق مجموعة إعلانية بيشمل إعلاناتها — منقيّمش إعلاناتها لوحدها تاني
+    var launchedSets = {};
+    groups.forEach(function (g) { if (g.level === 'adset' && g.kinds.indexOf('launch') > -1) g.ids.forEach(function (id) { launchedSets[id] = g.first; }); });
+    groups = groups.filter(function (g) { return !(g.key.indexOf('ads|') === 0 && launchedSets[g.key.slice(4)]); });
+    var out = [];
+    groups.forEach(function (g) {
+      var evs = g.events, lastEv = evs[evs.length - 1];
+      if (g.kinds.indexOf('launch') > -1) g.kind = 'launch';
+      else if (lastEv.kind === 'pause') g.kind = 'pause';
+      else if (g.kinds.length === 1) g.kind = g.kinds[0];
+      else g.kind = 'package';
+      if (g.kinds.length === 1 && g.kind === 'budget') {
+        g.from = evs[0].from; g.to = lastEv.to; g.lifetime = lastEv.lifetime;
+        if (Math.abs(g.to / g.from - 1) < ACT_MIN_BUDGET) return;   // رفع ورجوع = مفيش قرار صافي
+      }
+      if (g.kind === 'resume' && evs[0].kind !== 'resume') g.kind = 'package';
+      var after = keyDiffDays(g.last, until);   // أيام كاملة بعد آخر تعديل لحد آخر الفترة
+      var c3 = shiftKey(g.last, ACT_MIN_DAYS), c7 = shiftKey(g.last, ACT_MAX_DAYS);
+      if (g.kind === 'pause') { if (g.last >= since && g.last <= until) { g.stage = 'judge'; out.push(g); } return; }
+      if (after < ACT_MIN_DAYS) { if (g.last >= since) { g.stage = 'early'; g.after = after; out.push(g); } return; }
+      if (c3 >= since && c3 <= until) { g.stage = 'judge'; out.push(g); return; }
+      if (c7 >= since && c7 <= until) { g.stage = 'second'; out.push(g); }
+    });
+    return out;
+  }
+  // أقدم يوم محتاجين أرقامه عشان نحكم على المجموعات دي
+  function actionsFrom(groups) {
+    var min = null;
+    groups.forEach(function (g) { var d = shiftKey(g.first, -ACT_MAX_DAYS); if (!min || d < min) min = d; });
+    return min;
+  }
+  function daySum(rows, since, until) {
+    var t = { spend: 0, pur: 0, rev: 0, days: keyDiffDays(since, until) + 1 };
+    (rows || []).forEach(function (r) { if (r && r.date >= since && r.date <= until) { t.spend += +r.spend || 0; t.pur += +r.pur || 0; t.rev += +r.rev || 0; } });
+    return t;
+  }
+  function restOf(acc, obj) {
+    return { spend: Math.max(0, acc.spend - obj.spend), pur: Math.max(0, acc.pur - obj.pur), rev: Math.max(0, acc.rev - obj.rev), days: acc.days };
+  }
+  // الحكم على مجموعة واحدة بعدد أيام L بعد آخر تعديل (وL قبل أول تعديل)
+  function judgeGroup(g, rows, accDaily, L) {
+    var B = { since: shiftKey(g.first, -L), until: shiftKey(g.first, -1) }, A = { since: shiftKey(g.last, 1), until: shiftKey(g.last, L) };
+    var oB = daySum(rows, B.since, B.until), oA = daySum(rows, A.since, A.until);
+    var rB = restOf(daySum(accDaily, B.since, B.until), oB), rA = restOf(daySum(accDaily, A.since, A.until), oA);
+    var r = { L: L, B: B, A: A, objB: oB, objA: oA, restB: rB, restA: rA };
+    var PHI = PHI_SAMPLING, t;
+    if (g.kind === 'pause') {
+      // القرار نفسه: العنصر كان أحسن ولا أسوأ من باقي الحساب في الأيام اللي قبل الإيقاف؟
+      var expB = rB.pur > 0 && rB.spend > 0 ? oB.spend * rB.pur / rB.spend : 0;
+      if (!(oB.spend > 0)) { r.verdict = 'idle'; return r; }
+      t = rateTest(rB.pur, rB.spend, oB.pur, oB.spend, PHI);
+      r.thin = expB < 3 && oB.pur < 3;
+    } else if (g.kind === 'launch' || g.kind === 'resume' || !(oB.spend > 0)) {
+      // جديد (أو مكانش بيصرف قبلها): أداؤه بعدها مقارنةً بباقي الحساب في نفس الأيام
+      var expA = rA.pur > 0 && rA.spend > 0 ? oA.spend * rA.pur / rA.spend : 0;
+      if (!(oA.spend > 0)) { r.verdict = 'noSpend'; return r; }
+      r.vsRest = true;
+      t = rateTest(rA.pur, rA.spend, oA.pur, oA.spend, PHI);
+      r.thin = expA < 3 && oA.pur < 3;
+    } else {
+      // تعديل على عنصر شغّال: قبل وبعد، بعد استبعاد تغيّر باقي الحساب
+      var rf = rB.pur > 0 && rA.pur > 0 && rB.pur + rA.pur >= 10 && rB.spend > 0 && rA.spend > 0 ? (rA.pur / rA.spend) / (rB.pur / rB.spend) : 1;
+      r.restFactor = rf;
+      if (!(oA.spend > 0)) { r.verdict = 'noSpend'; return r; }
+      t = rateTest(oB.pur, oB.spend, oA.pur, oA.spend * rf, PHI);
+      r.thin = oB.pur + oA.pur < ACT_MIN_ORDERS;
+    }
+    r.z = t.z; r.ratio = t.ratio;
+    r.verdict = r.thin ? 'thin' : (t.z >= ACT_Z ? 'better' : (t.z <= -ACT_Z ? 'worse' : 'same'));
+    return r;
+  }
+  // objDaily: { رقم العنصر: [{ date, spend, pur, rev }] }، accDaily: أرقام الحساب كله يوم بيوم (نفس daily بتاع analyze)
+  function evalActions(groups, objDaily, accDaily, until) {
+    var acc = (accDaily || []).map(function (d) { return { date: d.date, spend: +d.spend || 0, pur: +d.pur || 0, rev: +d.rev || 0 }; });
+    var out = [];
+    (groups || []).forEach(function (g) {
+      var rows = [];
+      g.ids.forEach(function (id) { (objDaily && objDaily[id] || []).forEach(function (r) { rows.push(r); }); });
+      var item = { kind: g.kind, kinds: g.kinds, level: g.level, count: g.ids.length, names: g.names, actors: g.actors,
+        first: g.first, last: g.last, from: g.from, to: g.to, lifetime: g.lifetime };
+      if (g.stage === 'early') { item.verdict = 'early'; item.after = g.after; item.weight = 0; out.push(item); return; }
+      var after = keyDiffDays(g.last, until);
+      var r;
+      if (g.kind === 'pause') r = judgeGroup(g, rows, acc, ACT_MAX_DAYS);
+      else if (g.stage === 'second') {
+        // تاني فرصة بس لو أول حكم (بعد ٣ أيام) كان «البيانات قليلة» — غير كده اتقال قبل كده
+        if (judgeGroup(g, rows, acc, ACT_MIN_DAYS).verdict !== 'thin') return;
+        r = judgeGroup(g, rows, acc, ACT_MAX_DAYS);
+      } else {
+        r = judgeGroup(g, rows, acc, Math.min(ACT_MAX_DAYS, after));
+        if (r.verdict === 'thin' && after < ACT_MAX_DAYS) r.verdict = 'wait';
+      }
+      if (r.verdict === 'idle') return;   // إيقاف عنصر مكانش بيصرف أصلاً — مالوش أثر
+      for (var k in r) item[k] = r[k];
+      item.weight = r.objB.spend + r.objA.spend;
+      out.push(item);
+    });
+    var rank = { worse: 0, better: 1, same: 2, wait: 3, thin: 4, noSpend: 5, early: 6 };
+    return out.sort(function (a, b) { return (rank[a.verdict] - rank[b.verdict]) || (b.weight - a.weight); });
   }
 
   // ---------- جدول الأسباب المعتادة ----------
@@ -1399,7 +1572,8 @@ var DX = (function () {
   }
 
   // التقرير كله جاهز للعرض — بالترتيب: العاجل، ثم «لماذا»، ثم اللي يحتاج قرار، ثم المتابعة والفرص
-  function compose(r) {
+  // opts.mail: الملخص التلقائي بالبريد (العميل مش بيختار الفترة فيه)
+  function compose(r, opts) {
     var M = function (v) { return money(v, r.currency); };
     SEEN = (r.owner && r.owner.seen) || {};
     var o = { status: r.status, blocks: [], kpis: [], notes: [],
@@ -1412,7 +1586,7 @@ var DX = (function () {
     o.kpis = kpiList(r, M);
     if (r.status === 'insufficient') {
       o.tone = 'neutral'; o.title = t('dx.head.insufficient');
-      o.blocks.push({ kind: 'note', title: t('dx.head.insufficient'), lines: [t('dx.insufficient', { orders: ordersText(r.orders) })] });
+      o.blocks.push({ kind: 'note', title: t('dx.head.insufficient'), lines: [t(opts && opts.mail ? 'dx.insufficient.mail' : 'dx.insufficient', { orders: ordersText(r.orders) })] });
       return o;
     }
     var h = r.head;
@@ -1454,6 +1628,71 @@ var DX = (function () {
     if (b.next) L.push('👉 ' + t('dx.next') + ' ' + b.next);
     return L.join('\n');
   }
+  // ---------- صياغة التعديلات ونتيجتها (الملخص التلقائي بالبريد) ----------
+  // الميزانيات في سجل Meta بأصغر وحدة للعملة (سنت): ١٠٠٠ = ١٠ دولار. العملات دي مالهاش كسور عند Meta
+  var CUR_UNIT1 = { JPY: 1, KRW: 1, CLP: 1, VND: 1, ISK: 1, HUF: 1, TWD: 1, PYG: 1, IDR: 1, COP: 1, CRC: 1 };
+  function budgetMoney(v, cur) { return money(v / (CUR_UNIT1[cur] ? 1 : 100), cur); }
+  // «يوم واحد» / «يومين» / «٣ أيام» — بعد حرف جر («في يومين»، «سوى يومين»)
+  function daysPhrase(n) {
+    if (n === 1) return t('dx.act.d1');
+    if (n === 2) return t('dx.act.d2');
+    return fmtNum(n) + ' ' + noun(n, 'n.day');
+  }
+  function actionObj(a) {
+    var name = a.names && a.names[0];
+    return t('dx.act.lv.' + a.level) + (name ? ' ' + iso(t('dx.act.q', { name: name })) : '');
+  }
+  var ACT_TONE = { better: 'good', worse: 'bad', same: 'neutral' };
+  function actionItem(a, M, cur) {
+    var obj = actionObj(a), title;
+    if (a.kind === 'budget') {
+      title = t('dx.act.' + (a.to > a.from ? 'budgetUp' : 'budgetDown') + (a.lifetime ? 'Life' : ''),
+        { obj: obj, from: iso(budgetMoney(a.from, cur)), to: iso(budgetMoney(a.to, cur)) });
+    } else if (a.kind === 'launch' && a.level === 'ad' && a.count > 1) title = t('dx.act.launchAds', { n: fmtNum(a.count), obj: obj });
+    else if (a.kind === 'package') title = t('dx.act.package', { obj: obj, list: listText(a.kinds.map(function (k) { return t('dx.act.k.' + k); })) });
+    else title = t('dx.act.' + a.kind, { obj: obj });
+    var date = a.first === a.last ? fmtKey(a.first) : fmtRange(a.first, a.last);
+    var who = a.actors && a.actors.length ? t('dx.act.who', { date: date, actor: listText(a.actors.map(iso)) }) : date;
+    var lines = [], tone = 'neutral';
+    if (a.verdict === 'early') {
+      lines.push(a.after > 0 ? t('dx.act.v.early', { n: daysPhrase(a.after) }) : t('dx.act.v.early0'));
+      return { title: title, meta: who, lines: lines, tone: tone };
+    }
+    var cpa = function (b) { return b.pur > 0 ? M(b.spend / b.pur) : null; };
+    var restCpa = function (b) { return cpa(b) || '—'; };
+    if (a.verdict !== 'noSpend' && a.objB) {
+      if (a.kind === 'pause') {
+        lines.push(a.objB.pur > 0
+          ? t('dx.act.factsPause', { n: daysPhrase(a.L), spend: M(a.objB.spend), orders: ordersText(a.objB.pur), cpa: cpa(a.objB), restCpa: restCpa(a.restB) })
+          : t('dx.act.factsPause0', { n: daysPhrase(a.L), spend: M(a.objB.spend), restCpa: restCpa(a.restB) }));
+      } else if (a.vsRest) {
+        lines.push(a.objA.pur > 0
+          ? t('dx.act.factsNew', { n: daysPhrase(a.L), spend: M(a.objA.spend), orders: ordersText(a.objA.pur), cpa: cpa(a.objA), restCpa: restCpa(a.restA) })
+          : t('dx.act.factsNew0', { n: daysPhrase(a.L), spend: M(a.objA.spend), restCpa: restCpa(a.restA) }));
+      } else {
+        var both = cpa(a.objB) && cpa(a.objA);
+        lines.push(t('dx.act.facts', { n: daysPhrase(a.L), spendB: M(a.objB.spend), spendA: M(a.objA.spend),
+          ordersB: fmtNum(Math.round(a.objB.pur)), ordersA: fmtNum(Math.round(a.objA.pur)),
+          cpa: both ? t('dx.act.factsCpa', { cpaB: cpa(a.objB), cpaA: cpa(a.objA) }) : '' }));
+      }
+    }
+    if (ACT_TONE[a.verdict]) {
+      var group = a.kind === 'pause' ? 'pause' : (a.vsRest ? 'new' : (a.kind === 'budget' ? (a.to > a.from ? 'up' : 'down') : 'edit'));
+      lines.push(t('dx.act.v.' + group + '.' + a.verdict));
+      // الإيقاف بالعكس: العنصر كان «أسوأ» = القرار صح
+      tone = group === 'pause' ? ({ worse: 'good', better: 'bad', same: 'neutral' })[a.verdict] : ACT_TONE[a.verdict];
+    } else lines.push(t('dx.act.v.' + a.verdict));
+    return { title: title, meta: who, lines: lines, tone: tone };
+  }
+  function composeActions(list, currency) {
+    var M = function (v) { return iso(money(v, currency)); };
+    var b = { kind: 'actions', title: t('dx.act.title'), lines: [t('dx.act.intro')], items: [] };
+    if (!list || !list.length) { b.lines = [t('dx.act.none')]; return b; }
+    list.slice(0, ACT_SHOW).forEach(function (a) { b.items.push(actionItem(a, M, currency)); });
+    if (list.length > ACT_SHOW) b.after = [t('dx.act.more', { n: fmtNum(list.length - ACT_SHOW) })];
+    return b;
+  }
+
   function toText(o, accountName) {
     var L = ['📊 ' + t('dx.title') + (accountName ? ' — ' + accountName : ''), o.period, '', (TONE_ICON[o.tone] || '') + ' *' + o.title + '*'];
     (o.kpis || []).forEach(function (k) { L.push('• ' + k.label + ': ' + k.value + ' (' + t('dx.kpi.prev', { v: k.prev }) + ')'); });
@@ -1474,11 +1713,17 @@ var DX = (function () {
     // اختيارات «ما الذي حدث فعلاً؟» في زر التقييم (بنفس ترتيب ظهورها)
     REASONS: Object.keys(REASON_CAUSES).concat(['other']),
     windows: windowsFor,
+    // التعديلات على الإعلانات ونتيجتها (الملخص التلقائي بالبريد — supabase/functions/sync/runner.ts)
+    actionGroups: actionGroups,
+    actionsFrom: actionsFrom,
+    evalActions: evalActions,
+    composeActions: composeActions,
     playbook: playbook,
     PLAYBOOK: PLAYBOOK,
     // للاختبارات
     _: { rateTest: rateTest, historyPhi: historyPhi, betai: betai, normInv: normInv, decompose: decompose, stagesFor: stagesFor,
       trackingOf: trackingOf, eventsOn: eventsOn, hijriOf: hijriOf, isWhiteFridayWeekend: isWhiteFridayWeekend, localize: localize,
+      actionOf: actionOf, keyInTz: keyInTz,
       prepareDims: prepareDims, windowCount: windowCount, hijriSupported: !!HIJRI,
       T: { Z_REAL: Z_REAL, Z_SEG: Z_SEG, PHI_SAMPLING: PHI_SAMPLING },
       // للمعايرة بالمحاكاة بس (tests/dx-sim.js) — كود الأداة نفسه مبيغيّرش العتبات أبداً

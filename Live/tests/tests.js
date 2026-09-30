@@ -2143,6 +2143,16 @@
       eq([w[1].since, w[1].until], ['2026-09-14', '2026-09-20']);
       eq(DX.windows('2026-09-27', '2026-09-27')[1].since, '2026-09-20');
     });
+    test('الملخص بالبريد: الفترة السابقة مباشرةً حتى لو أقل من أسبوع (الأداة لسه بنفس أيام الأسبوع)', function () {
+      var w = DX.windows('2026-09-27', '2026-09-29', true);
+      eq([w[1].since, w[1].until], ['2026-09-24', '2026-09-26']);
+      eq(DX.windows('2026-09-27', '2026-09-29')[1].since, '2026-09-20');
+      var days = [];
+      for (var k = '2026-08-20'; k <= '2026-09-29'; k = shiftKey(k, 1)) days.push({ date: k, spend: 100, imp: 5000, clicks: 100, atc: 20, ic: 10, pur: 5, rev: 500 });
+      var r = DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, daily: days, dims: [] });
+      eq([r.prevSince, r.prevUntil], ['2026-09-24', '2026-09-26']);
+      withLang('ar', function () { ok(/اكتفينا بعرض الأرقام/.test(t('dx.insufficient.mail')) && !/اختر فترة/.test(t('dx.insufficient.mail'))); });
+    });
     test('فترة التشخيص أيام مكتملة بس (اليوم لسه بيتحسب)', function () {
       var today = todayKeyInTz('Asia/Riyadh');
       period = { preset: 'last7' };
@@ -2178,6 +2188,113 @@
       eq(missing, []);
       eq(DX.playbook('cart', 'market', 'worse').check, 'market');
       eq(DX.playbook('ctr', 'device', 'better').causes, ['segBetter']);
+    });
+  });
+
+  describe('الملخص بالبريد — التعديلات ونتيجتها', function () {
+    var X = DX._;
+    function ev(type, ot, id, when, extra, name) {
+      return { event_type: type, object_type: ot, object_id: id, object_name: name || ('N' + id), event_time: when, actor_name: 'Walid', extra_data: JSON.stringify(extra || {}) };
+    }
+    function budget(id, when, from, to) {
+      return ev('update_ad_set_budget', 'CAMPAIGN', id, when, { old_value: { type: 'payment_amount', currency: 'USD', old_value: from },
+        new_value: { type: 'payment_amount', currency: 'USD', new_value: to, additional_value: 'Per day' }, type: 'composite_data' });
+    }
+    function status(ot, id, when, from, to) { return ev(ot === 'ADGROUP' ? 'update_ad_run_status' : 'update_ad_set_run_status', ot, id, when, { old_value: from, new_value: to, type: 'run_status' }); }
+    // أيام متتالية بأرقام ثابتة لكل يوم
+    function series(since, until, spend, pur) { var out = []; for (var k = since; k <= until; k = shiftKey(k, 1)) out.push({ date: k, spend: spend, pur: pur, rev: pur * 50 }); return out; }
+    function plus(a, b) {
+      var m = {};
+      a.concat(b).forEach(function (d) { var x = m[d.date] = m[d.date] || { date: d.date, spend: 0, pur: 0, rev: 0 }; x.spend += d.spend; x.pur += d.pur; x.rev += d.rev; });
+      return Object.keys(m).sort().map(function (k) { return m[k]; });
+    }
+    var REST = series('2026-09-01', '2026-09-29', 300, 15);   // باقي الحساب: ٢٠ للطلب
+
+    test('تصنيف السجل: الميزانية ٢٠٪ فأكثر والإيقاف والإطلاق قرارات، والمراجعة والمعالجة والصور لأ (حالة حقيقية)', function () {
+      eq(X.actionOf(budget('1', '2026-09-24T16:15:19+0000', 1000, 5000), 'Asia/Kuwait').kind, 'budget');
+      eq(X.actionOf(budget('1', '2026-09-24T16:15:19+0000', 1000, 1100), 'Asia/Kuwait'), null);
+      eq(X.actionOf(status('ADGROUP', '2', '2026-09-24T12:00:00+0000', 'Pending Review', 'Active'), 'UTC'), null);
+      var p = X.actionOf(status('CAMPAIGN', '3', '2026-09-24T12:00:00+0000', 'Active', 'Inactive'), 'UTC');
+      eq([p.kind, p.level], ['pause', 'adset']);
+      var launch = X.actionOf(ev('create_ad', 'ADGROUP', '9', '2026-09-22T15:45:14+0000', { campaign_id: { mutation_input: 777, new: 777 } }), 'UTC');
+      eq([launch.kind, launch.parent], ['launch', '777']);
+      eq(X.actionOf(ev('update_ad_set_target_spec', 'CAMPAIGN', '4', '2026-09-24T11:58:52+0000', { old_value: null, new_value: [] }), 'UTC'), null, 'targeting set at creation');
+      eq(X.actionOf(ev('add_images', 'ACCOUNT', '5', '2026-09-24T11:58:52+0000', {}), 'UTC'), null);
+      eq(X.keyInTz('2026-09-24T22:30:00+0000', 'Asia/Kuwait'), '2026-09-25', '10:30 PM UTC is the next day in Kuwait');
+    });
+    test('تعديلات نفس العنصر خلال ٣ أيام = حزمة واحدة، وبيتحكم عليها في الملخص اللي فيه يومها التالت الكامل', function () {
+      var evs = [budget('10', '2026-09-20T10:00:00+0000', 1000, 2000), ev('update_ad_set_target_spec', 'CAMPAIGN', '10', '2026-09-21T10:00:00+0000', { old_value: [1], new_value: [2] })];
+      var g = DX.actionGroups(evs, 'UTC', '2026-09-24', '2026-09-26');
+      eq(g.length, 1);
+      eq([g[0].kind, g[0].stage, g[0].first, g[0].last], ['package', 'judge', '2026-09-20', '2026-09-21']);
+      eq(DX.actionGroups(evs, 'UTC', '2026-09-27', '2026-09-29')[0].stage, 'second', 'only if the first verdict was «too few orders»');
+      var early = DX.actionGroups([budget('11', '2026-09-28T10:00:00+0000', 1000, 3000)], 'UTC', '2026-09-27', '2026-09-29');
+      eq([early[0].stage, early[0].after], ['early', 1]);
+      eq(DX.actionGroups([budget('12', '2026-09-20T10:00:00+0000', 1000, 2000), budget('12', '2026-09-21T10:00:00+0000', 2000, 1050)], 'UTC', '2026-09-24', '2026-09-26').length, 0, 'raised then lowered back');
+    });
+    test('رفع الميزانية: الحكم بعد استبعاد باقي الحساب (فرق الفروق)', function () {
+      var since = '2026-09-24', until = '2026-09-26';
+      var groups = DX.actionGroups([budget('20', '2026-09-22T09:00:00+0000', 10000, 20000)], 'UTC', since, until);
+      eq(groups.length, 1);
+      var judge = function (obj, rest) { return DX.evalActions(groups, { 20: obj }, plus(obj, rest || REST), until)[0]; };
+      // ضعف الإنفاق وضعف الطلبات = نفس الكفاءة
+      eq(judge(series('2026-09-01', '2026-09-22', 100, 5).concat(series('2026-09-23', '2026-09-29', 200, 10))).verdict, 'same');
+      // ضعف الإنفاق وطلبات أقل = الكفاءة وقعت
+      eq(judge(series('2026-09-01', '2026-09-22', 100, 5).concat(series('2026-09-23', '2026-09-29', 200, 4))).verdict, 'worse');
+      eq(judge(series('2026-09-01', '2026-09-22', 100, 5).concat(series('2026-09-23', '2026-09-29', 100, 12))).verdict, 'better');
+      // المجموعة اتحسّنت الضعف، بس باقي الحساب كمان اتحسّن الضعف في نفس الأيام = مش بسبب التعديل
+      var restUp = series('2026-09-01', '2026-09-22', 300, 15).concat(series('2026-09-23', '2026-09-29', 300, 30));
+      eq(judge(series('2026-09-01', '2026-09-22', 100, 5).concat(series('2026-09-23', '2026-09-29', 100, 10)), restUp).verdict, 'same', 'the whole account improved too');
+      // طلبات قليلة جداً قبل وبعد = «البيانات ما زالت قليلة» (نرجع له بعد أسبوع)
+      eq(judge(series('2026-09-01', '2026-09-22', 10, 0.25).concat(series('2026-09-23', '2026-09-29', 20, 0.5))).verdict, 'wait');
+    });
+    test('الإيقاف: «قرار في محله» لو العنصر كان أضعف من باقي الحساب، و«انتبه» لو كان من الأفضل', function () {
+      var since = '2026-09-27', until = '2026-09-29';
+      var groups = DX.actionGroups([status('ADGROUP', '30', '2026-09-28T09:00:00+0000', 'Active', 'Inactive')], 'UTC', since, until);
+      eq([groups.length, groups[0].kind], [1, 'pause']);
+      var weak = series('2026-09-01', '2026-09-27', 50, 0);     // ٣٥٠ في الأسبوع من غير ولا طلب
+      eq(DX.evalActions(groups, { 30: weak }, plus(weak, REST), until)[0].verdict, 'worse');
+      var star = series('2026-09-01', '2026-09-27', 100, 15);   // ٦٫٧ للطلب
+      eq(DX.evalActions(groups, { 30: star }, plus(star, REST), until)[0].verdict, 'better');
+      withLang('ar', function () {
+        var good = DX.composeActions(DX.evalActions(groups, { 30: weak }, plus(weak, REST), until), 'USD').items[0];
+        ok(good.tone === 'good' && /قرار في محله/.test(good.lines.join(' ')) && good.title.indexOf('إيقاف الإعلان') === 0 && /دون أي طلب/.test(good.lines[0]), JSON.stringify(good));
+        var bad = DX.composeActions(DX.evalActions(groups, { 30: star }, plus(star, REST), until), 'USD').items[0];
+        ok(bad.tone === 'bad' && /انتبه/.test(bad.lines.join(' ')), JSON.stringify(bad));
+      });
+      eq(DX.evalActions(groups, { 30: [] }, REST, until).length, 0, 'pausing something that spent nothing is not worth a line');
+    });
+    test('إعلانات جديدة في نفس المجموعة = إطلاق واحد، والحكم مقارنةً بباقي الحساب في نفس الأيام', function () {
+      var since = '2026-09-24', until = '2026-09-26';
+      var evs = ['40', '41'].map(function (id) { return ev('create_ad', 'ADGROUP', id, '2026-09-21T10:00:00+0000', { campaign_id: { mutation_input: 777, new: 777 } }); });
+      var groups = DX.actionGroups(evs, 'UTC', since, until);
+      eq([groups.length, groups[0].kind, groups[0].ids.length], [1, 'launch', 2]);
+      var a = series('2026-09-22', '2026-09-29', 50, 1), b = series('2026-09-22', '2026-09-29', 50, 1);   // ٥٠ للطلب مقابل ٢٠
+      var r = DX.evalActions(groups, { 40: a, 41: b }, plus(plus(a, b), REST), until)[0];
+      eq([r.vsRest, r.verdict], [true, 'worse']);
+      withLang('ar', function () {
+        var it = DX.composeActions([r], 'USD').items[0];
+        ok(/^إطلاق إعلانات جديدة \(٢\)، أولها الإعلان/.test(it.title) && /لباقي الحساب في الأيام نفسها/.test(it.lines[0]), JSON.stringify(it));
+      });
+    });
+    test('الصياغة: رفع الميزانية بالعملة الصحيحة (سجل Meta بالسنت) والأسهم، و«مبكر للحكم»، وفترة من غير تعديلات', function () {
+      withLang('ar', function () {
+        var since = '2026-09-24', until = '2026-09-26';
+        var groups = DX.actionGroups([budget('20', '2026-09-22T09:00:00+0000', 10000, 20000)], 'UTC', since, until);
+        var obj = series('2026-09-01', '2026-09-22', 100, 5).concat(series('2026-09-23', '2026-09-29', 200, 10));
+        var it = DX.composeActions(DX.evalActions(groups, { 20: obj }, plus(obj, REST), until), 'USD').items[0];
+        ok(it.title.indexOf('رفع ميزانية المجموعة الإعلانية') === 0 && it.title.indexOf(money(100, 'USD')) > -1 && it.title.indexOf(money(200, 'USD')) > -1, it.title);
+        ok(/بواسطة/.test(it.meta) && /←/.test(it.lines[0]) && /حافظ على كفاءته/.test(it.lines[1]), JSON.stringify(it));
+        var early = DX.composeActions(DX.evalActions(DX.actionGroups([budget('21', '2026-09-26T09:00:00+0000', 1000, 3000)], 'UTC', since, until), {}, REST, until), 'USD');
+        ok(/مبكر للحكم/.test(early.items[0].lines[0]) && /لم يكتمل يوم/.test(early.items[0].lines[0]), early.items[0].lines[0]);
+        eq(DX.composeActions([], 'USD').lines, [t('dx.act.none')]);
+      });
+      withLang('en', function () {
+        var groups = DX.actionGroups([budget('20', '2026-09-22T09:00:00+0000', 10000, 20000)], 'UTC', '2026-09-24', '2026-09-26');
+        var obj = series('2026-09-01', '2026-09-22', 100, 5).concat(series('2026-09-23', '2026-09-29', 200, 10));
+        var it = DX.composeActions(DX.evalActions(groups, { 20: obj }, plus(obj, REST), '2026-09-26'), 'USD').items[0];
+        ok(/^Raised the daily budget of ad set/.test(it.title) && /→/.test(it.lines[0]) && !/[؀-ۿ]/.test(it.title + it.lines.join('')), JSON.stringify(it));
+      });
     });
   });
 
