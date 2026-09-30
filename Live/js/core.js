@@ -384,6 +384,16 @@
       return localStorage.getItem('acc.dx') !== '0';
     } catch (e) { return true; }
   })();
+  // ---------- الملخص التلقائي بالبريد (supabase/functions/sync/digest.ts) ----------
+  // مخفي لحد ما يتجرّب على حساب مدير التطبيق: ?digest=1 بيظهره على الجهاز ده، و?digest=0 بيخفيه تاني
+  var DIGEST_ON = (function () {
+    try {
+      var q = new URLSearchParams(location.search).get('digest');
+      if (q === '1') localStorage.setItem('acc.digest', '1');
+      if (q === '0') localStorage.removeItem('acc.digest');
+      return localStorage.getItem('acc.digest') === '1';
+    } catch (e) { return false; }
+  })();
   // sources = حالة كل منصة لوحدها { status: loading/ready/error, key (الحساب + الفترة)، input، report }،
   // views = العروض الجاهزة (كل منصة + «كل المنصات» لو ينفع)، و report/account/accountId = العرض الظاهر دلوقتي
   function dxFresh() { return { status: 'idle', sources: {}, views: [], view: 'all', report: null, account: null, accountId: null }; }

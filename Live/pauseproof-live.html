@@ -556,6 +556,20 @@
   /* ملخص المتجر: العنوان والأرقام فوق، وبعدين بلوك لكل حاجة (لماذا، يحتاج قرارك، فرصة...) بلون حسب نوعها */
   .dx-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
   .dx-top .sec-title { margin: 0; }
+  .dx-top-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+  /* الملخص التلقائي بالبريد */
+  .dx-auto { margin: 10px 0 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .dx-auto h3 { margin: 0 0 6px; font-size: 15px; }
+  .dx-auto p { margin: 0 0 10px; font-size: 13px; line-height: 1.7; }
+  .dx-auto-field { display: block; margin: 0 0 12px; font-size: 13px; font-weight: 600; }
+  .dx-auto-field input, .dx-auto-field select { display: block; width: 100%; max-width: 360px; margin-top: 5px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-weight: 400; }
+  .dx-auto-days { display: flex; flex-wrap: wrap; gap: 6px; margin: 5px 0 0; font-weight: 400; }
+  .dx-auto-consent { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.7; margin: 4px 0 12px; }
+  .dx-auto-consent input { margin-top: 5px; flex: none; }
+  .dx-auto-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .dx-auto-msg { font-size: 13px; margin: 10px 0 0; }
+  .dx-auto-msg.err { color: var(--alert); }
+  .dx-auto-on strong { color: var(--verified); }
   .dx-period { margin: 4px 0 12px; font-size: 12.5px; color: var(--ink-soft); }
   .dx-views { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
   .dx-views + .dx-notes { margin: -4px 2px 10px; }
@@ -772,8 +786,12 @@
       <section class="app-sec app-sec-store" id="storeSec" aria-labelledby="secStore" hidden>
         <div class="dx-top">
           <h2 class="sec-title" id="secStore" data-i18n="dx.title">ملخص المتجر</h2>
-          <button type="button" class="ghost-btn" id="dxCopy" data-i18n="dx.copy" hidden>انسخ الملخص</button>
+          <span class="dx-top-actions">
+            <button type="button" class="ghost-btn" id="dxAutoBtn" data-i18n="dx.auto.btn" aria-expanded="false" aria-controls="dxAuto" hidden>الملخص التلقائي</button>
+            <button type="button" class="ghost-btn" id="dxCopy" data-i18n="dx.copy" hidden>انسخ الملخص</button>
+          </span>
         </div>
+        <div class="dx-auto" id="dxAuto" hidden></div>
         <p class="dx-period" id="dxPeriod"></p>
         <div id="dxBody" aria-live="polite"></div>
       </section>

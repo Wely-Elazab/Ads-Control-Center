@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-title-ar="إيقاف الملخص التلقائي — Ads Center" data-title-en="Stop the automatic summary — Ads Center">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171C" media="(prefers-color-scheme: dark)">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>إيقاف الملخص التلقائي — Ads Center</title>
+<!-- رابط الإيقاف اللي في آخر كل رسالة ملخص (supabase/functions/sync/digest.ts → stopUrl): /stop?a=act_…&s=توقيع.
+     الصفحة بتبعت الاتنين لدالة sync (action: stop) وهي بتتأكد من التوقيع قبل ما توقف وتمسح المفتاح.
+     الإيقاف بيحصل بعد ضغط الزرار مش أول ما الصفحة تفتح — عشان برامج البريد اللي بتفتح الروابط لوحدها متوقفش الملخص بالغلط -->
+<script src="/js/theme.js"></script>
+<script src="/js/legal.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/legal.css">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+
+<header class="legal-bar">
+  <a class="legal-brand" href="/">Ads Center</a>
+  <div class="legal-bar-end">
+    <button type="button" class="legal-lang theme-btn" data-theme-toggle aria-pressed="false"><span data-theme-icon aria-hidden="true">☀️</span><span class="sr-only"><span class="only-ar">الوضع الداكن</span><span class="only-en">Dark mode</span></span></button>
+    <button type="button" class="legal-lang" id="legalLang">English</button>
+  </div>
+</header>
+
+<main class="nf" aria-live="polite">
+  <section data-stop-state="ask">
+    <h1><span class="only-ar">إيقاف الملخص التلقائي</span><span class="only-en">Stop the automatic summary</span></h1>
+    <p><span class="only-ar">سيتوقف إرسال الملخص والتنبيهات إلى بريدك، وتُحذف صلاحية القراءة المحفوظة لدينا فوراً. يمكنك تفعيله مجدداً في أي وقت من داخل الأداة.</span><span class="only-en">Summaries and alerts will stop, and the read access we keep will be deleted right away. You can turn it on again at any time inside the tool.</span></p>
+    <div class="cta-row">
+      <button type="button" class="btn btn-primary" id="stopBtn"><span class="only-ar">إيقاف الآن</span><span class="only-en">Stop now</span></button>
+      <a class="btn btn-ghost" href="/app"><span class="only-ar">دخول الأداة</span><span class="only-en">Open the tool</span></a>
+    </div>
+  </section>
+  <section data-stop-state="busy" hidden>
+    <h1><span class="only-ar">جارٍ الإيقاف…</span><span class="only-en">Stopping…</span></h1>
+  </section>
+  <section data-stop-state="done" hidden>
+    <h1><span class="only-ar">تم الإيقاف</span><span class="only-en">Stopped</span></h1>
+    <p><span class="only-ar">لن يصلك الملخص أو التنبيهات بعد الآن، وحُذفت صلاحية القراءة المحفوظة لدينا.</span><span class="only-en">You won't receive summaries or alerts anymore, and the stored read access has been deleted.</span></p>
+    <div class="cta-row"><a class="btn btn-ghost" href="/app"><span class="only-ar">دخول الأداة</span><span class="only-en">Open the tool</span></a></div>
+  </section>
+  <section data-stop-state="bad" hidden>
+    <h1><span class="only-ar">الرابط غير صالح</span><span class="only-en">This link isn't valid</span></h1>
+    <p><span class="only-ar">ربما نُسخ الرابط ناقصاً. استخدم رابط الإيقاف من آخر رسالة وصلتك، أو أوقف الملخص من داخل الأداة، أو راسلنا على <a href="mailto:support@adscenter.online">support@adscenter.online</a>.</span><span class="only-en">The link may have been copied incompletely. Use the stop link from the latest email you received, turn the summary off inside the tool, or email us at <a href="mailto:support@adscenter.online">support@adscenter.online</a>.</span></p>
+  </section>
+  <section data-stop-state="error" hidden>
+    <h1><span class="only-ar">تعذّر الإيقاف الآن</span><span class="only-en">Couldn't stop it right now</span></h1>
+    <p><span class="only-ar">حاول مرة أخرى بعد قليل، أو راسلنا على <a href="mailto:support@adscenter.online">support@adscenter.online</a> وسنوقفه لك.</span><span class="only-en">Please try again shortly, or email us at <a href="mailto:support@adscenter.online">support@adscenter.online</a> and we'll stop it for you.</span></p>
+    <div class="cta-row"><button type="button" class="btn btn-primary" id="stopRetry"><span class="only-ar">إعادة المحاولة</span><span class="only-en">Try again</span></button></div>
+  </section>
+</main>
+
+<script src="/js/stop.js"></script>
+<script src="/js/site.js"></script>
+</body>
+</html>

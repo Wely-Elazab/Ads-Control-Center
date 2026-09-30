@@ -111,6 +111,8 @@
   // فصل منصة = تسجيل خروج من الأداة بس: بيمسح إعلاناتها وحساباتها ومفتاح الدخول وآخر حساب محفوظ
   // من المتصفح ده. العميل بيفضل داخل على فيسبوك/Google نفسهم (مش شغلنا نخرّجه منهم)
   function disconnectPlatform(platform, quiet) {
+    // «فصل» Meta بيوقف الملخص التلقائي ويحذف مفاتيحه من السيرفر (سياسة الخصوصية، البند ٧) — قبل ما الجلسة تتمسح
+    if (platform === 'meta') digestDisconnect();
     beginLoad(platform); // أي رد لسه جاي من المنصة دي بيتجاهل
     loadingPlatforms[platform] = false;
     document.body.classList.toggle('is-loading', anyLoading());
@@ -683,9 +685,15 @@
   }
   // العرض ده بيتزامن؟ عرض حساب Meta لوحده بس («meta:act_1»)
   function syncableView(viewKey) { return typeof viewKey === 'string' && /^meta:act_\d{1,30}$/.test(viewKey); }
+  // الخطأ بيرجع بحالته ورمزه من السيرفر (e.code = 'email' / 'days' / 'not verified' …) عشان الرسالة تبقى دقيقة
   function syncCall(body) {
     return fetch(SYNC_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; e.code = j && j.error; throw e; }
+          return j;
+        });
+      });
   }
   // حساب Meta فتح الأداة (سجل عملاء التجربة) — مرة واحدة لكل حساب في الجلسة
   function syncSeen(accountId) {
@@ -748,6 +756,203 @@
     });
     dxRecompute();
   }
+
+  // ---------- الملخص التلقائي بالبريد (اختياري، لحسابات Meta بس — supabase/functions/sync/digest.ts) ----------
+  // الزرار بيظهر في عرض حساب Meta لوحده (والميزة كلها مخفية لحد ما DIGEST_ON). التفعيل بيبعت مفتاح Meta الحالي
+  // مرة واحدة: السيرفر بيبدّله بمفتاح طويل (٦٠ يوم) ويحفظه مشفّر. لما الأداة تتفتح والملخص مفعّل بنجدده بهدوء،
+  // و«فصل» Meta بيوقفه لكل حسابات صاحب الجلسة ويحذف مفاتيحها (سياسة الخصوصية، البند ٧)
+  function digestFresh(account) {
+    return { open: false, account: account || null, status: 'idle', data: null, editing: false, confirmOff: false, busy: false, msg: null, msgErr: false, draft: null };
+  }
+  var digestUi = digestFresh();
+  var digestRefreshed = {};
+  function digestAccount() { var m = /^meta:(act_\d{1,30})$/.exec(dxState.accountId || ''); return m ? m[1] : null; }
+  function digestCall(action, extra) {
+    var token = metaAccessToken(), account = digestAccount();
+    if (!token || !account) { var e = new Error('no session'); e.code = 'session'; return Promise.reject(e); }
+    return syncCall(Object.assign({ action: action, token: token, accountId: account }, extra || {}));
+  }
+  // «يومي الأحد والأربعاء» / «أيام الأحد، والثلاثاء، والخميس»
+  function digestDaysText(days) {
+    var names = (days || []).map(function (d) { return t('dx.auto.d' + d); });
+    return t(names.length === 2 ? 'dx.auto.days2' : 'dx.auto.daysN', { list: DX.listText(names) });
+  }
+  function digestHourText(h) {
+    var h12 = h % 12 === 0 ? 12 : h % 12;
+    return ar(h12 + ':00') + ' ' + t(h < 12 ? 'dx.auto.am' : 'dx.auto.pm');
+  }
+  function digestErrText(e) {
+    var c = e && e.code;
+    return t(c === 'email' ? 'dx.auto.err.email' : c === 'days' ? 'dx.auto.err.days' : (c === 'session' || c === 'not verified') ? 'dx.auto.err.session' : 'dx.auto.err.generic');
+  }
+  function digestPanelHtml() {
+    var u = digestUi, d = u.data || {}, s = d.settings, tz = d.timezone || (s && s.timezone) || '';
+    var head = '<h3>' + esc(t('dx.auto.title')) + '</h3>';
+    var msg = u.msg ? '<p class="dx-auto-msg' + (u.msgErr ? ' err' : '') + '" role="status">' + esc(u.msg) + '</p>' : '';
+    if (u.status === 'loading') return head + '<p>' + esc(t('dx.auto.loading')) + '</p>';
+    if (u.status === 'error') {
+      return head + '<p class="dx-auto-msg err" role="status">' + esc(u.msg || t('dx.auto.err.generic')) + '</p>' +
+        '<div class="dx-auto-actions"><button type="button" class="ghost-btn" data-digest-retry>' + esc(t('dx.auto.retry')) + '</button></div>';
+    }
+    if (s && s.enabled && !u.editing) {
+      var html = head + '<p class="dx-auto-on"><strong>' + esc(t('dx.auto.onLabel')) + '</strong> ' +
+        esc(t('dx.auto.on', { email: s.email, days: digestDaysText(s.days), hour: digestHourText(s.hour), tz: tz })) + '</p>';
+      if (d.tokenWorks === false) html += '<p class="dx-auto-msg err">' + esc(t('dx.auto.problem')) + '</p>';
+      else if (d.tokenExpiresAt) html += '<p>' + esc(t('dx.auto.expires', { date: fmtKey(String(d.tokenExpiresAt).slice(0, 10)) })) + '</p>';
+      html += u.confirmOff
+        ? '<p>' + esc(t('dx.auto.offConfirm')) + '</p><div class="dx-auto-actions">' +
+          '<button type="button" class="ghost-btn" data-digest-off-yes' + (u.busy ? ' disabled' : '') + '>' + esc(t('dx.auto.offYes')) + '</button>' +
+          '<button type="button" class="ghost-btn" data-digest-off-no>' + esc(t('dx.auto.offNo')) + '</button></div>'
+        : '<div class="dx-auto-actions"><button type="button" class="ghost-btn" data-digest-edit>' + esc(t('dx.auto.edit')) + '</button>' +
+          '<button type="button" class="ghost-btn" data-digest-off>' + esc(t('dx.auto.off')) + '</button></div>';
+      return html + msg;
+    }
+    // النموذج: تفعيل جديد أو تعديل. المسودة بتحفظ اللي العميل كتبه لو ظهرت رسالة خطأ
+    var cur = u.draft || (u.editing && s ? { email: s.email, days: s.days, hour: s.hour } : { email: '', days: [0, 3], hour: 9 });
+    var days = [0, 1, 2, 3, 4, 5, 6].map(function (i) {
+      var on = cur.days.indexOf(i) > -1;
+      return '<button type="button" class="dx-fb-reason' + (on ? ' on' : '') + '" data-digest-day="' + i + '" aria-pressed="' + on + '">' + esc(t('dx.auto.d' + i)) + '</button>';
+    }).join('');
+    var hours = '';
+    for (var h = 0; h < 24; h++) hours += '<option value="' + h + '"' + (h === cur.hour ? ' selected' : '') + '>' + esc(digestHourText(h)) + '</option>';
+    var form = head + '<p>' + esc(t('dx.auto.intro')) + '</p>' +
+      '<label class="dx-auto-field">' + esc(t('dx.auto.email')) +
+      '<input type="email" id="dxAutoEmail" autocomplete="email" dir="ltr" maxlength="254" value="' + esc(cur.email || '') + '"></label>' +
+      '<div class="dx-auto-field" role="group" aria-label="' + esc(t('dx.auto.days')) + '">' + esc(t('dx.auto.days')) + '<div class="dx-auto-days">' + days + '</div></div>' +
+      '<label class="dx-auto-field">' + esc(t('dx.auto.hour')) + '<select id="dxAutoHour">' + hours + '</select></label>' +
+      (tz ? '<p>' + esc(t('dx.auto.tz', { tz: tz })) + '</p>' : '');
+    if (!u.editing) {
+      form += '<label class="dx-auto-consent"><input type="checkbox" id="dxAutoConsent"' + (cur.consent ? ' checked' : '') + '><span>' +
+        esc(t('dx.auto.consent')) + ' <a href="/privacy" target="_blank" rel="noopener">' + esc(t('dx.auto.privacy')) + '</a></span></label>';
+    }
+    form += '<div class="dx-auto-actions"><button type="button" class="ghost-btn" data-digest-save' + (u.busy ? ' disabled' : '') + '>' +
+      esc(t(u.editing ? 'dx.auto.save' : 'dx.auto.enable')) + '</button>' +
+      (u.editing ? '<button type="button" class="ghost-btn" data-digest-cancel>' + esc(t('dx.auto.cancel')) + '</button>' : '') + '</div>';
+    return form + msg;
+  }
+  // الزرار والصندوق: بيتنادى مع كل رسم للملخص. الصندوق نفسه مش بيتعاد رسمه هنا (عشان ميمسحش اللي العميل بيكتبه)
+  function renderDigest() {
+    var btn = document.getElementById('dxAutoBtn'), panel = document.getElementById('dxAuto');
+    if (!btn || !panel) return;
+    var account = digestAccount();
+    var show = DIGEST_ON && dxState.status === 'ready' && !!account && !!metaAccessToken();
+    if (digestUi.account !== account) digestUi = digestFresh(account);
+    btn.hidden = !show;
+    var visible = show && digestUi.open;
+    btn.setAttribute('aria-expanded', visible ? 'true' : 'false');
+    panel.hidden = !visible;
+    if (!visible) panel.innerHTML = '';
+  }
+  function renderDigestPanel() {
+    var panel = document.getElementById('dxAuto');
+    if (panel && !panel.hidden) panel.innerHTML = digestPanelHtml();
+  }
+  function digestLoad() {
+    digestUi.status = 'loading';
+    digestUi.msg = null;
+    renderDigestPanel();
+    var account = digestUi.account;
+    digestCall('digest.get').then(function (res) {
+      if (digestUi.account !== account) return;
+      digestUi.data = res;
+      digestUi.status = 'ready';
+      renderDigestPanel();
+    }, function (e) {
+      if (digestUi.account !== account) return;
+      digestUi.status = 'error';
+      digestUi.msg = digestErrText(e);
+      renderDigestPanel();
+    });
+  }
+  function digestSave() {
+    var panel = document.getElementById('dxAuto');
+    if (!panel || digestUi.busy) return;
+    var email = ((panel.querySelector('#dxAutoEmail') || {}).value || '').trim();
+    var days = Array.prototype.map.call(panel.querySelectorAll('[data-digest-day].on'), function (x) { return Number(x.getAttribute('data-digest-day')); });
+    var hour = Number((panel.querySelector('#dxAutoHour') || {}).value);
+    var consent = !!(panel.querySelector('#dxAutoConsent') || {}).checked, editing = digestUi.editing;
+    digestUi.draft = { email: email, days: days, hour: hour, consent: consent };
+    var fail = function (key) { digestUi.msg = t(key); digestUi.msgErr = true; renderDigestPanel(); };
+    if (!/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(email)) return fail('dx.auto.err.email');
+    if (days.length < 2) return fail('dx.auto.err.days');
+    if (!editing && !consent) return fail('dx.auto.err.consent');
+    digestUi.busy = true;
+    digestUi.msg = null;
+    renderDigestPanel();
+    var extra = { email: email, days: days, hour: hour, lang: isAr() ? 'ar' : 'en' };
+    if (!editing) extra.consent = true;
+    digestCall(editing ? 'digest.update' : 'digest.enable', extra).then(function (res) {
+      digestUi.busy = false;
+      digestUi.editing = false;
+      digestUi.draft = null;
+      digestUi.data = Object.assign({}, digestUi.data || {}, { settings: res.settings }, res.tokenExpiresAt ? { tokenExpiresAt: res.tokenExpiresAt, tokenWorks: true } : {});
+      digestUi.msg = t(editing ? 'dx.auto.updated' : 'dx.auto.saved');
+      digestUi.msgErr = false;
+      renderDigestPanel();
+    }, function (e) {
+      digestUi.busy = false;
+      digestUi.msg = digestErrText(e);
+      digestUi.msgErr = true;
+      renderDigestPanel();
+    });
+  }
+  function digestOff() {
+    if (digestUi.busy) return;
+    digestUi.busy = true;
+    renderDigestPanel();
+    digestCall('digest.disable').then(function () {
+      digestUi.busy = false;
+      digestUi.confirmOff = false;
+      digestUi.data = Object.assign({}, digestUi.data || {}, { settings: null, tokenExpiresAt: null, tokenWorks: null });
+      digestUi.msg = t('dx.auto.stopped');
+      digestUi.msgErr = false;
+      renderDigestPanel();
+    }, function (e) {
+      digestUi.busy = false;
+      digestUi.msg = digestErrText(e);
+      digestUi.msgErr = true;
+      renderDigestPanel();
+    });
+  }
+  // لما حساب Meta يتفتح: لو الملخص مفعّل له، السيرفر بيجدد المفتاح المحفوظ (مرة في الجلسة) — بيفضل صالح طول ما العميل بيستخدم الأداة
+  function digestAutoRefresh(accountId) {
+    if (!DIGEST_ON || !/^act_\d{1,30}$/.test(accountId || '') || digestRefreshed[accountId]) return;
+    var token = metaAccessToken();
+    if (!token) return;
+    digestRefreshed[accountId] = true;
+    syncCall({ action: 'digest.refresh', token: token, accountId: accountId }).catch(function () { digestRefreshed[accountId] = false; });
+  }
+  // «فصل» Meta: السيرفر بيمسح مفاتيح كل الحسابات اللي صاحب الجلسة فعّل لها الملخص. لو الاتصال فشل،
+  // رابط الإيقاف في آخر كل رسالة بيعمل نفس الحاجة
+  function digestDisconnect() {
+    var token = metaAccessToken();
+    digestRefreshed = {};
+    digestUi = digestFresh();
+    if (token) syncCall({ action: 'digest.disconnect', token: token }).catch(function () { /* رابط الإيقاف */ });
+  }
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest) return;
+    var el;
+    if (e.target.closest('#dxAutoBtn')) {
+      digestUi.open = !digestUi.open;
+      digestUi.msg = null;
+      renderDigest();
+      if (digestUi.open) { if (digestUi.status === 'idle' || digestUi.status === 'error') digestLoad(); else renderDigestPanel(); }
+      return;
+    }
+    if (!e.target.closest('#dxAuto')) return;
+    if ((el = e.target.closest('[data-digest-day]'))) {
+      var on = !el.classList.contains('on');
+      el.classList.toggle('on', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    } else if (e.target.closest('[data-digest-save]')) digestSave();
+    else if (e.target.closest('[data-digest-edit]')) { digestUi.editing = true; digestUi.draft = null; digestUi.msg = null; renderDigestPanel(); }
+    else if (e.target.closest('[data-digest-cancel]')) { digestUi.editing = false; digestUi.draft = null; digestUi.msg = null; renderDigestPanel(); }
+    else if (e.target.closest('[data-digest-off]')) { digestUi.confirmOff = true; digestUi.msg = null; renderDigestPanel(); }
+    else if (e.target.closest('[data-digest-off-no]')) { digestUi.confirmOff = false; renderDigestPanel(); }
+    else if (e.target.closest('[data-digest-off-yes]')) digestOff();
+    else if (e.target.closest('[data-digest-retry]')) digestLoad();
+  });
   var dxFbOpen = null;   // البلوك اللي نموذج «ما الذي حدث فعلاً؟» مفتوح فيه (رقمه)
   function dxFbAll() {
     try { var v = JSON.parse(localStorage.getItem(DX_FB_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
@@ -885,6 +1090,7 @@
   function renderDiagnosis() {
     var sec = document.getElementById('storeSec');
     if (!sec) return;
+    renderDigest();
     var show = DX_ON && PLATFORMS.some(isConnected) && dxState.status !== 'idle';
     sec.hidden = !show;
     if (!show) return;

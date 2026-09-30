@@ -1393,7 +1393,7 @@
         eq(w.REWRITES, {
           '/': '/home.html', '/index.html': '/home.html', '/app': '/pauseproof-live.html',
           '/help': '/help.html', '/privacy': '/privacy.html', '/terms': '/terms.html', '/data-deletion': '/data-deletion.html',
-          '/favicon.ico': '/favicon.svg'
+          '/stop': '/stop.html', '/favicon.ico': '/favicon.svg'
         }, 'rewrites');
         eq(w.REDIRECTS['/home'], { destination: '/', permanent: true }, 'old /home');
         ['X-Content-Type-Options', 'Referrer-Policy', 'X-Frame-Options', 'Permissions-Policy', 'Strict-Transport-Security', 'Content-Security-Policy'].forEach(function (h) {
@@ -2582,6 +2582,139 @@
           ok(/connect-src[^;]*https:\/\/rhrrnxsgodiideqeollo\.supabase\.co/.test(w.SECURITY_HEADERS['Content-Security-Policy']), 'CSP allows the sync function');
         });
       }).then(null, function (e) { window.fetch = realFetch; throw e; });
+    });
+  });
+
+  // ---------- الملخص التلقائي بالبريد (supabase/functions/sync/digest.ts) ----------
+  describe('الملخص التلقائي بالبريد', function () {
+    var ok200 = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
+    var tick2 = function () { return new Promise(function (r) { setTimeout(r, 0); }).then(function () { return new Promise(function (r) { setTimeout(r, 0); }); }); };
+    var ON = { email: 'owner@store.com', enabled: true, days: [0, 3], hour: 9, timezone: 'Asia/Kuwait', lang: 'ar' };
+    // بيئة معزولة: جلسة Meta وهمية + fetch وهمي + الميزة ظاهرة + عرض حساب Meta جاهز، وبعدها كل حاجة بترجع
+    var withDigest = function (serve, fn) {
+      var realFetch = window.fetch, hadFB = 'FB' in window, realFB = window.FB, realOn = DIGEST_ON, calls = [];
+      window.FB = { getAuthResponse: function () { return { accessToken: 'tok-test-1234567890' }; } };
+      window.fetch = function (url, opts) { var body = opts && opts.body ? JSON.parse(opts.body) : null; calls.push(body); return serve(body || {}); };
+      DIGEST_ON = true; digestUi = digestFresh(); digestRefreshed = {};
+      dxState = dxFresh(); dxState.status = 'ready'; dxState.accountId = 'meta:act_1';
+      var restore = function () {
+        window.fetch = realFetch;
+        if (hadFB) window.FB = realFB; else delete window.FB;
+        DIGEST_ON = realOn; digestUi = digestFresh(); digestRefreshed = {}; dxReset(); renderDigest();
+      };
+      return Promise.resolve().then(function () { return fn(calls); }).then(function (v) { restore(); return v; }, function (e) { restore(); throw e; });
+    };
+    var btn = function () { return document.getElementById('dxAutoBtn'); };
+    var panel = function () { return document.getElementById('dxAuto'); };
+    var openPanel = function () { renderDigest(); btn().click(); return tick2(); };
+
+    testAsync('الزرار بيظهر في عرض حساب Meta لوحده مع جلسة Meta، ومخفي لو الميزة مقفولة', function () {
+      return withDigest(function () { return ok200({}); }, function () {
+        renderDigest();
+        ok(!btn().hidden, 'meta view');
+        dxState.accountId = 'all:meta:act_1,google:1'; renderDigest();
+        ok(btn().hidden, 'not on «all platforms»');
+        dxState.accountId = 'google:123'; renderDigest();
+        ok(btn().hidden, 'not on Google');
+        dxState.accountId = 'meta:act_1'; DIGEST_ON = false; renderDigest();
+        ok(btn().hidden, 'hidden while the feature is off');
+      });
+    });
+    testAsync('فتح الصندوق: بيجيب الحالة من السيرفر، والنموذج بالأحد والأربعاء ٩ صباحاً افتراضياً', function () {
+      return withDigest(function () { return ok200({ settings: null, timezone: 'Asia/Kuwait' }); }, function (calls) {
+        return openPanel().then(function () {
+          eq([calls[0].action, calls[0].accountId, calls[0].token], ['digest.get', 'act_1', 'tok-test-1234567890']);
+          ok(!panel().hidden && panel().querySelector('#dxAutoEmail'), 'form shown');
+          eq(Array.prototype.map.call(panel().querySelectorAll('[data-digest-day].on'), function (x) { return x.getAttribute('data-digest-day'); }), ['0', '3']);
+          eq(panel().querySelector('#dxAutoHour').value, '9');
+          ok(panel().textContent.indexOf('Asia/Kuwait') > -1, 'account time zone shown');
+          ok(panel().querySelector('#dxAutoConsent') && !panel().querySelector('#dxAutoConsent').checked, 'consent unticked by default');
+        });
+      });
+    });
+    testAsync('التحقق قبل الإرسال: بريد غير صحيح، أو يوم واحد، أو من غير موافقة — مفيش أي طلب', function () {
+      return withDigest(function () { return ok200({ settings: null, timezone: 'Asia/Kuwait' }); }, function (calls) {
+        return openPanel().then(function () {
+          withLang('ar', function () {
+            var save = function () { panel().querySelector('[data-digest-save]').click(); return panel().querySelector('.dx-auto-msg.err').textContent; };
+            panel().querySelector('#dxAutoEmail').value = 'owner-at-store';
+            eq(save(), t('dx.auto.err.email'));
+            panel().querySelector('#dxAutoEmail').value = 'owner@store.com';
+            panel().querySelector('[data-digest-day="3"]').click();   // يفضل الأحد بس
+            eq(save(), t('dx.auto.err.days'));
+            panel().querySelector('[data-digest-day="3"]').click();
+            eq(save(), t('dx.auto.err.consent'));
+            eq(panel().querySelector('#dxAutoEmail').value, 'owner@store.com', 'what the owner typed is kept');
+          });
+          eq(calls.length, 1, 'only the status request');
+        });
+      });
+    });
+    testAsync('التفعيل: بيبعت البريد والأيام والساعة والموافقة الصريحة، ويعرض «مفعّل»', function () {
+      return withDigest(function (b) {
+        if (b.action === 'digest.get') return ok200({ settings: null, timezone: 'Asia/Kuwait' });
+        return ok200({ ok: true, settings: ON, tokenExpiresAt: '2026-11-27T20:42:24Z' });
+      }, function (calls) {
+        return openPanel().then(function () {
+          panel().querySelector('#dxAutoEmail').value = ' owner@store.com ';
+          panel().querySelector('[data-digest-day="2"]').click();
+          panel().querySelector('#dxAutoHour').value = '8';
+          panel().querySelector('#dxAutoConsent').checked = true;
+          panel().querySelector('[data-digest-save]').click();
+          return tick2();
+        }).then(function () {
+          var c = calls[1];
+          eq([c.action, c.email, c.days, c.hour, c.consent], ['digest.enable', 'owner@store.com', [0, 2, 3], 8, true]);
+          withLang('ar', function () {
+            ok(panel().textContent.indexOf(t('dx.auto.onLabel')) > -1 && panel().textContent.indexOf('owner@store.com') > -1, 'shows it is on');
+            ok(panel().textContent.indexOf(t('dx.auto.saved')) > -1, 'confirmation message');
+          });
+        });
+      });
+    });
+    testAsync('الإيقاف بعد تأكيد: بيبعت digest.disable، ويرجع للنموذج برسالة «حُذفت الصلاحية»', function () {
+      return withDigest(function (b) {
+        if (b.action === 'digest.get') return ok200({ settings: ON, tokenExpiresAt: '2026-11-27T20:42:24Z', tokenWorks: true, timezone: 'Asia/Kuwait' });
+        return ok200({ ok: true });
+      }, function (calls) {
+        return openPanel().then(function () {
+          panel().querySelector('[data-digest-off]').click();
+          withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.offConfirm')) > -1, 'asks first'); });
+          eq(calls.length, 1, 'nothing sent before confirming');
+          panel().querySelector('[data-digest-off-yes]').click();
+          return tick2();
+        }).then(function () {
+          eq(calls[1].action, 'digest.disable');
+          ok(panel().querySelector('#dxAutoEmail'), 'back to the form');
+          withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.stopped')) > -1, 'says the access was deleted'); });
+        });
+      });
+    });
+    testAsync('صلاحية محفوظة مش شغالة: الصندوق بيقول كده بدل تاريخ الانتهاء', function () {
+      return withDigest(function () { return ok200({ settings: ON, tokenExpiresAt: '2026-11-27T20:42:24Z', tokenWorks: false, timezone: 'Asia/Kuwait' }); }, function () {
+        return openPanel().then(function () {
+          withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.problem')) > -1, 'problem shown'); });
+        });
+      });
+    });
+    testAsync('فتح حساب Meta بيجدد المفتاح مرة في الجلسة، و«فصل» Meta بيطلب حذف كل مفاتيح صاحب الجلسة', function () {
+      return withDigest(function () { return ok200({ ok: true }); }, function (calls) {
+        digestAutoRefresh('act_1'); digestAutoRefresh('act_1');
+        eq(calls.map(function (c) { return c.action + ':' + c.accountId; }), ['digest.refresh:act_1']);
+        DIGEST_ON = false; digestAutoRefresh('act_2'); DIGEST_ON = true;
+        eq(calls.length, 1, 'no refresh while the feature is off');
+        disconnectPlatform('meta', true);
+        var last = calls[calls.length - 1];
+        eq([last.action, last.token, 'accountId' in last], ['digest.disconnect', 'tok-test-1234567890', false]);
+      });
+    });
+    testAsync('صفحة /stop موجودة ومربوطة (الرابط في آخر كل رسالة)', function () {
+      return Promise.all([import('/cloudflare/worker.js'), fetch('/stop.html').then(function (r) { return r.text(); })]).then(function (r) {
+        eq(r[0].REWRITES['/stop'], '/stop.html');
+        var doc = new DOMParser().parseFromString(r[1], 'text/html');
+        ok(doc.querySelector('script[src="/js/stop.js"]') && doc.querySelector('#stopBtn'), 'page wired to its script');
+        eq(doc.querySelector('meta[name="referrer"]').getAttribute('content'), 'no-referrer', 'the signed link never leaks');
+      });
     });
   });
 

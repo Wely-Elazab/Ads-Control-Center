@@ -421,6 +421,8 @@
       publish(true);
       // سجل عملاء التجربة (js/ui.js → Supabase): الحساب ده فتح الأداة — مرة في الجلسة، ولو فشل مفيش أي أثر
       if (typeof syncSeen === 'function') syncSeen(accountId);
+      // لو الملخص التلقائي مفعّل للحساب ده: تجديد المفتاح المحفوظ على السيرفر (مرة في الجلسة)
+      if (typeof digestAutoRefresh === 'function') digestAutoRefresh(accountId);
       // ملخص المتجر بيبدأ بعد ما الأرقام تظهر (مش قبلها) — عشان طلباته متأخرش الكروت
       loadMetaDiagnosis(accountId, info, live);
       if (showStopped) stage3();
