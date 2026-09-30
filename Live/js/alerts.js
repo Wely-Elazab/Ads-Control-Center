@@ -218,7 +218,10 @@
     // غير كده ملاحظاته بتفضل ظاهرة في تفاصيله، بس كـ"للعلم" من غير ما تبقى تنبيه أو تلوّن الإعلان
     var adSpend = c.spend || 0;
     var accountCpr = group && group.results > 0 ? group.avgCpr : null;
-    var material = (acc.total7 > 0 && adSpend / acc.total7 >= s.minSpendShare) || (accountCpr != null && adSpend >= accountCpr);
+    // الشرط التاني بيحتاج كمان ربع النسبة على الأقل: في نتائج رخيصة جداً (الوصول، المشاهدات) «تكلفة نتيجة واحدة»
+    // أقل من سنت، فكل إعلان صغير كان بيبقى «مهم» — إعلانات بـ١ في الأسبوع (٠٫١٪ من الحساب) كانت بتطلع تنبيهات
+    var share = acc.total7 > 0 ? adSpend / acc.total7 : 0;
+    var material = share >= s.minSpendShare || (accountCpr != null && adSpend >= accountCpr && share >= s.minSpendShare / 4);
     function done() { return finalize(c, material ? issues : issues.map(minor)); }
 
     // 1) الإعلانات المتوقفة: مفيش تنبيهات على الوقوف المقصود. التنبيه بيطلع بس لو الإعلان كان بيصرف
@@ -355,7 +358,8 @@
     var priorSpendDays = daily.slice(0, YESTERDAY).filter(function (v) { return v > 0; }).length;
     if (!learning && !wasteRaised && priorSpendDays >= 3 && prevSpendAvg > 0 && spendY >= prevSpendAvg * s.spikeMultiple) {
       var yCpr = resY > 0 ? spendY / resY : null;
-      if (!avgCpr || yCpr == null || yCpr > avgCpr) {
+      // «النتائج مزادتش معاه» = تكلفة النتيجة أمس أعلى بوضوح (نفس حد «تكلفة مرتفعة») — مش أعلى من المتوسط بسنت
+      if (!avgCpr || yCpr == null || yCpr > avgCpr * s.cprWarnMultiple) {
         issues.push(makeIssue('warning', ['spend'], t('al.spike.t'),
           t('al.spike.d', { name: name, spend: money(spendY), times: global.I18N ? global.I18N.timesPhrase(spendY / prevSpendAvg, fmt.num) : fmt.num(spendY / prevSpendAvg) + '×', avg: money(prevSpendAvg) }),
           t('al.spike.a'), spendY - prevSpendAvg, 'spike'));

@@ -415,6 +415,17 @@
       var i = issuesOf(engine(baseAccount().concat([many])), 'many').filter(function (x) { return x.code === 'cpr'; })[0];
       ok(i && i.level === 'critical', 'ten purchases at ~2.7x the average');
     });
+    test('إعلان وصول بـ٥ في الأسبوع (٠٫٤٪ من الحساب) = «للعلم» بس حتى لو صرفه أكبر من تكلفة نتيجة واحدة (حالة حقيقية)', function () {
+      var reach = ad('rc', { daily: [0.06, 2.01, 2.36, 0.41, 0.4, 0, 0.05], res: [66, 3021, 3532, 639, 597, 0, 94], key: 'reach' });
+      var list = issuesOf(engine(baseAccount().concat([reach])), 'rc');
+      ok(list.length && list.every(function (i) { return i.level === 'info' && i.minor; }), list.map(function (i) { return i.level + ':' + i.code; }).join(' '));
+    });
+    test('صرف أعلى من المعتاد: بس لو تكلفة النتيجة أمس أعلى بوضوح، مش أعلى من المتوسط بقليل', function () {
+      var fine = ad('sf', { daily: [100, 100, 100, 100, 100, 250, 50], res: [5, 5, 5, 5, 5, 10, 2] });
+      ok(!issuesOf(engine(baseAccount().concat([fine])), 'sf').some(function (i) { return i.code === 'spike'; }), 'results kept up');
+      var bad = ad('sb', { daily: [100, 100, 100, 100, 100, 250, 50], res: [5, 5, 5, 5, 5, 3, 2] });
+      ok(issuesOf(engine(baseAccount().concat([bad])), 'sb').some(function (i) { return i.code === 'spike'; }), 'cost per result jumped');
+    });
     test('فرصة زيادة الاستثمار على آخر ٣ أيام مش يوم واحد', function () {
       var oneDay = ad('od', { daily: steady(100), res: [5, 5, 5, 0, 0, 12, 3] });
       ok(!issuesOf(engine(baseAccount().concat([oneDay])), 'od').some(function (i) { return i.code === 'scale'; }), 'one great day');
