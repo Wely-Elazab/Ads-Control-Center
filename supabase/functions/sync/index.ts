@@ -9,6 +9,7 @@
 //   testmail  ← { token } لمدير التطبيق بس: رسالة تجريبية لـ support@adscenter.online (العنوان ثابت — مش بياخد مستلم)
 //   run       ← pg_cron كل ساعة، بهيدر x-runner-key (مفتاح عشوائي في Vault): فحص التنبيهات العاجلة (runner.ts)
 //   digest.preview ← { token, accountId, lang } لمدير التطبيق بس: الرسالة العاجلة اللي كانت هتتبعت دلوقتي، من غير إرسال
+//   digest.previewSummary ← { token, accountId, lang, since?, until? } لمدير التطبيق بس: رسالة الملخص، من غير إرسال
 //
 // الأمان: الدالة عامة (verify_jwt = false) لأن الأداة مفيهاش حسابات دخول خاصة بيها. بدل كده كل طلب فيه
 // مفتاح Meta بتاع صاحب المتجر، والدالة بتسأل Meta نفسها إن المفتاح ده عنده صلاحية على الحساب الإعلاني
@@ -19,7 +20,7 @@
 
 import { META_ID, TOKEN, corsHeaders, reply, db, rpc, metaAccount, isAppAdmin, str, sendEmail, mailHtml, MAIL_REPLY_TO } from './lib.ts';
 import { handleDigest } from './digest.ts';
-import { runAll, preview } from './runner.ts';
+import { runAll, preview, previewSummary } from './runner.ts';
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
@@ -124,11 +125,13 @@ Deno.serve(async (req: Request) => {
 
     if (typeof body.token !== 'string' || !TOKEN.test(body.token)) return reply(400, { error: 'token' }, origin);
 
-    if (action === 'digest.preview') {
+    if (action === 'digest.preview' || action === 'digest.previewSummary') {
       const admin = await isAppAdmin(body.token);
       if (!admin) return reply(admin === null ? 503 : 403, { error: 'admins only' }, origin);
       if (typeof body.accountId !== 'string' || !META_ID.test(body.accountId)) return reply(400, { error: 'account' }, origin);
-      return reply(200, await preview(body.token, body.accountId, body.lang === 'en' ? 'en' : 'ar'), origin);
+      const lang = body.lang === 'en' ? 'en' : 'ar';
+      if (action === 'digest.preview') return reply(200, await preview(body.token, body.accountId, lang), origin);
+      return reply(200, await previewSummary(body.token, body.accountId, lang, str(body.since, 10) || undefined, str(body.until, 10) || undefined), origin);
     }
 
     if (typeof action === 'string' && action.indexOf('digest.') === 0) return await handleDigest(action, body, origin);

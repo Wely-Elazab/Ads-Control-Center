@@ -119,6 +119,16 @@ async function getSettings(account: string): Promise<any | null> {
   const rows = await r.json();
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
 }
+// أمس بتوقيت الحساب: وقت التفعيل بيتسجّل كأنه «آخر ملخص غطّى لحد أمس» — فأول ملخص بييجي في ميعاده الجاي
+// (مش بعد التفعيل بساعة لو التفعيل حصل يوم ملخص بعد ساعته)، ويغطي الأيام من يوم التفعيل
+function yesterdayIn(tz: string): string {
+  let today = '';
+  try { today = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
+  catch (_) { today = new Date().toISOString().slice(0, 10); }
+  const d = new Date(today + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
 function publicSettings(s: any) {
   return { email: s.email, enabled: s.enabled !== false, days: s.summary_days, hour: s.summary_hour, timezone: s.timezone, lang: s.lang };
 }
@@ -263,7 +273,7 @@ export async function handleDigest(action: string, body: any, origin: string | n
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
     const row = { account_id: account, email, enabled: true, summary_days: days, summary_hour: hour,
       timezone: acc.timezone_name || 'Asia/Riyadh', lang: body.lang === 'en' ? 'en' : 'ar',
-      consent_at: now, consent_version: CONSENT_VERSION, updated_at: now };
+      consent_at: now, consent_version: CONSENT_VERSION, updated_at: now, last_summary_until: yesterdayIn(acc.timezone_name || 'Asia/Riyadh') };
     await db('digest_settings?on_conflict=account_id', { method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(row) });
     await mailEnabled(account, acc.name, row);
     return reply(200, { ok: true, settings: publicSettings(row), tokenExpiresAt: expiresAt }, origin);

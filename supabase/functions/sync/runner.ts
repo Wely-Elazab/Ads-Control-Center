@@ -1,6 +1,10 @@
-// المُشغّل: فحص التنبيهات العاجلة كل ساعة لكل حساب مفعّل له الملخص التلقائي (pg_cron → action: run)
+// المُشغّل: كل ساعة لكل حساب مفعّل له الملخص التلقائي (pg_cron → action: run):
+//   - فحص التنبيهات العاجلة (مش بالليل)
+//   - الملخص في الأيام والساعة اللي العميل اختارها بتوقيت الحساب: الأيام من آخر ملخص، مقارنةً بالفترة اللي قبلها
+//     مباشرةً بنفس الطول، + التعديلات على الإعلانات ونتيجتها + حالة التنبيهات العاجلة («حُلّت/مستمرة»).
+//     مبنحفظش محتوى الملخص — آخر يوم غطّاه بس (last_summary_until)
 //
-// المحرك هو نفسه اللي في الأداة (js/i18n.js + alerts.js + core.js + meta.js) — مش نسخة تانية منه، عشان اللي
+// المحرك هو نفسه اللي في الأداة (js/i18n.js + alerts.js + core.js + diagnosis.js + meta.js) — مش نسخة تانية منه، عشان اللي
 // بيوصل بالبريد يطابق اللي العميل بيشوفه في الأداة بالظبط. الملفات دي سكريبتات متصفح بتتشارك النطاق العام،
 // فبتتحمّل بـ eval غير مباشر (نفس النطاق العام) مع بدائل بسيطة للمتصفح (document وlocalStorage وFB.api).
 // بتتجاب من GitHub على commit ثابت (ENGINE_COMMIT): محتواه مقفول برقمه، فمحدش يقدر يغيّر الكود اللي بيشتغل
@@ -12,17 +16,18 @@
 // العنصر أو مشكلة «مهمة» بقت «عاجلة» — دي بصمة جديدة فبتتبعت. مبنحفظش أي أرقام — النوع والعنصر والتواريخ بس.
 
 import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
-import { unseal, stopUrl, accountName } from './digest.ts';
+import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
 
-const ENGINE_COMMIT = '1390562bbaededab2d8ebcceb7c646edafd377f8';
-const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'meta.js'];
+const ENGINE_COMMIT = '6b423811fcaaa7fdc4042623534ccb5e11588d5a';
+const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
 const QUIET_FROM = 23, QUIET_UNTIL = 7;   // مفيش رسائل بالليل بتوقيت الحساب — اللي يظهر بالليل بيتبعت ٧ الصبح لو لسه قائم
 const REMIND_AFTER_MS = 48 * 3600000;     // تذكير واحد بس، لو المشكلة استمرت يومين بعد أول رسالة
 const RESOLVE_AFTER_MS = 24 * 3600000;    // «اتحلّت» = مظهرتش ٢٤ ساعة كاملة (اختفاء ساعة ورجوع = نفس المشكلة)
 const EXPIRY_WARN_MS = 5 * 86400000;      // صلاحية Meta هتخلص خلال ٥ أيام → رسالة واحدة تطلب فتح الأداة
-const TIME_BUDGET_MS = 110000;            // حد الدالة ١٥٠ ثانية — منبدأش حساب بعد كده، والباقي الساعة الجاية
+const TIME_BUDGET_MS = 110000;            // حد الدالة ١٥٠ ثانية — منبدأش حساب بعد كده، والباقي في التشغيل الجاي (بعد ١٠ دقايق)
+const URGENT_EVERY_MS = 50 * 60000;       // الفحص العاجل مرة في الساعة تقريباً لكل حساب (التشغيل نفسه كل ١٠ دقايق)
 const SYSTEM_KINDS: Record<string, boolean> = { connection: true, expiry: true };
 
 const g = globalThis as any;
@@ -100,7 +105,8 @@ function loadEngine(): Promise<string[]> {
       }));
       installShims();
       for (const src of texts) (0, eval)(src);
-      if (!g.PauseProofAlerts || !g.I18N || typeof g.transformRealAd !== 'function' || typeof g.adsPromise !== 'function') throw new Error('engine incomplete');
+      if (!g.PauseProofAlerts || !g.I18N || !g.DX || typeof g.transformRealAd !== 'function' || typeof g.adsPromise !== 'function' ||
+        typeof g.metaDiagnosisInput !== 'function' || typeof g.metaActivities !== 'function') throw new Error('engine incomplete');
       const live = await Promise.all(ENGINE_FILES.map((f) => fetch(SITE + '/js/' + f).then((r) => (r.ok ? r.text() : null)).catch(() => null)));
       const norm = (s: string) => s.replace(/\r\n/g, '\n');
       return ENGINE_FILES.filter((_f, i) => live[i] != null && norm(live[i] as string) !== norm(texts[i]));
@@ -296,12 +302,158 @@ function expiryMail(name: string, expiresAt: string, tz: string, en: boolean, st
   return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
 }
 
+// ---------- الملخص ----------
+const DOW: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+function localParts(tz: string): { key: string; dow: number; hour: number } {
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: 'numeric', hourCycle: 'h23' }).formatToParts(new Date());
+  } catch (_) { return localParts('UTC'); }
+  const p: Record<string, string> = {};
+  parts.forEach((x) => { p[x.type] = x.value; });
+  return { key: p.year + '-' + p.month + '-' + p.day, dow: DOW[p.weekday], hour: Number(p.hour) % 24 };
+}
+// الفترة: من اليوم اللي بعد آخر ملخص لحد أمس. أول ملخص (أو بعد انقطاع طويل): الأيام من آخر يوم ملخص في الجدول
+// (الأربعاء بعد الأحد = الأحد–الثلاثاء، والأحد بعد الأربعاء = الأربعاء–السبت)
+function summaryWindow(days: number[], last: string | null, today: string, dow: number): { since: string; until: string } | null {
+  const until = g.shiftKey(today, -1);
+  if (last && last >= until) return null;
+  let since: string;
+  if (last && g.keyDiffDays(last, until) <= 14) since = g.shiftKey(last, 1);
+  else {
+    let gap = 7;
+    for (let i = 1; i <= 7; i++) if (days.indexOf((dow - i + 7) % 7) > -1) { gap = i; break; }
+    since = g.shiftKey(today, -gap);
+  }
+  return { since: since > until ? until : since, until };
+}
+// ميعاد الملخص: يوم من أيامه، والساعة عدّت ساعته (الميعاد فات = يتبعت في أول تشغيل بعده)، ومفيش ملخص غطّى أمس
+function summaryDue(s: Settings): { since: string; until: string } | null {
+  const lp = localParts(s.timezone || 'UTC');
+  const days = (s.summary_days || []).map(Number);
+  if (days.indexOf(lp.dow) < 0 || lp.hour < (s.summary_hour == null ? 9 : s.summary_hour)) return null;
+  return summaryWindow(days, s.last_summary_until, lp.key, lp.dow);
+}
+async function feedbackOf(account: string): Promise<any[]> {
+  const r = await db('feedback?select=block,since,until,verdict,reasons,note&view_key=eq.' + encodeURIComponent('meta:' + account) + '&limit=200', { method: 'GET' }).catch(() => null);
+  const rows = r ? await r.json().catch(() => null) : null;
+  return Array.isArray(rows) ? rows : [];
+}
+// التقرير (DX) + التعديلات ونتيجتها. لو سجل التعديلات فشل، الملخص بيكمّل من غيره
+async function buildSummary(accountId: string, acct: Acct, since: string, until: string): Promise<{ composed: any; actions: any }> {
+  const tz = acct.timezone_name || 'UTC';
+  const input = await g.metaDiagnosisInput(accountId, since, until, true);
+  input.currency = acct.currency || null;
+  input.timezone = tz;
+  input.feedback = await feedbackOf(accountId);
+  const composed = g.DX.compose(g.DX.analyze(input), { mail: true });
+  let actions = null;
+  try {
+    const acts = await g.metaActivities(accountId, g.shiftKey(since, -12));
+    if (!acts.err) {
+      const groups = g.DX.actionGroups(acts.data, tz, since, until);
+      const from = g.DX.actionsFrom(groups);
+      const objDaily = groups.length ? await g.metaObjectDaily(accountId, groups, from && from < since ? from : since, until) : {};
+      actions = g.DX.composeActions(g.DX.evalActions(groups, objDaily, input.daily, until), acct.currency || null);
+    }
+  } catch (e) {
+    console.error('summary actions failed', String((e as Error).message || e).slice(0, 200));
+  }
+  return { composed, actions };
+}
+
+const TONE_COLOR: Record<string, string> = { good: '#15803d', bad: '#b91c1c', mixed: '#c2410c', neutral: '#374151' };
+const KIND_COLOR: Record<string, string> = {
+  urgent: '#b91c1c', why: '#2563eb', decision: '#b91c1c', watch: '#c2410c', opportunity: '#15803d', follow: '#6b7280', note: '#9ca3af', actions: '#7c3aed'
+};
+const P = (html: string, extra = '') => '<p style="margin:0 0 6px;line-height:1.8' + (extra ? ';' + extra : '') + '">' + html + '</p>';
+const MUTED = 'color:#6b7280;font-size:14px';
+function blockHtml(b: any): string {
+  const t = g.I18N.t;
+  let h = '<div style="border-inline-start:4px solid ' + (KIND_COLOR[b.kind] || '#9ca3af') + ';padding:2px 12px;margin:0 0 20px">';
+  if (b.title) h += P(esc(b.title), 'font-weight:700');
+  (b.lines || []).forEach((l: string) => { h += P(esc(l)); });
+  if (b.bullets && b.bullets.length) {
+    h += '<ul style="margin:0 0 6px;padding-inline-start:20px">' + b.bullets.map((x: string) => '<li style="line-height:1.8">' + esc(x) + '</li>').join('') + '</ul>';
+  }
+  (b.items || []).forEach((it: any) => {
+    h += '<div style="border-inline-start:3px solid ' + (TONE_COLOR[it.tone] || '#9ca3af') + ';padding:0 10px;margin:10px 0">' +
+      P(esc(it.title), 'font-weight:700') + P(esc(it.meta), MUTED) + it.lines.map((l: string) => P(esc(l))).join('') + '</div>';
+  });
+  (b.after || []).forEach((l: string) => { h += P(esc(l), b.kind === 'actions' ? MUTED : ''); });
+  if (b.causes && b.causes.length) h += P(esc(t('dx.causes') + ' ' + g.DX.listText(b.causes) + '.'));
+  if (b.check) h += P('<strong>' + esc(t('dx.check')) + '</strong> ' + esc(b.check));
+  if (b.next) h += P('<strong>' + esc(t('dx.next')) + '</strong> ' + esc(b.next));
+  return h + '</div>';
+}
+const KIND_TITLE: Record<string, string> = {
+  waste: 'al.waste.t', 'waste-early': 'al.wasteEarly.t', loss: 'al.loss.t', stopped: 'al.stopped.t', cpr: 'al.cpr.t', fatigue: 'al.fatigue.t',
+  'acct-status': 'al.acct.t', 'spend-cap': 'al.cap.t', 'acct-stopped': 'al.acctStopped.t', 'acct-zero': 'al.acctZero.t'
+};
+// التنبيهات العاجلة اللي اتبعتت من أول الفترة (أو لسه قائمة): «حُلّت» أو «مستمرة» — من البصمات، من غير أي أرقام
+function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: string, tz: string, en: boolean): string | null {
+  const from = Date.parse(since + 'T00:00:00Z') - 86400000;
+  const list = Object.keys(marks).map((k) => marks[k]).filter((m) => m.kind !== 'expiry' &&
+    (Date.parse(m.first_at) >= from || !m.resolved_at || Date.parse(m.resolved_at as string) >= from))
+    .sort((a, b) => (a.first_at < b.first_at ? 1 : -1)).slice(0, 8);
+  if (!list.length) return null;
+  const t = g.I18N.t;
+  const rows = list.map((m) => {
+    const c = m.object_id ? cands.find((x) => x.id === m.object_id) : null;
+    const key = (c && c.resultKey) || 'purchase';
+    const title = m.kind === 'connection' ? (en ? 'We lost access to the account' : 'توقف وصولنا إلى الحساب')
+      : t(KIND_TITLE[m.kind] || 'al.stopped.t', { label: g.I18N.resultAny(key), one1: t('res1.' + key) });
+    const name = !m.object_id ? '' : (c ? (c.offer || c.headline || '') : (en ? 'an ad that is no longer running' : 'إعلان لم يعد يعمل'));
+    const ok = !!m.resolved_at;
+    const status = '<span style="font-weight:700;color:' + (ok ? '#15803d' : '#b91c1c') + '">' + (ok ? (en ? 'resolved' : 'حُلّت') : (en ? 'ongoing' : 'مستمرة')) + '</span>';
+    const sent = en ? 'sent ' + dateText(m.first_at, tz, true) : 'أُرسل ' + dateText(m.first_at, tz, false);
+    return P('<strong>' + esc(title) + '</strong>' + (name ? ' — ' + esc(name) : '') + ': ' + status + ' <span style="' + MUTED + '">(' + esc(sent) + ')</span>');
+  });
+  return '<div style="border-inline-start:4px solid #b91c1c;padding:2px 12px;margin:0 0 20px">' +
+    P(esc(en ? 'Urgent alerts since the previous summary' : 'التنبيهات العاجلة منذ الملخص السابق'), 'font-weight:700') + rows.join('') + '</div>';
+}
+function summaryMail(name: string, since: string, until: string, sum: { composed: any; actions: any }, alerts: string | null, s: Settings, en: boolean, stop: string) {
+  const o = sum.composed, t = g.I18N.t, n = esc(name), app = '<a href="' + SITE + '/app">Ads Center</a>';
+  const range = g.fmtRange(since, until);
+  const subject = (en ? name + ' summary, ' + range + ': ' : 'ملخص ' + name + ' (' + range + '): ') + o.title;
+  const parts: string[] = [];
+  parts.push('<div style="margin:0 0 16px">' + P(esc(o.period), MUTED) +
+    P(esc(o.title), 'font-size:17px;font-weight:700;color:' + (TONE_COLOR[o.tone] || TONE_COLOR.neutral)) + '</div>');
+  if (o.kpis && o.kpis.length) {
+    const td = 'padding:7px 0;border-bottom:1px solid #e5e7eb';
+    parts.push('<div style="margin:0 0 20px"><table role="presentation" style="border-collapse:collapse;width:100%">' +
+      o.kpis.map((k: any) => '<tr><td style="' + td + '">' + esc(k.label) + '</td><td style="' + td + ';padding-inline:8px;font-weight:700">' + esc(k.value) +
+        '</td><td style="' + td + ';' + MUTED + '">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</td></tr>').join('') + '</table></div>');
+  }
+  // بطاقة «مستقر» عنوانها هو نفس العنوان الرئيسي فوق — منكررهوش
+  (o.blocks || []).forEach((b: any) => parts.push(blockHtml(b.kind === 'note' && b.title === o.title ? { ...b, title: '' } : b)));
+  if (sum.actions) parts.push(blockHtml(sum.actions));
+  if (alerts) parts.push(alerts);
+  (o.notes || []).forEach((x: string) => parts.push('<div>' + P(esc(x), MUTED) + '</div>'));
+  const days = daysText(s.summary_days || [0, 3], en ? 'en' : 'ar'), hour = hourText(s.summary_hour == null ? 9 : s.summary_hour, en ? 'en' : 'ar');
+  parts.push(en
+    ? 'You receive this summary for <strong>' + n + '</strong> on ' + days + ' at ' + hour + ' account time. Full details are in ' + app + '; to change the schedule open the tool, then "Store summary", then "Automatic summary".'
+    : 'يصلك هذا الملخص لحساب <strong>' + n + '</strong> ' + days + ' الساعة ' + hour + ' بتوقيت الحساب. التفاصيل الكاملة في ' + app + '، ولتعديل المواعيد: افتح الأداة، ثم «ملخص المتجر»، ثم «الملخص التلقائي».');
+  parts.push(en ? 'To stop the summary and alerts: <a href="' + stop + '">Stop</a>' : 'لإيقاف الملخص والتنبيهات: <a href="' + stop + '">إيقاف</a>');
+  const heading = esc(en ? 'Store summary — ' + name : 'ملخص المتجر — ' + name);
+  const acts = sum.actions ? [sum.actions.title].concat(sum.actions.lines || [],
+    (sum.actions.items || []).map((it: any) => '• ' + it.title + ' (' + it.meta + ')\n  ' + it.lines.join('\n  ')), sum.actions.after || []).join('\n') : '';
+  const text = subject + '\n\n' + g.DX.toText(o, name) + (acts ? '\n\n' + acts : '') + '\n\n' + stop;
+  return { subject, html: mailHtml(heading, parts, en ? 'en' : 'ar'), text };
+}
+
 // ---------- فحص حساب واحد ----------
-type Settings = { account_id: string; email: string; lang: string; timezone: string };
+type Settings = { account_id: string; email: string; lang: string; timezone: string; summary_days: number[]; summary_hour: number; last_summary_until: string | null; checked_at?: string | null };
+// الفحص العاجل مرة في الساعة لكل حساب، مع إن المُشغّل بيشتغل كل ١٠ دقايق (عشان الملخصات اللي ميعادها واحد متتأخرش)
+function urgentDueFor(s: Settings): boolean { return !s.checked_at || Date.now() - Date.parse(s.checked_at) >= URGENT_EVERY_MS; }
 async function checkAccount(s: Settings): Promise<string> {
   const account = s.account_id, en = s.lang === 'en', tz = s.timezone || 'UTC';
   const hour = hourIn(tz);
-  if (hour >= QUIET_FROM || hour < QUIET_UNTIL) return 'quiet';
+  const night = hour >= QUIET_FROM || hour < QUIET_UNTIL;
+  const due = summaryDue(s);
+  const doUrgent = !night && urgentDueFor(s);
+  // بالليل التنبيهات العاجلة بتستنى الصبح، بس الملخص بيتبعت في الساعة اللي العميل اختارها حتى لو بدري
+  if (!doUrgent && !due) return night ? 'quiet' : 'skip';
 
   const rows = await rpc('vault_get_token', { p_account: account });
   const t = Array.isArray(rows) && rows[0] ? rows[0] : null;
@@ -336,50 +488,64 @@ async function checkAccount(s: Settings): Promise<string> {
       await rpc('vault_mark_error', { p_account: account, p_error: 'meta rejected stored token' });
       return await lostAccess();
     }
-    const quiet: Mark[] = [];
+    const keep: Mark[] = [];
     const conn = marks['connection|'];
-    if (conn && !conn.resolved_at) quiet.push({ ...conn, resolved_at: iso });
+    if (conn && !conn.resolved_at) keep.push({ ...conn, resolved_at: iso });
 
-    // الصلاحية قربت تخلص: رسالة واحدة (بتتحل لوحدها لما العميل يفتح الأداة وتتجدد)
+    // الصلاحية قربت تخلص: رسالة واحدة (بتتحل لوحدها لما العميل يفتح الأداة وتتجدد) — مش بالليل
     const exp = marks['expiry|'];
     const expiresAt = t.expires_at ? Date.parse(t.expires_at) : NaN;
     if (isFinite(expiresAt) && expiresAt - now < EXPIRY_WARN_MS) {
-      if (!exp || exp.resolved_at) {
+      if (doUrgent && (!exp || exp.resolved_at)) {
         const name = acct.name || account;
-        if (await send(account, 'expiry', s.email, expiryMail(name, t.expires_at, acct.timezone_name || tz, en, stop))) quiet.push(newMark('expiry', '', iso));
+        if (await send(account, 'expiry', s.email, expiryMail(name, t.expires_at, acct.timezone_name || tz, en, stop))) keep.push(newMark('expiry', '', iso));
       }
-    } else if (exp && !exp.resolved_at) quiet.push({ ...exp, resolved_at: iso });
+    } else if (exp && !exp.resolved_at) keep.push({ ...exp, resolved_at: iso });
 
     const cands = await loadCandidates(account, acct);
-    if (!cands) { await saveMarks(account, quiet); return 'meta-retry'; }
-    const urgent = urgentAlerts(account, acct, cands);
+    if (!cands) { await saveMarks(account, keep); return 'meta-retry'; }
 
-    const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], sentRows: Mark[] = [], seen: Record<string, boolean> = {};
-    for (const a of urgent) {
-      const kind = String(a.code || 'other'), obj = String(a.adId || '');
-      const k = kind + '|' + obj;
-      if (seen[k]) continue;
-      seen[k] = true;
-      const m = marks[k];
-      if (!m || m.resolved_at) { fresh.push(a); sentRows.push(newMark(kind, obj, iso)); }
-      else if (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS) {
-        remind.push({ a, m });
-        sentRows.push({ ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1 });
-      } else quiet.push({ ...m, last_seen_at: iso });
+    let outcome = doUrgent ? 'ok' : 'summary-only';
+    if (doUrgent) {
+      const urgent = urgentAlerts(account, acct, cands);
+      const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], sentRows: Mark[] = [], seen: Record<string, boolean> = {};
+      for (const a of urgent) {
+        const kind = String(a.code || 'other'), obj = String(a.adId || '');
+        const k = kind + '|' + obj;
+        if (seen[k]) continue;
+        seen[k] = true;
+        const m = marks[k];
+        if (!m || m.resolved_at) { fresh.push(a); sentRows.push(newMark(kind, obj, iso)); }
+        else if (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS) {
+          remind.push({ a, m });
+          sentRows.push({ ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1 });
+        } else keep.push({ ...m, last_seen_at: iso });
+      }
+      for (const k in marks) {
+        const m = marks[k];
+        if (seen[k] || m.resolved_at || SYSTEM_KINDS[m.kind]) continue;
+        if (now - Date.parse(m.last_seen_at) >= RESOLVE_AFTER_MS) keep.push({ ...m, resolved_at: iso });
+      }
+      // الرسالة الأول، والبصمات بعدها: لو الإرسال فشل، الساعة الجاية بتحاول تاني
+      if (fresh.length || remind.length) {
+        const sent = await send(account, fresh.length ? 'urgent' : 'reminder', s.email, urgentMail(acct.name || account, fresh, remind, acct.timezone_name || tz, en, stop));
+        if (sent) keep.push(...sentRows);
+        outcome = sent ? (fresh.length ? 'sent' : 'reminded') : 'send-failed';
+      }
+      await markChecked(account);
     }
-    for (const k in marks) {
-      const m = marks[k];
-      if (seen[k] || m.resolved_at || SYSTEM_KINDS[m.kind]) continue;
-      if (now - Date.parse(m.last_seen_at) >= RESOLVE_AFTER_MS) quiet.push({ ...m, resolved_at: iso });
+    await saveMarks(account, keep);
+
+    // الملخص: رسالة منفصلة عن التنبيهات العاجلة (قرار صاحب المنتج). لو فشل (Meta أو البريد) بيتحاول تاني الساعة الجاية
+    if (due) {
+      keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });   // «حُلّت/مستمرة» بحالة الساعة دي
+      const sum = await buildSummary(account, acct, due.since, due.until);
+      const alerts = alertStatusHtml(marks, cands, due.since, acct.timezone_name || tz, en);
+      if (await send(account, 'summary', s.email, summaryMail(acct.name || account, due.since, due.until, sum, alerts, s, en, stop))) {
+        await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_summary_until: due.until }) });
+        outcome += '+summary';
+      } else outcome += '+summary-failed';
     }
-    // الرسالة الأول، والبصمات بعدها: لو الإرسال فشل، الساعة الجاية بتحاول تاني
-    let outcome = 'ok';
-    if (fresh.length || remind.length) {
-      const sent = await send(account, fresh.length ? 'urgent' : 'reminder', s.email, urgentMail(acct.name || account, fresh, remind, acct.timezone_name || tz, en, stop));
-      if (sent) quiet.push(...sentRows);
-      outcome = sent ? (fresh.length ? 'sent' : 'reminded') : 'send-failed';
-    }
-    await saveMarks(account, quiet);
     return outcome;
   } finally {
     metaToken = '';
@@ -391,23 +557,59 @@ export async function runAll(): Promise<Record<string, unknown>> {
   const started = Date.now();
   const outdated = await loadEngine();
   if (outdated.length) await rpc('beat', { p_source: 'runner-engine-outdated' }).catch(() => {});
-  const r = await db('digest_settings?select=account_id,email,lang,timezone&enabled=is.true&order=checked_at.asc.nullsfirst&limit=500', { method: 'GET' });
-  const list = (await r.json()) as Settings[];
+  const r = await db('digest_settings?select=account_id,email,lang,timezone,summary_days,summary_hour,last_summary_until,checked_at&enabled=is.true&order=checked_at.asc.nullsfirst&limit=500', { method: 'GET' });
+  const all = (await r.json()) as Settings[];
+  // الملخصات اللي ميعادها جه الأول، وبعدها الفحص العاجل الأقدم — واللي مفيش عليه حاجة بيتخطّى من غير أي طلب
+  const list = all.filter((s) => summaryDue(s) || urgentDueFor(s))
+    .sort((a, b) => (summaryDue(b) ? 1 : 0) - (summaryDue(a) ? 1 : 0));
   const outcomes: Record<string, number> = {};
   for (const s of list) {
     if (Date.now() - started > TIME_BUDGET_MS) { outcomes.deferred = (outcomes.deferred || 0) + 1; continue; }
     let out = 'error';
     try { out = await exclusive(() => checkAccount(s)); } catch (e) {
-      // النوع والرسالة بس — من غير أي بيانات حساب
+      // النوع والرسالة بس — من غير أي بيانات حساب. ومنعيدوش كل ١٠ دقايق لحد الساعة الجاية
       console.error('runner account failed', String((e as Error).message || e).slice(0, 200));
+      await markChecked(s.account_id);
     }
+    // عطل (Meta واقعة، الوصول ضاع، التشفير): الفحص الجاي بعد ساعة مش بعد ١٠ دقايق
+    if (/^(lost|meta-retry|decrypt-failed)$/.test(out)) await markChecked(s.account_id);
     outcomes[out] = (outcomes[out] || 0) + 1;
-    await db('digest_settings?account_id=eq.' + s.account_id, {
-      method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ checked_at: new Date().toISOString() })
-    }).catch(() => {});
   }
   await rpc('beat', { p_source: 'runner' }).catch(() => {});
-  return { accounts: list.length, outcomes, engineOutdated: outdated };
+  return { accounts: all.length, due: list.length, outcomes, engineOutdated: outdated };
+}
+async function markChecked(account: string): Promise<void> {
+  await db('digest_settings?account_id=eq.' + account, {
+    method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ checked_at: new Date().toISOString() })
+  }).catch(() => {});
+}
+
+// معاينة الملخص لمدير التطبيق بس: نفس الرسالة بالظبط لفترة معيّنة (أو زي ما كانت هتتبعت النهارده بالمواعيد الافتراضية)،
+// بمفتاح المدير نفسه، من غير إرسال ولا تسجيل أي حاجة
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+export async function previewSummary(token: string, accountId: string, lang: string, since?: string, until?: string): Promise<Record<string, unknown>> {
+  const outdated = await loadEngine();
+  return await exclusive(async () => {
+    metaToken = token;
+    try {
+      const en = lang === 'en';
+      g.I18N.setLang(en ? 'en' : 'ar');
+      const { acct, fail } = await accountOrFail(accountId);
+      if (!acct) return { error: fail };
+      const tz = acct.timezone_name || 'UTC';
+      let win = since && until && DAY_KEY.test(since) && DAY_KEY.test(until) && since <= until && g.keyDiffDays(since, until) < 31 ? { since, until } : null;
+      if (!win) { const lp = localParts(tz); win = summaryWindow([0, 3], null, lp.key, lp.dow); }
+      if (!win) return { error: 'window' };
+      const s: Settings = { account_id: accountId, email: '', lang: en ? 'en' : 'ar', timezone: tz, summary_days: [0, 3], summary_hour: 9, last_summary_until: null };
+      const cands = (await loadCandidates(accountId, acct)) || [];
+      const sum = await buildSummary(accountId, acct, win.since, win.until);
+      const alerts = alertStatusHtml(await marksOf(accountId), cands, win.since, tz, en);
+      const mail = summaryMail(acct.name || accountId, win.since, win.until, sum, alerts, s, en, await stopUrl(accountId));
+      return { engineCommit: ENGINE_COMMIT, engineOutdated: outdated, since: win.since, until: win.until, subject: mail.subject, html: mail.html, text: mail.text };
+    } finally {
+      metaToken = '';
+    }
+  });
 }
 
 // معاينة لمدير التطبيق بس (index.ts بيتأكد): الرسالة العاجلة اللي كانت هتتبعت للحساب دلوقتي — بمفتاح المدير نفسه،
