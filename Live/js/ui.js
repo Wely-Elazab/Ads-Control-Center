@@ -273,7 +273,10 @@
           label: o.label, currency: info.currency || null,
           metaAccountStatus: p === 'meta' && info.accountStatus != null ? Number(info.accountStatus) : null,
           // حد الصرف على الحساب: لما يتقفل، Meta بتوقف كل الإعلانات — بيظهر كتنبيه على مستوى الحساب
-          spendCapReached: !!(p === 'meta' && Number(info.spendCap) > 0 && Number(info.amountSpent) >= Number(info.spendCap))
+          spendCapReached: !!(p === 'meta' && Number(info.spendCap) > 0 && Number(info.amountSpent) >= Number(info.spendCap)),
+          // وقرّب يخلص (٩٠٪ فأكتر) — الأرقام بأصغر وحدة للعملة زي ما Meta بترجّعها
+          spendCap: p === 'meta' ? Number(info.spendCap) || 0 : 0,
+          amountSpent: p === 'meta' ? Number(info.amountSpent) || 0 : 0
         };
       });
     });

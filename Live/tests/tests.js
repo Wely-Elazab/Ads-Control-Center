@@ -529,6 +529,64 @@
     });
   });
 
+  describe('التنبيهات العاجلة الجديدة', function () {
+    var META = function (o) { var m = { label: 'Meta — Store', currency: 'SAR' }; for (var k in o) m[k] = o[k]; return { 'meta:act_1': m }; };
+    var codes = function (alerts, code) { return alerts.filter(function (a) { return a.code === code; }); };
+    test('حد الإنفاق ٩٠٪: «عاجل» لو الباقي أسبوع أو أقل، «مهم» لو أكتر، ولا حاجة تحت ٩٠٪ (المبالغ بالهللة زي Meta)', function () {
+      // إنفاق الحساب ٢٠٠ ر.س يومياً (baseAccount)، والمتبقي ١٠٠ ر.س = نص يوم
+      var near = codes(engine(baseAccount(), META({ spendCap: 150000, amountSpent: 140000 })).alerts, 'spend-cap-near')[0];
+      ok(near && near.level === 'critical' && /أقل من يوم/.test(near.detail) && /٩٣٪/.test(near.detail), near && near.detail);
+      var far = codes(engine(baseAccount(), META({ spendCap: 10000000, amountSpent: 9100000 })).alerts, 'spend-cap-near')[0];
+      eq(far && far.level, 'warning', 'the rest lasts ~45 days');
+      eq(codes(engine(baseAccount(), META({ spendCap: 10000000, amountSpent: 5000000 })).alerts, 'spend-cap-near').length, 0);
+    });
+    test('أكبر مصدر مبيعات وقف (ربع المبيعات فأكتر، وكان شغّال لحد امبارح): الإعلان لوحده، أو الحملة لو كلها وقفت', function () {
+      var star = ad('star', { daily: [100, 100, 100, 100, 100, 100, 0], res: steady(3), sales: [900, 900, 900, 900, 900, 900, 0], active: false, pausedLevel: 'ad' });
+      var other = ad('s1', { daily: steady(100), res: steady(2), sales: steady(200) });
+      var a = codes(engine([star, other]).alerts, 'top-stopped');
+      ok(a.length === 1 && a[0].adId === 'star' && a[0].level === 'critical' && /٧٩٪/.test(a[0].detail) && /متوقف/.test(a[0].detail), JSON.stringify(a.map(function (x) { return x.detail; })));
+      var inCamp = ad('star', { daily: [100, 100, 100, 100, 100, 100, 0], res: steady(3), sales: [900, 900, 900, 900, 900, 900, 0], active: false, pausedLevel: 'campaign', cid: 'c9', camp: 'Big' });
+      var c = codes(engine([inCamp, other]).alerts, 'top-stopped');
+      ok(c.length === 1 && c[0].objectId === 'c:c9' && !c[0].adId && /حملة «Big»/.test(c[0].detail), JSON.stringify(c));
+      var old = ad('old', { daily: [100, 100, 100, 0, 0, 0, 0], res: [3, 3, 3, 0, 0, 0, 0], sales: [900, 900, 900, 0, 0, 0, 0], active: false, pausedLevel: 'ad' });
+      eq(codes(engine([old, other]).alerts, 'top-stopped').length, 0, 'stopped days ago is not news');
+      var rejected = ad('rej', { daily: [100, 100, 100, 100, 100, 100, 0], res: steady(3), sales: [900, 900, 900, 900, 900, 900, 0], active: false, pausedLevel: 'rejected' });
+      eq(codes(engine([rejected, other]).alerts, 'top-stopped').length, 0, 'the rejected-ad alert already covers it');
+    });
+    test('الموقع والتتبّع: صفر أحداث مع نقرات = «توقف التسجيل»، ونسبة زيارات وقعت = «نقرات لا تصل»، وزيارات من غير سلة = «الدفع/السلة»', function () {
+      var day = function (k, clicks, lpv, atc, ic, pur) { return { date: '2026-09-' + k, clicks: clicks, lpv: lpv, atc: atc, ic: ic, pur: pur }; };
+      var base = ['22', '23', '24', '25', '26', '27'].map(function (k) { return day(k, 100, 70, 10, 5, 3); });
+      var run = function (y, td) { return PauseProofAlerts.siteAlerts(base.concat([y, td || day('29', 10, 7, 1, 0, 0)]), ALERT_FMT); };
+      eq(run(day('28', 100, 70, 10, 5, 3)).length, 0, 'normal day');
+      var off = run(day('28', 100, 0, 0, 0, 0));
+      ok(off.length === 1 && off[0].code === 'tracking-off' && /أمس/.test(off[0].detail), JSON.stringify(off));
+      var lpv = run(day('28', 100, 20, 3, 1, 1));
+      ok(lpv.length === 1 && lpv[0].code === 'lpv-drop' && /٢٠٪/.test(lpv[0].detail) && /٧٠٪/.test(lpv[0].detail), JSON.stringify(lpv));
+      var buy = run(day('28', 100, 70, 0, 0, 0));
+      ok(buy.length === 1 && buy[0].code === 'checkout-off', JSON.stringify(buy));
+      eq(run(day('28', 100, 70, 10, 5, 3), day('29', 40, 0, 0, 0, 0)).length, 0, 'today with too few clicks is not judged');
+      var today = run(day('28', 100, 70, 10, 5, 3), day('29', 80, 0, 0, 0, 0));
+      ok(today.length === 1 && /منذ بداية اليوم/.test(today[0].detail), JSON.stringify(today));
+    });
+    test('تعديل كبير مفاجئ: الميزانية ×٢ أو النص على عنصر ٥٪ فأكتر، أو إيقاف عنصر ١٠٪ فأكتر — مع اسم المعدِّل والوقت', function () {
+      var edits = [
+        { kind: 'budget', level: 'adset', id: '1', name: 'Set A', actor: 'Eslam', when: '٢٤ سبتمبر ١٦:١٥', time: '2026-09-24T16:15:19+0000', from: 1000, to: 5000, share: 0.2 },
+        { kind: 'budget', level: 'adset', id: '2', name: 'Tiny', actor: 'Eslam', when: 'x', time: '2026-09-24T16:15:19+0000', from: 1000, to: 5000, share: 0.02 },
+        { kind: 'budget', level: 'adset', id: '3', name: 'Mild', actor: 'Eslam', when: 'x', time: '2026-09-24T16:15:19+0000', from: 1000, to: 1500, share: 0.3 },
+        { kind: 'pause', level: 'campaign', id: '4', name: 'Main', actor: 'Eslam', when: 'x', time: '2026-09-24T17:00:00+0000', share: 0.15 }
+      ];
+      var out = PauseProofAlerts.editAlerts(edits, ALERT_FMT, 'USD');
+      eq(out.length, 2);
+      ok(/رُفعت ميزانية المجموعة الإعلانية «Set A» اليومية/.test(out[0].detail) && out[0].detail.indexOf(money(10, 'USD')) > -1 && out[0].detail.indexOf(money(50, 'USD')) > -1 && /بواسطة Eslam/.test(out[0].detail), out[0].detail);
+      ok(/تم إيقاف الحملة «Main»/.test(out[1].detail) && out[1].objectId === '4@2026-09-24T17:00:00', JSON.stringify(out[1]));
+    });
+    test('رابط معطّل: ٤٠٤ = صفحة غير موجودة، ومن غير رد = لا يستجيب، وأكتر من إعلان على نفس الرابط', function () {
+      var out = PauseProofAlerts.linkAlerts([{ key: 'k1', url: 'https://shop.example/p/1', status: 404, ads: ['Ad 1', 'Ad 2', 'Ad 3'] }, { key: 'k2', url: 'https://gone.example/', status: 0, ads: ['Ad 9'] }]);
+      ok(out[0].code === 'link-broken' && out[0].objectId === 'k1' && /صفحة غير موجودة/.test(out[0].detail) && /وإعلانات أخرى \(2\)/.test(out[0].detail), out[0].detail);
+      ok(/لا يستجيب/.test(out[1].detail), out[1].detail);
+    });
+  });
+
   describe('الواجهة', function () {
     test('حالة الكارت = حالة المنصة (من غير "مش بيصرف")', function () {
       eq(statusLabelOf(ad('x', { daily: steady(0) })), t('st.active'));
@@ -2152,6 +2210,25 @@
       var r = DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, daily: days, dims: [] });
       eq([r.prevSince, r.prevUntil], ['2026-09-24', '2026-09-26']);
       withLang('ar', function () { ok(/اكتفينا بعرض الأرقام/.test(t('dx.insufficient.mail')) && !/اختر فترة/.test(t('dx.insufficient.mail'))); });
+    });
+    test('«ضمن التذبذب» والمبيعات اتغيّرت كتير: سطر صريح بالرقم ومتوسط قيمة الطلب، و«تكررت» بس لو حصلت فعلاً (حالة حقيقية)', function () {
+      var mk = function (revFor) {
+        var d = [];
+        for (var k = '2026-08-20'; k <= '2026-09-29'; k = shiftKey(k, 1)) d.push({ date: k, spend: 100, imp: 5000, clicks: 100, atc: 20, ic: 10, pur: 5, rev: revFor(k) });
+        return d;
+      };
+      var lines = function (o) { return o.blocks.map(function (b) { return (b.lines || []).join(' '); }).join(' '); };
+      withLang('ar', function () {
+        var rare = lines(DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
+          daily: mk(function (k) { return k >= '2026-09-27' ? 200 : 500; }), dims: [] }), { mail: true }));
+        ok(/انخفضت ٦٠٪/.test(rare) && /متوسط قيمة الطلب/.test(rare) && /أكبر مما شهده حسابك/.test(rare), rare);
+        var seen = lines(DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
+          daily: mk(function (k) { return k >= '2026-09-27' || (k >= '2026-09-21' && k <= '2026-09-23') ? 200 : 500; }), dims: [] }), { mail: true }));
+        ok(/تكررت في حسابك من قبل/.test(seen), seen);
+        var flat = lines(DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
+          daily: mk(function () { return 500; }), dims: [] }), { mail: true }));
+        ok(!/المبيعات/.test(flat), 'no line when sales barely moved: ' + flat);
+      });
     });
     test('فترة التشخيص أيام مكتملة بس (اليوم لسه بيتحسب)', function () {
       var today = todayKeyInTz('Asia/Riyadh');

@@ -966,6 +966,27 @@
       return out;
     });
   }
+  // أرقام الموقع والتتبّع يوم بيوم لآخر ٨ أيام (آخرهم النهارده) — لحملات الطلبات بس (DX_JUDGED_FILTER): نقرات الواتساب
+  // والوعي مش بتروح للموقع أصلاً، ولو اتحسبت كانت أي حملة واتساب جديدة هتطلع «نقرات لا تصل للموقع». PauseProofAlerts.siteAlerts
+  var DX_LPV = ['omni_landing_page_view', 'landing_page_view'];
+  function metaSiteDays(accountId, tz) {
+    var today = todayKeyInTz(tz), since = shiftKey(today, -7);
+    return fbPagesPromise('/' + accountId + '/insights', {
+      time_range: JSON.stringify({ since: since, until: today }), time_increment: 1,
+      fields: 'date_start,inline_link_clicks,actions', filtering: DX_JUDGED_FILTER, limit: 100
+    }, FULL_SCAN_CAP).then(function (res) {
+      if (res.err) throw res.err;
+      var byDate = {};
+      res.data.forEach(function (row) {
+        byDate[row.date_start] = { date: row.date_start, clicks: num(row.inline_link_clicks), lpv: dxFirst(row.actions, DX_LPV),
+          atc: dxFirst(row.actions, DX_ATC), ic: dxFirst(row.actions, DX_IC), pur: dxFirst(row.actions, DX_PUR) };
+      });
+      // الأيام اللي مفيهاش صف (مفيش إنفاق) = أصفار — عشان الترتيب يفضل ٨ أيام بالظبط
+      var out = [];
+      for (var k = since; k <= today; k = shiftKey(k, 1)) out.push(byDate[k] || { date: k, clicks: 0, lpv: 0, atc: 0, ic: 0, pur: 0 });
+      return out;
+    });
+  }
   // بيتنادى بعد ما أرقام الإعلانات تظهر. نفس الحساب ونفس الفترة = مفيش تحميل تاني
   function loadMetaDiagnosis(accountId, info, live) {
     if (!DX_ON || !window.DX) return;

@@ -1593,6 +1593,24 @@ var DX = (function () {
     return lines.length ? { kind: 'follow', title: t('dx.follow.title'), lines: lines } : null;
   }
 
+  // الطلبات وتكلفتها في حدود التذبذب بس المبيعات اتغيّرت ٢٥٪ أو أكتر: سطر صريح بالرقم، عشان العنوان «ضمن التذبذب»
+  // ميبانش متجاهل إن المبيعات نصّت (حساب حقيقي: ٢٧٬٥٣٧ ← ١٣٬٢٤٨). «تكرر قبل كده» بس لو فعلاً حصل تغيّر بالحجم ده
+  // بين فترتين متتاليتين في تاريخ الحساب — غير كده بنقول إنه أكبر من المعتاد. متوسط قيمة الطلب حقيقة حسابية مش تخمين
+  function revenueLine(r, M) {
+    var a = r.prev, b = r.cur;
+    if (!a || !b || !(a.rev > 0)) return null;
+    var pct = b.rev / a.rev - 1;
+    if (Math.abs(pct) < 0.25) return null;
+    var dir = pct < 0 ? 'Down' : 'Up', h = r.head;
+    var aov = h && h.aov && sign(h.aov.pct) === sign(pct) && Math.abs(h.aov.pct) >= 0.15 ? h.aov : null;
+    var size = Math.abs(Math.log(Math.max(b.rev, 1) / a.rev)), seen = false, W = r.windows || [];
+    for (var i = 1; i + 1 < W.length; i++) {
+      if (W[i + 1].rev > 0 && Math.abs(Math.log(Math.max(W[i].rev, 1) / W[i + 1].rev)) >= size) seen = true;
+    }
+    return t('dx.noise.rev' + dir + (seen ? '' : 'Rare'),
+      { pct: pctText(pct), aov: aov ? t('dx.noise.aov' + dir, { from: M(aov.from), to: M(aov.to) }) : '' });
+  }
+
   // التقرير كله جاهز للعرض — بالترتيب: العاجل، ثم «لماذا»، ثم اللي يحتاج قرار، ثم المتابعة والفرص
   // opts.mail: الملخص التلقائي بالبريد (العميل مش بيختار الفترة فيه)
   function compose(r, opts) {
@@ -1618,8 +1636,10 @@ var DX = (function () {
     var why = calm ? null : whyBlock(r, M);
     if (why) o.blocks.push(why);
     else if (calm) {
+      var rev = revenueLine(r, M);
       o.blocks.push({ kind: 'note', title: t('dx.head.' + h.type),
         lines: [h.dSpend !== 0 ? t('dx.stable.spend', { pct: pctText(h.spendPct) }) : t('dx.stable')]
+          .concat(rev ? [rev] : [])
           .concat(h.dSpend !== 0 && r.other && r.other.spendShift ? [t(r.other.spendShift.dir > 0 ? 'dx.vol.otherUp' : 'dx.vol.otherDown', { pct: pctText(r.other.spendShift.share) })] : [])
           .concat(ownerLines(r)) });
     }

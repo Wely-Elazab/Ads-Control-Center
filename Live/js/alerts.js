@@ -92,6 +92,13 @@
 
   var LEVEL_RANK = { critical: 3, warning: 2, info: 1, opportunity: 0 };
 
+  var TOP_SHARE = 0.25;      // «أكبر مصدر مبيعات» = ربع مبيعات الحساب في آخر ٧ أيام أو أكتر
+  var CAP_NEAR = 0.9;        // حد الإنفاق: التنبيه من ٩٠٪
+  var CAP_NEAR_DAYS = 7;     // ... و«عاجل» لو الباقي يكفي أسبوع أو أقل
+  // Meta بترجّع حد الإنفاق والمبالغ في السجل بأصغر وحدة للعملة (سنت). العملات دي مالهاش كسور عندها
+  var CUR_UNIT1 = { JPY: 1, KRW: 1, CLP: 1, VND: 1, ISK: 1, HUF: 1, TWD: 1, PYG: 1, IDR: 1, COP: 1, CRC: 1 };
+  function unitOf(cur) { return CUR_UNIT1[cur] ? 1 : 100; }
+
   // اسم نوع النتيجة (جمع) وصيغة المفرد — عشان الجمل تبقى طبيعية ("تكلفة عملية الشراء الواحدة" مش "تكلفة الـمشتريات")
   function pluralOf(key) { return t('res.' + (key || 'generic')); }
   function singularOf(key) { return t('res1.' + (key || 'generic')); }
@@ -101,6 +108,8 @@
     return n === 1 ? singularOf(key) : pluralOf(key);
   }
   function dayWord(n) { return global.I18N ? global.I18N.noun(n, 'n.day') : ''; }
+  // «يوم واحد» / «يومين» / «٣ أيام» — بعد «نحو»
+  function daysText(n, fmt) { return n === 1 ? t('dx.act.d1') : (n === 2 ? t('dx.act.d2') : fmt.int(n) + ' ' + dayWord(n)); }
   // عدد + نوع النتيجة جوه جملة («عملية شراء واحدة»، «عمليتي شراء»، «٥ مشتريات»)
   function countText(n, key, fmt) { return global.I18N ? global.I18N.countPhrase(n, key, fmt.int) : fmt.int(n) + ' ' + countOf(n, key); }
 
@@ -491,6 +500,56 @@
       }
     }
 
+    // حد الإنفاق قرّب يخلص (٩٠٪ فأكتر): «عاجل» لو الباقي يكفي أسبوع أو أقل بمتوسط إنفاق الحساب، غير كده «مهم».
+    // بعد تنبيهات الوقوف فوق عشان ميمنعهاش (acctStopped بتتشال لو فيه تنبيه حساب قبلها)
+    if (meta && !meta.spendCapReached && meta.spendCap > 0 && meta.amountSpent >= CAP_NEAR * meta.spendCap) {
+      var left = (meta.spendCap - meta.amountSpent) / unitOf(cur);   // Meta بترجّع الاتنين بأصغر وحدة للعملة (سنت)
+      var perDay = acc.total7 / 7, daysLeft = perDay > 0 ? left / perDay : null;
+      alerts.push(makeIssue(daysLeft != null && daysLeft <= CAP_NEAR_DAYS ? 'critical' : 'warning', ['account'], t('al.capNear.t'),
+        t(daysLeft != null ? 'al.capNear.d' : 'al.capNear.dNoRate', { acc: accName, pct: fmt.int(meta.amountSpent / meta.spendCap * 100),
+          left: money(left), days: daysLeft != null && daysLeft < 1 ? t('al.capNear.lessDay') : daysText(Math.floor(daysLeft || 0), fmt) }),
+        t('al.capNear.a'), 0, 'spend-cap-near'));
+    }
+
+    // أكبر مصدر مبيعات في الحساب وقف (لأي سبب، حتى لو بقصد): «عاجل» — لو مش مقصود كل ساعة بتفرق، ولو مقصود
+    // فالرسالة بتتأكد إن فيه بديل. «أكبر» = ربع مبيعات الحساب في آخر ٧ أيام أو أكتر (أو نتائجه لو مفيش قيمة مبيعات)،
+    // وكان بيصرف لحد امبارح (وقف قريب — مش إعلان واقف من أسبوع). الحملة كلها لو كل إعلاناتها وقفت، وإلا الإعلان لوحده
+    var valueOf = function (c) { return acc.hasSales ? sum(c.dailySales || [], 0, TODAY) : (c.results || 0); };
+    var totalValue = ads.reduce(function (s0, c) { return s0 + valueOf(c); }, 0);
+    // الحساب كله واقف (مفيش ولا إعلان شغّال) = صاحبه وقّف كل حاجة بنفسه، والوقوف غير المقصود للحساب كله
+    // (دفع، حد إنفاق، حالة الحساب) ليه تنبيهاته فوق
+    if (totalValue > 0 && acc.activeCount > 0) {
+      var justStopped = function (c) { return !c.active && sum(c.daily || [], DAY_BEFORE, TODAY) > 0; };
+      var topText = function (name, value, share, status) {
+        return t(acc.hasSales ? 'al.topStopped.d' : 'al.topStopped.dRes', { name: name, pct: fmt.int(share * 100), value: money(value), status: status });
+      };
+      var camps = {}, doneCamp = {};
+      ads.forEach(function (c) {
+        if (!c.campaignId) return;
+        var cg = camps[c.campaignId] = camps[c.campaignId] || { ads: [], value: 0, spend: 0, name: c.campaignName || c.placement };
+        cg.ads.push(c); cg.value += valueOf(c); cg.spend += c.spend || 0;
+      });
+      Object.keys(camps).forEach(function (k) {
+        var cg = camps[k], share = cg.value / totalValue;
+        if (share < TOP_SHARE || cg.ads.some(function (c) { return c.active; }) || !cg.ads.some(justStopped)) return;
+        doneCamp[k] = true;
+        var ct = makeIssue('critical', ['status'], t('al.topStopped.t'),
+          topText(t('al.topStopped.camp', { name: cg.name }), cg.value, share, t('st.' + (cg.ads[0].pausedLevel || 'ad'))), t('al.topStopped.a'), cg.spend, 'top-stopped');
+        ct.objectId = 'c:' + k; ct.impactSpend = cg.spend;
+        alerts.push(ct);
+      });
+      ads.forEach(function (c) {
+        var share = valueOf(c) / totalValue;
+        if (share < TOP_SHARE || doneCamp[c.campaignId] || !justStopped(c)) return;
+        // الوقوف غير المقصود (رفض، مشكلة) عليه تنبيه «توقف فجأة» أصلاً على الإعلان نفسه — منكررش
+        if (UNINTENDED_STOP[c.pausedLevel] || c.reviewStatus === 'disapproved') return;
+        var at = makeIssue('critical', ['status'], t('al.topStopped.t'),
+          topText(t('al.name', { name: c.offer || c.headline || c.id }), valueOf(c), share, t('st.' + (c.pausedLevel || 'ad'))), t('al.topStopped.a'), c.spend, 'top-stopped');
+        at.adId = c.id; at.adName = c.offer || c.headline || c.id;
+        alerts.push(at);
+      });
+    }
+
     // تركيز الميزانية في إعلان أداؤه أقل من المتوسط
     if (acc.total7 > 0 && acc.activeCount >= 2) {
       ads.forEach(function (c) {
@@ -514,9 +573,10 @@
       a.source = source; a.accountName = accName; a.currency = cur;
       // مشاكل الحساب نفسه (دفع، وقوف كامل) أهم من أي إعلان منفرد — تطلع أول القائمة في مستواها
       if (a.level === 'critical' && !a.adId) a.amount = Number.MAX_SAFE_INTEGER;
-      // حجم المشكلة: تنبيه التركيز خاص بإعلان واحد، والباقي بيخص الحساب كله
+      // حجم المشكلة: تنبيهات الإعلان الواحد (التركيز، أكبر مصدر وقف) بإنفاقه، والحملة بإنفاقها، والباقي الحساب كله
       var concAd = a.adId ? ads.filter(function (c) { return c.id === a.adId; })[0] : null;
-      setImpact(a, concAd ? concAd.spend : acc.total7, acc.total7, cur, fmt, !concAd);
+      var own = concAd ? concAd.spend : a.impactSpend;
+      setImpact(a, own != null ? own : acc.total7, acc.total7, cur, fmt, own == null);
     });
     return alerts;
   }
@@ -587,7 +647,92 @@
     return out;
   }
 
+  // =====================================================================
+  // تنبيهات عاجلة بتحتاج بيانات زيادة (بيجيبها المُشغّل على السيرفر: supabase/functions/sync/runner.ts) —
+  // حسابات بحتة هنا عشان تتختبر زي باقي المحرك. كلها «عاجل» وبرمز ثابت (البصمة)، والعنصر في objectId
+  // =====================================================================
+
+  // الموقع والتتبّع — أرقام الحساب يوم بيوم لحملات الطلبات بس (من غير حملات الواتساب والوعي اللي نقراتها مش
+  // بتروح للموقع أصلاً): days = آخر ٨ أيام بالترتيب، آخر واحد = النهارده (لسه بيتحسب)،
+  // [{ date, clicks, lpv, atc, ic, pur }]. الأساس = الأيام قبل امبارح. بنحكم على امبارح، والنهارده لو فيه نقرات كفاية
+  //  - tracking-off: نقرات من غير أي زيارة ولا إضافة ولا شراء، والمتوقع ١٠ أحداث على الأقل (احتمال الصفر صدفة < ١ في ٢٠ ألف)
+  //  - lpv-drop: الزيارات أقل من نص نسبتها المعتادة من النقرات، واحتمال الصدفة < ١ في الألف
+  //  - checkout-off: زيارات عادي بس صفر إضافات للسلة وبدء دفع وشراء، والمتوقع ١٠ على الأقل
+  function siteAlerts(days, fmt) {
+    var out = [];
+    if (!days || days.length < 5) return out;
+    var base = days.slice(0, days.length - 2), B = { clicks: 0, lpv: 0, ev: 0 };
+    base.forEach(function (d) { B.clicks += +d.clicks || 0; B.lpv += +d.lpv || 0; B.ev += (+d.atc || 0) + (+d.ic || 0) + (+d.pur || 0); });
+    if (B.clicks < 200) return out;
+    var rLpv = B.lpv / B.clicks, rEv = B.ev / B.clicks, found = {};
+    [{ d: days[days.length - 2], when: 'y', min: 30 }, { d: days[days.length - 1], when: 't', min: 50 }].forEach(function (x) {
+      var clicks = +x.d.clicks || 0, lpv = +x.d.lpv || 0, ev = (+x.d.atc || 0) + (+x.d.ic || 0) + (+x.d.pur || 0);
+      if (clicks < x.min) return;
+      if (!found.all && lpv === 0 && ev === 0 && clicks * (rLpv + rEv) >= 10) { found.all = { x: x, clicks: clicks, exp: clicks * (rLpv + rEv) }; return; }
+      if (!found.lpv && rLpv >= 0.3 && lpv > 0 && lpv / clicks < 0.5 * rLpv && poissonAtMost(lpv, clicks * rLpv) < 0.001) found.lpv = { x: x, pct: lpv / clicks };
+      if (!found.buy && lpv > 0 && ev === 0 && clicks * rEv >= 10) found.buy = { x: x, lpv: lpv, exp: clicks * rEv };
+    });
+    var when = function (f) { return t('al.when.' + f.x.when); };
+    if (found.all) {
+      out.push(makeIssue('critical', ['account'], t('al.trackOff.t'),
+        t('al.trackOff.d', { when: when(found.all), clicks: fmt.int(found.all.clicks), exp: fmt.int(found.all.exp) }), t('al.trackOff.a'), 0, 'tracking-off'));
+      return out;
+    }
+    if (found.lpv) {
+      out.push(makeIssue('critical', ['account'], t('al.lpvDrop.t'),
+        t('al.lpvDrop.d', { when: when(found.lpv), pct: fmt.int(found.lpv.pct * 100), base: fmt.int(rLpv * 100) }), t('al.lpvDrop.a'), 0, 'lpv-drop'));
+    }
+    if (found.buy) {
+      out.push(makeIssue('critical', ['account'], t('al.buyOff.t'),
+        t('al.buyOff.d', { when: when(found.buy), lpv: fmt.int(found.buy.lpv), exp: fmt.int(found.buy.exp) }), t('al.buyOff.a'), 0, 'checkout-off'));
+    }
+    return out;
+  }
+
+  // تعديلات كبيرة مفاجئة من سجل Meta (من آخر فحص): edits = نتيجة DX._.actionOf لكل حدث + share = نصيب العنصر
+  // من إنفاق الحساب في آخر ٧ أيام، + when = الوقت مكتوب (المُشغّل بيكتبه بتوقيت الحساب).
+  // كبير = الميزانية اتضاعفت أو نزلت للنص على عنصر نصيبه ٥٪ فأكتر، أو إيقاف عنصر نصيبه ١٠٪ فأكتر
+  var EDIT_BUDGET_SHARE = 0.05, EDIT_PAUSE_SHARE = 0.1;
+  function editAlerts(edits, fmt, currency) {
+    var out = [];
+    (edits || []).forEach(function (e) {
+      if (!e || !(e.share >= 0)) return;
+      var obj = t('dx.act.lv.' + e.level) + (e.name ? ' ' + t('dx.act.q', { name: e.name }) : '');
+      var who = e.actor ? t('al.edit.who', { actor: e.actor, when: e.when || '' }) : (e.when || '');
+      var vars = { obj: obj, who: who, pct: fmt.int(Math.max(1, e.share * 100)) }, a = null;
+      if (e.kind === 'budget' && e.from > 0 && e.to > 0 && e.share >= EDIT_BUDGET_SHARE && (e.to / e.from >= 2 || e.to / e.from <= 0.5)) {
+        var up = e.to > e.from;
+        vars.from = fmt.money(e.from / unitOf(currency), currency); vars.to = fmt.money(e.to / unitOf(currency), currency);
+        vars.life = t(e.lifetime ? 'al.edit.life' : 'al.edit.daily');
+        a = makeIssue('critical', ['account'], t(up ? 'al.editUp.t' : 'al.editDown.t'), t(up ? 'al.editUp.d' : 'al.editDown.d', vars), t(up ? 'al.editUp.a' : 'al.editDown.a'), 0, 'big-edit');
+      } else if (e.kind === 'pause' && e.share >= EDIT_PAUSE_SHARE) {
+        a = makeIssue('critical', ['account'], t('al.editPause.t'), t('al.editPause.d', vars), t('al.editPause.a'), 0, 'big-edit');
+      }
+      if (a) { a.objectId = String(e.id) + '@' + String(e.time || '').slice(0, 19); out.push(a); }
+    });
+    return out;
+  }
+
+  // روابط إعلانات معطّلة (المُشغّل بيفتح الرابط بنفسه): results = [{ key, url, status, error, ads: [أسماء] }].
+  // المعطّل بس: صفحة مش موجودة (404/410)، أو خطأ الخادم (5xx) أو عدم استجابة اتكرر مرتين — الحجب الأمني
+  // (403/429، تحدّي Cloudflare) مش بيوصل هنا أصلاً
+  function linkAlerts(results) {
+    return (results || []).map(function (r) {
+      var ads = r.ads || [], first = t('al.name', { name: ads[0] || '' });
+      var adsText = ads.length > 1 ? t('al.link.adsN', { a: first, n: String(ads.length - 1) }) : first;
+      var url = String(r.url || '');
+      if (url.length > 90) url = url.slice(0, 89) + '…';
+      var key = r.status === 404 || r.status === 410 ? 'al.link.d404' : (r.status ? 'al.link.d5xx' : 'al.link.dNet');
+      var a = makeIssue('critical', ['status'], t('al.link.t'), t(key, { ads: adsText, status: String(r.status || ''), url: url }), t('al.link.a'), 0, 'link-broken');
+      a.objectId = r.key;
+      return a;
+    });
+  }
+
   global.PauseProofAlerts = {
+    siteAlerts: siteAlerts,
+    editAlerts: editAlerts,
+    linkAlerts: linkAlerts,
     DEFAULT_SETTINGS: DEFAULT_SETTINGS,
     PRESETS: PRESETS,
     presetSettings: presetSettings,
