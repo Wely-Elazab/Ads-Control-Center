@@ -122,6 +122,14 @@
     return s;
   }
   function any(arr) { return (arr || []).some(function (v) { return v > 0; }); }
+  // احتمال إن العدد يطلع k أو أقل بالصدفة لو المتوقع lambda (توزيع بواسون) — نتائج الإعلانات عدّ،
+  // واليوم اللي فيه نتيجتين بدل خمسة ممكن يحصل صدفة. بنستخدمه عشان منطلعش تنبيه على تذبذب طبيعي
+  function poissonAtMost(k, lambda) {
+    if (!(lambda > 0)) return 1;
+    var term = Math.exp(-lambda), total = term;
+    for (var i = 1; i <= k; i++) { term *= lambda / i; total += term; }
+    return Math.min(1, total);
+  }
 
   // أي إعداد مش محفوظ بياخد قيمة النمط اللي المستخدم اختاره (مش القيمة الافتراضية) —
   // عشان إعداد جديد نضيفه بعدين يمشي مع اختيار المستخدم: اللي اختار "هادي" ياخد القيمة الهادية
@@ -193,7 +201,12 @@
     var daily = c.daily || [], results = c.dailyResults || [], sales = c.dailySales || [];
     var spendY = daily[YESTERDAY] || 0, spend2 = sum(daily, DAY_BEFORE, YESTERDAY);
     var resY = results[YESTERDAY] || 0, res2 = sum(results, DAY_BEFORE, YESTERDAY);
-    var salesY = sales[YESTERDAY] || 0;
+    // العائد وفرص الزيادة بتتقاس على آخر ٣ أيام مكتملة مش أمس لوحده: المبيعات بتتنسب ليوم ظهور الإعلان
+    // (إعداد Meta الافتراضي)، فأرقام أمس لسه هتزيد لما مشتريات متأخرة تتسجّل، والإعلان اللي مشترياته قليلة
+    // وغالية ممكن يغيب يوم كامل ويرجع — تقييم يوم واحد كان بيطلع «عاجل» على إعلان عائده في الأسبوع ممتاز
+    var spend3 = sum(daily, 3, YESTERDAY), res3 = sum(results, 3, YESTERDAY), sales3 = sum(sales, 3, YESTERDAY);
+    // تكلفة النتيجة بمعدل الإعلان نفسه في الأسبوع — مقياس «هل الصرف ده كفاية نحكم عليه؟»
+    var ownCpr = c.results > 0 && c.spend > 0 ? c.spend / c.results : null;
     // المتوسط بيتقسم على الأيام اللي الإعلان كان فيها موجود فعلاً — إعلان عمره ٣ أيام
     // كان متوسطه بيتقسم على ٥ فيطلع أقل من الحقيقة وتنبيه "وصوله ضعيف" ميظهرش
     var historyDays = age != null ? Math.max(1, Math.min(5, age - 1)) : 5;
@@ -258,7 +271,10 @@
       var accountHasResults = !!(group && group.results > 0);
       var threshold = avgCpr ? avgCpr * s.wasteCprMultiple
         : ((!accountHasResults && acc.avgAdSpend2 > 0) ? acc.avgAdSpend2 : null);
-      if (res2 === 0 && spend2 > 0 && threshold) {
+      // إعلان أداؤه في الأسبوع أحسن من متوسط الحساب، ويومين من غير نتائج بصرف أقل من تكلفة ٣ نتائج
+      // بمعدله هو — ده وارد يحصل صدفة (نتائج قليلة العدد)، فمش هدر
+      var dryIsNormal = ownCpr != null && avgCpr != null && ownCpr <= avgCpr && spend2 < ownCpr * 3;
+      if (res2 === 0 && spend2 > 0 && threshold && !dryIsNormal) {
         var wasteDetail = avgCpr
           ? t('al.waste.d', { name: name, spend: money(spend2), label: label, one: one, avg: money(avgCpr),
               expPhrase: countText(Math.round(Math.max(1, spend2 / avgCpr)), c.resultKey, fmt) })
@@ -274,21 +290,23 @@
         }
       }
 
-      // 5) العائد (بس للإعلانات اللي بتسجّل قيمة مبيعات)
-      if (acc.hasSales && any(sales) && spendY > 0 && (!avgCpr || spendY >= avgCpr * 0.5) && !(salesY === 0 && wasteRaised)) {
-        var roasY = salesY / spendY;
+      // 5) العائد (بس للإعلانات اللي بتسجّل قيمة مبيعات) — على آخر ٣ أيام، وبس لو الصرف فيها يكفي لـ٣ نتائج
+      //    على الأقل بمعدل الإعلان نفسه (أو متوسط الحساب لو ملوش نتائج): أقل من كده «صفر مبيعات» ممكن يكون صدفة
+      var evidenceCpr = ownCpr || avgCpr;
+      if (acc.hasSales && any(sales) && spend3 > 0 && (!evidenceCpr || spend3 >= evidenceCpr * 3) && !(sales3 === 0 && wasteRaised)) {
+        var roas3 = sales3 / spend3;
         // لو عملة الحساب مش معروفة: "العائد ×٣" بدل "كل ١  اتصرف رجّع ٣ " من غير عملة
         var roasText = fmt.currencyLabel(cur)
-          ? t('al.roasText', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: fmt.num(roasY) })
-          : t('al.roasTextNoCur', { roas: fmt.num(roasY) });
-        var roasVars = { name: name, spend: money(spendY), sales: money(salesY), roasText: roasText, target: fmt.num(s.roasTarget) };
-        if (roasY < s.roasBreakEven) {
+          ? t('al.roasText', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: fmt.num(roas3) })
+          : t('al.roasTextNoCur', { roas: fmt.num(roas3) });
+        var roasVars = { name: name, spend: money(spend3), sales: money(sales3), roasText: roasText, target: fmt.num(s.roasTarget) };
+        if (roas3 < s.roasBreakEven) {
           issues.push(makeIssue('critical', ['roas', 'spend'], t('al.loss.t'), t('al.loss.d', roasVars),
-            t('al.loss.a'), spendY - salesY, 'loss', true));
-        } else if (roasY < s.roasTarget) {
+            t('al.loss.a'), spend3 - sales3, 'loss', true));
+        } else if (roas3 < s.roasTarget) {
           issues.push(makeIssue('warning', ['roas'], t('al.lowRoas.t'), t('al.lowRoas.d', roasVars),
             t('al.lowRoas.a'), 0));
-        } else if (roasY >= s.roasTarget * 1.5) {
+        } else if (roas3 >= s.roasTarget * 1.5) {
           issues.push(makeIssue('opportunity', ['roas'], t('al.greatRoas.t'), t('al.greatRoas.d', roasVars),
             t('al.greatRoas.a'), 0, 'roas-great'));
         }
@@ -307,10 +325,18 @@
         }
       }
 
-      // 7) انخفاض النتائج أمس مقارنة بالمعتاد مع نفس مستوى الصرف
+      // 7) انخفاض النتائج أمس مقارنة بالمعتاد مع نفس مستوى الصرف — بشرطين عشان منطلعش تنبيه على تذبذب طبيعي:
+      //    - أمس أسوأ من كل أيامه اللي فاتت (نتائج لكل ١ اتصرف): لو كان فيه يوم زيه قبل كده ورجع بعده،
+      //      يبقى ده نمط الإعلان ده مش مشكلة جديدة
+      //    - والانخفاض صعب يحصل صدفة (احتمال أقل من ٥٪ بالمعدل المتوقع لصرف أمس)
       var prevResAvg = sum(results, 1, DAY_BEFORE) / 4;
       var prevSpend4 = sum(daily, 1, DAY_BEFORE) / 4;
-      if (!wasteRaised && prevResAvg >= 2 && prevSpend4 > 0 && spendY >= prevSpend4 * 0.7 && resY <= prevResAvg * s.dropRatio) {
+      var newLow = spendY > 0;
+      for (var d = 1; d <= DAY_BEFORE && newLow; d++) {
+        if ((daily[d] || 0) > 0 && (results[d] || 0) / daily[d] <= resY / spendY) newLow = false;
+      }
+      var unlikely = prevSpend4 > 0 && poissonAtMost(resY, prevResAvg * spendY / prevSpend4) < 0.05;
+      if (!wasteRaised && prevResAvg >= 2 && prevSpend4 > 0 && spendY >= prevSpend4 * 0.7 && resY <= prevResAvg * s.dropRatio && newLow && unlikely) {
         issues.push(makeIssue('warning', ['results'], t('al.drop.t'),
           // صفر نتائج: «لم يحقق أي مشتريات» بدل «حقق ٠ مشتريات فقط»
           resY === 0
@@ -343,23 +369,23 @@
       }
     }
 
-    // 10) فرصة لزيادة الاستثمار
-    if (!learning && avgCpr && resY >= s.scaleMinResults && spendY > 0) {
-      var cprY = spendY / resY;
+    // 10) فرصة لزيادة الاستثمار — على آخر ٣ أيام زي العائد: يوم واحد حلو مش سبب كفاية لزيادة الميزانية
+    if (!learning && avgCpr && res3 >= s.scaleMinResults && spend3 > 0) {
+      var cpr3 = spend3 / res3;
       var hasProblem = issues.some(function (i) { return i.level === 'critical' || i.level === 'warning'; });
-      if (!hasProblem && cprY <= avgCpr * s.scaleCprRatio) {
+      if (!hasProblem && cpr3 <= avgCpr * s.scaleCprRatio) {
         // لو عليه تنبيه "عائد ممتاز"، ندمجه هنا بدل تنبيهين لنفس الإعلان ونفس النصيحة
         var greatIdx = -1;
         issues.forEach(function (i, idx) { if (i.code === 'roas-great') greatIdx = idx; });
         var roasNote = '';
         if (greatIdx !== -1) {
           roasNote = fmt.currencyLabel(cur)
-            ? t('al.scale.note', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: fmt.num(salesY / spendY) })
-            : t('al.scale.noteNoCur', { roas: fmt.num(salesY / spendY) });
+            ? t('al.scale.note', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: fmt.num(sales3 / spend3) })
+            : t('al.scale.noteNoCur', { roas: fmt.num(sales3 / spend3) });
           issues.splice(greatIdx, 1);
         }
         issues.push(makeIssue('opportunity', ['results', 'cpr', 'roas'], t('al.scale.t'),
-          t('al.scale.d', { name: name, count: countText(resY, c.resultKey, fmt), cpr: money(cprY), one1: one, pct: fmt.int((1 - cprY / avgCpr) * 100), avg: money(avgCpr), note: roasNote }),
+          t('al.scale.d', { name: name, count: countText(res3, c.resultKey, fmt), cpr: money(cpr3), one1: one, pct: fmt.int((1 - cpr3 / avgCpr) * 100), avg: money(avgCpr), note: roasNote }),
           t('al.scale.a'), 0, 'scale'));
       }
     }

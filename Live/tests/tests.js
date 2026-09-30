@@ -376,11 +376,42 @@
       var r = engine(ads);
       ok(!issuesOf(r, 'new').some(function (i) { return i.code === 'waste'; }));
     });
-    test('خسارة (العائد أقل من ١) = عاجل', function () {
-      var ads = baseAccount().concat([ad('loss', { daily: [100, 100, 100, 100, 100, 100, 20], res: steady(5), sales: [300, 300, 300, 300, 300, 50, 0] })]);
+    test('خسارة (العائد أقل من ١ في آخر ٣ أيام) = عاجل', function () {
+      var ads = baseAccount().concat([ad('loss', { daily: [100, 100, 100, 100, 100, 100, 20], res: steady(5), sales: [300, 300, 300, 50, 50, 50, 0] })]);
       var r = engine(ads);
       var i = issuesOf(r, 'loss').filter(function (x) { return x.code === 'loss'; })[0];
       ok(i && i.level === 'critical', 'loss alert');
+      ok(i.detail.indexOf('آخر ٣ أيام') > -1 && i.detail.indexOf(money(300, 'SAR')) > -1, i.detail);
+    });
+    test('يوم واحد من غير مبيعات في إعلان أسبوعه ممتاز = مفيش «عاجل» ولا «مهم» (حالة حقيقية)', function () {
+      // مشتريات قليلة وغالية (~٤٠٠ للطلب): يوم ٣ كان صفر ورجع، وأمس صفر — العائد في الأسبوع ×١٦٠ تقريباً
+      var lumpy = ad('lumpy', { daily: [6, 5.2, 3.6, 6.8, 5.4, 9.2, 2.5], res: [5, 5, 0, 2, 4, 0, 0], sales: [1951, 1984, 0, 646, 1738, 0, 0] });
+      var list = issuesOf(engine(baseAccount().concat([lumpy])), 'lumpy');
+      ok(!list.some(function (i) { return i.level === 'critical' || i.level === 'warning'; }),
+        list.map(function (i) { return i.level + ': ' + i.title; }).join(' | '));
+    });
+    test('مبيعات صفر في ٣ أيام بصرف ميكفيش لـ٣ نتائج بمعدل الإعلان = مفيش حكم على العائد', function () {
+      var small = ad('small', { daily: [10, 10, 10, 10, 10, 10, 2], res: [1, 1, 1, 0, 0, 0, 0], sales: [100, 100, 100, 0, 0, 0, 0] });
+      ok(!issuesOf(engine(baseAccount().concat([small])), 'small').some(function (i) { return /loss|roas/.test(i.code || '') || i.title === t('al.loss.t') || i.title === t('al.lowRoas.t'); }));
+    });
+    test('انخفاض النتائج: إعلان ثابت وقع لصفر فجأة = مهم، وإعلان بيتذبذب طبيعي = لا', function () {
+      var steadyDrop = ad('sd', { daily: steady(100), res: [5, 5, 5, 5, 5, 0, 4] });
+      ok(issuesOf(engine(baseAccount().concat([steadyDrop])), 'sd').some(function (i) { return i.title === t('al.drop.t'); }), 'steady ad drop');
+      var wobbly = ad('wb', { daily: steady(100), res: [6, 0, 6, 7, 6, 0, 4] });
+      ok(!issuesOf(engine(baseAccount().concat([wobbly])), 'wb').some(function (i) { return i.title === t('al.drop.t'); }), 'had a zero day before and recovered');
+      var noisy = ad('nz', { daily: steady(100), res: [2, 3, 2, 3, 2, 1, 2] });
+      ok(!issuesOf(engine(baseAccount().concat([noisy])), 'nz').some(function (i) { return i.title === t('al.drop.t'); }), '1 vs ~2.5 can be chance');
+    });
+    test('يومين من غير نتائج في إعلان أرخص من متوسط الحساب ونتائجه قليلة = مش هدر', function () {
+      var lumpy = ad('lw', { daily: steady(10), res: [2, 1, 2, 1, 0, 0, 1] });
+      ok(!issuesOf(engine(baseAccount().concat([lumpy])), 'lw').some(function (i) { return /^waste/.test(i.code || ''); }));
+    });
+    test('فرصة زيادة الاستثمار على آخر ٣ أيام مش يوم واحد', function () {
+      var oneDay = ad('od', { daily: steady(100), res: [5, 5, 5, 0, 0, 12, 3] });
+      ok(!issuesOf(engine(baseAccount().concat([oneDay])), 'od').some(function (i) { return i.code === 'scale'; }), 'one great day');
+      var three = ad('th', { daily: steady(100), res: [5, 5, 5, 8, 8, 8, 3] });
+      var sc = issuesOf(engine(baseAccount().concat([three])), 'th').filter(function (i) { return i.code === 'scale'; })[0];
+      ok(sc && sc.detail.indexOf('آخر ٣ أيام') > -1, sc ? sc.detail : 'no scale');
     });
     test('الإعلان الصغير = "للعلم" بس', function () {
       var ads = baseAccount().concat([ad('tiny', { daily: [3, 3, 3, 3, 3, 0, 0], res: [0, 0, 0, 0, 0, 0, 0] })]);
