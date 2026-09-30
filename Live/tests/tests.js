@@ -2253,7 +2253,20 @@
       var obj = series('2026-09-01', '2026-09-22', 14, 2).concat(series('2026-09-23', '2026-09-29', 10, 0.5));
       var r = DX.evalActions(groups, { 22: obj }, plus(obj, REST), '2026-09-26')[0];
       eq(r.verdict, 'unclear');
-      withLang('ar', function () { ok(/لا يمكن نسبته إلى التعديل بعد/.test(DX.composeActions([r], 'USD').items[0].lines.join(' '))); });
+      withLang('ar', function () {
+        var b = DX.composeActions([r], 'USD');
+        ok(!b.items.length && /ولم تُحسم بعد نتيجة ١ .*«N22»/.test(b.after.join(' ')), JSON.stringify(b));
+      });
+    });
+    test('حزمة فيها رفع ميزانية + استهداف بتتقيّم كزيادة: الطلبات زادت بنفس التكلفة = «حافظ على كفاءته» مش «لا فرق»', function () {
+      var evs = [budget('24', '2026-09-21T09:00:00+0000', 1000, 2500), ev('update_ad_set_target_spec', 'CAMPAIGN', '24', '2026-09-22T09:00:00+0000', { old_value: [1], new_value: [2] })];
+      var groups = DX.actionGroups(evs, 'UTC', '2026-09-24', '2026-09-26');
+      eq([groups[0].kind, groups[0].from, groups[0].to], ['package', 1000, 2500]);
+      var obj = series('2026-09-01', '2026-09-22', 60, 3).concat(series('2026-09-23', '2026-09-29', 150, 7.5));
+      withLang('ar', function () {
+        var it = DX.composeActions(DX.evalActions(groups, { 24: obj }, plus(obj, REST), '2026-09-26'), 'USD').items[0];
+        ok(/حافظ على كفاءته/.test(it.lines.join(' ')) && /الميزانية والاستهداف/.test(it.title), JSON.stringify(it));
+      });
     });
     test('التعديلات الصغيرة (أقل من ٣٪ من إنفاق الحساب) بتتعد بس، واستهداف الإعلان المنسوخ من المجموعة مش قرار', function () {
       var groups = DX.actionGroups([budget('23', '2026-09-22T09:00:00+0000', 1000, 2000)], 'UTC', '2026-09-24', '2026-09-26');
@@ -2305,7 +2318,7 @@
         ok(/بواسطة/.test(it.meta) && /←/.test(it.lines[0]) && /حافظ على كفاءته/.test(it.lines[1]), JSON.stringify(it));
         var o21 = series('2026-09-01', '2026-09-29', 100, 5);
         var early = DX.composeActions(DX.evalActions(DX.actionGroups([budget('21', '2026-09-26T09:00:00+0000', 1000, 3000)], 'UTC', since, until), { 21: o21 }, plus(o21, REST), until), 'USD');
-        ok(/مبكر للحكم/.test(early.items[0].lines[0]) && /لم يكتمل يوم/.test(early.items[0].lines[0]), early.items[0].lines[0]);
+        ok(!early.items.length && /نقيّمها في ملخص قادم .*«N21»/.test(early.after.join(' ')), JSON.stringify(early));
         eq(DX.composeActions([], 'USD').lines, [t('dx.act.none')]);
       });
       withLang('en', function () {

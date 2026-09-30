@@ -1082,9 +1082,14 @@ var DX = (function () {
       else if (lastEv.kind === 'pause') g.kind = 'pause';
       else if (g.kinds.length === 1) g.kind = g.kinds[0];
       else g.kind = 'package';
-      if (g.kinds.length === 1 && g.kind === 'budget') {
-        g.from = evs[0].from; g.to = lastEv.to; g.lifetime = lastEv.lifetime;
-        if (Math.abs(g.to / g.from - 1) < ACT_MIN_BUDGET) return;   // رفع ورجوع = مفيش قرار صافي
+      // الميزانية (لوحدها أو جوه حزمة): من أول قيمة لآخر قيمة — الحزمة اللي فيها زيادة ميزانية بتتقيّم كزيادة
+      var budgets = evs.filter(function (e) { return e.kind === 'budget'; });
+      if (budgets.length) {
+        g.from = budgets[0].from; g.to = budgets[budgets.length - 1].to; g.lifetime = budgets[budgets.length - 1].lifetime;
+        if (Math.abs(g.to / g.from - 1) < ACT_MIN_BUDGET) {
+          if (g.kind === 'budget') return;   // رفع ورجوع = مفيش قرار صافي
+          g.from = g.to = null;
+        }
       }
       if (g.kind === 'resume' && evs[0].kind !== 'resume') g.kind = 'package';
       var after = keyDiffDays(g.last, until);   // أيام كاملة بعد آخر تعديل لحد آخر الفترة
@@ -1671,10 +1676,6 @@ var DX = (function () {
     var date = a.first === a.last ? fmtKey(a.first) : fmtRange(a.first, a.last);
     var who = a.actors && a.actors.length ? t('dx.act.who', { date: date, actor: listText(a.actors.map(iso)) }) : date;
     var lines = [], tone = 'neutral';
-    if (a.verdict === 'early') {
-      lines.push(a.after > 0 ? t('dx.act.v.early', { n: daysPhrase(a.after) }) : t('dx.act.v.early0'));
-      return { title: title, meta: who, lines: lines, tone: tone };
-    }
     var cpa = function (b) { return b.pur > 0 ? M(b.spend / b.pur) : null; };
     var restCpa = function (b) { return cpa(b) || '—'; };
     if (a.verdict !== 'noSpend' && a.objB) {
@@ -1693,22 +1694,38 @@ var DX = (function () {
           cpa: both ? t('dx.act.factsCpa', { cpaB: cpa(a.objB), cpaA: cpa(a.objA) }) : '' }));
       }
     }
-    var group = a.kind === 'pause' ? 'pause' : (a.vsRest ? 'new' : (a.kind === 'budget' ? (a.to > a.from ? 'up' : 'down') : 'edit'));
-    if (ACT_TONE[a.verdict]) {
-      lines.push(t('dx.act.v.' + group + '.' + a.verdict));
-      // الإيقاف بالعكس: العنصر كان «أسوأ» = القرار صح
-      tone = group === 'pause' ? ({ worse: 'good', better: 'bad', same: 'neutral' })[a.verdict] : ACT_TONE[a.verdict];
-    } else if (a.verdict === 'unclear') lines.push(t(group === 'pause' || group === 'new' ? 'dx.act.v.unclearRest' : 'dx.act.v.unclear'));
-    else lines.push(t('dx.act.v.' + a.verdict));
+    var budgetDir = a.from > 0 && a.to > 0 && (a.kind === 'budget' || a.kind === 'package') ? (a.to > a.from ? 'up' : 'down') : null;
+    var group = a.kind === 'pause' ? 'pause' : (a.vsRest ? 'new' : (budgetDir || 'edit'));
+    lines.push(t('dx.act.v.' + group + '.' + a.verdict));
+    // الإيقاف بالعكس: العنصر كان «أسوأ» = القرار صح
+    tone = group === 'pause' ? ({ worse: 'good', better: 'bad', same: 'neutral' })[a.verdict] : ACT_TONE[a.verdict];
     return { title: title, meta: who, lines: lines, tone: tone };
   }
+  // اسم مختصر للسطر المجمّع («لم تُحسم بعد: …»)
+  function actionShort(a) {
+    var name = (a.names && a.names[0]) || '';
+    if (name.length > 45) name = name.slice(0, 44) + '…';
+    return name ? iso(t('dx.act.q', { name: name })) : t('dx.act.lv.' + a.level);
+  }
+  function shortList(arr) {
+    var names = arr.slice(0, 4).map(actionShort);
+    return listText(names) + (arr.length > 4 ? t('dx.act.andOthers') : '');
+  }
+  // بالتفصيل: الأحكام المحسومة بس (أفضل، أسوأ، حافظ على كفاءته، إيقاف في محله…). غير المحسوم والحديث في سطر لكل واحد —
+  // على حساب حقيقي كان أغلب التعديلات «غير محسوم» (مجموعات صغيرة) وتفصيلها كلها كان بيطوّل الرسالة من غير فايدة
   function composeActions(list, currency) {
     var M = function (v) { return iso(money(v, currency)); };
-    var b = { kind: 'actions', title: t('dx.act.title'), lines: [t('dx.act.intro')], items: [] };
-    var shown = (list || []).filter(function (a) { return !a.minor; }).slice(0, ACT_SHOW);
-    if (!shown.length) { b.lines = [t(list && list.length ? 'dx.act.onlyMinor' : 'dx.act.none', { n: fmtNum((list || []).length) })]; return b; }
-    shown.forEach(function (a) { b.items.push(actionItem(a, M, currency)); });
-    if (list.length > shown.length) b.after = [t('dx.act.more', { n: fmtNum(list.length - shown.length) })];
+    var b = { kind: 'actions', title: t('dx.act.title'), lines: [t('dx.act.intro')], items: [], after: [] };
+    var major = (list || []).filter(function (a) { return !a.minor; });
+    var full = major.filter(function (a) { return ACT_TONE[a.verdict]; }).slice(0, ACT_SHOW);
+    var pending = major.filter(function (a) { return /^(unclear|wait|thin|noSpend)$/.test(a.verdict); });
+    var later = major.filter(function (a) { return a.verdict === 'early'; });
+    if (!major.length) { b.lines = [t(list && list.length ? 'dx.act.onlyMinor' : 'dx.act.none', { n: fmtNum((list || []).length) })]; b.after = []; return b; }
+    full.forEach(function (a) { b.items.push(actionItem(a, M, currency)); });
+    if (pending.length) b.after.push(t('dx.act.pending', { n: fmtNum(pending.length), list: shortList(pending) }));
+    if (later.length) b.after.push(t('dx.act.later', { n: fmtNum(later.length), list: shortList(later) }));
+    var rest = list.length - full.length - pending.length - later.length;
+    if (rest > 0) b.after.push(t('dx.act.more', { n: fmtNum(rest) }));
     return b;
   }
 
