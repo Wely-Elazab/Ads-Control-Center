@@ -7,6 +7,8 @@
 //   digest.* و stop ← الملخص والتنبيهات التلقائية بالبريد (digest.ts)
 //   selfcheck ← { token } لمدير تطبيق Meta بس: الأسرار موجودة وسليمة؟ (حالة بس — عمره ما بيرجّع قيمة سر)
 //   testmail  ← { token } لمدير التطبيق بس: رسالة تجريبية لـ support@adscenter.online (العنوان ثابت — مش بياخد مستلم)
+//   run       ← pg_cron كل ساعة، بهيدر x-runner-key (مفتاح عشوائي في Vault): فحص التنبيهات العاجلة (runner.ts)
+//   digest.preview ← { token, accountId, lang } لمدير التطبيق بس: الرسالة العاجلة اللي كانت هتتبعت دلوقتي، من غير إرسال
 //
 // الأمان: الدالة عامة (verify_jwt = false) لأن الأداة مفيهاش حسابات دخول خاصة بيها. بدل كده كل طلب فيه
 // مفتاح Meta بتاع صاحب المتجر، والدالة بتسأل Meta نفسها إن المفتاح ده عنده صلاحية على الحساب الإعلاني
@@ -17,6 +19,9 @@
 
 import { META_ID, TOKEN, corsHeaders, reply, db, rpc, metaAccount, isAppAdmin, str, sendEmail, mailHtml, MAIL_REPLY_TO } from './lib.ts';
 import { handleDigest } from './digest.ts';
+import { runAll, preview } from './runner.ts';
+
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
 const MAX_BODY = 16 * 1024;
 const REASONS = ['offer', 'stock', 'price', 'site', 'shipping', 'ads', 'season', 'tracking', 'other'];
@@ -106,7 +111,25 @@ Deno.serve(async (req: Request) => {
     // رابط الإيقاف في الرسائل: توقيعه هو الإثبات، من غير دخول Meta
     if (action === 'stop') return await handleDigest(action, body, origin);
 
+    // المُشغّل: بنرد فوراً ونكمّل في الخلفية (pg_net مش محتاج يستنى)
+    if (action === 'run') {
+      const key = req.headers.get('x-runner-key') || '';
+      if (!(await rpc('runner_key_ok', { p_key: key }))) return reply(403, { error: 'key' }, origin);
+      const job = runAll().then((r) => console.log('runner', JSON.stringify(r)))
+        .catch((e) => console.error('runner failed', String(e && (e as Error).message || e).slice(0, 200)));
+      if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime) { EdgeRuntime.waitUntil(job); return reply(202, { accepted: true }, origin); }
+      await job;
+      return reply(200, { ok: true }, origin);
+    }
+
     if (typeof body.token !== 'string' || !TOKEN.test(body.token)) return reply(400, { error: 'token' }, origin);
+
+    if (action === 'digest.preview') {
+      const admin = await isAppAdmin(body.token);
+      if (!admin) return reply(admin === null ? 503 : 403, { error: 'admins only' }, origin);
+      if (typeof body.accountId !== 'string' || !META_ID.test(body.accountId)) return reply(400, { error: 'account' }, origin);
+      return reply(200, await preview(body.token, body.accountId, body.lang === 'en' ? 'en' : 'ar'), origin);
+    }
 
     if (typeof action === 'string' && action.indexOf('digest.') === 0) return await handleDigest(action, body, origin);
 

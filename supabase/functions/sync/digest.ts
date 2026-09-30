@@ -191,7 +191,7 @@ async function removeAll(account: string): Promise<void> {
   await rpc('vault_delete_token', { p_account: account });
   await db('digest_settings?account_id=eq.' + account, { method: 'DELETE' });
 }
-async function accountName(account: string): Promise<string | undefined> {
+export async function accountName(account: string): Promise<string | undefined> {
   const r = await db('ad_accounts?select=name&platform=eq.meta&account_id=eq.' + account, { method: 'GET' }).catch(() => null);
   const rows = r ? await r.json().catch(() => null) : null;
   return Array.isArray(rows) && rows[0] && rows[0].name ? rows[0].name : undefined;

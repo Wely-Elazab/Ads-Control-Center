@@ -1,0 +1,437 @@
+// المُشغّل: فحص التنبيهات العاجلة كل ساعة لكل حساب مفعّل له الملخص التلقائي (pg_cron → action: run)
+//
+// المحرك هو نفسه اللي في الأداة (js/i18n.js + alerts.js + core.js + meta.js) — مش نسخة تانية منه، عشان اللي
+// بيوصل بالبريد يطابق اللي العميل بيشوفه في الأداة بالظبط. الملفات دي سكريبتات متصفح بتتشارك النطاق العام،
+// فبتتحمّل بـ eval غير مباشر (نفس النطاق العام) مع بدائل بسيطة للمتصفح (document وlocalStorage وFB.api).
+// بتتجاب من GitHub على commit ثابت (ENGINE_COMMIT): محتواه مقفول برقمه، فمحدش يقدر يغيّر الكود اللي بيشتغل
+// هنا جنب مفاتيح Meta المحفوظة. لو الموقع اتحدّث بعده، بنسجّل «runner-engine-outdated» في heartbeat
+// لحد ما ENGINE_COMMIT يتحدّث والدالة تتنشر تاني.
+//
+// القواعد المتفق عليها: التنبيه العاجل بيتبعت بس لما يكون فيه عاجل (مش في ميعاد ثابت)، ومنفصل عن الملخص.
+// نفس التنبيه ميتكررش: تذكير واحد بس لو استمر يومين كمان. «ساء» = ظهرت مشكلة عاجلة جديدة على نفس
+// العنصر أو مشكلة «مهمة» بقت «عاجلة» — دي بصمة جديدة فبتتبعت. مبنحفظش أي أرقام — النوع والعنصر والتواريخ بس.
+
+import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
+import { unseal, stopUrl, accountName } from './digest.ts';
+
+const ENGINE_COMMIT = '1390562bbaededab2d8ebcceb7c646edafd377f8';
+const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'meta.js'];
+const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
+
+const QUIET_FROM = 23, QUIET_UNTIL = 7;   // مفيش رسائل بالليل بتوقيت الحساب — اللي يظهر بالليل بيتبعت ٧ الصبح لو لسه قائم
+const REMIND_AFTER_MS = 48 * 3600000;     // تذكير واحد بس، لو المشكلة استمرت يومين بعد أول رسالة
+const RESOLVE_AFTER_MS = 24 * 3600000;    // «اتحلّت» = مظهرتش ٢٤ ساعة كاملة (اختفاء ساعة ورجوع = نفس المشكلة)
+const EXPIRY_WARN_MS = 5 * 86400000;      // صلاحية Meta هتخلص خلال ٥ أيام → رسالة واحدة تطلب فتح الأداة
+const TIME_BUDGET_MS = 110000;            // حد الدالة ١٥٠ ثانية — منبدأش حساب بعد كده، والباقي الساعة الجاية
+const SYSTEM_KINDS: Record<string, boolean> = { connection: true, expiry: true };
+
+const g = globalThis as any;
+
+// ---------- بدائل المتصفح ----------
+function memoryStorage() {
+  const m = new Map<string, string>();
+  return {
+    getItem: (k: string) => (m.has(k) ? m.get(k)! : null),
+    setItem: (k: string, v: unknown) => { m.set(k, String(v)); },
+    removeItem: (k: string) => { m.delete(k); },
+    clear: () => m.clear()
+  };
+}
+function define(name: string, value: unknown) {
+  try { Object.defineProperty(g, name, { value, configurable: true, writable: true }); } catch (_) { /* مقفولة — الملفات عندها try */ }
+}
+function installShims() {
+  const noop = () => {};
+  const node = () => ({ parentNode: { insertBefore: noop }, style: {}, classList: { add: noop, remove: noop, toggle: noop } });
+  define('window', g);
+  define('document', {
+    documentElement: {}, body: node(),
+    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
+    getElementsByTagName: () => [node()], createElement: node, addEventListener: noop
+  });
+  define('localStorage', memoryStorage());
+  define('sessionStorage', memoryStorage());
+  define('location', { search: '', hash: '', pathname: '/app', href: SITE + '/app', origin: SITE, host: 'adscenter.online', protocol: 'https:' });
+  define('history', { replaceState: noop, pushState: noop });
+  define('FB', { api: fbApi, init: noop, login: noop });
+}
+
+// FB.api بتاع المتصفح → Graph API بمفتاح الحساب اللي بنفحصه دلوقتي (حساب واحد في المرة — exclusive تحت)
+let metaToken = '';
+function fbApi(path: string, a?: any, b?: any, c?: any) {
+  let method = 'GET', params: Record<string, unknown> = {}, cb: (r: any) => void = () => {};
+  if (typeof a === 'string') { method = a.toUpperCase(); if (typeof b === 'function') cb = b; else { params = b || {}; cb = c || cb; } }
+  else if (typeof a === 'function') cb = a;
+  else { params = a || {}; cb = b || cb; }
+  graph(path, method, params).then(cb, (e) => cb({ error: { message: String((e && e.message) || e) } }));
+}
+async function graph(path: string, method: string, params: Record<string, unknown>): Promise<any> {
+  const url = new URL(GRAPH + (path.charAt(0) === '/' ? path : '/' + path));
+  const form = new URLSearchParams();
+  const put = (k: string, v: unknown) => {
+    if (v == null) return;
+    const s = typeof v === 'string' ? v : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+    if (method === 'GET') url.searchParams.set(k, s); else form.set(k, s);
+  };
+  Object.keys(params).forEach((k) => put(k, params[k]));
+  put('access_token', metaToken);
+  const r = await fetch(url, method === 'GET' ? undefined : { method, body: form });
+  return await r.json().catch(() => ({ error: { message: 'http ' + r.status } }));
+}
+
+// حساب واحد في المرة: المفتاح ولغة النصوص متغيرات عامة في المحرك، فطلبين في نفس الوقت كانوا هيتلخبطوا
+let lock: Promise<unknown> = Promise.resolve();
+function exclusive<T>(fn: () => Promise<T>): Promise<T> {
+  const p = lock.then(fn, fn);
+  lock = p.catch(() => {});
+  return p;
+}
+
+// ---------- تحميل المحرك ----------
+let engine: Promise<string[]> | null = null;
+// بيرجّع الملفات اللي نسختها على الموقع دلوقتي مختلفة عن ENGINE_COMMIT (يعني الأداة بقت أحدث من المُشغّل)
+function loadEngine(): Promise<string[]> {
+  if (!engine) {
+    engine = (async () => {
+      const texts = await Promise.all(ENGINE_FILES.map(async (f) => {
+        const r = await fetch(ENGINE_RAW + f);
+        if (!r.ok) throw new Error('engine ' + f + ' ' + r.status);
+        return await r.text();
+      }));
+      installShims();
+      for (const src of texts) (0, eval)(src);
+      if (!g.PauseProofAlerts || !g.I18N || typeof g.transformRealAd !== 'function' || typeof g.adsPromise !== 'function') throw new Error('engine incomplete');
+      const live = await Promise.all(ENGINE_FILES.map((f) => fetch(SITE + '/js/' + f).then((r) => (r.ok ? r.text() : null)).catch(() => null)));
+      const norm = (s: string) => s.replace(/\r\n/g, '\n');
+      return ENGINE_FILES.filter((_f, i) => live[i] != null && norm(live[i] as string) !== norm(texts[i]));
+    })().catch((e) => { engine = null; throw e; });
+  }
+  return engine;
+}
+
+// ---------- Meta ----------
+const ACCOUNT_FIELDS = 'id,name,account_status,timezone_name,currency,spend_cap,amount_spent';
+type Acct = { id: string; name?: string; account_status?: number; timezone_name?: string; currency?: string; spend_cap?: string; amount_spent?: string };
+// lost = Meta رفضت الصلاحية نفسها (انتهت، اتلغت، أو الحساب اتشال منها). retry = عطل مؤقت — منقولش حاجة للعميل
+async function accountOrFail(accountId: string): Promise<{ acct?: Acct; fail?: 'lost' | 'retry' }> {
+  const j = await graph('/' + accountId, 'GET', { fields: ACCOUNT_FIELDS }).catch(() => null);
+  if (j && j.id === accountId) return { acct: j };
+  const code = j && j.error ? Number(j.error.code) : 0;
+  return { fail: code === 190 || code === 102 || code === 10 || (code >= 200 && code <= 299) ? 'lost' : 'retry' };
+}
+
+// نفس خطوات loadAdsForAccount في js/meta.js من غير الواجهة: الإعلانات الشغّالة + حالة المجموعات + الأرقام اليومية
+// + التكرار، وأي إعلان صرف في الأسبوع ومكانش في الدفعة بيتجاب برقمه. null = الأرقام مجاتش، منحكمش على حاجة
+async function loadCandidates(accountId: string, acct: Acct): Promise<any[] | null> {
+  const tz = acct.timezone_name || 'UTC';
+  const days = g.last7Days(g.todayKeyInTz(tz));
+  const timeRange = JSON.stringify({ since: days[0].key, until: days[days.length - 1].key });
+  const adsP = g.adsPromise(accountId, { effective_status: JSON.stringify(g.LIVE_STATUSES) }, g.LIVE_ADS_CAP)
+    .then((res: any) => (res.err ? g.adsPromise(accountId, {}, g.PAGE_SAFETY_CAP) : res));
+  const adsetsP = new Promise((resolve) => g.loadAdsetStatusMap(accountId, resolve));
+  const dailyP = g.insightsPromise(accountId, {
+    level: 'ad', time_increment: 1, time_range: timeRange, fields: 'ad_id,date_start,spend,actions,action_values', limit: 500
+  });
+  const reachP = g.fbPagesPromise('/' + accountId + '/insights', {
+    level: 'ad', time_range: timeRange, fields: 'ad_id,frequency,reach,impressions', limit: 500
+  }, g.FULL_SCAN_CAP);
+  const [ads, adsets, daily, reach] = await Promise.all([adsP, adsetsP, dailyP, reachP]) as any[];
+  if (ads.err || daily.err || daily.truncated) return null;
+
+  const byId: Record<string, any> = {}, order: string[] = [];
+  const add = (ad: any) => { if (ad && ad.id && !byId[ad.id]) { byId[ad.id] = ad; order.push(ad.id); } };
+  ads.data.forEach(add);
+  const missing = [...new Set<string>(daily.data.filter((r: any) => g.num(r.spend) > 0).map((r: any) => String(r.ad_id)))].filter((id) => !byId[id]);
+  if (missing.length && ads.fields) {
+    await new Promise<void>((resolve) => g.fetchMetaAdsByIds(missing, ads.fields, (extra: any[]) => { extra.forEach(add); resolve(); }));
+  }
+  const insights: Record<string, any[]> = {}, reachBy: Record<string, any> = {};
+  daily.data.forEach((r: any) => { (insights[r.ad_id] = insights[r.ad_id] || []).push(r); });
+  if (!reach.err) reach.data.forEach((r: any) => { reachBy[r.ad_id] = r; });
+  const info = {
+    name: acct.name || null, timeZone: tz, currency: acct.currency || null,
+    accountStatus: acct.account_status, spendCap: acct.spend_cap || null, amountSpent: acct.amount_spent || null
+  };
+  return order.map((id) => {
+    const c = g.transformRealAd(byId[id], insights[id] || [], adsets, days, reachBy[id], acct.currency || null, info, null);
+    c.source = 'meta:' + accountId;
+    return c;
+  });
+}
+
+// محرك الأداة بإعداداته الافتراضية (إعدادات حساسية العميل محفوظة في متصفحه بس) — العاجل بس
+function urgentAlerts(accountId: string, acct: Acct, cands: any[]): any[] {
+  const source = 'meta:' + accountId;
+  const meta = {
+    [source]: {
+      label: 'Meta — ' + (acct.name || accountId), currency: acct.currency || null,
+      metaAccountStatus: acct.account_status != null ? Number(acct.account_status) : null,
+      spendCapReached: Number(acct.spend_cap) > 0 && Number(acct.amount_spent) >= Number(acct.spend_cap)
+    }
+  };
+  const fmt = { money: g.money, currencyLabel: g.currencyLabel, num: g.numAr, int: (n: number) => g.ar(Math.round(n || 0)) };
+  const res = g.PauseProofAlerts.analyze(cands, meta, {}, fmt);
+  return res.alerts.filter((a: any) => a.level === 'critical' && !a.minor);
+}
+
+// ---------- البصمات ----------
+type Mark = { kind: string; object_id: string; first_at: string; last_sent_at: string; last_seen_at: string; times_sent: number; resolved_at: string | null };
+async function marksOf(account: string): Promise<Record<string, Mark>> {
+  const r = await db('alert_marks?select=kind,object_id,first_at,last_sent_at,last_seen_at,times_sent,resolved_at&account_id=eq.' + account, { method: 'GET' });
+  const out: Record<string, Mark> = {};
+  ((await r.json()) as Mark[]).forEach((m) => { out[m.kind + '|' + m.object_id] = m; });
+  return out;
+}
+async function saveMarks(account: string, rows: Mark[]): Promise<void> {
+  if (!rows.length) return;
+  await db('alert_marks?on_conflict=account_id,kind,object_id', {
+    method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify(rows.map((r) => ({ account_id: account, ...r })))
+  });
+}
+function newMark(kind: string, obj: string, iso: string): Mark {
+  return { kind, object_id: obj, first_at: iso, last_sent_at: iso, last_seen_at: iso, times_sent: 1, resolved_at: null };
+}
+async function logSend(account: string, type: string, status: string, id: string | null, error: string | null): Promise<void> {
+  await db('send_log', { method: 'POST', headers: { 'prefer': 'return=minimal' },
+    body: JSON.stringify({ account_id: account, type, status, provider_id: id, error: error ? error.slice(0, 200) : null }) }).catch(() => {});
+}
+async function send(account: string, type: string, to: string, mail: { subject: string; html: string; text: string }): Promise<boolean> {
+  try {
+    const id = await sendEmail(to, mail.subject, mail.html, mail.text);
+    await logSend(account, type, 'sent', id, null);
+    return true;
+  } catch (e) {
+    await logSend(account, type, 'failed', null, String((e as Error).message || e));
+    return false;
+  }
+}
+
+// ---------- نصوص الرسائل (فصحى) ----------
+function hourIn(tz: string): number {
+  try { return Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hourCycle: 'h23' }).format(new Date())) % 24; }
+  catch (_) { return new Date().getUTCHours(); }
+}
+// لغة المحرك لازم تكون متظبطة قبلها (I18N.setLang)
+function dateText(iso: string, tz: string, en: boolean): string {
+  let day = 0, month = 0;
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, month: 'numeric', day: 'numeric' }).formatToParts(new Date(iso));
+    day = Number(parts.find((p) => p.type === 'day')!.value); month = Number(parts.find((p) => p.type === 'month')!.value);
+  } catch (_) { const d = new Date(iso); day = d.getUTCDate(); month = d.getUTCMonth() + 1; }
+  const months = g.I18N.months();
+  return en ? months[month - 1] + ' ' + day : g.ar(day) + ' ' + months[month - 1];
+}
+function plain(title: string, lines: string[]): string {
+  return title + '\n\n' + lines.map((l) => l.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')).join('\n\n');
+}
+function alertBox(a: any, note: string | null): string {
+  const muted = 'margin:0 0 6px;color:#6b7280;font-size:14px;line-height:1.7';
+  return '<div style="border-inline-start:4px solid #c2410c;padding:2px 12px;margin:0 0 18px">' +
+    '<p style="margin:0 0 6px;font-weight:700;line-height:1.7">' + esc(a.title) + '</p>' +
+    '<p style="margin:0 0 6px;line-height:1.8">' + esc(a.detail) + '</p>' +
+    (a.impactText ? '<p style="' + muted + '">' + esc(a.impactText) + '</p>' : '') +
+    (note ? '<p style="' + muted + '">' + esc(note) + '</p>' : '') +
+    '<p style="margin:0;line-height:1.8">' + esc(a.advice) + '</p></div>';
+}
+function countPhrase(n: number, en: boolean): string {
+  if (en) return n + ' things need action';
+  if (n === 2) return 'أمران يحتاجان إلى إجراء';
+  return g.ar(n) + (n <= 10 ? ' أمور تحتاج' : ' أمراً يحتاج') + ' إلى إجراء';
+}
+function urgentMail(name: string, fresh: any[], remind: { a: any; m: Mark }[], tz: string, en: boolean, stop: string) {
+  const n = esc(name), app = '<a href="' + SITE + '/app">Ads Center</a>';
+  const subject = fresh.length
+    ? (en ? 'Urgent: ' + (fresh.length === 1 ? fresh[0].title : countPhrase(fresh.length, true)) + ' — ' + name
+      : 'عاجل: ' + (fresh.length === 1 ? fresh[0].title : countPhrase(fresh.length, false)) + ' — ' + name)
+    : (en ? 'Reminder: ' + (remind.length === 1 ? remind[0].a.title + ' is still ongoing' : 'urgent issues still ongoing') + ' — ' + name
+      : 'تذكير: ' + (remind.length === 1 ? '«' + remind[0].a.title + '» ما زال قائماً' : 'تنبيهات عاجلة ما زالت قائمة') + ' — ' + name);
+  const lines: string[] = [];
+  if (fresh.length) {
+    lines.push(en ? 'We found something in <strong>' + n + '</strong> that needs your attention now:'
+      : 'رصدنا في حساب <strong>' + n + '</strong> ما يحتاج إلى انتباهك الآن:');
+    fresh.forEach((a) => lines.push(alertBox(a, null)));
+  }
+  if (remind.length) {
+    lines.push(en ? 'Still ongoing since our first alert:' : 'وما زال قائماً منذ أبلغناك به:');
+    remind.forEach((r) => lines.push(alertBox(r.a, en ? 'We first alerted you on ' + dateText(r.m.first_at, tz, true) + '.'
+      : 'أبلغناك به أول مرة يوم ' + dateText(r.m.first_at, tz, false) + '.')));
+  }
+  lines.push(en ? 'Full details are in ' + app + '.' : 'التفاصيل الكاملة في ' + app + '.');
+  lines.push(en ? 'We don\'t repeat the same alert: we remind you once if it lasts two more days, and your next summary shows whether it was resolved.'
+    : 'لا نكرر التنبيه نفسه: نذكّرك به مرة واحدة إذا استمر يومين، ويبيّن ملخصك التالي هل حُلّ أم ما زال قائماً.');
+  lines.push(en ? 'To stop the summary and alerts: <a href="' + stop + '">Stop</a>' : 'لإيقاف الملخص والتنبيهات: <a href="' + stop + '">إيقاف</a>');
+  return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
+}
+function connectionMail(name: string, en: boolean, stop: string) {
+  const n = esc(name), app = '<a href="' + SITE + '/app">Ads Center</a>';
+  const subject = en ? 'We lost access to ' + name + ' — open Ads Center to restore it' : 'توقف وصولنا إلى حساب ' + name + ' — افتح الأداة لإعادته';
+  const lines = en ? [
+    'Hello,',
+    'We can no longer read the figures of <strong>' + n + '</strong> on Meta, most likely because the access expired or was removed. The summary and urgent alerts are paused until then.',
+    'To restore them, open ' + app + ' and log in with Meta once — we renew the access automatically.',
+    'To stop the summary and alerts instead: <a href="' + stop + '">Stop</a>'
+  ] : [
+    'مرحباً،',
+    'لم نعد نستطيع قراءة أرقام حساب <strong>' + n + '</strong> لدى Meta، غالباً لأن صلاحية الدخول انتهت أو أُلغيت. لذلك توقّف الملخص والتنبيهات العاجلة مؤقتاً.',
+    'لإعادتها: افتح ' + app + ' وسجّل الدخول بحساب Meta مرة واحدة، وسنجدد الصلاحية تلقائياً.',
+    'وإذا أردت إيقافها نهائياً: <a href="' + stop + '">إيقاف الملخص والتنبيهات</a>'
+  ];
+  return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
+}
+function expiryMail(name: string, expiresAt: string, tz: string, en: boolean, stop: string) {
+  const n = esc(name), app = '<a href="' + SITE + '/app">Ads Center</a>';
+  const subject = en ? 'Open Ads Center to keep alerts for ' + name + ' running' : 'افتح Ads Center ليستمر الملخص والتنبيهات لحساب ' + name;
+  const lines = en ? [
+    'Hello,',
+    'Our read access to <strong>' + n + '</strong> ends on ' + dateText(expiresAt, tz, true) + ' (Meta limits it to about 60 days), and the summary and alerts stop after that.',
+    'To renew it, just open ' + app + ' and log in with Meta once — nothing else is needed.',
+    'To stop the summary and alerts instead: <a href="' + stop + '">Stop</a>'
+  ] : [
+    'مرحباً،',
+    'تنتهي صلاحية قراءة حساب <strong>' + n + '</strong> يوم ' + dateText(expiresAt, tz, false) + ' (تحددها Meta بنحو ٦٠ يوماً)، وبعدها يتوقف الملخص والتنبيهات.',
+    'لتجديدها يكفي أن تفتح ' + app + ' وتسجّل الدخول بحساب Meta مرة واحدة، دون أي إجراء آخر.',
+    'وإذا أردت إيقافها نهائياً: <a href="' + stop + '">إيقاف الملخص والتنبيهات</a>'
+  ];
+  return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
+}
+
+// ---------- فحص حساب واحد ----------
+type Settings = { account_id: string; email: string; lang: string; timezone: string };
+async function checkAccount(s: Settings): Promise<string> {
+  const account = s.account_id, en = s.lang === 'en', tz = s.timezone || 'UTC';
+  const hour = hourIn(tz);
+  if (hour >= QUIET_FROM || hour < QUIET_UNTIL) return 'quiet';
+
+  const rows = await rpc('vault_get_token', { p_account: account });
+  const t = Array.isArray(rows) && rows[0] ? rows[0] : null;
+  const marks = await marksOf(account);
+  const now = Date.now(), iso = new Date(now).toISOString();
+  const stop = await stopUrl(account);
+  g.I18N.setLang(en ? 'en' : 'ar');
+
+  // الوصول ضاع: رسالة واحدة وتذكير واحد بعد يومين
+  const lostAccess = async (): Promise<string> => {
+    const m = marks['connection|'];
+    const due = !m || m.resolved_at || (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS);
+    if (!due) { await saveMarks(account, [{ ...m, last_seen_at: iso }]); return 'lost'; }
+    const name = (await accountName(account)) || account;
+    if (await send(account, 'urgent', s.email, connectionMail(name, en, stop))) {
+      await saveMarks(account, [m && !m.resolved_at ? { ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1 } : newMark('connection', '', iso)]);
+    }
+    return 'lost';
+  };
+  if (!t) return await lostAccess();
+  let token = '';
+  try { token = await unseal(t.ciphertext, t.iv, account); } catch (_) {
+    // عطل عندنا (مفتاح التشفير اتغيّر؟) مش عند العميل — منبعتلوش حاجة
+    await rpc('vault_mark_error', { p_account: account, p_error: 'decrypt failed' });
+    return 'decrypt-failed';
+  }
+  metaToken = token;
+  try {
+    const { acct, fail } = await accountOrFail(account);
+    if (fail === 'retry') return 'meta-retry';
+    if (!acct) {
+      await rpc('vault_mark_error', { p_account: account, p_error: 'meta rejected stored token' });
+      return await lostAccess();
+    }
+    const quiet: Mark[] = [];
+    const conn = marks['connection|'];
+    if (conn && !conn.resolved_at) quiet.push({ ...conn, resolved_at: iso });
+
+    // الصلاحية قربت تخلص: رسالة واحدة (بتتحل لوحدها لما العميل يفتح الأداة وتتجدد)
+    const exp = marks['expiry|'];
+    const expiresAt = t.expires_at ? Date.parse(t.expires_at) : NaN;
+    if (isFinite(expiresAt) && expiresAt - now < EXPIRY_WARN_MS) {
+      if (!exp || exp.resolved_at) {
+        const name = acct.name || account;
+        if (await send(account, 'expiry', s.email, expiryMail(name, t.expires_at, acct.timezone_name || tz, en, stop))) quiet.push(newMark('expiry', '', iso));
+      }
+    } else if (exp && !exp.resolved_at) quiet.push({ ...exp, resolved_at: iso });
+
+    const cands = await loadCandidates(account, acct);
+    if (!cands) { await saveMarks(account, quiet); return 'meta-retry'; }
+    const urgent = urgentAlerts(account, acct, cands);
+
+    const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], sentRows: Mark[] = [], seen: Record<string, boolean> = {};
+    for (const a of urgent) {
+      const kind = String(a.code || 'other'), obj = String(a.adId || '');
+      const k = kind + '|' + obj;
+      if (seen[k]) continue;
+      seen[k] = true;
+      const m = marks[k];
+      if (!m || m.resolved_at) { fresh.push(a); sentRows.push(newMark(kind, obj, iso)); }
+      else if (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS) {
+        remind.push({ a, m });
+        sentRows.push({ ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1 });
+      } else quiet.push({ ...m, last_seen_at: iso });
+    }
+    for (const k in marks) {
+      const m = marks[k];
+      if (seen[k] || m.resolved_at || SYSTEM_KINDS[m.kind]) continue;
+      if (now - Date.parse(m.last_seen_at) >= RESOLVE_AFTER_MS) quiet.push({ ...m, resolved_at: iso });
+    }
+    // الرسالة الأول، والبصمات بعدها: لو الإرسال فشل، الساعة الجاية بتحاول تاني
+    let outcome = 'ok';
+    if (fresh.length || remind.length) {
+      const sent = await send(account, fresh.length ? 'urgent' : 'reminder', s.email, urgentMail(acct.name || account, fresh, remind, acct.timezone_name || tz, en, stop));
+      if (sent) quiet.push(...sentRows);
+      outcome = sent ? (fresh.length ? 'sent' : 'reminded') : 'send-failed';
+    }
+    await saveMarks(account, quiet);
+    return outcome;
+  } finally {
+    metaToken = '';
+  }
+}
+
+// ---------- نقاط الدخول ----------
+export async function runAll(): Promise<Record<string, unknown>> {
+  const started = Date.now();
+  const outdated = await loadEngine();
+  if (outdated.length) await rpc('beat', { p_source: 'runner-engine-outdated' }).catch(() => {});
+  const r = await db('digest_settings?select=account_id,email,lang,timezone&enabled=is.true&order=checked_at.asc.nullsfirst&limit=500', { method: 'GET' });
+  const list = (await r.json()) as Settings[];
+  const outcomes: Record<string, number> = {};
+  for (const s of list) {
+    if (Date.now() - started > TIME_BUDGET_MS) { outcomes.deferred = (outcomes.deferred || 0) + 1; continue; }
+    let out = 'error';
+    try { out = await exclusive(() => checkAccount(s)); } catch (e) {
+      // النوع والرسالة بس — من غير أي بيانات حساب
+      console.error('runner account failed', String((e as Error).message || e).slice(0, 200));
+    }
+    outcomes[out] = (outcomes[out] || 0) + 1;
+    await db('digest_settings?account_id=eq.' + s.account_id, {
+      method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ checked_at: new Date().toISOString() })
+    }).catch(() => {});
+  }
+  await rpc('beat', { p_source: 'runner' }).catch(() => {});
+  return { accounts: list.length, outcomes, engineOutdated: outdated };
+}
+
+// معاينة لمدير التطبيق بس (index.ts بيتأكد): الرسالة العاجلة اللي كانت هتتبعت للحساب دلوقتي — بمفتاح المدير نفسه،
+// من غير إرسال ولا بصمات. للتجربة قبل ما أي عميل يفعّل الملخص
+export async function preview(token: string, accountId: string, lang: string): Promise<Record<string, unknown>> {
+  const outdated = await loadEngine();
+  return await exclusive(async () => {
+    metaToken = token;
+    try {
+      const en = lang === 'en';
+      g.I18N.setLang(en ? 'en' : 'ar');
+      const { acct, fail } = await accountOrFail(accountId);
+      if (!acct) return { error: fail };
+      const cands = await loadCandidates(accountId, acct);
+      if (!cands) return { error: 'retry' };
+      const urgent = urgentAlerts(accountId, acct, cands);
+      const mail = urgentMail(acct.name || accountId, urgent, [], acct.timezone_name || 'UTC', en, await stopUrl(accountId));
+      return {
+        engineCommit: ENGINE_COMMIT, engineOutdated: outdated, ads: cands.length,
+        urgent: urgent.map((a: any) => ({ code: a.code || null, adId: a.adId || null, title: a.title })),
+        subject: urgent.length ? mail.subject : null, html: urgent.length ? mail.html : null
+      };
+    } finally {
+      metaToken = '';
+    }
+  });
+}

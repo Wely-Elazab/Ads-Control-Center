@@ -97,9 +97,10 @@ export async function sendEmail(to: string, subject: string, html: string, text:
   return j.id;
 }
 // غلاف الرسائل: من غير صور ولا روابط تتبّع. الفقرات جاهزة (اللي فيها بيانات من برّه لازم تتعمل لها esc قبلها)
+// والفقرة اللي بتبدأ بـ <div (صندوق تنبيه) بتتحط زي ما هي
 export function mailHtml(title: string, paragraphs: string[], lang: 'ar' | 'en' = 'ar'): string {
   const dir = lang === 'ar' ? 'rtl' : 'ltr';
-  const p = paragraphs.map((x) => '<p style="margin:0 0 14px;line-height:1.8">' + x + '</p>').join('');
+  const p = paragraphs.map((x) => (x.indexOf('<div') === 0 ? x : '<p style="margin:0 0 14px;line-height:1.8">' + x + '</p>')).join('');
   return '<div dir="' + dir + '" lang="' + lang + '" style="font-family:Tahoma,Arial,sans-serif;font-size:15px;color:#1f2933;max-width:560px;margin:0 auto;padding:24px">' +
     '<h1 style="font-size:19px;margin:0 0 18px">' + title + '</h1>' + p +
     '<p style="margin:24px 0 0;font-size:13px;color:#6b7280">Ads Center — adscenter.online</p></div>';

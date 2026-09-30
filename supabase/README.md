@@ -11,7 +11,7 @@
 | `heartbeat` | آخر نبض من pg_cron ومن Cloudflare | يومياً |
 | `private.meta_tokens` | مفتاح Meta **مشفّر** (AES-256-GCM بـ `TOKEN_ENC_KEY` + رقم الحساب) لمن فعّل الملخص التلقائي بس، وتاريخ انتهائه | `digest.enable` / `digest.refresh` — schema `private` مش ظاهرة للـ API، الوصول بدوال `vault_*` للـ service_role بس |
 | `digest_settings` | البريد، أيام الملخص (الافتراضي الأحد والأربعاء)، الساعة (٩ صباحاً)، توقيت الحساب، اللغة، وقت الموافقة ونسختها | `digest.enable` / `digest.update` |
-| `alert_marks` | بصمة كل تنبيه اتبعت (نوعه + العنصر + أول/آخر إرسال + اتحلّ إمتى) — عشان منكررش ونقول «حُلّت/مستمرة» | المُشغّل (لسه) |
+| `alert_marks` | بصمة كل تنبيه اتبعت (نوعه + العنصر + أول/آخر إرسال + آخر ظهور + اتحلّ إمتى) — عشان منكررش ونقول «حُلّت/مستمرة» | المُشغّل (`runner.ts`) |
 | `send_log` | كل رسالة: نوعها وحالتها ورقمها عند Resend — **من غير محتوى** | كل إرسال |
 
 **مش بيتحفظ:** محتوى الملخصات والتنبيهات، أرقام الإعلانات، الصور، أي بيانات Google أو Snapchat، ومفاتيح Meta لغير من فعّل الملخص.
@@ -24,7 +24,16 @@
 
 ## النشر
 - الجداول: `migrations/` (اتطبّقت على المشروع بنفس الترتيب).
-- الدالة: `functions/sync/` (`index.ts` + `lib.ts` + `digest.ts`) — بتتنشر من Claude (Supabase MCP) أو من لوحة Supabase. **مش** بتتنشر تلقائياً مع push.
+- الدالة: `functions/sync/` (`index.ts` + `lib.ts` + `digest.ts` + `runner.ts`) — بتتنشر من Claude (Supabase MCP) أو من لوحة Supabase. **مش** بتتنشر تلقائياً مع push.
+
+## المُشغّل (التنبيهات العاجلة بالبريد)
+- `runner-hourly` (pg_cron، الدقيقة ٥ من كل ساعة) → `sync` بـ `action: run` ومفتاح عشوائي من Vault (`runner_key`) في الهيدر. مفيش مفتاح في الكود.
+- بيشغّل **نفس محرك الأداة** (`Live/js/i18n.js` و`alerts.js` و`core.js` و`meta.js`) من GitHub على commit ثابت: `ENGINE_COMMIT` في `runner.ts`.
+- **أي تعديل في الملفات الأربعة دي** = حدّث `ENGINE_COMMIT` لآخر commit وانشر الدالة تاني. لو نسيت، المُشغّل بيكمّل بالنسخة القديمة
+  وبيسجّل `runner-engine-outdated` في `heartbeat` (الاستعلام تحت).
+- بيسكت من ١١ مساءً لـ ٧ صباحاً بتوقيت كل حساب. العاجل بس (critical) — بصمة لكل تنبيه، تذكير واحد بعد يومين، و«اتحلّ» بعد ٢٤ ساعة من غير ما يظهر.
+- معاينة من غير إرسال (لمدير تطبيق Meta بس): `action: digest.preview` بـ `{ token, accountId, lang }`.
+- إعدادات حساسية التنبيهات بتاعة العميل محفوظة في متصفحه بس، فالمُشغّل بيستخدم الإعدادات الافتراضية.
 
 ## متابعة يومية
 ```sql
@@ -34,8 +43,12 @@ select * from feedback_accuracy;
 select view_key, block_title, reasons, note, answered_at from feedback where verdict = 'no' order by answered_at desc limit 20;
 -- عملاء التجربة
 select account_id, name, currency, opens, first_seen, last_seen from ad_accounts order by last_seen desc;
--- المشروع شغال؟ (النبض لازم يكون خلال آخر ٢٤ ساعة)
+-- المشروع شغال؟ (pg_cron وcloudflare خلال آخر ٢٤ ساعة، وrunner خلال آخر ساعة)
+-- لو ظهر runner-engine-outdated بعد آخر نشر: ENGINE_COMMIT محتاج يتحدّث
 select source, at, now() - at as since_last from heartbeat;
+-- آخر فحص لكل حساب، والتنبيهات العاجلة المفتوحة (من غير أي أرقام)
+select account_id, checked_at from digest_settings order by checked_at nulls first;
+select account_id, kind, object_id, first_at, times_sent, resolved_at from alert_marks order by first_at desc limit 30;
 -- الملخص التلقائي: مين مفعّله، وحالة المفتاح (من غير المفتاح نفسه)
 select s.account_id, s.summary_days, s.summary_hour, s.timezone, t.expires_at, t.last_used_at, t.last_error
   from digest_settings s left join private.meta_tokens t using (account_id);
