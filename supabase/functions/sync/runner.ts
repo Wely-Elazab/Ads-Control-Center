@@ -18,7 +18,7 @@
 import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
 
-const ENGINE_COMMIT = '6b423811fcaaa7fdc4042623534ccb5e11588d5a';
+const ENGINE_COMMIT = 'fe16773b341e09fae74605c78d4d185eae39fa7d';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
@@ -172,12 +172,118 @@ function urgentAlerts(accountId: string, acct: Acct, cands: any[]): any[] {
     [source]: {
       label: 'Meta — ' + (acct.name || accountId), currency: acct.currency || null,
       metaAccountStatus: acct.account_status != null ? Number(acct.account_status) : null,
-      spendCapReached: Number(acct.spend_cap) > 0 && Number(acct.amount_spent) >= Number(acct.spend_cap)
+      spendCapReached: Number(acct.spend_cap) > 0 && Number(acct.amount_spent) >= Number(acct.spend_cap),
+      spendCap: Number(acct.spend_cap) || 0, amountSpent: Number(acct.amount_spent) || 0
     }
   };
-  const fmt = { money: g.money, currencyLabel: g.currencyLabel, num: g.numAr, int: (n: number) => g.ar(Math.round(n || 0)) };
-  const res = g.PauseProofAlerts.analyze(cands, meta, {}, fmt);
+  const res = g.PauseProofAlerts.analyze(cands, meta, {}, alertFmt());
   return res.alerts.filter((a: any) => a.level === 'critical' && !a.minor);
+}
+function alertFmt() {
+  return { money: g.money, currencyLabel: g.currencyLabel, num: g.numAr, int: (n: number) => g.ar(Math.round(n || 0)) };
+}
+
+// ---------- التنبيهات اللي محتاجة بيانات زيادة (قواعدها في js/alerts.js: siteAlerts / editAlerts / linkAlerts) ----------
+// editsSince = آخر فحص عاجل: التعديلات الأحدث منه بس، فكل تعديل بيتقيّم مرة واحدة
+async function extraAlerts(accountId: string, acct: Acct, cands: any[], editsSince: number): Promise<any[]> {
+  const tz = acct.timezone_name || 'UTC', cur = acct.currency || null, fmt = alertFmt(), out: any[] = [];
+  const fail = (what: string, e: unknown) => console.error('extra alerts ' + what, String((e as Error).message || e).slice(0, 160));
+  try { out.push(...g.PauseProofAlerts.siteAlerts(await g.metaSiteDays(accountId, tz), fmt)); } catch (e) { fail('site', e); }
+  try {
+    const acts = await g.metaActivities(accountId, g.shiftKey(g.todayKeyInTz(tz), -1));
+    if (acts.err) throw new Error('activities');
+    const edits = acts.data.filter((ev: any) => eventMs(ev.event_time) > editsSince)
+      .map((ev: any) => g.DX._.actionOf(ev, tz)).filter((ev: any) => ev && (ev.kind === 'budget' || ev.kind === 'pause'));
+    if (edits.length) {
+      const today = g.todayKeyInTz(tz), groups: any[] = [];
+      ['campaign', 'adset', 'ad'].forEach((l) => {
+        const ids = [...new Set(edits.filter((ev: any) => ev.level === l).map((ev: any) => ev.id))];
+        if (ids.length) groups.push({ level: l, ids });
+      });
+      const objDaily = await g.metaObjectDaily(accountId, groups, g.shiftKey(today, -6), today);
+      const accSpend = cands.reduce((s0: number, c: any) => s0 + (c.spend || 0), 0);
+      edits.forEach((ev: any) => {
+        ev.share = accSpend > 0 ? (objDaily[ev.id] || []).reduce((s0: number, r: any) => s0 + (r.spend || 0), 0) / accSpend : 0;
+        ev.when = whenText(ev.time, tz);
+      });
+      out.push(...g.PauseProofAlerts.editAlerts(edits, fmt, cur, accSpend / 7));
+    }
+  } catch (e) { fail('edits', e); }
+  try { out.push(...g.PauseProofAlerts.linkAlerts(await brokenLinks(cands))); } catch (e) { fail('links', e); }
+  return out;
+}
+function eventMs(when: string): number {
+  const ms = Date.parse(String(when || '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+  return isFinite(ms) ? ms : 0;
+}
+// «٢٤ سبتمبر ١٦:١٥» بتوقيت الحساب (لغة المحرك متظبطة قبلها)
+function whenText(when: string, tz: string): string {
+  const d = new Date(eventMs(when));
+  try {
+    const p: Record<string, string> = {};
+    new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(d).forEach((x) => { p[x.type] = x.value; });
+    return g.fmtKey(p.year + '-' + p.month + '-' + p.day) + ' ' + g.ar(p.hour + ':' + p.minute);
+  } catch (_) { return d.toISOString().slice(0, 16).replace('T', ' '); }
+}
+
+// ---------- فحص روابط الإعلانات ----------
+// الإعلانات الشغّالة اللي صرفت امبارح أو النهارده، رابط لكل صفحة (من غير باراميترات التتبّع)، أكبر ١٠ بالإنفاق.
+// معطّل = ٤٠٤/٤١٠ من أول مرة، أو خطأ خادم (5xx) أو عدم استجابة مرتين ورا بعض. الحجب الأمني (403/429، تحدّي
+// Cloudflare) مش عطل. الروابط من إعلانات العميل: http/https ونطاقات عادية بس (مش عناوين IP ولا شبكات داخلية)
+const LINK_MAX = 10, LINK_TIMEOUT_MS = 8000;
+const LINK_UA = 'Mozilla/5.0 (compatible; AdsCenterLinkCheck/1.0; +https://adscenter.online)';
+function linkAllowed(u: URL): boolean {
+  const h = u.hostname.toLowerCase();
+  return (u.protocol === 'https:' || u.protocol === 'http:') && h.indexOf('.') > 0 && !/^[\d.]+$/.test(h) && h.indexOf(':') < 0 &&
+    !/(^|\.)(localhost|local|internal|lan|home|corp)$/.test(h);
+}
+async function probe(url: string): Promise<{ status: number; blocked: boolean }> {
+  try {
+    const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(LINK_TIMEOUT_MS), headers: { 'user-agent': LINK_UA, 'accept': 'text/html,*/*' } });
+    try { await r.body?.cancel(); } catch (_) { /* مش مهم */ }
+    const blocked = !!r.headers.get('cf-mitigated') || (r.status === 503 && /cloudflare/i.test(r.headers.get('server') || ''));
+    return { status: r.status, blocked };
+  } catch (_) {
+    return { status: 0, blocked: false };
+  }
+}
+async function linkBroken(url: string): Promise<number | null> {
+  const a = await probe(url);
+  if (a.status === 404 || a.status === 410) return a.status;
+  if (a.blocked || !(a.status === 0 || a.status >= 500)) return null;
+  await new Promise((r) => setTimeout(r, 2500));
+  const b = await probe(url);
+  return !b.blocked && (b.status === 0 || b.status >= 500) ? b.status : null;
+}
+async function sha1Hex(s: string): Promise<string> {
+  const d = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function brokenLinks(cands: any[]): Promise<any[]> {
+  const pages: Record<string, { url: string; ads: string[]; spend: number }> = {};
+  cands.forEach((c) => {
+    const d = c.daily || [];
+    if (!c.active || c.landingKind !== 'website' || ((d[5] || 0) + (d[6] || 0)) <= 0 || /\{\{/.test(c.landing || '')) return;
+    let u: URL;
+    try { u = new URL(c.landing); } catch (_) { return; }
+    if (!linkAllowed(u)) return;
+    const key = u.origin + u.pathname, p = pages[key] = pages[key] || { url: c.landing, ads: [], spend: 0 };
+    p.ads.push(c.offer || c.headline || c.id); p.spend += c.spend || 0;
+  });
+  const list = Object.keys(pages).map((k) => ({ k, ...pages[k] })).sort((a, b) => b.spend - a.spend).slice(0, LINK_MAX);
+  const res = await Promise.all(list.map(async (x) => {
+    const status = await linkBroken(x.url);
+    return status == null ? null : { key: 'u:' + (await sha1Hex(x.k)).slice(0, 24), url: x.url, status, ads: x.ads };
+  }));
+  return res.filter(Boolean);
+}
+// كل التنبيهات العاجلة للحساب: محرك الأداة + البيانات الزيادة. التعديل الكبير على عنصر عليه «أكبر مصدر وقف» منكررهوش
+async function allUrgent(accountId: string, acct: Acct, cands: any[], editsSince: number): Promise<any[]> {
+  const base = urgentAlerts(accountId, acct, cands), extra = await extraAlerts(accountId, acct, cands, editsSince);
+  const stopped: Record<string, boolean> = {};
+  base.forEach((a: any) => { if (a.code === 'top-stopped') stopped[String(a.adId || String(a.objectId || '').replace(/^c:/, ''))] = true; });
+  return base.concat(extra.filter((a: any) => !(a.code === 'big-edit' && stopped[String(a.objectId || '').split('@')[0]])));
 }
 
 // ---------- البصمات ----------
@@ -388,22 +494,30 @@ function blockHtml(b: any): string {
 }
 const KIND_TITLE: Record<string, string> = {
   waste: 'al.waste.t', 'waste-early': 'al.wasteEarly.t', loss: 'al.loss.t', stopped: 'al.stopped.t', cpr: 'al.cpr.t', fatigue: 'al.fatigue.t',
-  'acct-status': 'al.acct.t', 'spend-cap': 'al.cap.t', 'acct-stopped': 'al.acctStopped.t', 'acct-zero': 'al.acctZero.t'
+  'acct-status': 'al.acct.t', 'spend-cap': 'al.cap.t', 'acct-stopped': 'al.acctStopped.t', 'acct-zero': 'al.acctZero.t',
+  'top-stopped': 'al.topStopped.t', 'spend-cap-near': 'al.capNear.t', 'tracking-off': 'al.trackOff.t', 'lpv-drop': 'al.lpvDrop.t',
+  'checkout-off': 'al.buyOff.t', 'link-broken': 'al.link.t'
 };
+// التعديل الكبير حدث لحظي مش مشكلة ليها «حُلّت/مستمرة» — مبيظهرش في الملخص
+const NO_STATUS: Record<string, boolean> = { expiry: true, 'big-edit': true };
 // التنبيهات العاجلة اللي اتبعتت من أول الفترة (أو لسه قائمة): «حُلّت» أو «مستمرة» — من البصمات، من غير أي أرقام
 function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: string, tz: string, en: boolean): string | null {
   const from = Date.parse(since + 'T00:00:00Z') - 86400000;
-  const list = Object.keys(marks).map((k) => marks[k]).filter((m) => m.kind !== 'expiry' &&
+  const list = Object.keys(marks).map((k) => marks[k]).filter((m) => !NO_STATUS[m.kind] &&
     (Date.parse(m.first_at) >= from || !m.resolved_at || Date.parse(m.resolved_at as string) >= from))
     .sort((a, b) => (a.first_at < b.first_at ? 1 : -1)).slice(0, 8);
   if (!list.length) return null;
   const t = g.I18N.t;
   const rows = list.map((m) => {
-    const c = m.object_id ? cands.find((x) => x.id === m.object_id) : null;
+    // العنصر: إعلان (رقمه)، أو حملة («c:رقمها»)، أو صفحة رابط («u:…» — العنوان كفاية)
+    const camp = m.object_id.indexOf('c:') === 0 ? cands.find((x) => x.campaignId === m.object_id.slice(2)) : null;
+    const c = m.object_id && !camp && m.object_id.indexOf('u:') !== 0 ? cands.find((x) => x.id === m.object_id) : null;
     const key = (c && c.resultKey) || 'purchase';
     const title = m.kind === 'connection' ? (en ? 'We lost access to the account' : 'توقف وصولنا إلى الحساب')
       : t(KIND_TITLE[m.kind] || 'al.stopped.t', { label: g.I18N.resultAny(key), one1: t('res1.' + key) });
-    const name = !m.object_id ? '' : (c ? (c.offer || c.headline || '') : (en ? 'an ad that is no longer running' : 'إعلان لم يعد يعمل'));
+    const name = !m.object_id || m.object_id.indexOf('u:') === 0 ? ''
+      : (camp ? t('al.topStopped.camp', { name: camp.campaignName || '' })
+        : (c ? (c.offer || c.headline || '') : (en ? 'an ad that is no longer running' : 'إعلان لم يعد يعمل')));
     const ok = !!m.resolved_at;
     const status = '<span style="font-weight:700;color:' + (ok ? '#15803d' : '#b91c1c') + '">' + (ok ? (en ? 'resolved' : 'حُلّت') : (en ? 'ongoing' : 'مستمرة')) + '</span>';
     const sent = en ? 'sent ' + dateText(m.first_at, tz, true) : 'أُرسل ' + dateText(m.first_at, tz, false);
@@ -507,10 +621,12 @@ async function checkAccount(s: Settings): Promise<string> {
 
     let outcome = doUrgent ? 'ok' : 'summary-only';
     if (doUrgent) {
-      const urgent = urgentAlerts(account, acct, cands);
+      // التعديلات من آخر فحص (أو آخر ساعتين لأول فحص)
+      const editsSince = s.checked_at ? Date.parse(s.checked_at) : now - 2 * 3600000;
+      const urgent = await allUrgent(account, acct, cands, editsSince);
       const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], sentRows: Mark[] = [], seen: Record<string, boolean> = {};
       for (const a of urgent) {
-        const kind = String(a.code || 'other'), obj = String(a.adId || '');
+        const kind = String(a.code || 'other'), obj = String(a.adId || a.objectId || '');
         const k = kind + '|' + obj;
         if (seen[k]) continue;
         seen[k] = true;
@@ -625,11 +741,12 @@ export async function preview(token: string, accountId: string, lang: string): P
       if (!acct) return { error: fail };
       const cands = await loadCandidates(accountId, acct);
       if (!cands) return { error: 'retry' };
-      const urgent = urgentAlerts(accountId, acct, cands);
+      // المعاينة: التعديلات الكبيرة من آخر ٢٤ ساعة (عشان تبان أمثلة)
+      const urgent = await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000);
       const mail = urgentMail(acct.name || accountId, urgent, [], acct.timezone_name || 'UTC', en, await stopUrl(accountId));
       return {
         engineCommit: ENGINE_COMMIT, engineOutdated: outdated, ads: cands.length,
-        urgent: urgent.map((a: any) => ({ code: a.code || null, adId: a.adId || null, title: a.title })),
+        urgent: urgent.map((a: any) => ({ code: a.code || null, adId: a.adId || null, objectId: a.objectId || null, title: a.title, detail: a.detail })),
         subject: urgent.length ? mail.subject : null, html: urgent.length ? mail.html : null
       };
     } finally {
