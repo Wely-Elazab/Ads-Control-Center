@@ -246,20 +246,20 @@
     // 2) ظهور محدود بسبب ملاحظة من المنصة (والإعلان لسه شغّال)
     if (c.reviewStatus === 'limited') {
       issues.push(makeIssue('warning', ['status', 'delivery'], t('al.limited.t'),
-        t('al.limited.d', { name: name }), t('al.limited.a')));
+        t('al.limited.d', { name: name }), t('al.limited.a'), 0, 'limited'));
     }
 
     // 3) وصول ضعيف أو متوقف رغم إن الإعلان فعّال
     if (age == null || age >= 2) {
       if (spendY === 0 && prevSpendAvg > 0) {
         issues.push(makeIssue('warning', ['delivery', 'spend'], t('al.noSpendY.t'),
-          t('al.noSpendY.d', { name: name, avg: money(prevSpendAvg) }), t('al.noSpendY.a')));
+          t('al.noSpendY.d', { name: name, avg: money(prevSpendAvg) }), t('al.noSpendY.a'), 0, 'no-spend-y'));
       } else if (spendY > 0 && prevSpendAvg > 0 && spendY < prevSpendAvg * s.lowDeliveryRatio) {
         issues.push(makeIssue('warning', ['delivery', 'spend'], t('al.weak.t'),
-          t('al.weak.d', { name: name, spend: money(spendY), avg: money(prevSpendAvg) }), t('al.weak.a')));
+          t('al.weak.d', { name: name, spend: money(spendY), avg: money(prevSpendAvg) }), t('al.weak.a'), 0, 'weak-delivery'));
       } else if (c.spend === 0 && prevSpendAvg === 0) {
         issues.push(makeIssue('warning', ['delivery', 'spend'], t('al.noSpend7.t'),
-          t('al.noSpend7.d', { name: name }), t('al.noSpend7.a')));
+          t('al.noSpend7.d', { name: name }), t('al.noSpend7.a'), 0, 'no-spend-7'));
       }
     }
 
@@ -305,7 +305,7 @@
             t('al.loss.a'), spend3 - sales3, 'loss', true));
         } else if (roas3 < s.roasTarget) {
           issues.push(makeIssue('warning', ['roas'], t('al.lowRoas.t'), t('al.lowRoas.d', roasVars),
-            t('al.lowRoas.a'), 0));
+            t('al.lowRoas.a'), 0, 'low-roas'));
         } else if (roas3 >= s.roasTarget * 1.5) {
           issues.push(makeIssue('opportunity', ['roas'], t('al.greatRoas.t'), t('al.greatRoas.d', roasVars),
             t('al.greatRoas.a'), 0, 'roas-great'));
@@ -321,7 +321,7 @@
           issues.push(makeIssue(critical ? 'critical' : 'warning', ['cpr'], t('al.cpr.t', { label: label, one1: one }),
             t('al.cpr.d', { one: one, name: name, cpr: money(c.cpr), old: oldNote, pct: fmt.int((ratio - 1) * 100), avg: money(avgCpr) }),
             t('al.cpr.a'),
-            c.spend - c.results * avgCpr));
+            c.spend - c.results * avgCpr, 'cpr'));
         }
       }
 
@@ -342,7 +342,7 @@
           resY === 0
             ? t('al.drop.dZero', { name: name, label: label, avg: fmt.num(prevResAvg) })
             : t('al.drop.d', { name: name, count: countText(resY, c.resultKey, fmt), avg: fmt.num(prevResAvg) }),
-          t('al.drop.a')));
+          t('al.drop.a'), 0, 'drop'));
       }
     }
 
@@ -354,7 +354,7 @@
       if (!avgCpr || yCpr == null || yCpr > avgCpr) {
         issues.push(makeIssue('warning', ['spend'], t('al.spike.t'),
           t('al.spike.d', { name: name, spend: money(spendY), times: global.I18N ? global.I18N.timesPhrase(spendY / prevSpendAvg, fmt.num) : fmt.num(spendY / prevSpendAvg) + '×', avg: money(prevSpendAvg) }),
-          t('al.spike.a'), spendY - prevSpendAvg));
+          t('al.spike.a'), spendY - prevSpendAvg, 'spike'));
       }
     }
 
@@ -365,7 +365,7 @@
         var hurting = avgCpr && c.cpr != null && c.cpr >= avgCpr * s.cprWarnMultiple;
         issues.push(makeIssue(hurting ? 'critical' : 'warning', ['frequency'], t('al.fatigue.t'),
           t('al.fatigue.d', { name: name, f: fmt.num(c.frequency), times: global.I18N ? global.I18N.measureNoun(c.frequency, 'n.time') : 'times', old: isOld ? t('al.fatigue.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '' }),
-          t('al.fatigue.a')));
+          t('al.fatigue.a'), 0, 'fatigue'));
       }
     }
 
@@ -436,12 +436,12 @@
     if (meta && meta.metaAccountStatus != null && meta.metaAccountStatus !== 1) {
       alerts.push(makeIssue('critical', ['account'], t('al.acct.t'),
         t(META_ACCOUNT_STATUS[meta.metaAccountStatus] ? 'acct.' + meta.metaAccountStatus : 'acct.other'),
-        t('al.acct.a')));
+        t('al.acct.a'), 0, 'acct-status'));
     }
 
     if (meta && meta.spendCapReached) {
       alerts.push(makeIssue('critical', ['account'], t('al.cap.t'),
-        t('al.cap.d', { acc: accName }), t('al.cap.a')));
+        t('al.cap.d', { acc: accName }), t('al.cap.a'), 0, 'spend-cap'));
     }
 
     // إعلانات كانت بتصرف ووقفت بسبب مشكلة في الحساب — تنبيه واحد للحساب كله.
@@ -451,7 +451,7 @@
       var n = acctStopped.length;
       alerts.push(makeIssue('critical', ['account'], t('al.acctStopped.t'),
         t('al.acctStopped.d', { n: fmt.int(n), ads: global.I18N ? global.I18N.noun(n, 'n.ad') : '', acc: accName }),
-        t('al.acctStopped.a')));
+        t('al.acctStopped.a'), 0, 'acct-stopped'));
     }
 
     var spendY = acc.spendByDay[YESTERDAY];
@@ -463,7 +463,7 @@
         // مفيش تنبيه تاني
       } else if (spendY === 0) {
         alerts.push(makeIssue('critical', ['account'], t('al.acctZero.t'),
-          t('al.acctZero.d', { acc: accName, avg: money(prevAvg) }), t('al.acctZero.a')));
+          t('al.acctZero.d', { acc: accName, avg: money(prevAvg) }), t('al.acctZero.a'), 0, 'acct-zero'));
       } else if (spendY >= prevAvg * s.accountSpikeMultiple) {
         // الزيادة بتتنبّه بس لو النتائج مازادتش معاها — زيادة مفيدة مش حاجة عاجلة
         var resPrev = sum(acc.resultsByDay, 0, DAY_BEFORE) / 5, resY = acc.resultsByDay[YESTERDAY];
@@ -471,12 +471,12 @@
         if (!resultsKeptUp) {
           alerts.push(makeIssue('warning', ['account'], t('al.acctSpike.t'),
             t('al.acctSpike.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), pct: fmt.int((spendY / prevAvg - 1) * 100) }),
-            t('al.acctSpike.a'), spendY - prevAvg));
+            t('al.acctSpike.a'), spendY - prevAvg, 'acct-spike'));
         }
       } else if (spendY <= prevAvg * s.accountDropRatio) {
         alerts.push(makeIssue('warning', ['account'], t('al.acctDrop.t'),
           t('al.acctDrop.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), pct: fmt.int((1 - spendY / prevAvg) * 100) }),
-          t('al.acctDrop.a')));
+          t('al.acctDrop.a'), 0, 'acct-drop'));
       }
     }
 
@@ -492,7 +492,7 @@
         if (!weak) return;
         var concentration = makeIssue('warning', ['account'], t('al.conc.t'),
           t('al.conc.d', { name: t('al.name', { name: c.offer || c.id }), pct: fmt.int(share * 100), acc: accName, spend: money(c.spend) }),
-          t('al.conc.a'));
+          t('al.conc.a'), 0, 'concentration');
         concentration.adId = c.id;
         concentration.adName = c.offer || c.headline || c.id;
         alerts.push(concentration);
