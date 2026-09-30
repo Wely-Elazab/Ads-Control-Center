@@ -2248,6 +2248,24 @@
       // طلبات قليلة جداً قبل وبعد = «البيانات ما زالت قليلة» (نرجع له بعد أسبوع)
       eq(judge(series('2026-09-01', '2026-09-22', 10, 0.25).concat(series('2026-09-23', '2026-09-29', 20, 0.5))).verdict, 'wait');
     });
+    test('أرقام اتغيّرت كتير بس الفرق مش حاسم = «لا يمكن نسبته إلى التعديل بعد» مش «لا فرق» (حالة حقيقية: ١٠ طلبات ← ٢)', function () {
+      var groups = DX.actionGroups([budget('22', '2026-09-22T09:00:00+0000', 10000, 7000)], 'UTC', '2026-09-24', '2026-09-26');
+      var obj = series('2026-09-01', '2026-09-22', 14, 2).concat(series('2026-09-23', '2026-09-29', 10, 0.5));
+      var r = DX.evalActions(groups, { 22: obj }, plus(obj, REST), '2026-09-26')[0];
+      eq(r.verdict, 'unclear');
+      withLang('ar', function () { ok(/لا يمكن نسبته إلى التعديل بعد/.test(DX.composeActions([r], 'USD').items[0].lines.join(' '))); });
+    });
+    test('التعديلات الصغيرة (أقل من ٣٪ من إنفاق الحساب) بتتعد بس، واستهداف الإعلان المنسوخ من المجموعة مش قرار', function () {
+      var groups = DX.actionGroups([budget('23', '2026-09-22T09:00:00+0000', 1000, 2000)], 'UTC', '2026-09-24', '2026-09-26');
+      var tiny = series('2026-09-01', '2026-09-22', 3, 0.2).concat(series('2026-09-23', '2026-09-29', 6, 0.4));
+      var list = DX.evalActions(groups, { 23: tiny }, plus(tiny, REST), '2026-09-26');
+      ok(list[0].minor, 'share ' + list[0].share);
+      withLang('ar', function () {
+        var b = DX.composeActions(list, 'USD');
+        ok(!b.items.length && /تعديلات صغيرة الأثر فقط/.test(b.lines[0]), JSON.stringify(b));
+      });
+      eq(X.actionOf(ev('update_ad_targets_spec', 'ADGROUP', '6', '2026-09-24T12:00:53+0000', { old_value: [1], new_value: [2] }), 'UTC'), null);
+    });
     test('الإيقاف: «قرار في محله» لو العنصر كان أضعف من باقي الحساب، و«انتبه» لو كان من الأفضل', function () {
       var since = '2026-09-27', until = '2026-09-29';
       var groups = DX.actionGroups([status('ADGROUP', '30', '2026-09-28T09:00:00+0000', 'Active', 'Inactive')], 'UTC', since, until);
@@ -2285,7 +2303,8 @@
         var it = DX.composeActions(DX.evalActions(groups, { 20: obj }, plus(obj, REST), until), 'USD').items[0];
         ok(it.title.indexOf('رفع ميزانية المجموعة الإعلانية') === 0 && it.title.indexOf(money(100, 'USD')) > -1 && it.title.indexOf(money(200, 'USD')) > -1, it.title);
         ok(/بواسطة/.test(it.meta) && /←/.test(it.lines[0]) && /حافظ على كفاءته/.test(it.lines[1]), JSON.stringify(it));
-        var early = DX.composeActions(DX.evalActions(DX.actionGroups([budget('21', '2026-09-26T09:00:00+0000', 1000, 3000)], 'UTC', since, until), {}, REST, until), 'USD');
+        var o21 = series('2026-09-01', '2026-09-29', 100, 5);
+        var early = DX.composeActions(DX.evalActions(DX.actionGroups([budget('21', '2026-09-26T09:00:00+0000', 1000, 3000)], 'UTC', since, until), { 21: o21 }, plus(o21, REST), until), 'USD');
         ok(/مبكر للحكم/.test(early.items[0].lines[0]) && /لم يكتمل يوم/.test(early.items[0].lines[0]), early.items[0].lines[0]);
         eq(DX.composeActions([], 'USD').lines, [t('dx.act.none')]);
       });

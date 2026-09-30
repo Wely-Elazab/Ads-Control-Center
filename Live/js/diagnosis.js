@@ -1013,6 +1013,8 @@ var DX = (function () {
   var ACT_MAX_DAYS = 7;
   var ACT_MIN_ORDERS = 6;     // طلبات العنصر قبل وبعد مع بعض — أقل من كده «البيانات قليلة»
   var ACT_Z = 2;
+  var ACT_BIG = Math.log(1.25);   // فرق ٢٥٪ أو أكتر في الكفاءة = «الأرقام اتغيّرت» حتى لو مش حاسم إحصائياً
+  var ACT_MIN_SHARE = 0.03;       // تعديل على عنصر أقل من ٣٪ من إنفاق الحساب في نفس الأيام = «أقل أثراً»
   var ACT_SHOW = 6;
   function keyInTz(when, tz) {
     var d = new Date(String(when).replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
@@ -1045,7 +1047,8 @@ var DX = (function () {
       return null;
     }
     if (type === 'create_ad' || type === 'create_ad_set' || type === 'create_campaign_group') { a.kind = 'launch'; return a; }
-    if ((type === 'update_ad_set_target_spec' || type === 'update_ad_targets_spec') && x.old_value) { a.kind = 'targeting'; return a; }
+    // استهداف المجموعة بس: Meta بتسجّل نفس التعديل تاني على كل إعلان فيها (update_ad_targets_spec) — حساب حقيقي
+    if (type === 'update_ad_set_target_spec' && x.old_value) { a.kind = 'targeting'; return a; }
     if (type === 'update_ad_creative' && x.old_value) { a.kind = 'creative'; return a; }
     return null;
   }
@@ -1136,7 +1139,10 @@ var DX = (function () {
       r.thin = oB.pur + oA.pur < ACT_MIN_ORDERS;
     }
     r.z = t.z; r.ratio = t.ratio;
-    r.verdict = r.thin ? 'thin' : (t.z >= ACT_Z ? 'better' : (t.z <= -ACT_Z ? 'worse' : 'same'));
+    // مش حاسم إحصائياً بس الأرقام اتغيّرت كتير (١٠ طلبات ← ٢ مثلاً): «لا فرق» هنا بتناقض اللي العميل شايفه،
+    // فبنقول «اتغيّرت بس لسه منقدرش ننسبها للتعديل» — حساب حقيقي
+    var big = t.ratio != null ? Math.abs(Math.log(t.ratio)) > ACT_BIG : (t.z !== 0);
+    r.verdict = r.thin ? 'thin' : (t.z >= ACT_Z ? 'better' : (t.z <= -ACT_Z ? 'worse' : (big ? 'unclear' : 'same')));
     return r;
   }
   // objDaily: { رقم العنصر: [{ date, spend, pur, rev }] }، accDaily: أرقام الحساب كله يوم بيوم (نفس daily بتاع analyze)
@@ -1148,7 +1154,15 @@ var DX = (function () {
       g.ids.forEach(function (id) { (objDaily && objDaily[id] || []).forEach(function (r) { rows.push(r); }); });
       var item = { kind: g.kind, kinds: g.kinds, level: g.level, count: g.ids.length, names: g.names, actors: g.actors,
         first: g.first, last: g.last, from: g.from, to: g.to, lifetime: g.lifetime };
-      if (g.stage === 'early') { item.verdict = 'early'; item.after = g.after; item.weight = 0; out.push(item); return; }
+      if (g.stage === 'early') {
+        // حجمه: إنفاقه في الأسبوع اللي قبل التعديل وبعده لحد دلوقتي، من إنفاق الحساب في نفس الأيام
+        var pre = daySum(rows, shiftKey(g.first, -ACT_MAX_DAYS), shiftKey(g.first, -1)), post = daySum(rows, shiftKey(g.last, 1), until);
+        var accE = daySum(acc, shiftKey(g.first, -ACT_MAX_DAYS), until).spend;
+        item.verdict = 'early'; item.after = g.after; item.weight = pre.spend + post.spend;
+        item.share = accE > 0 ? item.weight / accE : 0; item.minor = item.share < ACT_MIN_SHARE;
+        out.push(item);
+        return;
+      }
       var after = keyDiffDays(g.last, until);
       var r;
       if (g.kind === 'pause') r = judgeGroup(g, rows, acc, ACT_MAX_DAYS);
@@ -1163,9 +1177,12 @@ var DX = (function () {
       if (r.verdict === 'idle') return;   // إيقاف عنصر مكانش بيصرف أصلاً — مالوش أثر
       for (var k in r) item[k] = r[k];
       item.weight = r.objB.spend + r.objA.spend;
+      var accS = daySum(acc, r.B.since, g.kind === 'pause' ? r.B.until : r.A.until).spend;
+      item.share = accS > 0 ? item.weight / accS : 0;
+      item.minor = item.share < ACT_MIN_SHARE;
       out.push(item);
     });
-    var rank = { worse: 0, better: 1, same: 2, wait: 3, thin: 4, noSpend: 5, early: 6 };
+    var rank = { worse: 0, better: 1, unclear: 2, same: 3, wait: 4, thin: 5, noSpend: 6, early: 7 };
     return out.sort(function (a, b) { return (rank[a.verdict] - rank[b.verdict]) || (b.weight - a.weight); });
   }
 
@@ -1676,20 +1693,22 @@ var DX = (function () {
           cpa: both ? t('dx.act.factsCpa', { cpaB: cpa(a.objB), cpaA: cpa(a.objA) }) : '' }));
       }
     }
+    var group = a.kind === 'pause' ? 'pause' : (a.vsRest ? 'new' : (a.kind === 'budget' ? (a.to > a.from ? 'up' : 'down') : 'edit'));
     if (ACT_TONE[a.verdict]) {
-      var group = a.kind === 'pause' ? 'pause' : (a.vsRest ? 'new' : (a.kind === 'budget' ? (a.to > a.from ? 'up' : 'down') : 'edit'));
       lines.push(t('dx.act.v.' + group + '.' + a.verdict));
       // الإيقاف بالعكس: العنصر كان «أسوأ» = القرار صح
       tone = group === 'pause' ? ({ worse: 'good', better: 'bad', same: 'neutral' })[a.verdict] : ACT_TONE[a.verdict];
-    } else lines.push(t('dx.act.v.' + a.verdict));
+    } else if (a.verdict === 'unclear') lines.push(t(group === 'pause' || group === 'new' ? 'dx.act.v.unclearRest' : 'dx.act.v.unclear'));
+    else lines.push(t('dx.act.v.' + a.verdict));
     return { title: title, meta: who, lines: lines, tone: tone };
   }
   function composeActions(list, currency) {
     var M = function (v) { return iso(money(v, currency)); };
     var b = { kind: 'actions', title: t('dx.act.title'), lines: [t('dx.act.intro')], items: [] };
-    if (!list || !list.length) { b.lines = [t('dx.act.none')]; return b; }
-    list.slice(0, ACT_SHOW).forEach(function (a) { b.items.push(actionItem(a, M, currency)); });
-    if (list.length > ACT_SHOW) b.after = [t('dx.act.more', { n: fmtNum(list.length - ACT_SHOW) })];
+    var shown = (list || []).filter(function (a) { return !a.minor; }).slice(0, ACT_SHOW);
+    if (!shown.length) { b.lines = [t(list && list.length ? 'dx.act.onlyMinor' : 'dx.act.none', { n: fmtNum((list || []).length) })]; return b; }
+    shown.forEach(function (a) { b.items.push(actionItem(a, M, currency)); });
+    if (list.length > shown.length) b.after = [t('dx.act.more', { n: fmtNum(list.length - shown.length) })];
     return b;
   }
 
