@@ -568,14 +568,17 @@
       var today = run(day('28', 100, 70, 10, 5, 3), day('29', 80, 0, 0, 0, 0));
       ok(today.length === 1 && /منذ بداية اليوم/.test(today[0].detail), JSON.stringify(today));
     });
-    test('تعديل كبير مفاجئ: الميزانية ×٢ أو النص على عنصر ٥٪ فأكتر، أو إيقاف عنصر ١٠٪ فأكتر — مع اسم المعدِّل والوقت', function () {
+    test('تعديل كبير مفاجئ: الميزانية ×٢ أو النص والفرق ١٥٪ من إنفاق اليوم فأكتر، أو إيقاف عنصر ١٠٪ فأكتر — والصافي بس (حالة حقيقية)', function () {
+      // الحساب بينفق ٢٠٠$ يومياً: ١٠$ ← ٥٠$ (+٤٠$ = ٢٠٪) كبير، و١$ ← ٥$ لأ، و١٠$ ← ١٥$ لأ، ورفع ورجوع في نفس الساعة = لا شيء
       var edits = [
         { kind: 'budget', level: 'adset', id: '1', name: 'Set A', actor: 'Eslam', when: '٢٤ سبتمبر ١٦:١٥', time: '2026-09-24T16:15:19+0000', from: 1000, to: 5000, share: 0.2 },
-        { kind: 'budget', level: 'adset', id: '2', name: 'Tiny', actor: 'Eslam', when: 'x', time: '2026-09-24T16:15:19+0000', from: 1000, to: 5000, share: 0.02 },
+        { kind: 'budget', level: 'adset', id: '2', name: 'Tiny', actor: 'Eslam', when: 'x', time: '2026-09-24T16:15:19+0000', from: 100, to: 500, share: 0.02 },
         { kind: 'budget', level: 'adset', id: '3', name: 'Mild', actor: 'Eslam', when: 'x', time: '2026-09-24T16:15:19+0000', from: 1000, to: 1500, share: 0.3 },
-        { kind: 'pause', level: 'campaign', id: '4', name: 'Main', actor: 'Eslam', when: 'x', time: '2026-09-24T17:00:00+0000', share: 0.15 }
+        { kind: 'pause', level: 'campaign', id: '4', name: 'Main', actor: 'Eslam', when: 'x', time: '2026-09-24T17:00:00+0000', share: 0.15 },
+        { kind: 'budget', level: 'adset', id: '5', name: 'PingPong', actor: 'Eslam', when: 'x', time: '2026-09-24T12:57:30+0000', from: 1000, to: 5000, share: 0.1 },
+        { kind: 'budget', level: 'adset', id: '5', name: 'PingPong', actor: 'Eslam', when: 'x', time: '2026-09-24T13:10:00+0000', from: 5000, to: 1000, share: 0.1 }
       ];
-      var out = PauseProofAlerts.editAlerts(edits, ALERT_FMT, 'USD');
+      var out = PauseProofAlerts.editAlerts(edits, ALERT_FMT, 'USD', 200);
       eq(out.length, 2);
       ok(/رُفعت ميزانية المجموعة الإعلانية «Set A» اليومية/.test(out[0].detail) && out[0].detail.indexOf(money(10, 'USD')) > -1 && out[0].detail.indexOf(money(50, 'USD')) > -1 && /بواسطة Eslam/.test(out[0].detail), out[0].detail);
       ok(/تم إيقاف الحملة «Main»/.test(out[1].detail) && out[1].objectId === '4@2026-09-24T17:00:00', JSON.stringify(out[1]));

@@ -690,17 +690,33 @@
   }
 
   // تعديلات كبيرة مفاجئة من سجل Meta (من آخر فحص): edits = نتيجة DX._.actionOf لكل حدث + share = نصيب العنصر
-  // من إنفاق الحساب في آخر ٧ أيام، + when = الوقت مكتوب (المُشغّل بيكتبه بتوقيت الحساب).
-  // كبير = الميزانية اتضاعفت أو نزلت للنص على عنصر نصيبه ٥٪ فأكتر، أو إيقاف عنصر نصيبه ١٠٪ فأكتر
-  var EDIT_BUDGET_SHARE = 0.05, EDIT_PAUSE_SHARE = 0.1;
-  function editAlerts(edits, fmt, currency) {
-    var out = [];
-    (edits || []).forEach(function (e) {
-      if (!e || !(e.share >= 0)) return;
+  // من إنفاق الحساب في آخر ٧ أيام، + when = الوقت مكتوب (المُشغّل بيكتبه بتوقيت الحساب). dailySpend = متوسط إنفاق الحساب اليومي.
+  // كبير = الميزانية اتضاعفت أو نزلت للنص، والفرق نفسه ١٥٪ على الأقل من إنفاق الحساب اليومي (الميزانية الإجمالية: العنصر
+  // نصيبه ١٠٪ فأكتر)، أو إيقاف عنصر نصيبه ١٠٪ فأكتر. تعديلات نفس العنصر بتتجمع (الصافي من أول قيمة لآخر قيمة) —
+  // على حساب حقيقي كان يوم إعادة هيكلة هيطلّع ٦ رسايل «عاجل» منها ٥$ ← ١٥$ ورفع وخفض متعاكسين في نفس اليوم
+  var EDIT_ABS_SHARE = 0.15, EDIT_PAUSE_SHARE = 0.1;
+  function editAlerts(edits, fmt, currency, dailySpend) {
+    var out = [], byId = {}, order = [];
+    (edits || []).slice().sort(function (a, b) { return String(a.time) < String(b.time) ? -1 : 1; }).forEach(function (e) {
+      if (!e || !e.id) return;
+      var g = byId[e.id];
+      if (!g) { g = byId[e.id] = { id: e.id, level: e.level, name: e.name, share: e.share, actors: [], events: [] }; order.push(g); }
+      g.events.push(e);
+      if (e.actor && g.actors.indexOf(e.actor) < 0) g.actors.push(e.actor);
+      g.when = e.when; g.time = e.time;
+    });
+    order.forEach(function (g) {
+      if (!(g.share >= 0)) return;
+      var budgets = g.events.filter(function (e) { return e.kind === 'budget'; }), last = g.events[g.events.length - 1];
+      var e = { kind: last.kind === 'pause' ? 'pause' : (budgets.length ? 'budget' : last.kind), level: g.level, name: g.name, share: g.share,
+        actor: g.actors.join('، '), when: g.when, id: g.id, time: g.time };
+      if (budgets.length) { e.from = budgets[0].from; e.to = budgets[budgets.length - 1].to; e.lifetime = budgets[budgets.length - 1].lifetime; }
       var obj = t('dx.act.lv.' + e.level) + (e.name ? ' ' + t('dx.act.q', { name: e.name }) : '');
       var who = e.actor ? t('al.edit.who', { actor: e.actor, when: e.when || '' }) : (e.when || '');
       var vars = { obj: obj, who: who, pct: fmt.int(Math.max(1, e.share * 100)) }, a = null;
-      if (e.kind === 'budget' && e.from > 0 && e.to > 0 && e.share >= EDIT_BUDGET_SHARE && (e.to / e.from >= 2 || e.to / e.from <= 0.5)) {
+      var bigMove = e.kind === 'budget' && e.from > 0 && e.to > 0 && (e.to / e.from >= 2 || e.to / e.from <= 0.5) &&
+        (e.lifetime ? e.share >= EDIT_PAUSE_SHARE : dailySpend > 0 && Math.abs(e.to - e.from) / unitOf(currency) >= EDIT_ABS_SHARE * dailySpend);
+      if (bigMove) {
         var up = e.to > e.from;
         vars.from = fmt.money(e.from / unitOf(currency), currency); vars.to = fmt.money(e.to / unitOf(currency), currency);
         vars.life = t(e.lifetime ? 'al.edit.life' : 'al.edit.daily');
