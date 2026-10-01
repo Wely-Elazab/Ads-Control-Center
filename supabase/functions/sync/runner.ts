@@ -18,7 +18,7 @@
 import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
 
-const ENGINE_COMMIT = 'fe16773b341e09fae74605c78d4d185eae39fa7d';
+const ENGINE_COMMIT = '29a8a5a5ff30ac54968dfb82ea8c2aa807da4a5b';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
