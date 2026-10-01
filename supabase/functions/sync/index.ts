@@ -10,6 +10,7 @@
 //   run       ← pg_cron كل ساعة، بهيدر x-runner-key (مفتاح عشوائي في Vault): فحص التنبيهات العاجلة (runner.ts)
 //   digest.preview ← { token, accountId, lang } لمدير التطبيق بس: الرسالة العاجلة اللي كانت هتتبعت دلوقتي، من غير إرسال
 //   digest.previewSummary ← { token, accountId, lang, since?, until? } لمدير التطبيق بس: رسالة الملخص، من غير إرسال
+//   join و join.peek و join.activate ← طلبات الانضمام للتجربة من نموذج /join، وزرار «أرسلت الدعوة» في إشعارنا (join.ts)
 //
 // الأمان: الدالة عامة (verify_jwt = false) لأن الأداة مفيهاش حسابات دخول خاصة بيها. بدل كده كل طلب فيه
 // مفتاح Meta بتاع صاحب المتجر، والدالة بتسأل Meta نفسها إن المفتاح ده عنده صلاحية على الحساب الإعلاني
@@ -20,6 +21,7 @@
 
 import { META_ID, TOKEN, corsHeaders, reply, db, rpc, metaAccount, isAppAdmin, str, sendEmail, mailHtml, MAIL_REPLY_TO } from './lib.ts';
 import { handleDigest } from './digest.ts';
+import { handleJoin } from './join.ts';
 import { runAll, preview, previewSummary } from './runner.ts';
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
@@ -111,6 +113,8 @@ Deno.serve(async (req: Request) => {
     }
     // رابط الإيقاف في الرسائل: توقيعه هو الإثبات، من غير دخول Meta
     if (action === 'stop') return await handleDigest(action, body, origin);
+    // طلب الانضمام عام (من غير دخول)، و«أرسلت الدعوة» توقيعه هو الإثبات
+    if (action === 'join' || action === 'join.peek' || action === 'join.activate') return await handleJoin(action, body, origin);
 
     // المُشغّل: بنرد فوراً ونكمّل في الخلفية (pg_net مش محتاج يستنى)
     if (action === 'run') {

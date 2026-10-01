@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-title-ar="طلب الانضمام إلى التجربة — Ads Center" data-title-en="Join the pilot — Ads Center">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171C" media="(prefers-color-scheme: dark)">
+<title>طلب الانضمام إلى التجربة — Ads Center</title>
+<meta name="description" content="اطلب الانضمام إلى التجربة المغلقة لأداة Ads Center: أرسل بياناتك ورابط متجرك، وسنفعّل حسابك ونرسل إليك خطوات الربط.">
+<!-- نموذج طلب الانضمام (js/join-form.js) → دالة sync (action: join، في supabase/functions/sync/join.ts).
+     الطلب بيتحفظ في pilot_requests وبيوصلنا إشعار. مفيش رسالة للعميل غير بعد ما نراجع ونضيفه ونضغط «أرسلت الدعوة».
+     النص فصحى، ومن غير تفاصيل داخلية عن طريقة إضافة العملاء على المنصات -->
+<script src="/js/theme.js"></script>
+<script src="/js/legal.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/legal.css">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+
+<header class="legal-bar">
+  <a class="legal-brand" href="/">Ads Center</a>
+  <div class="legal-bar-end">
+    <button type="button" class="legal-lang theme-btn" data-theme-toggle aria-pressed="false"><span data-theme-icon aria-hidden="true">☀️</span><span class="sr-only"><span class="only-ar">الوضع الداكن</span><span class="only-en">Dark mode</span></span></button>
+    <button type="button" class="legal-lang" id="legalLang">English</button>
+  </div>
+</header>
+
+<main class="legal">
+<article class="doc join-doc">
+
+  <section data-join-state="form">
+    <h1><span class="only-ar">اطلب الانضمام إلى التجربة</span><span class="only-en">Request to join the pilot</span></h1>
+    <p><span class="only-ar">الأداة متاحة حالياً لعدد محدود من أصحاب المتاجر ضمن تجربة مغلقة. أرسل إلينا بياناتك، وسنراجع طلبك ونفعّل حسابك، ثم نرسل إليك خطوات الربط على بريدك.</span><span class="only-en">The tool is currently available to a limited number of store owners in a closed pilot. Send us your details, and we'll review your request, activate your access and email you the connection steps.</span></p>
+
+    <form id="joinForm" class="join-form" novalidate>
+      <div class="field">
+        <label for="jName"><span class="only-ar">الاسم</span><span class="only-en">Your name</span></label>
+        <input id="jName" name="name" type="text" autocomplete="name" maxlength="100" required>
+      </div>
+      <div class="field">
+        <label for="jBusiness"><span class="only-ar">اسم النشاط التجاري</span><span class="only-en">Business name</span></label>
+        <input id="jBusiness" name="business" type="text" autocomplete="organization" maxlength="120" required>
+      </div>
+      <div class="field">
+        <label for="jStore"><span class="only-ar">رابط المتجر</span><span class="only-en">Store link</span></label>
+        <input id="jStore" name="store" type="text" inputmode="url" autocomplete="url" maxlength="300" dir="ltr" placeholder="example.com" required>
+      </div>
+      <div class="field">
+        <label for="jCountry"><span class="only-ar">البلد</span><span class="only-en">Country</span></label>
+        <input id="jCountry" name="country" type="text" autocomplete="country-name" maxlength="60" required>
+      </div>
+
+      <fieldset class="field">
+        <legend><span class="only-ar">المنصات التي تعلن عليها</span><span class="only-en">Platforms you advertise on</span></legend>
+        <div class="checks">
+          <label class="check"><input type="checkbox" name="platforms" value="meta"> <span>Meta <span class="only-ar">(فيسبوك وإنستغرام)</span><span class="only-en">(Facebook &amp; Instagram)</span></span></label>
+          <label class="check"><input type="checkbox" name="platforms" value="google"> <span>Google Ads</span></label>
+          <label class="check"><input type="checkbox" name="platforms" value="snapchat"> <span>Snapchat</span></label>
+          <label class="check"><input type="checkbox" name="platforms" value="tiktok"> <span>TikTok <span class="only-ar">(قريباً)</span><span class="only-en">(coming soon)</span></span></label>
+        </div>
+      </fieldset>
+
+      <div class="field" data-for="meta" hidden>
+        <label for="jFb"><span class="only-ar">رابط حسابك الشخصي على فيسبوك</span><span class="only-en">Your personal Facebook profile link</span></label>
+        <input id="jFb" name="fb" type="text" inputmode="url" maxlength="300" dir="ltr" placeholder="facebook.com/…" aria-describedby="jFbHint">
+        <p class="hint" id="jFbHint"><span class="only-ar">الحساب نفسه الذي تدخل به إلى مدير الإعلانات. من تطبيق فيسبوك: افتح ملفك الشخصي، ثم اضغط ⋯ وانسخ رابط الملف الشخصي.</span><span class="only-en">The same account you use for Ads Manager. In the Facebook app: open your profile, tap ⋯ and copy your profile link.</span></p>
+      </div>
+
+      <div class="field">
+        <label for="jEmail"><span class="only-ar">بريدك الإلكتروني</span><span class="only-en">Your email</span></label>
+        <input id="jEmail" name="email" type="email" autocomplete="email" maxlength="254" dir="ltr" required aria-describedby="jEmailHint">
+        <p class="hint" id="jEmailHint"><span class="only-ar">سنرسل إليه خطوات التفعيل بعد مراجعة طلبك، فتأكد من صحته.</span><span class="only-en">We'll send the activation steps here once we've reviewed your request, so please double-check it.</span></p>
+      </div>
+
+      <div class="field" data-for="google" hidden>
+        <label for="jGoogle"><span class="only-ar">بريد Google Ads (إن كان مختلفاً عن بريدك أعلاه)</span><span class="only-en">Google Ads email (if different from the one above)</span></label>
+        <input id="jGoogle" name="googleEmail" type="email" maxlength="254" dir="ltr" aria-describedby="jGoogleHint">
+        <p class="hint" id="jGoogleHint"><span class="only-ar">البريد الذي تدخل به إلى Google Ads.</span><span class="only-en">The email you use to sign in to Google Ads.</span></p>
+      </div>
+
+      <div class="field">
+        <label for="jWhatsapp"><span class="only-ar">رقم واتساب (اختياري)</span><span class="only-en">WhatsApp number (optional)</span></label>
+        <input id="jWhatsapp" name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" maxlength="30" dir="ltr">
+      </div>
+
+      <!-- حقل مخفي عن الناس: البرامج اللي بتملا أي حقل بتتكشف بيه (join.ts) -->
+      <div class="hp" aria-hidden="true">
+        <label for="jHp">Leave empty</label>
+        <input id="jHp" name="hpx" type="text" tabindex="-1" autocomplete="off">
+      </div>
+
+      <label class="check consent">
+        <input type="checkbox" name="consent" id="jConsent" required>
+        <span><span class="only-ar">أوافق على الانضمام إلى التجربة بصفة مختبِر للأداة وفق بند <a href="/terms#pilot" target="_blank" rel="noopener">«برنامج التجربة»</a> في شروط الاستخدام، وعلى <a href="/privacy" target="_blank" rel="noopener">سياسة الخصوصية</a>.</span><span class="only-en">I agree to join the pilot as a tester of the tool under the <a href="/terms#pilot-en" target="_blank" rel="noopener">"Pilot program"</a> section of the terms of use, and to the <a href="/privacy" target="_blank" rel="noopener">privacy policy</a>.</span></span>
+      </label>
+
+      <p class="form-error" id="joinError" role="alert" hidden></p>
+
+      <div class="cta-row">
+        <button type="submit" class="btn btn-primary" id="joinSubmit">
+          <span class="when-idle"><span class="only-ar">أرسل الطلب</span><span class="only-en">Send request</span></span>
+          <span class="when-busy"><span class="only-ar">جارٍ الإرسال…</span><span class="only-en">Sending…</span></span>
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <section data-join-state="done" hidden tabindex="-1" id="joinDone">
+    <h1><span class="only-ar">تم استلام طلبك</span><span class="only-en">We've received your request</span></h1>
+    <p><span class="only-ar">شكراً لاهتمامك. هذه هي الخطوات التالية:</span><span class="only-en">Thank you for your interest. Here's what happens next:</span></p>
+    <ol class="next-steps">
+      <li><span class="only-ar">نراجع طلبك ونفعّل حسابك في أقرب وقت.</span><span class="only-en">We review your request and activate your access as soon as possible.</span></li>
+      <li><span class="only-ar">تصلك رسالة من <strong dir="ltr">support@adscenter.online</strong> فيها خطوات التفعيل لكل منصة اخترتها. وإن لم تجدها، فراجع مجلد الرسائل غير المرغوب فيها.</span><span class="only-en">You'll get an email from <strong>support@adscenter.online</strong> with the activation steps for each platform you chose. If you can't find it, check your spam folder.</span></li>
+      <li><span class="only-ar">لربط Meta: ستقبل دعوة «مختبِر» من إعدادات فيسبوك، ولن يصلك إشعار بها من فيسبوك. الخطوات في الرسالة وفي <a href="/help#meta">دليل البدء</a>.</span><span class="only-en">To connect Meta, you'll accept a "Tester" invitation in your Facebook settings — Facebook doesn't send a notification for it. The steps are in the email and in the <a href="/help#meta">getting-started guide</a>.</span></li>
+    </ol>
+    <div class="cta-row">
+      <a class="btn btn-ghost" href="/help"><span class="only-ar">دليل البدء</span><span class="only-en">Getting-started guide</span></a>
+      <a class="btn btn-ghost" href="/"><span class="only-ar">الصفحة الرئيسية</span><span class="only-en">Home</span></a>
+    </div>
+  </section>
+
+</article>
+<p class="join-alt-contact"><span class="only-ar">تواجه مشكلة في النموذج؟ راسلنا على <a href="mailto:support@adscenter.online">support@adscenter.online</a>.</span><span class="only-en">Trouble with the form? Email us at <a href="mailto:support@adscenter.online">support@adscenter.online</a>.</span></p>
+</main>
+
+<footer class="legal-foot">
+  <a href="/"><span class="only-ar">عن الأداة</span><span class="only-en">About</span></a>
+  <a href="/help"><span class="only-ar">دليل البدء</span><span class="only-en">Getting started</span></a>
+  <a href="/privacy"><span class="only-ar">سياسة الخصوصية</span><span class="only-en">Privacy policy</span></a>
+  <a href="/terms"><span class="only-ar">شروط الاستخدام</span><span class="only-en">Terms of use</span></a>
+</footer>
+
+<script src="/js/join-form.js"></script>
+<script src="/js/site.js"></script>
+</body>
+</html>

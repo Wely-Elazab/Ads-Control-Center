@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>إرسال رسالة التفعيل — Ads Center</title>
+<!-- صفحة داخلية لصاحب الأداة بس (عربي): بتتفتح من زرار «أرسلت الدعوة» في إشعار طلب الانضمام —
+     /invited?r=رقم الطلب&s=توقيع (supabase/functions/sync/join.ts). بتعرض الطلب (join.peek)، والإرسال للعميل
+     (join.activate) بعد ضغط الزرار بس — عشان برامج البريد اللي بتفتح الروابط لوحدها متبعتش للعميل حاجة -->
+<script src="/js/theme.js"></script>
+<link rel="stylesheet" href="/legal.css">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+
+<header class="legal-bar">
+  <a class="legal-brand" href="/">Ads Center</a>
+  <div class="legal-bar-end">
+    <button type="button" class="legal-lang theme-btn" data-theme-toggle aria-pressed="false"><span data-theme-icon aria-hidden="true">☀️</span><span class="sr-only">الوضع الداكن</span></button>
+  </div>
+</header>
+
+<main class="legal" aria-live="polite">
+<article class="doc">
+  <section data-inv-state="busy">
+    <h1>جارٍ تحميل الطلب…</h1>
+  </section>
+
+  <section data-inv-state="view" hidden>
+    <h1>إرسال رسالة التفعيل</h1>
+    <p>تأكد أنك أضفت العميل على المنصات المطلوبة قبل الإرسال: ستصله رسالة فيها خطوات قبول الدعوة والربط، بلغته.</p>
+    <table><tbody id="invDetails"></tbody></table>
+    <p class="form-error" id="invNote" hidden></p>
+    <div class="cta-row">
+      <button type="button" class="btn btn-primary" id="invSend">أرسل رسالة التفعيل</button>
+    </div>
+  </section>
+
+  <section data-inv-state="sending" hidden>
+    <h1>جارٍ الإرسال…</h1>
+  </section>
+
+  <section data-inv-state="done" hidden>
+    <h1>أُرسلت رسالة التفعيل</h1>
+    <p id="invDoneText"></p>
+  </section>
+
+  <section data-inv-state="bad" hidden>
+    <h1>الرابط غير صالح</h1>
+    <p>ربما نُسخ الرابط ناقصاً، أو حُذف الطلب. افتح الرابط من رسالة الإشعار نفسها.</p>
+  </section>
+
+  <section data-inv-state="error" hidden>
+    <h1>تعذّر إتمام العملية الآن</h1>
+    <p>حاول مرة أخرى بعد قليل. إن تكرر ذلك، فراجع سجلات دالة sync في Supabase.</p>
+    <div class="cta-row"><button type="button" class="btn btn-primary" id="invRetry">إعادة المحاولة</button></div>
+  </section>
+</article>
+</main>
+
+<script src="/js/invited.js"></script>
+</body>
+</html>

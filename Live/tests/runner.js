@@ -22,7 +22,7 @@
   });
 
   var SCRIPTS = ['/js/theme.js', '/js/i18n.js', '/js/alerts.js', '/js/core.js', '/js/diagnosis.js', '/js/meta.js', '/js/google.js', '/js/snapchat.js',
-    '/js/tiktok.js', '/js/ui.js', '/js/main.js', '/js/join.js', '/js/pricing.js', '/tests/dx-sim.js', '/tests/tests.js'];
+    '/js/tiktok.js', '/js/ui.js', '/js/main.js', '/js/pricing.js', '/tests/dx-sim.js', '/tests/tests.js'];
 
   function loadScript(src) {
     return new Promise(function (resolve, reject) {

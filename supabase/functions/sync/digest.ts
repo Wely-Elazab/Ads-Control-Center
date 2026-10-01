@@ -43,28 +43,30 @@ export async function unseal(ct: string, iv: string, account: string): Promise<s
   return new TextDecoder().decode(pt);
 }
 
-// ---------- رابط الإيقاف: توقيع HMAC بمفتاح مشتق (مش نفس مفتاح التشفير) ----------
-let hmac: Promise<CryptoKey> | null = null;
-function linkKey(): Promise<CryptoKey> {
-  if (!hmac) {
-    hmac = (async () => {
-      const label = enc.encode('ads-center/stop-link/v1:'), raw = rawKey();
-      const mix = new Uint8Array(label.length + raw.length);
-      mix.set(label); mix.set(raw, label.length);
+// ---------- الروابط الموقّعة (الإيقاف، و«أرسلت الدعوة» في join.ts): HMAC بمفتاح مشتق لكل غرض (مش نفس مفتاح التشفير) ----------
+const STOP_LABEL = 'ads-center/stop-link/v1:';
+const hmacKeys: Record<string, Promise<CryptoKey>> = {};
+function linkKey(label: string): Promise<CryptoKey> {
+  if (!hmacKeys[label]) {
+    hmacKeys[label] = (async () => {
+      const l = enc.encode(label), raw = rawKey();
+      const mix = new Uint8Array(l.length + raw.length);
+      mix.set(l); mix.set(raw, l.length);
       const derived = await crypto.subtle.digest('SHA-256', mix);
       return crypto.subtle.importKey('raw', derived, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    })().catch((e) => { hmac = null; throw e; });
+    })().catch((e) => { delete hmacKeys[label]; throw e; });
   }
-  return hmac;
+  return hmacKeys[label];
 }
-async function stopSig(account: string): Promise<string> {
-  const sig = await crypto.subtle.sign('HMAC', await linkKey(), enc.encode('stop:' + account));
+export async function linkSig(label: string, message: string): Promise<string> {
+  const sig = await crypto.subtle.sign('HMAC', await linkKey(label), enc.encode(message));
   return b64(new Uint8Array(sig)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
+function stopSig(account: string): Promise<string> { return linkSig(STOP_LABEL, 'stop:' + account); }
 export async function stopUrl(account: string): Promise<string> {
   return SITE + '/stop?a=' + account + '&s=' + (await stopSig(account));
 }
-function sameString(a: string, b: string): boolean {
+export function sameString(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let d = 0;
   for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
@@ -100,7 +102,7 @@ async function storeToken(token: string, account: string): Promise<string | null
 }
 
 // ---------- الإعدادات ----------
-function cleanEmail(v: unknown): string | null {
+export function cleanEmail(v: unknown): string | null {
   const s = typeof v === 'string' ? v.trim() : '';
   return s.length <= 254 && EMAIL.test(s) ? s.toLowerCase() : null;
 }

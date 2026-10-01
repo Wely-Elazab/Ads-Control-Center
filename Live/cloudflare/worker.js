@@ -51,6 +51,9 @@ export const REWRITES = {
   '/data-deletion': '/data-deletion.html',
   // رابط الإيقاف في آخر رسائل الملخص التلقائي (stop.html)
   '/stop': '/stop.html',
+  // نموذج طلب الانضمام (join.html)، وصفحة «أرسلت الدعوة» لصاحب الأداة من إشعار الطلب (invited.html)
+  '/join': '/join.html',
+  '/invited': '/invited.html',
   // المتصفحات بتطلب الأيقونة من المسار ده لوحدها — الأيقونة نفسها SVG
   '/favicon.ico': '/favicon.svg'
 };

@@ -83,14 +83,15 @@ export function esc(s: string): string {
 // ---------- البريد (Resend — المفتاح بصلاحية «إرسال فقط») ----------
 export const MAIL_FROM = 'Ads Center <support@adscenter.online>';
 export const MAIL_REPLY_TO = 'support@adscenter.online';
-// بيرجّع رقم الرسالة عند Resend، أو بيرمي خطأ فيه حالة Resend بس (من غير محتوى الرسالة)
-export async function sendEmail(to: string, subject: string, html: string, text: string): Promise<string> {
+// بيرجّع رقم الرسالة عند Resend، أو بيرمي خطأ فيه حالة Resend بس (من غير محتوى الرسالة).
+// replyTo: إشعار طلب الانضمام بس — الرد عليه بيروح للعميل نفسه (الباقي الرد بيرجع لـ support@)
+export async function sendEmail(to: string, subject: string, html: string, text: string, replyTo = MAIL_REPLY_TO): Promise<string> {
   const key = Deno.env.get('RESEND_API_KEY');
   if (!key) throw new Error('resend key missing');
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'authorization': 'Bearer ' + key, 'content-type': 'application/json' },
-    body: JSON.stringify({ from: MAIL_FROM, to: [to], reply_to: MAIL_REPLY_TO, subject, html, text })
+    body: JSON.stringify({ from: MAIL_FROM, to: [to], reply_to: replyTo, subject, html, text })
   });
   const j = await r.json().catch(() => null);
   if (!r.ok || !j || !j.id) throw new Error('resend ' + r.status + ' ' + String((j && (j.name || j.message)) || '').slice(0, 80));

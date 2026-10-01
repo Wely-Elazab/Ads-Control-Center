@@ -1131,7 +1131,7 @@
       ok(hero.querySelector('[data-i18n="hero.pilot"]'), 'pilot note');
       var join = hero.querySelector('a[data-join]');
       ok(join, 'join link');
-      ok(join.getAttribute('href').indexOf('mailto:' + ACC_JOIN.email + '?subject=') === 0, 'full mailto: ' + join.getAttribute('href').slice(0, 60));
+      eq(join.getAttribute('href'), '/join', 'join form');
       ok(hero.querySelector('a[href="/help"]'), 'help link');
     });
     test('نافذة المنصات فيها ملاحظة التجربة وروابط الانضمام والخطوات', function () {
@@ -1140,26 +1140,19 @@
       ok(note.querySelector('a[data-join]') && note.querySelector('a[href="/help"]'), 'join + help links');
       eq(document.querySelector('#platformMeta .platform-item-sub').textContent, t('pf.meta'));
     });
-    test('رسالة الانضمام فيها البيانات المطلوبة وموافقة المختبِر باللغتين', function () {
-      ['ar', 'en'].forEach(function (l) {
-        var href = ACC_JOIN.href(l);
-        ok(href.indexOf('mailto:support@adscenter.online?subject=') === 0, l + ': mailto');
-        var body = decodeURIComponent(href.split('&body=')[1]);
-        ok(/فيسبوك|Facebook/.test(body), l + ': asks for the Facebook profile');
-        ok(/Google Ads/.test(body), l + ': asks for the Google Ads email');
-        ok(body.indexOf(location.origin + '/terms#pilot' + (l === 'en' ? '-en' : '')) > -1, l + ': links the pilot terms');
-        ok(ACC_JOIN.text(l).indexOf(ACC_JOIN.email) > -1, l + ': copied text has the address');
-      });
-    });
-    testAsync('رابط الانضمام بيتحدّث لما اللغة تتغيّر', function () {
-      var a = document.querySelector('#emptyHero a[data-join]');
-      I18N.setLang('en');
-      return tick().then(function () {
-        ok(decodeURIComponent(a.getAttribute('href')).indexOf(ACC_JOIN.subject.en) > -1, 'english subject');
-        I18N.setLang('ar');
-        return tick();
-      }).then(function () {
-        ok(decodeURIComponent(a.getAttribute('href')).indexOf(ACC_JOIN.subject.ar) > -1, 'arabic subject');
+    // نموذج الانضمام (join.html) بيطلب نفس البيانات اللي محتاجينها عشان نضيف العميل، وموافقة المختبِر إجبارية
+    // (Meta بتشترط اتفاق مع أي حد بنضيفه Tester — بند «برنامج التجربة» في الشروط)
+    testAsync('نموذج الانضمام فيه البيانات المطلوبة وموافقة المختبِر باللغتين', function () {
+      return fetch('/join.html?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html'), form = doc.getElementById('joinForm');
+        ok(form, 'form');
+        ['name', 'business', 'store', 'country', 'fb', 'email', 'googleEmail', 'whatsapp', 'consent', 'hpx'].forEach(function (n) {
+          ok(form.elements[n], 'field: ' + n);
+        });
+        eq(Array.prototype.map.call(form.querySelectorAll('input[name="platforms"]'), function (c) { return c.value; }), ['meta', 'google', 'snapchat', 'tiktok']);
+        ok(form.elements.consent.required, 'consent required');
+        ok(form.querySelector('.consent .only-ar a[href="/terms#pilot"]') && form.querySelector('.consent .only-en a[href="/terms#pilot-en"]'), 'links the pilot terms');
+        ok(doc.querySelector('[data-for="meta"] #jFb') && doc.querySelector('[data-for="google"] #jGoogle'), 'platform fields');
       });
     });
     test('إلغاء دخول Meta بيوضّح السبب ويظهر رابط خطوات Meta', function () {
@@ -1206,7 +1199,7 @@
   });
 
   describe('الصفحات والروابط', function () {
-    var PAGES = ['/pauseproof-live.html', '/home.html', '/help.html', '/404.html', '/privacy.html', '/terms.html', '/data-deletion.html'];
+    var PAGES = ['/pauseproof-live.html', '/home.html', '/help.html', '/join.html', '/invited.html', '/404.html', '/privacy.html', '/terms.html', '/data-deletion.html'];
     function getText(u) {
       return fetch(u + '?t=' + Date.now()).then(function (r) {
         if (!r.ok) throw new Error(u + ' → HTTP ' + r.status);
@@ -1264,7 +1257,6 @@
     testAsync('النص العربي فصحى: قاموس الأداة، والصفحات، ورسالة الانضمام، ورسايل السيرفر', function () {
       var problems = [];
       function check(src, text) { var w = colloquialIn(text); if (w.length) problems.push(src + ': ' + w.join('، ')); }
-      check('join.js', ACC_JOIN.text('ar') + ' ' + ACC_JOIN.subject.ar);
       return getText('/js/i18n.js').then(function (js) {
         var ar = (js.match(/\n {4}ar: \{([\s\S]*?)\n {4}\},/) || [])[1];
         ok(ar, 'found the Arabic dictionary');
@@ -1290,7 +1282,7 @@
           withLang(l, function () { ok(!/Snapchat|Meta|Google/.test(t(k)) && !MECHANICS.test(t(k)), k + ' (' + l + '): ' + t(k)); });
         });
       });
-      return Promise.all(['/home.html', '/help.html', '/pauseproof-live.html'].map(function (u) {
+      return Promise.all(['/home.html', '/help.html', '/join.html', '/pauseproof-live.html'].map(function (u) {
         return getText(u).then(function (html) {
           var doc = parse(html);
           Array.prototype.forEach.call(doc.querySelectorAll('script, style'), function (el) { el.remove(); });
@@ -1308,7 +1300,7 @@
       });
     });
     testAsync('كل صفحات الموقع فيها زرار الوضع الداكن، واسم الأداة بيودّي للرئيسية', function () {
-      return Promise.all(['/home.html', '/help.html', '/privacy.html', '/terms.html', '/data-deletion.html', '/404.html'].map(function (u) {
+      return Promise.all(['/home.html', '/help.html', '/join.html', '/privacy.html', '/terms.html', '/data-deletion.html', '/404.html'].map(function (u) {
         return getText(u).then(function (html) {
           var doc = parse(html);
           var btn = doc.querySelector('header [data-theme-toggle]');
@@ -1401,12 +1393,42 @@
       return loaded.then(function () { return f; });
     }
     testAsync('الصفحات العامة كلها بتحمّل js/site.js (الحركة، القائمة، الفهرس، زرار «لأعلى»)', function () {
-      return Promise.all(['/home.html', '/help.html', '/privacy.html', '/terms.html', '/data-deletion.html', '/404.html'].map(function (u) {
+      return Promise.all(['/home.html', '/help.html', '/join.html', '/privacy.html', '/terms.html', '/data-deletion.html', '/404.html'].map(function (u) {
         return getText(u).then(function (html) {
           var srcs = Array.prototype.map.call(parse(html).querySelectorAll('body script[src]'), function (s) { return s.getAttribute('src'); });
           ok(srcs.some(function (s) { return /(^|\/)js\/site\.js$/.test(s); }), u + ': loads js/site.js');
         });
       }));
+    });
+    // js/join-form.js على مقاس موبايل: الطلب بيتبعت لدالة sync (fetch وهمي هنا — مفيش طلب حقيقي)
+    testAsync('نموذج الانضمام: حقل فيسبوك مع Meta بس، والغلط بيظهر على الحقل، والطلب بيتبعت كامل', function () {
+      var f;
+      return framePage('/join.html', 375, 800).then(function (fr) {
+        f = fr;
+        var d = f.contentDocument, w = f.contentWindow, form = d.getElementById('joinForm'), err = d.getElementById('joinError');
+        var fbBox = d.querySelector('[data-for="meta"]'), googleBox = d.querySelector('[data-for="google"]');
+        ok(fbBox.hidden && googleBox.hidden, 'platform fields hidden at first');
+        form.querySelector('input[value="meta"]').click();
+        ok(!fbBox.hidden && googleBox.hidden, 'facebook field shows with Meta only');
+        form.requestSubmit();
+        ok(!err.hidden && err.textContent, 'error shown');
+        eq(d.activeElement && d.activeElement.id, 'jName', 'focus on the first wrong field');
+        function set(id, v) { d.getElementById(id).value = v; }
+        set('jName', 'Test'); set('jBusiness', 'Shop'); set('jStore', 'shop.example'); set('jCountry', 'مصر');
+        set('jFb', 'facebook.com/test.user'); set('jEmail', 'a@b.co');
+        var sent = null;
+        w.fetch = function (url, init) { sent = JSON.parse(init.body); return Promise.resolve(new w.Response('{"ok":true}', { status: 200 })); };
+        form.requestSubmit();
+        eq([sent, d.activeElement && d.activeElement.id], [null, 'jConsent'], 'consent is required before sending');
+        d.getElementById('jConsent').click();
+        form.requestSubmit();
+        return new Promise(function (r) { setTimeout(r, 30); }).then(function () {
+          ok(sent, 'sent');
+          eq([sent.action, sent.platforms, sent.fb, sent.email, sent.googleEmail, sent.consent, sent.hp], ['join', ['meta'], 'facebook.com/test.user', 'a@b.co', '', true, '']);
+          ok(sent.ms >= 0, 'fill time');
+          ok(d.querySelector('[data-join-state="form"]').hidden && !d.querySelector('[data-join-state="done"]').hidden, 'done state');
+        });
+      }).then(function () { f.remove(); }, function (e) { if (f) f.remove(); throw e; });
     });
     testAsync('قائمة الموبايل في الرئيسية: ☰ بتفتح وبتقفل، وفيها «دخول الأداة»، وعلى الكمبيوتر الروابط ظاهرة', function () {
       var f;
@@ -1484,7 +1506,7 @@
         return getText('/.assetsignore');
       }).then(function (txt) {
         var ignored = txt.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s && s.charAt(0) !== '#'; });
-        ['/home.html', '/help.html', '/404.html', '/site.css', '/legal.css', '/js/join.js', '/js/legal.js', '/js/demo.js', '/js/site.js'].forEach(function (f) {
+        ['/home.html', '/help.html', '/join.html', '/invited.html', '/404.html', '/site.css', '/legal.css', '/js/join-form.js', '/js/invited.js', '/js/legal.js', '/js/demo.js', '/js/site.js'].forEach(function (f) {
           ok(ignored.indexOf(f) === -1 && ignored.indexOf(f.slice(1)) === -1 && ignored.indexOf(f.split('/')[1]) === -1, f + ' is deployed');
         });
       });
@@ -1512,7 +1534,7 @@
         eq(w.REWRITES, {
           '/': '/home.html', '/index.html': '/home.html', '/app': '/pauseproof-live.html',
           '/help': '/help.html', '/privacy': '/privacy.html', '/terms': '/terms.html', '/data-deletion': '/data-deletion.html',
-          '/stop': '/stop.html', '/favicon.ico': '/favicon.svg'
+          '/stop': '/stop.html', '/join': '/join.html', '/invited': '/invited.html', '/favicon.ico': '/favicon.svg'
         }, 'rewrites');
         eq(w.REDIRECTS['/home'], { destination: '/', permanent: true }, 'old /home');
         ['X-Content-Type-Options', 'Referrer-Policy', 'X-Frame-Options', 'Permissions-Policy', 'Strict-Transport-Security', 'Content-Security-Policy'].forEach(function (h) {
