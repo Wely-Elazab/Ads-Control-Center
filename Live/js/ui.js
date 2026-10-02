@@ -769,6 +769,25 @@
   }
   var digestUi = digestFresh();
   var digestRefreshed = {};
+  // الملخص مفعّل للحساب ولا لأ (من رد digest.refresh أو digest.get): true / false، ولو مش معروف مفيش مفتاح.
+  // التلميح بيظهر بس لما نكون متأكدين إنه مش مفعّل — عشان منطلبش من حد يفعّل حاجة مفعّلة
+  var digestKnown = {};
+  // «لاحقاً» بيخفي التلميح للحساب ده أسبوعين على الجهاز ده (وكمان بعد الإيقاف — منطلبش تاني على طول)
+  var DIGEST_HINT_KEY = 'acc.digestHint', DIGEST_HINT_SNOOZE_MS = 14 * 86400000;
+  function digestHintSnoozed(account) {
+    try {
+      var at = (JSON.parse(localStorage.getItem(DIGEST_HINT_KEY) || '{}') || {})[account];
+      return typeof at === 'number' && Date.now() - at < DIGEST_HINT_SNOOZE_MS;
+    } catch (e) { return false; }
+  }
+  function digestHintSnooze(account) {
+    try {
+      var all = JSON.parse(localStorage.getItem(DIGEST_HINT_KEY) || '{}');
+      if (!all || typeof all !== 'object' || Array.isArray(all)) all = {};
+      all[account] = Date.now();
+      localStorage.setItem(DIGEST_HINT_KEY, JSON.stringify(all));
+    } catch (e) { /* التلميح هيرجع في الجلسة الجاية — مش مشكلة */ }
+  }
   function digestAccount() { var m = /^meta:(act_\d{1,30})$/.exec(dxState.accountId || ''); return m ? m[1] : null; }
   function digestCall(action, extra) {
     var token = metaAccessToken(), account = digestAccount();
@@ -835,7 +854,7 @@
   }
   // الزرار والصندوق: بيتنادى مع كل رسم للملخص. الصندوق نفسه مش بيتعاد رسمه هنا (عشان ميمسحش اللي العميل بيكتبه)
   function renderDigest() {
-    var btn = document.getElementById('dxAutoBtn'), panel = document.getElementById('dxAuto');
+    var btn = document.getElementById('dxAutoBtn'), panel = document.getElementById('dxAuto'), hint = document.getElementById('dxAutoHint');
     if (!btn || !panel) return;
     var account = digestAccount();
     var show = DIGEST_ON && dxState.status === 'ready' && !!account && !!metaAccessToken();
@@ -845,6 +864,18 @@
     btn.setAttribute('aria-expanded', visible ? 'true' : 'false');
     panel.hidden = !visible;
     if (!visible) panel.innerHTML = '';
+    // تلميح التفعيل: الحساب مش مفعّل له الملخص (أكيد)، والصندوق مقفول، ومحدش ضغط «لاحقاً» قريب
+    if (hint) {
+      var showHint = show && !digestUi.open && digestKnown[account] === false && !digestHintSnoozed(account);
+      var key = showHint ? (isAr() ? 'ar' : 'en') : '';   // بيتعاد رسمه لما يظهر أو يختفي أو اللغة تتغير بس (مش مع كل رسم للملخص)
+      if (hint.getAttribute('data-k') !== key) {
+        hint.setAttribute('data-k', key);
+        hint.hidden = !showHint;
+        hint.innerHTML = showHint ? '<p>' + esc(t('dx.auto.hint')) + '</p><span class="dx-auto-actions">' +
+          '<button type="button" class="ghost-btn" data-digest-hint-on>' + esc(t('dx.auto.hintOn')) + '</button>' +
+          '<button type="button" class="ghost-btn" data-digest-hint-later>' + esc(t('dx.auto.hintLater')) + '</button></span>' : '';
+      }
+    }
   }
   function renderDigestPanel() {
     var panel = document.getElementById('dxAuto');
@@ -856,6 +887,7 @@
     renderDigestPanel();
     var account = digestUi.account;
     digestCall('digest.get').then(function (res) {
+      digestKnown[account] = !!(res && res.settings && res.settings.enabled !== false);
       if (digestUi.account !== account) return;
       digestUi.data = res;
       digestUi.status = 'ready';
@@ -884,7 +916,9 @@
     renderDigestPanel();
     var extra = { email: email, days: days, hour: hour, lang: isAr() ? 'ar' : 'en' };
     if (!editing) extra.consent = true;
+    var account = digestUi.account;
     digestCall(editing ? 'digest.update' : 'digest.enable', extra).then(function (res) {
+      digestKnown[account] = true;
       digestUi.busy = false;
       digestUi.editing = false;
       digestUi.draft = null;
@@ -903,7 +937,10 @@
     if (digestUi.busy) return;
     digestUi.busy = true;
     renderDigestPanel();
+    var account = digestUi.account;
     digestCall('digest.disable').then(function () {
+      digestKnown[account] = false;
+      digestHintSnooze(account);   // أوقفه بنفسه — التلميح ميرجعش يطلب منه التفعيل على طول
       digestUi.busy = false;
       digestUi.confirmOff = false;
       digestUi.data = Object.assign({}, digestUi.data || {}, { settings: null, tokenExpiresAt: null, tokenWorks: null });
@@ -923,24 +960,35 @@
     var token = metaAccessToken();
     if (!token) return;
     digestRefreshed[accountId] = true;
-    syncCall({ action: 'digest.refresh', token: token, accountId: accountId }).catch(function () { digestRefreshed[accountId] = false; });
+    // الرد بيقول كمان الملخص مفعّل ولا لأ — ده اللي بيقرر تلميح التفعيل يظهر ولا لأ (من غير طلب زيادة)
+    syncCall({ action: 'digest.refresh', token: token, accountId: accountId }).then(function (res) {
+      if (res && typeof res.enabled === 'boolean') { digestKnown[accountId] = res.enabled; renderDigest(); }
+    }, function () { digestRefreshed[accountId] = false; });
   }
   // «فصل» Meta: السيرفر بيمسح مفاتيح كل الحسابات اللي صاحب الجلسة فعّل لها الملخص. لو الاتصال فشل،
   // رابط الإيقاف في آخر كل رسالة بيعمل نفس الحاجة
   function digestDisconnect() {
     var token = metaAccessToken();
     digestRefreshed = {};
+    digestKnown = {};
     digestUi = digestFresh();
     if (token) syncCall({ action: 'digest.disconnect', token: token }).catch(function () { /* رابط الإيقاف */ });
   }
   document.addEventListener('click', function (e) {
     if (!e.target.closest) return;
     var el;
-    if (e.target.closest('#dxAutoBtn')) {
-      digestUi.open = !digestUi.open;
+    var hintOn = e.target.closest('[data-digest-hint-on]');
+    if (e.target.closest('#dxAutoBtn') || hintOn) {
+      digestUi.open = hintOn ? true : !digestUi.open;
       digestUi.msg = null;
       renderDigest();
       if (digestUi.open) { if (digestUi.status === 'idle' || digestUi.status === 'error') digestLoad(); else renderDigestPanel(); }
+      if (hintOn) { var p = document.getElementById('dxAuto'), f = p && p.querySelector('#dxAutoEmail'); if (f) f.focus(); else if (p) p.scrollIntoView({ block: 'nearest' }); }
+      return;
+    }
+    if (e.target.closest('[data-digest-hint-later]')) {
+      if (digestUi.account) digestHintSnooze(digestUi.account);
+      renderDigest();
       return;
     }
     if (!e.target.closest('#dxAuto')) return;

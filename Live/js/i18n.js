@@ -337,7 +337,7 @@
       's.tiktokSoon': 'سيتوفر ربط TikTok قريباً.',
 
       // التجربة المغلقة
-      'hero.pilot': 'الأداة متاحة حالياً لعملاء التجربة المغلقة. إن لم تنضم بعد، فاطلب الانضمام وسنفعّل حسابك ونرسل إليك خطوات الربط.',
+      'hero.pilot': 'الأداة متاحة حالياً لعملاء التجربة المغلقة. إن لم تنضم بعد، فاطلب الانضمام وسنفعّل حسابك خلال ٢٤ ساعة ونرسل إليك خطوات الربط.',
       'hero.help': 'كيف أربط حساباتي؟',
       'pf.pilot': 'الأداة في مرحلة تجربة مغلقة. إن لم يُفعَّل حسابك بعد، فاطلب الانضمام أولاً.',
       'join.cta': 'اطلب الانضمام إلى التجربة',
@@ -996,6 +996,9 @@
       'dx.auto.problem': 'تعذّر استخدام صلاحية القراءة المحفوظة. افتح الأداة بحسابك على Meta ليتجدد الربط تلقائياً.',
       'dx.auto.loading': 'جارٍ التحميل…',
       'dx.auto.retry': 'إعادة المحاولة',
+      'dx.auto.hint': 'لا تفوّت ما يحدث لإعلاناتك في غيابك: فعّل وصول التنبيهات الفورية والملخص إلى بريدك، لتعرف فوراً إذا توقف ما يجلب لك المبيعات أو صرف إعلان دون طلبات.',
+      'dx.auto.hintOn': 'فعّلها الآن',
+      'dx.auto.hintLater': 'لاحقاً',
       'dx.auto.saved': 'تم التفعيل، وأرسلنا رسالة تأكيد إلى بريدك.',
       'dx.auto.updated': 'حُفظت التعديلات.',
       'dx.auto.stopped': 'تم الإيقاف، وحُذفت صلاحية القراءة المحفوظة.',
@@ -1329,7 +1332,7 @@
       'pf.soonShort': '(coming soon)',
       's.tiktokSoon': 'TikTok connection is coming soon.',
 
-      'hero.pilot': 'The tool is currently available to closed-pilot clients. If you haven\'t joined yet, request to join and we\'ll activate your account and send you the connection steps.',
+      'hero.pilot': 'The tool is currently available to closed-pilot clients. If you haven\'t joined yet, request to join and we\'ll activate your account within 24 hours and send you the connection steps.',
       'hero.help': 'How do I connect my accounts?',
       'pf.pilot': 'The tool is in a closed pilot. If your account hasn\'t been activated yet, request to join first.',
       'join.cta': 'Request to join the pilot',
@@ -1979,6 +1982,9 @@
       'dx.auto.problem': 'The stored read access couldn\'t be used. Open the tool with your Meta account to renew the connection automatically.',
       'dx.auto.loading': 'Loading…',
       'dx.auto.retry': 'Try again',
+      'dx.auto.hint': 'Don\'t miss what happens to your ads while you\'re away: get instant alerts and the summary by email, so you know right away if what brings you sales stops or an ad spends without orders.',
+      'dx.auto.hintOn': 'Turn on now',
+      'dx.auto.hintLater': 'Later',
       'dx.auto.saved': 'Turned on — we sent a confirmation to your email.',
       'dx.auto.updated': 'Changes saved.',
       'dx.auto.stopped': 'Turned off, and the stored read access was deleted.',

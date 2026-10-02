@@ -120,7 +120,7 @@ async function adminMail(r: Req, repeat: boolean) {
     ' ← Add People ← Tester، والصق رابط حسابه على فيسبوك من الجدول أعلاه.');
   if (has('google')) steps.push('<strong>Google:</strong> افتح ' + link('https://console.cloud.google.com/auth/audience', 'Google Auth Platform ← Audience') +
     ' ← Test users ← Add users، وأضف: ' + esc(r.google_email || r.email));
-  steps.push('بعد الإضافة اضغط الزر أدناه لإرسال رسالة التفعيل إليه. لن يصله أي شيء قبل ذلك.');
+  steps.push('بعد الإضافة اضغط الزر أدناه لإرسال رسالة التفعيل إليه. لن يصله أي شيء قبل ذلك. وعدناه في صفحة الطلب بالتفعيل <strong>خلال ٢٤ ساعة</strong> من إرساله.');
   const url = SITE + '/invited?r=' + r.id + '&s=' + (await sigOf(r.id));
   const lines = [
     '<div style="margin:0 0 18px"><table role="presentation" style="border-collapse:collapse;width:100%">' + rows + '</table></div>',
@@ -180,6 +180,13 @@ function activationMail(r: Req) {
   if (has('tiktok')) {
     lines.push(h('TikTok'));
     lines.push(en ? 'TikTok isn\'t available yet. We\'ll let you know as soon as it is.' : 'ربط TikTok غير متاح بعد، وسنبلغك فور إتاحته.');
+  }
+  // آخر خطوة: الملخص والتنبيهات على البريد (لحسابات Meta بس — digest.ts). من غيرها العميل ميعرفش اللي بيحصل غير لما يفتح الأداة
+  if (has('meta')) {
+    lines.push(h(en ? 'Last step: get alerts by email' : 'الخطوة الأخيرة: التنبيهات على بريدك'));
+    lines.push(en
+      ? 'Once your Meta account is connected and your "Store summary" appears, press <strong>"Automatic summary"</strong>, choose the days and time, then press "Turn on the automatic summary". From then on you\'ll get an immediate email if what brings you sales stops or an ad spends without orders, plus a summary of what you spent and what came back on the days you choose — without opening the tool.'
+      : 'بعد ربط حساب Meta وظهور «ملخص المتجر»، اضغط <strong>«الملخص التلقائي»</strong>، واختر الأيام والساعة، ثم اضغط «تفعيل الملخص التلقائي». بعدها يصلك بريد فوري إذا توقف ما يجلب لك المبيعات أو صرف إعلان دون طلبات، وملخص لما صرفته وما عاد عليك في الأيام التي تختارها، دون أن تفتح الأداة.');
   }
   lines.push('<div style="margin:22px 0 14px;line-height:1.8">' + (en
     ? 'Every step is explained in the ' + link(SITE + '/help', 'getting-started guide') + '. We will never ask you for a password or a verification code, by email or by phone.'

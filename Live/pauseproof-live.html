@@ -569,6 +569,10 @@
   .dx-auto-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .dx-auto-msg { font-size: 13px; margin: 10px 0 0; }
   .dx-auto-msg.err { color: var(--alert); }
+  /* تلميح التفعيل: بيظهر لحد ما الملخص يتفعّل أو العميل يضغط «لاحقاً» (js/ui.js renderDigest) */
+  .dx-auto-hint { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; margin: 8px 0 12px; padding: 10px 14px; background: var(--paper); border: 1px dashed var(--line); border-radius: 12px; }
+  .dx-auto-hint[hidden] { display: none; }
+  .dx-auto-hint p { margin: 0; flex: 1 1 260px; font-size: 13px; line-height: 1.7; }
   .dx-auto-on strong { color: var(--verified); }
   .dx-period { margin: 4px 0 12px; font-size: 12.5px; color: var(--ink-soft); }
   .dx-views { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
@@ -732,7 +736,7 @@
       <p data-i18n="hero.body">اربط حساباتك الإعلانية، ليخبرك Ads Center بلغة واضحة ما الذي تغيّر في طلباتك وتكلفة كل طلب، وفي أي مرحلة حدث التغيّر بين الإعلان وإتمام الشراء، وما الأسباب الأرجح وما الذي تتحقق منه أولاً، مع تقييم لكل إعلان وتنبيهات بما يحتاج إلى انتباهك — دون أن يغيّر أي شيء في حساباتك.</p>
       <button type="button" class="stop-btn" id="heroLoginBtn" data-i18n="hero.cta">اربط حسابك الإعلاني</button>
       <!-- التجربة المغلقة: من غير الملاحظة دي، أي زائر مش مضاف هيدوس Meta أو Google ويشوف رسالة خطأ من المنصة -->
-      <p class="hero-pilot" data-i18n="hero.pilot">الأداة متاحة حالياً لعملاء التجربة المغلقة. إن لم تنضم بعد، فاطلب الانضمام وسنفعّل حسابك ونرسل إليك خطوات الربط.</p>
+      <p class="hero-pilot" data-i18n="hero.pilot">الأداة متاحة حالياً لعملاء التجربة المغلقة. إن لم تنضم بعد، فاطلب الانضمام وسنفعّل حسابك خلال ٢٤ ساعة ونرسل إليك خطوات الربط.</p>
       <div class="hero-join">
         <a class="ghost-btn" href="/join" data-join data-i18n="join.cta">اطلب الانضمام إلى التجربة</a>
         <a class="hero-help" href="/help" data-i18n="hero.help">كيف أربط حساباتي؟</a>
@@ -791,6 +795,7 @@
             <button type="button" class="ghost-btn" id="dxCopy" data-i18n="dx.copy" hidden>انسخ الملخص</button>
           </span>
         </div>
+        <div class="dx-auto-hint" id="dxAutoHint" hidden></div>
         <div class="dx-auto" id="dxAuto" hidden></div>
         <p class="dx-period" id="dxPeriod"></p>
         <div id="dxBody" aria-live="polite"></div>

@@ -2904,12 +2904,15 @@
       var realFetch = window.fetch, hadFB = 'FB' in window, realFB = window.FB, realOn = DIGEST_ON, calls = [];
       window.FB = { getAuthResponse: function () { return { accessToken: 'tok-test-1234567890' }; } };
       window.fetch = function (url, opts) { var body = opts && opts.body ? JSON.parse(opts.body) : null; calls.push(body); return serve(body || {}); };
-      DIGEST_ON = true; digestUi = digestFresh(); digestRefreshed = {};
+      var realHint = localStorage.getItem(DIGEST_HINT_KEY);
+      localStorage.removeItem(DIGEST_HINT_KEY);
+      DIGEST_ON = true; digestUi = digestFresh(); digestRefreshed = {}; digestKnown = {};
       dxState = dxFresh(); dxState.status = 'ready'; dxState.accountId = 'meta:act_1';
       var restore = function () {
         window.fetch = realFetch;
         if (hadFB) window.FB = realFB; else delete window.FB;
-        DIGEST_ON = realOn; digestUi = digestFresh(); digestRefreshed = {}; dxReset(); renderDigest();
+        if (realHint === null) localStorage.removeItem(DIGEST_HINT_KEY); else localStorage.setItem(DIGEST_HINT_KEY, realHint);
+        DIGEST_ON = realOn; digestUi = digestFresh(); digestRefreshed = {}; digestKnown = {}; dxReset(); renderDigest();
       };
       return Promise.resolve().then(function () { return fn(calls); }).then(function (v) { restore(); return v; }, function (e) { restore(); throw e; });
     };
@@ -3015,6 +3018,77 @@
         disconnectPlatform('meta', true);
         var last = calls[calls.length - 1];
         eq([last.action, last.token, 'accountId' in last], ['digest.disconnect', 'tok-test-1234567890', false]);
+      });
+    });
+    var hintEl = function () { return document.getElementById('dxAutoHint'); };
+    testAsync('تلميح التفعيل: بيظهر بس لما نكون متأكدين إن الملخص مش مفعّل للحساب، وفي عرض Meta لوحده', function () {
+      return withDigest(function (b) { return ok200({ ok: true, enabled: b.accountId === 'act_2' }); }, function () {
+        renderDigest();
+        ok(hintEl().hidden, 'unknown → hidden');
+        digestAutoRefresh('act_1');
+        return tick2().then(function () {
+          ok(!hintEl().hidden && hintEl().querySelector('[data-digest-hint-on]'), 'not enabled → shown');
+          withLang('ar', function () { renderDigest(); ok(hintEl().textContent.indexOf(t('dx.auto.hint')) > -1, 'text in the current language'); });
+          dxState.accountId = 'all:meta:act_1,google:1'; renderDigest();
+          ok(hintEl().hidden, 'not on «all platforms»');
+          dxState.accountId = 'meta:act_2'; digestAutoRefresh('act_2');
+          return tick2();
+        }).then(function () {
+          ok(hintEl().hidden, 'enabled → hidden');
+        });
+      });
+    });
+    testAsync('تلميح التفعيل: «فعّلها الآن» بيفتح نموذج التفعيل، و«لاحقاً» بيخفيه على الجهاز ده', function () {
+      return withDigest(function (b) {
+        if (b.action === 'digest.get') return ok200({ settings: null, timezone: 'Asia/Kuwait' });
+        return ok200({ ok: true, enabled: false });
+      }, function (calls) {
+        digestAutoRefresh('act_1');
+        return tick2().then(function () {
+          hintEl().querySelector('[data-digest-hint-on]').click();
+          return tick2();
+        }).then(function () {
+          ok(!panel().hidden && panel().querySelector('#dxAutoEmail'), 'form open');
+          ok(hintEl().hidden, 'hint hidden while the form is open');
+          eq(calls[calls.length - 1].action, 'digest.get');
+          btn().click();
+          ok(!hintEl().hidden, 'back after closing the form');
+          hintEl().querySelector('[data-digest-hint-later]').click();
+          ok(hintEl().hidden, '«later» hides it');
+          renderDigest();
+          ok(hintEl().hidden, 'stays hidden');
+          ok(typeof JSON.parse(localStorage.getItem(DIGEST_HINT_KEY)).act_1 === 'number', 'remembered for this account');
+        });
+      });
+    });
+    testAsync('تلميح التفعيل: بيختفي بعد التفعيل، ومبيرجعش على طول بعد الإيقاف', function () {
+      return withDigest(function (b) {
+        if (b.action === 'digest.get') return ok200({ settings: null, timezone: 'Asia/Kuwait' });
+        if (b.action === 'digest.enable') return ok200({ ok: true, settings: ON, tokenExpiresAt: '2026-11-27T20:42:24Z' });
+        return ok200({ ok: true, enabled: false });
+      }, function () {
+        digestAutoRefresh('act_1');
+        return tick2().then(function () {
+          hintEl().querySelector('[data-digest-hint-on]').click();
+          return tick2();
+        }).then(function () {
+          panel().querySelector('#dxAutoEmail').value = 'owner@store.com';
+          panel().querySelector('#dxAutoConsent').checked = true;
+          panel().querySelector('[data-digest-save]').click();
+          return tick2();
+        }).then(function () {
+          btn().click();
+          ok(hintEl().hidden, 'enabled → no hint');
+          btn().click();
+          return tick2();
+        }).then(function () {
+          panel().querySelector('[data-digest-off]').click();
+          panel().querySelector('[data-digest-off-yes]').click();
+          return tick2();
+        }).then(function () {
+          btn().click();
+          ok(hintEl().hidden, 'just turned off → no hint right away');
+        });
       });
     });
     testAsync('صفحة /stop موجودة ومربوطة (الرابط في آخر كل رسالة)', function () {
