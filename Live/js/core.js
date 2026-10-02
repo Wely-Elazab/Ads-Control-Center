@@ -385,14 +385,15 @@
     } catch (e) { return true; }
   })();
   // ---------- الملخص التلقائي بالبريد (supabase/functions/sync/digest.ts) ----------
-  // مخفي لحد ما يتجرّب على حساب مدير التطبيق: ?digest=1 بيظهره على الجهاز ده، و?digest=0 بيخفيه تاني
+  // ظاهر لكل عملاء التجربة من ٣ أكتوبر ٢٠٢٦ (قبلها كان مخفي ويظهر بـ ?digest=1 بس). ?digest=0 بيخفيه على الجهاز ده
+  // (للمراجعة أو لو فيه مشكلة)، و?digest=1 بيرجّعه — زي ملخص المتجر بالظبط
   var DIGEST_ON = (function () {
     try {
       var q = new URLSearchParams(location.search).get('digest');
-      if (q === '1') localStorage.setItem('acc.digest', '1');
-      if (q === '0') localStorage.removeItem('acc.digest');
-      return localStorage.getItem('acc.digest') === '1';
-    } catch (e) { return false; }
+      if (q === '0') localStorage.setItem('acc.digest', '0');
+      if (q === '1') localStorage.removeItem('acc.digest');
+      return localStorage.getItem('acc.digest') !== '0';
+    } catch (e) { return true; }
   })();
   // sources = حالة كل منصة لوحدها { status: loading/ready/error, key (الحساب + الفترة)، input، report }،
   // views = العروض الجاهزة (كل منصة + «كل المنصات» لو ينفع)، و report/account/accountId = العرض الظاهر دلوقتي

@@ -33,7 +33,7 @@
 <main class="legal">
 <article class="doc">
   <h1><span class="only-ar">دليل البدء</span><span class="only-en">Getting started</span></h1>
-  <p class="updated"><span class="only-ar">آخر تحديث: ١ أكتوبر ٢٠٢٦</span><span class="only-en">Last updated: October 1, 2026</span></p>
+  <p class="updated"><span class="only-ar">آخر تحديث: ٣ أكتوبر ٢٠٢٦</span><span class="only-en">Last updated: October 3, 2026</span></p>
   <p class="only-ar">بعد تفعيل حسابك، يستغرق ربط حسابات متجرك الإعلانية دقائق قليلة، ليظهر لك بعدها «ملخص المتجر»: ما الذي تغيّر في طلبات متجرك من الإعلانات ولماذا، ومن أين تبدأ، إلى جانب جميع إعلاناتك وتنبيهاتها في لوحة واحدة. وإن توقفت عند أي خطوة، فراسلنا على البريد الموضّح في <a href="#contact">نهاية الصفحة</a>، وسنساعدك مباشرة.</p>
   <p class="only-en">Once your access is activated, connecting your store's ad accounts takes just a few minutes. You then get your store summary: what changed in your store's orders from ads, why, and where to start, alongside all your ads and their alerts in one dashboard. If you get stuck at any step, email us at the address at the <a href="#contact">end of this page</a> and we'll help you directly.</p>
 
@@ -188,6 +188,24 @@
     <h3 id="alerts"><span class="only-ar">كيف تُحتسب التنبيهات؟</span><span class="only-en">How are alerts calculated?</span></h3>
     <p class="only-ar">تستند التنبيهات إلى أداء آخر ٧ أيام، ويُقصد بـ«أمس» آخر يوم مكتمل. ولا تُصدر الإعلانات ذات الإنفاق الصغير مقارنةً بالحساب تنبيهات عاجلة، حتى يبقى تركيزك على ما يؤثر فعلاً في ميزانيتك. ويمكنك تغيير الحساسية من تبويب «التنبيهات» ← «إعدادات التنبيهات»: هادئ أو متوازن أو صارم.</p>
     <p class="only-en">Alerts are based on the last 7 days, and "yesterday" means the last full day. Ads whose spend is small compared with the account don't raise urgent alerts, so your focus stays on what really affects your budget. You can change the sensitivity from the Alerts tab → "Alert settings": calm, balanced or strict.</p>
+
+    <!-- الملخص والتنبيهات بالبريد (supabase/functions/sync) — ظاهر لكل عملاء التجربة من ٣ أكتوبر ٢٠٢٦. لحسابات Meta بس،
+         والزرار بيظهر في عرض حساب Meta لوحده (مش «كل المنصات») -->
+    <h3 id="email"><span class="only-ar">كيف يصلني الملخص والتنبيهات على بريدي؟</span><span class="only-en">How do I get the summary and alerts by email?</span></h3>
+    <ol class="only-ar">
+      <li>افتح <a href="/app">الأداة</a> وسجّل الدخول بحساب Meta، واختر الحساب الإعلاني من القائمة أعلى الصفحة.</li>
+      <li>في قسم «ملخص المتجر» اضغط «الملخص التلقائي». وإن كنت تعرض «كل المنصات» معاً، فاختر Meta من الأزرار أعلى الملخص أولاً.</li>
+      <li>اكتب بريدك، واختر الأيام (يومين على الأقل) والساعة، ووافق على حفظ صلاحية القراءة مشفّرة، ثم اضغط «تفعيل الملخص التلقائي».</li>
+      <li>تصلك رسالة تأكيد فوراً، ثم الملخص في مواعيده، وتنبيه فوري حين يظهر أمر عاجل، كأن يتوقف أكبر مصدر لمبيعاتك أو ينفق إعلان دون طلبات.</li>
+    </ol>
+    <ol class="only-en">
+      <li>Open <a href="/app">the tool</a>, log in with Meta, and pick the ad account from the list at the top.</li>
+      <li>In the "Store summary" section, press "Automatic summary". If you're viewing "All platforms" together, pick Meta from the buttons above the summary first.</li>
+      <li>Enter your email, choose the days (at least two) and the time, agree to keep encrypted read access, then press "Turn on the automatic summary".</li>
+      <li>You'll get a confirmation email right away, then the summary on schedule, plus an immediate alert when something urgent comes up — like your biggest source of sales stopping, or an ad spending with no orders.</li>
+    </ol>
+    <p class="only-ar">لإيقافه: من الزر نفسه داخل الأداة، أو من رابط «إيقاف» في آخر كل رسالة. ويتاح حالياً لحسابات Meta فقط. وتتجدد صلاحية القراءة تلقائياً كلما فتحت الأداة، وإن لم تفتحها مدة طويلة نرسل إليك تذكيراً قبل انتهائها.</p>
+    <p class="only-en">To stop it: use the same button inside the tool, or the "Stop" link at the bottom of every email. It's available for Meta accounts only for now. Read access renews automatically whenever you open the tool, and if you don't open it for a long time, we email you a reminder before it expires.</p>
 
     <h3 id="disconnect"><span class="only-ar">كيف أفصل الأداة أو أحذف بياناتي؟</span><span class="only-en">How do I disconnect the tool or delete my data?</span></h3>
     <p class="only-ar">من داخل الأداة: اضغط «حساباتك» أعلى الصفحة، ثم «فصل» بجوار أي منصة، أو «فصل جميع الحسابات» — فتُحذف بياناتها من هذا المتصفح فوراً. ولإلغاء صلاحية الأداة نهائياً من المنصة نفسها، اتبع الخطوات في صفحة <a href="/data-deletion">حذف البيانات</a>.</p>
