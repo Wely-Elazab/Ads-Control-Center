@@ -17,6 +17,7 @@
 
 import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
+import { joinReminders } from './join.ts';
 
 const ENGINE_COMMIT = '5b07b4cfe1c85415292420cf774aad6b5c6df455';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
@@ -671,6 +672,9 @@ async function checkAccount(s: Settings): Promise<string> {
 // ---------- نقاط الدخول ----------
 export async function runAll(): Promise<Record<string, unknown>> {
   const started = Date.now();
+  // تذكير طلبات الانضمام المتأخرة (join.ts) — قبل المحرك، عشان لو GitHub وقع التذكير ميتأخرش
+  let joinReminded = 0;
+  try { joinReminded = await joinReminders(); } catch (e) { console.error('join reminders failed', String((e as Error).message || e).slice(0, 200)); }
   const outdated = await loadEngine();
   if (outdated.length) await rpc('beat', { p_source: 'runner-engine-outdated' }).catch(() => {});
   const r = await db('digest_settings?select=account_id,email,lang,timezone,summary_days,summary_hour,last_summary_until,checked_at&enabled=is.true&order=checked_at.asc.nullsfirst&limit=500', { method: 'GET' });
@@ -692,7 +696,7 @@ export async function runAll(): Promise<Record<string, unknown>> {
     outcomes[out] = (outcomes[out] || 0) + 1;
   }
   await rpc('beat', { p_source: 'runner' }).catch(() => {});
-  return { accounts: all.length, due: list.length, outcomes, engineOutdated: outdated };
+  return { accounts: all.length, due: list.length, outcomes, engineOutdated: outdated, joinReminded };
 }
 async function markChecked(account: string): Promise<void> {
   await db('digest_settings?account_id=eq.' + account, {

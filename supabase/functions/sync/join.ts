@@ -3,6 +3,8 @@
 //                    عام (من غير دخول): بيتحفظ في pilot_requests، ويوصلنا إشعار على support@ فيه البيانات وزرار «أرسلت الدعوة»
 //   join.peek     ← { id, sig }  صفحة /invited (الرابط الموقّع اللي في إشعارنا): بيانات الطلب عشان نراجعها قبل الإرسال
 //   join.activate ← { id, sig }  بيبعت للعميل رسالة التفعيل (قبول دعوة فيسبوك من الموبايل أو الكمبيوتر + الربط) ويعلّم الطلب
+//   joinReminders ← المُشغّل كل ١٠ دقايق (runner.ts): طلب لسه new عدّى عليه ١٨ ساعة = تذكير واحد على support@،
+//                    لأننا واعدين العميل بالتفعيل خلال ٢٤ ساعة (أي يوم)
 //
 // مفيش رسالة للعميل وقت الطلب نفسه: اللي يكتب بريد حد تاني ميقدرش يستخدمنا نبعت رسائل لأي حد —
 // أول رسالة بتطلع بعد ما إحنا نراجع الطلب ونضيفه على المنصات ونضغط الزرار.
@@ -19,6 +21,9 @@ const PLATFORMS = ['meta', 'google', 'snapchat', 'tiktok'];
 const HOURLY_MAX = 30;                 // أكتر من كده في الساعة = حد بيغرقنا — بنرفض لحد ما الساعة تعدّي
 const MIN_FILL_MS = 2500;              // أسرع من كده = برنامج مش إنسان: بنرد «تم» من غير ما نحفظ
 const REPEAT_QUIET_MS = 10 * 60000;    // نفس البريد بعت تاني خلال ١٠ دقايق: بنحدّث الطلب من غير إشعار جديد
+const PROMISE_MS = 24 * 3600000;       // الوعد في صفحة الطلب: التفعيل خلال ٢٤ ساعة من إرساله
+const REMIND_AFTER_MS = 18 * 3600000;  // التذكير قبل الموعد بـ ٦ ساعات تقريباً
+const REMIND_WITHIN_MS = 7 * 86400000; // طلب أقدم من أسبوع من غير تفعيل = متساب عن قصد غالباً — مفيش تذكير
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const FB_REQUESTS = 'https://www.facebook.com/settings/?tab=applications';
 
@@ -98,10 +103,22 @@ function link(url: string, label?: string): string {
   return '<a href="' + esc(url) + '">' + esc(label || url) + '</a>';
 }
 
-// إشعارنا بالطلب (لصاحب الأداة، عربي): البيانات + خطوات الإضافة على كل منصة + زرار «أرسلت الدعوة»
-async function adminMail(r: Req, repeat: boolean) {
+// «٦ ساعات» / «ساعتان» / «١٢ ساعة» (تمييز العدد بالعربي)
+function arNum(n: number): string { return String(n).replace(/\d/g, (d) => '٠١٢٣٤٥٦٧٨٩'[Number(d)]); }
+function hoursAr(n: number): string {
+  if (n < 1) return 'أقل من ساعة';
+  if (n === 1) return 'ساعة واحدة';
+  if (n === 2) return 'ساعتان';
+  return arNum(n) + (n <= 10 ? ' ساعات' : ' ساعة');
+}
+
+// إشعارنا بالطلب (لصاحب الأداة، عربي): البيانات + خطوات الإضافة على كل منصة + زرار «أرسلت الدعوة».
+// remind = تذكير الطلب المتأخر (joinReminders): نفس الإشعار بعنوان وتنبيه في أوله
+async function adminMail(r: Req, repeat: boolean, remind?: { elapsed: number; left: number }) {
   const has = (p: string) => r.platforms.indexOf(p) > -1;
-  const subject = (repeat ? 'تحديث طلب انضمام: ' : 'طلب انضمام جديد: ') + r.name + ' — ' + r.business;
+  const subject = remind
+    ? (remind.left > 0 ? 'تذكير: باقٍ ' + hoursAr(remind.left) + ' على موعد تفعيل ' : 'تذكير: تجاوز موعد الـ٢٤ ساعة لتفعيل ') + r.name + ' — ' + r.business
+    : (repeat ? 'تحديث طلب انضمام: ' : 'طلب انضمام جديد: ') + r.name + ' — ' + r.business;
   const td = 'padding:6px 0;border-bottom:1px solid #e5e7eb;vertical-align:top';
   const row = (k: string, v: string) => '<tr><td style="' + td + ';' + MUTED + ';white-space:nowrap;padding-inline-end:14px">' + k + '</td><td style="' + td + '">' + v + '</td></tr>';
   const rows = [
@@ -123,12 +140,15 @@ async function adminMail(r: Req, repeat: boolean) {
   steps.push('بعد الإضافة اضغط الزر أدناه لإرسال رسالة التفعيل إليه. لن يصله أي شيء قبل ذلك. وعدناه في صفحة الطلب بالتفعيل <strong>خلال ٢٤ ساعة</strong> من إرساله.');
   const url = SITE + '/invited?r=' + r.id + '&s=' + (await sigOf(r.id));
   const lines = [
+    remind ? '<div style="border-inline-start:4px solid #c2410c;padding:2px 12px;margin:0 0 18px;line-height:1.8">مرّ على هذا الطلب ' + hoursAr(remind.elapsed) +
+      ' ولم يُفعَّل بعد. وعدنا العميل بالتفعيل خلال ٢٤ ساعة من إرساله، ' +
+      (remind.left > 0 ? 'أي يتبقى نحو ' + hoursAr(remind.left) + '.' : 'وقد تجاوزنا الموعد، فيُستحسن أن تعتذر له عند التفعيل.') + '</div>' : '',
     '<div style="margin:0 0 18px"><table role="presentation" style="border-collapse:collapse;width:100%">' + rows + '</table></div>',
     '<strong>خطوات التفعيل:</strong>',
     '<div><ol style="margin:0 0 16px;padding-inline-start:22px;line-height:1.9">' + steps.map((s) => '<li>' + s + '</li>').join('') + '</ol></div>',
     '<div style="margin:0 0 16px"><a href="' + esc(url) + '" style="' + BTN + '">أرسلت الدعوة — أرسل رسالة التفعيل</a></div>',
     '<span style="' + MUTED + '">للرد على العميل مباشرة، رُدّ على هذه الرسالة.</span>'
-  ];
+  ].filter(Boolean);
   return { subject, html: mailHtml(esc(subject), lines, 'ar'), text: text(subject, lines) + '\n\n' + url };
 }
 
@@ -264,4 +284,31 @@ async function submit(b: any, origin: string | null): Promise<Response> {
     }
   }
   return reply(200, { ok: true }, origin);
+}
+
+// ---------- تذكير الطلبات المتأخرة (المُشغّل كل ١٠ دقايق — runner.ts) ----------
+// طلب لسه new عدّى عليه ١٨ ساعة ومتبعتلوش تذكير: بنحجزه الأول (reminded_at) عشان تشغيلين ورا بعض ميبعتوش مرتين،
+// ولو الإرسال فشل بنفك الحجز فالتشغيل الجاي يحاول تاني. بيرجّع عدد التذكيرات اللي اتبعتت
+export async function joinReminders(): Promise<number> {
+  const now = Date.now();
+  const due = new Date(now - REMIND_AFTER_MS).toISOString(), oldest = new Date(now - REMIND_WITHIN_MS).toISOString();
+  const rows = await (await db('pilot_requests?select=' + COLUMNS + '&status=eq.new&reminded_at=is.null&created_at=lte.' + encodeURIComponent(due) +
+    '&created_at=gte.' + encodeURIComponent(oldest) + '&order=created_at.asc&limit=20', { method: 'GET' })).json();
+  let sent = 0;
+  for (const r of (Array.isArray(rows) ? rows : []) as Req[]) {
+    const claim = await (await db('pilot_requests?id=eq.' + r.id + '&reminded_at=is.null', { method: 'PATCH',
+      headers: { 'prefer': 'return=representation' }, body: JSON.stringify({ reminded_at: new Date().toISOString() }) })).json();
+    if (!Array.isArray(claim) || !claim.length) continue;
+    const created = Date.parse(r.created_at), leftMs = created + PROMISE_MS - now;
+    const remind = { elapsed: Math.round((now - created) / 3600000), left: leftMs <= 0 ? 0 : Math.max(1, Math.round(leftMs / 3600000)) };
+    try {
+      const mail = await adminMail(r, false, remind);
+      await sendEmail(MAIL_REPLY_TO, mail.subject, mail.html, mail.text, r.email);
+      sent++;
+    } catch (e) {
+      console.error('join reminder failed', String((e as Error).message || e).slice(0, 160));
+      await db('pilot_requests?id=eq.' + r.id, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ reminded_at: null }) }).catch(() => {});
+    }
+  }
+  return sent;
 }
