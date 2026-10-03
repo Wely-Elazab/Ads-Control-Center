@@ -29,6 +29,8 @@
     apiPost('/api/snapchat-token', { code: code, redirectUri: redirectUri }).then(function (res) {
       var data = res.data;
       if (data && data.access_token) {
+        // النسخة المقفولة من مفتاح التجديد — بتتحفظ على الجهاز عشان الجلسة تتجدد من غير دخول (core.js)
+        if (data.sealed) keepSealed('snapchat', data.sealed);
         snapchatAccessToken = data.access_token;
         rememberToken('snapchat', snapchatAccessToken, data.expires_in);
         setStatus(msg('s.snapLoggedIn'));

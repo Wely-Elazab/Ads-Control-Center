@@ -16,17 +16,18 @@
     var savedInfo = obj(saved.accountInfo), savedTokens = obj(saved.tokens), savedOptions = obj(saved.options);
     Object.keys(savedInfo).forEach(function (k) { accountInfo[k] = savedInfo[k]; });
 
+    // جلسة منتهية والربط محفوظ على الجهاز = مش «انتهت»: أول تحميل بيجددها بهدوء (markExpired في ui.js)
     var expired = [];
     Object.keys(savedTokens).forEach(function (p) {
       if (validToken(savedTokens[p])) sessionTokens[p] = savedTokens[p];
-      else if (!pending[p]) expired.push(p);
+      else if (!pending[p] && !sealedFor(p)) expired.push(p);
     });
     googleAccessToken = googleAccessToken || validToken(sessionTokens.google);
     snapchatAccessToken = snapchatAccessToken || validToken(sessionTokens.snapchat);
     tiktokAccessToken = tiktokAccessToken || validToken(sessionTokens.tiktok);
 
     // Meta: الـ SDK هو اللي يقرر لو الجلسة لسه شغّالة، فبنتأكد منه قبل ما نعرض حساباتها
-    var hasSession = function (p) { return p === 'meta' || !!sessionTokens[p]; };
+    var hasSession = function (p) { return p === 'meta' || !!sessionTokens[p] || !!sealedFor(p); };
     Object.keys(savedOptions).forEach(function (p) {
       if (hasSession(p) && Array.isArray(savedOptions[p])) setPlatformOptions(p, savedOptions[p]);
     });
@@ -64,9 +65,16 @@
     }
   }
 
-  // الرجوع من Snapchat/TikTok (?code=...) لازم يتعالج الأول — بعدها استرجاع الجلسة المتزامن،
+  // الرجوع من Google/Snapchat/TikTok (?code=...) لازم يتعالج الأول — بعدها استرجاع الجلسة المتزامن،
   // قبل ما أي رد async (زي تبديل كود الدخول) يحفظ جلسة جديدة فوق القديمة
-  var pendingRedirects = { snapchat: checkSnapchatRedirect(), tiktok: checkTikTokRedirect() };
+  var pendingRedirects = { google: checkGoogleRedirect(), snapchat: checkSnapchatRedirect(), tiktok: checkTikTokRedirect() };
   restoreSession(savedSession, pendingRedirects);
+
+  // تاب جديد (أو الأداة اتفتحت من اختصار على الهاتف): التاب مفيهوش جلسة، بس الربط محفوظ على الجهاز —
+  // نفس مسار الجلسة المنتهية: تجديد بهدوء، وبعده آخر حساب اختاره العميل، من غير شاشة «اربط حسابك»
+  ['google', 'snapchat'].forEach(function (p) {
+    if (!pendingRedirects[p] && !isConnected(p) && sealedFor(p)) markExpired(p);
+  });
+  probeGoogleCodeFlow();
 
   render();

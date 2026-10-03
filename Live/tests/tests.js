@@ -1267,7 +1267,7 @@
         }));
       }).then(function () {
         return Promise.all(['/api/_cors.js', '/api/_verify.js', '/api/_google.js', '/api/google-ads-fetch.js', '/api/google-list-accounts.js',
-          '/api/snapchat-ads-fetch.js', '/api/snapchat-token.js'].map(function (u) {
+          '/api/snapchat-ads-fetch.js', '/api/snapchat-token.js', '/api/google-token.js', '/api/_seal.js'].map(function (u) {
           return getText(u).then(function (src) {
             var msgs = (src.match(/(error:|new Error\()\s*'[^']*'/g) || []).join(' ');
             check(u, msgs);
@@ -1636,6 +1636,189 @@
         var cf = txt.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s && s.charAt(0) !== '#'; });
         ['api', 'cloudflare', 'tests', '.assetsignore', 'pricing.html', 'pricing.css', 'js/pricing.js'].forEach(function (f) { ok(cf.indexOf(f) > -1, '.assetsignore: ' + f); });
       });
+    });
+  });
+
+  // ---------- الربط المحفوظ على الجهاز: رمز التجديد المختوم (api/_seal.js) ----------
+  describe('الربط المحفوظ على الجهاز (Google وSnapchat)', function () {
+    function worker() { return import('/cloudflare/worker.js'); }
+    function post(w, path, body, env) {
+      return w.default.fetch(new Request(location.origin + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+        Object.assign({ ASSETS: { fetch: function (req) { return fetch(new URL(req.url).pathname); } } }, env || {}));
+    }
+    function cleanEnv() {
+      if (globalThis.process && globalThis.process.env) ['SNAPCHAT_CLIENT_ID', 'SNAPCHAT_CLIENT_SECRET', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'].forEach(function (k) { delete globalThis.process.env[k]; });
+    }
+    // المنصة نفسها (Snapchat/Google) وهمية: بنسجّل كل طلب راح لها ونرد بالرد اللي الاختبار عايزه
+    function withPlatform(reply, fn) {
+      var realFetch = window.fetch, sent = [];
+      window.fetch = function (url, opts) {
+        var u = String(url);
+        if (u.indexOf('accounts.snapchat.com') > -1 || u.indexOf('oauth2.googleapis.com') > -1) {
+          var params = {};
+          new URLSearchParams((opts && opts.body) || '').forEach(function (v, k) { params[k] = v; });
+          sent.push({ url: u, params: params });
+          var r = reply(u, params);
+          return Promise.resolve(new Response(JSON.stringify(r.body), { status: r.status || 200, headers: { 'Content-Type': 'application/json' } }));
+        }
+        return realFetch.apply(this, arguments);
+      };
+      var restore = function () { window.fetch = realFetch; cleanEnv(); };
+      return Promise.resolve().then(function () { return fn(sent); }).then(function (v) { restore(); return v; }, function (e) { restore(); throw e; });
+    }
+    var json = function (res) { return res.json().then(function (d) { return { status: res.status, data: d }; }); };
+
+    testAsync('القفل: النسخة بتتفتح بنفس السر والمنصة بس، وأي تعديل أو ٦٠ يوم من غير استخدام = مرفوضة', function () {
+      return import('/api/_seal.js').then(function (s) {
+        var now = Date.parse('2026-10-03T00:00:00Z');
+        return s.sealToken('snapchat', 'secret-1', 'refresh-abc', now).then(function (sealed) {
+          ok(/^v1\./.test(sealed) && sealed.indexOf('refresh-abc') < 0, 'no plain token inside');
+          var i = sealed.length - 12, bad = sealed.slice(0, i) + (sealed.charAt(i) === 'A' ? 'B' : 'A') + sealed.slice(i + 1);
+          return Promise.all([
+            s.unsealToken('snapchat', 'secret-1', sealed, now + 86400000),
+            s.unsealToken('google', 'secret-1', sealed, now),
+            s.unsealToken('snapchat', 'secret-2', sealed, now),
+            s.unsealToken('snapchat', 'secret-1', bad, now),
+            s.unsealToken('snapchat', 'secret-1', sealed, now + 61 * 86400000),
+            s.unsealToken('snapchat', 'secret-1', 'not-a-sealed-token', now)
+          ]);
+        }).then(function (r) {
+          eq(r, ['refresh-abc', null, null, null, null, null], 'same secret and platform within 60 days only');
+        });
+      });
+    });
+
+    testAsync('Snapchat: أول دخول بيرجّع نسخة مقفولة بس (مش مفتاح التجديد)، والتجديد بيشتغل بيها لحد ما Snapchat ترفضه', function () {
+      var w, env = { SNAPCHAT_CLIENT_ID: 'id', SNAPCHAT_CLIENT_SECRET: 'secret' }, first;
+      return withPlatform(function (u, p) {
+        if (p.grant_type === 'authorization_code') return { body: { access_token: 'acc-1', expires_in: 1800, refresh_token: 'ref-1' } };
+        if (p.refresh_token === 'ref-1') return { body: { access_token: 'acc-2', expires_in: 1800, refresh_token: 'ref-2' } };
+        return { status: 400, body: { error: 'invalid_grant' } };
+      }, function (sent) {
+        return worker().then(function (m) {
+          w = m;
+          return post(w, '/api/snapchat-token', { code: 'c', redirectUri: location.origin + '/app' }, env).then(json);
+        }).then(function (r) {
+          eq(r.data.access_token, 'acc-1');
+          ok(r.data.sealed && JSON.stringify(r.data).indexOf('ref-1') < 0, 'only the sealed copy reaches the browser');
+          first = r.data.sealed;
+          return post(w, '/api/snapchat-token', { sealed: first }, env).then(json);
+        }).then(function (r) {
+          eq([r.status, r.data.access_token], [200, 'acc-2'], 'renewed without logging in');
+          eq([sent[1].params.grant_type, sent[1].params.refresh_token, sent[1].params.client_secret], ['refresh_token', 'ref-1', 'secret']);
+          ok(r.data.sealed && r.data.sealed !== first, 'a fresh sealed copy (Snapchat rotated the refresh token)');
+          return post(w, '/api/snapchat-token', { sealed: r.data.sealed }, env).then(json);
+        }).then(function (r) {
+          eq([r.status, r.data.code], [401, 'AUTH'], 'Snapchat rejected the refresh token = log in again');
+          return post(w, '/api/snapchat-token', { sealed: 'v1.forged' }, env).then(json);
+        }).then(function (r) {
+          eq([r.status, r.data.code], [401, 'AUTH'], 'a forged copy');
+        });
+      });
+    });
+
+    testAsync('Google: الطريقة الجديدة بتشتغل بس لما السر موجود، ودخول من غير صلاحية Google Ads مرفوض، و«فصل» بيلغي الصلاحية عند Google', function () {
+      var w, env = { GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret' }, sealed;
+      var ADS = 'https://www.googleapis.com/auth/adwords';
+      return withPlatform(function (u, p) {
+        if (u.indexOf('/revoke') > -1) return { body: {} };
+        if (p.code === 'good') return { body: { access_token: 'g-1', expires_in: 3599, refresh_token: 'gr-1', scope: ADS } };
+        if (p.code === 'noscope') return { body: { access_token: 'g-x', expires_in: 3599, refresh_token: 'gr-x', scope: 'openid' } };
+        if (p.refresh_token === 'gr-1') return { body: { access_token: 'g-2', expires_in: 3599, scope: ADS } };
+        return { status: 400, body: { error: 'invalid_grant' } };
+      }, function (sent) {
+        return worker().then(function (m) {
+          w = m;
+          return post(w, '/api/google-token', { probe: true }, { GOOGLE_CLIENT_ID: 'gid' }).then(json);
+        }).then(function (r) {
+          eq(r.data.codeFlow, false, 'no secret yet = keep the old popup');
+          cleanEnv();
+          return post(w, '/api/google-token', { probe: true }, env).then(json);
+        }).then(function (r) {
+          eq(r.data.codeFlow, true);
+          return post(w, '/api/google-token', { code: 'good', redirectUri: 'https://evil.example/app' }, env).then(json);
+        }).then(function (r) {
+          eq(r.status, 400, 'the return link must be our own /app');
+          return post(w, '/api/google-token', { code: 'good', redirectUri: location.origin + '/app' }, env).then(json);
+        }).then(function (r) {
+          eq(r.data.access_token, 'g-1');
+          ok(r.data.sealed && JSON.stringify(r.data).indexOf('gr-1') < 0, 'sealed copy only');
+          eq([sent[0].params.grant_type, sent[0].params.redirect_uri], ['authorization_code', location.origin + '/app']);
+          sealed = r.data.sealed;
+          return post(w, '/api/google-token', { code: 'noscope', redirectUri: location.origin + '/app' }, env).then(json);
+        }).then(function (r) {
+          eq([r.status, r.data.code, 'sealed' in r.data], [403, 'NO_SCOPE', false], 'Google Ads permission unticked');
+          return post(w, '/api/google-token', { sealed: sealed }, env).then(json);
+        }).then(function (r) {
+          eq([r.status, r.data.access_token], [200, 'g-2'], 'renewed');
+          return post(w, '/api/google-token', { sealed: sealed, revoke: true }, env).then(json);
+        }).then(function (r) {
+          eq(r.data, { ok: true });
+          var rv = sent.filter(function (s) { return s.url.indexOf('/revoke') > -1; })[0];
+          eq(rv && rv.params.token, 'gr-1', 'revoked at Google itself');
+        });
+      });
+    });
+
+    testAsync('المتصفح: التجديد بيحفظ الجلسة والنسخة الجديدة، والربط اللي مبقاش صالح بيتمسح، وعطل الشبكة مبيمسحوش', function () {
+      var realFetch = window.fetch, before = localStorage.getItem(RENEW_KEY), replies = [];
+      window.fetch = function () {
+        var r = replies.shift();
+        return r === 'net' ? Promise.reject(new TypeError('Failed to fetch')) : fakeFetch(r.body, r.status)();
+      };
+      var restore = function () { window.fetch = realFetch; if (before === null) localStorage.removeItem(RENEW_KEY); else localStorage.setItem(RENEW_KEY, before); };
+      keepSealed('snapchat', 'v1.old');
+      replies = [{ body: { access_token: 'tok-new', expires_in: 1800, sealed: 'v1.new' } }];
+      return renewSession('snapchat').then(function (r1) {
+        ok(r1 && snapchatAccessToken === 'tok-new' && validToken(sessionTokens.snapchat) === 'tok-new', 'new session');
+        eq(sealedFor('snapchat'), 'v1.new', 'fresh sealed copy kept');
+        replies = ['net'];
+        return renewSession('snapchat');
+      }).then(function (r2) {
+        ok(!r2);
+        eq(sealedFor('snapchat'), 'v1.new', 'kept after a network error');
+        replies = [{ status: 401, body: { error: 'x', code: 'AUTH' } }];
+        return renewSession('snapchat');
+      }).then(function (r3) {
+        ok(!r3);
+        eq(sealedFor('snapchat'), null, 'removed once the server says it is no longer valid');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
+    testAsync('الجلسة خلصت والربط محفوظ: تجديد بهدوء وإكمال (مش «انتهت الجلسة»)، ومن غير لفّ لو التجديد مكفاش', function () {
+      var realFetch = window.fetch, realRetry = window.retryPlatform, before = localStorage.getItem(RENEW_KEY), retried = [];
+      window.fetch = fakeFetch({ access_token: 'g-new', expires_in: 3599, sealed: 'v1.g2' });
+      window.retryPlatform = function (p) { retried.push(p); };
+      var restore = function () {
+        window.fetch = realFetch; window.retryPlatform = realRetry; renewedAt = {};
+        if (before === null) localStorage.removeItem(RENEW_KEY); else localStorage.setItem(RENEW_KEY, before);
+      };
+      renewedAt = {};
+      keepSealed('google', 'v1.g');
+      markExpired('google');
+      return tick().then(tick).then(tick).then(function () {
+        eq(retried, ['google'], 'picked up where it left off');
+        ok(!platformState.google, 'no «session expired» card');
+        // تاني مرة في نفس الدقيقة (المنصة رفضت التوكن الجديد نفسه): الجلسة انتهت فعلاً — مفيش تجديد تاني
+        markExpired('google');
+        eq(platformState.google && platformState.google.kind, 'expired');
+        eq(retried.length, 1);
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
+    testAsync('«فصل» بيمسح الربط المحفوظ، وGoogle بيطلب إلغاء الصلاحية عند Google نفسها', function () {
+      var realFetch = window.fetch, before = localStorage.getItem(RENEW_KEY), calls = [];
+      window.fetch = function (url, opts) { calls.push({ url: String(url), body: opts && opts.body ? JSON.parse(opts.body) : null }); return fakeFetch({ ok: true })(); };
+      var restore = function () { window.fetch = realFetch; if (before === null) localStorage.removeItem(RENEW_KEY); else localStorage.setItem(RENEW_KEY, before); };
+      keepSealed('google', 'v1.g'); keepSealed('snapchat', 'v1.s');
+      disconnectPlatform('google', true);
+      disconnectPlatform('snapchat', true);
+      return tick().then(function () {
+        eq([sealedFor('google'), sealedFor('snapchat')], [null, null], 'nothing left on the device');
+        var revoke = calls.filter(function (c) { return c.url.indexOf('/api/google-token') > -1; })[0];
+        eq(revoke && revoke.body, { sealed: 'v1.g', revoke: true });
+        eq(calls.filter(function (c) { return c.url.indexOf('/api/snapchat-token') > -1; }).length, 0);
+      }).then(restore, function (e) { restore(); throw e; });
     });
   });
 

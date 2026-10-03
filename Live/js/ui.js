@@ -81,8 +81,24 @@
 
   // ---------- انتهاء الجلسة، إعادة المحاولة، والفصل ----------
   // الجلسة انتهت (Google بعد ساعة تقريباً، Snapchat بعد نص ساعة، أو Meta لو الجلسة اتلغت):
-  // بنقول كده بوضوح وبنسيب زرار «ربط تاني». الإعلانات اللي ظاهرة بتفضل زي ما هي لحد ما يربط
+  // لو الربط محفوظ على الجهاز (Google وSnapchat) بنجدد الجلسة بهدوء ونكمّل اللي كان بيحصل — مرة كل دقيقة
+  // على الأكتر، عشان لو المنصة رفضت التوكن الجديد نفسه منلفّش في دايرة. غير كده (أو التجديد فشل) بنقول إن
+  // الجلسة انتهت وبنسيب زرار «ربط تاني». الإعلانات اللي ظاهرة بتفضل زي ما هي لحد ما يربط
+  var renewedAt = {};
   function markExpired(platform) {
+    if (sealedFor(platform) && !(renewedAt[platform] > Date.now() - 60000)) {
+      renewedAt[platform] = Date.now();
+      setLoading(platform, true, msg('s.renewing', { platform: PLATFORM_NAMES[platform] }));
+      render();
+      renewSession(platform).then(function (ok) {
+        if (ok) retryPlatform(platform);
+        else expireNow(platform);
+      });
+      return;
+    }
+    expireNow(platform);
+  }
+  function expireNow(platform) {
     delete sessionTokens[platform];
     if (platform === 'google') googleAccessToken = null;
     else if (platform === 'snapchat') snapchatAccessToken = null;
@@ -113,6 +129,13 @@
   function disconnectPlatform(platform, quiet) {
     // «فصل» Meta بيوقف الملخص التلقائي ويحذف مفاتيحه من السيرفر (سياسة الخصوصية، البند ٧) — قبل ما الجلسة تتمسح
     if (platform === 'meta') digestDisconnect();
+    // الربط المحفوظ على الجهاز بيتمسح. Google: الخادم بيلغي الصلاحية عند Google نفسها كمان (لو حد نسخ
+    // النسخة المقفولة قبل كده، متنفعش). Snapchat ملهاش إلغاء من عندنا — العميل يقدر يشيل الأداة من إعدادات حسابه
+    var sealed = sealedFor(platform);
+    if (sealed) {
+      keepSealed(platform, null);
+      if (platform === 'google') apiPost('/api/google-token', { sealed: sealed, revoke: true });
+    }
     beginLoad(platform); // أي رد لسه جاي من المنصة دي بيتجاهل
     loadingPlatforms[platform] = false;
     document.body.classList.toggle('is-loading', anyLoading());

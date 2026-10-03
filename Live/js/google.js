@@ -25,7 +25,65 @@
   // صلاحية Google Ads بس — كان فيه طلب للإيميل كمان ومش مستخدم في أي حتة، فاتشال (أقل بيانات = أسهل في التوثيق).
   // Google مبتوفّرش صلاحية «قراءة فقط» لـ Google Ads، فدي الوحيدة المتاحة — والأداة بتستخدمها للقراءة بس
   var GOOGLE_ADS_SCOPE = 'https://www.googleapis.com/auth/adwords';
+
+  // ---------- الدخول بمفتاح تجديد (api/google-token.js) ----------
+  // لو الخادم جاهز (سر عميل Google متضاف في Cloudflare): الدخول بإعادة توجيه الصفحة لـ Google (زي Snapchat) بـ
+  // access_type=offline وprompt=consent — Google بترجّع مفتاح تجديد بس لما شاشة الموافقة تظهر، فـ prompt=consent بيضمنه
+  // كل مرة. المفتاح بيتقفل ويتحفظ على الجهاز (renewSession في core.js)، والجلسة بتتجدد من غير دخول.
+  // لو الخادم مش جاهز: النافذة القديمة (جلسة ساعة) زي ما هي. بنسأل الخادم وقت فتح الأداة مش وقت الضغط —
+  // نافذة الدخول القديمة لازم تتفتح في نفس لحظة الضغط وإلا المتصفح يمنعها
+  var googleCodeFlow = false;
+  function probeGoogleCodeFlow() {
+    apiPost('/api/google-token', { probe: true }).then(function (res) { googleCodeFlow = !!(res.ok && res.data && res.data.codeFlow === true); });
+  }
+  function loginWithGoogleRedirect() {
+    platformOverlay.classList.add('hidden');
+    var authUrl = 'https://accounts.google.com/o/oauth2/v2/auth' +
+      '?client_id=' + encodeURIComponent(GOOGLE_CLIENT_ID) +
+      '&redirect_uri=' + encodeURIComponent(oauthReturnUrl()) +
+      '&response_type=code&access_type=offline&prompt=consent' +
+      '&scope=' + encodeURIComponent(GOOGLE_ADS_SCOPE) +
+      '&state=' + encodeURIComponent(newOauthState('google'));
+    saveSession(); // احتياطي قبل ما الصفحة تتقفل — المنصات المحمّلة هترجع بعد الرجوع من Google
+    window.location.href = authUrl;
+  }
+  // لو رجعنا من Google بـ ?code=... في الرابط، كمّل تسجيل الدخول تلقائياً (نفس فكرة checkSnapchatRedirect)
+  function checkGoogleRedirect() {
+    var params = new URLSearchParams(window.location.search);
+    var code = params.get('code');
+    var state = params.get('state') || '';
+    if (state.indexOf('google') !== 0) return false;
+    window.history.replaceState({}, document.title, window.location.pathname);
+    var oauthError = oauthErrorFromUrl(params);
+    if (oauthError) { setStatus(msg('s.oauthRejected', { platform: 'Google', msg: oauthError }), { help: 'google' }); return false; }
+    if (!code) return false;
+    if (!consumeOauthState('google', state)) {
+      setStatus(msg('s.oauthMismatch', { platform: 'Google' }));
+      return false;
+    }
+    exchangeGoogleCode(code);
+    return true;
+  }
+  function exchangeGoogleCode(code) {
+    setStatus(msg('s.finishingLogin', { platform: 'Google Ads' }));
+    apiPost('/api/google-token', { code: code, redirectUri: oauthReturnUrl() }).then(function (res) {
+      var data = res.data || {};
+      if (res.ok && data.access_token) {
+        if (data.sealed) keepSealed('google', data.sealed);
+        googleAccessToken = data.access_token;
+        rememberToken('google', googleAccessToken, data.expires_in);
+        setStatus(msg('s.googleLoggedIn'));
+        loadGoogleAccounts();
+      } else if (data.code === 'NO_SCOPE') {
+        setStatus(msg('s.googleScopeMissing'), { help: 'google' });
+      } else {
+        setStatus(msg('s.loginFailed', { platform: 'Google Ads', msg: data.error || data.code ? apiErrorText(res) : msg('s.unknownError') }), { help: 'google' });
+      }
+    });
+  }
+
   function loginWithGoogle() {
+    if (googleCodeFlow) { loginWithGoogleRedirect(); return; }
     if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
       setStatus(msg(googleSdkFailed ? 's.googleSdkBlocked' : 's.googleSdkLoading'));
       return;

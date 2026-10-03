@@ -290,6 +290,47 @@
   }
   function validToken(entry) { return entry && entry.token && (!entry.expiresAt || entry.expiresAt > Date.now()) ? entry.token : null; }
 
+  // ---------- الربط المحفوظ على الجهاز (Google وSnapchat) ----------
+  // النسخة المقفولة من مفتاح التجديد (api/_seal.js) — في localStorage عشان تعيش بعد قفل التاب: العميل ميسجّلش
+  // دخول Google كل ساعة ولا Snapchat كل نص ساعة، ولا كل ما يفتح الأداة من جديد (أو من اختصار على الهاتف).
+  // مفيش أي نسخة منها عندنا، ومتتفتحش من غير خادمنا. «فصل» بيمسحها (وGoogle بتلغي الصلاحية عندها كمان)
+  var RENEW_KEY = 'acc.renew.v1';
+  var RENEW_ENDPOINT = { google: '/api/google-token', snapchat: '/api/snapchat-token' };
+  function renewStore() {
+    try { var v = JSON.parse(localStorage.getItem(RENEW_KEY) || 'null'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch (e) { return {}; }
+  }
+  function sealedFor(platform) { var s = renewStore()[platform]; return RENEW_ENDPOINT[platform] && typeof s === 'string' && s ? s : null; }
+  function keepSealed(platform, sealed) {
+    var all = renewStore();
+    if (sealed) all[platform] = sealed; else delete all[platform];
+    try { localStorage.setItem(RENEW_KEY, JSON.stringify(all)); } catch (e) { /* التخزين مقفول — الدخول بيكمل بالجلسة العادية */ }
+  }
+  function setAccessToken(platform, token) {
+    if (platform === 'google') googleAccessToken = token;
+    else if (platform === 'snapchat') snapchatAccessToken = token;
+  }
+  // تجديد الجلسة من غير دخول — Promise<boolean>: true = جلسة جديدة اتحفظت.
+  // لو الخادم قال إن الربط المحفوظ مبقاش صالح (AUTH) بيتمسح؛ عطل مؤقت (شبكة) بيسيبه للمرة الجاية.
+  // طلبين في نفس الوقت لنفس المنصة بيستنوا نفس التجديد
+  var renewing = {};
+  function renewSession(platform) {
+    var sealed = sealedFor(platform);
+    if (!sealed) return Promise.resolve(false);
+    if (renewing[platform]) return renewing[platform];
+    renewing[platform] = apiPost(RENEW_ENDPOINT[platform], { sealed: sealed }).then(function (res) {
+      var data = res.data || {};
+      if (res.ok && data.access_token) {
+        if (data.sealed) keepSealed(platform, data.sealed);
+        setAccessToken(platform, data.access_token);
+        rememberToken(platform, data.access_token, data.expires_in);
+        return true;
+      }
+      if (isAuthFailure(res)) keepSealed(platform, null);
+      return false;
+    }).then(function (ok) { delete renewing[platform]; return ok; });
+    return renewing[platform];
+  }
+
   // لو المستخدم بدّل الحساب بسرعة، رد الحساب القديم ممكن يوصل بعد الجديد ويكتب فوقه.
   // كل عملية تحميل لمنصة بتاخد رقم، والرد بيتجاهل نفسه لو بقى قديم
   var loadSeq = {};
