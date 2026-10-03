@@ -92,17 +92,18 @@
       </div>
     </div>
 
-    <!-- عرض توضيحي متحرك للأداة (زي GIF بيتكرر، من غير زرار) — js/demo.js بيقلّب المشاهد الأربعة.
-         الضغط عليه بيوقفه ثانيتين (والضغط المطوّل بيوقفه لحد ما يشيل صباعه) عشان الزائر يلحق يقرا.
-         كل الأرقام والأسماء مثال، ومكتوب عليه «بيانات توضيحية». المشهد نفسه aria-hidden، ووصفه للقارئ الصوتي في sr-only.
+    <!-- عرض توضيحي للأداة بيتحرّك مع التمرير (مش GIF بيتكرر — قرار صاحب المنتج ٣ أكتوبر ٢٠٢٦): العرض بيثبت على الشاشة
+         جوه demo-track، وكل ما الزائر ينزل بينتقل للمشهد اللي بعده (js/demo.js، والمسافة في .demo-scroll-space).
+         كل الأرقام والأسماء مثال، ومكتوب عليه «بيانات توضيحية»، والمبالغ بعملة بلد الزائر (data-amount وdata-money بالدولار).
+         المشهد نفسه aria-hidden، ووصفه للقارئ الصوتي في sr-only.
          المشهد التاني = «ملخص المتجر» (نفس صياغة الأداة الحقيقية تقريباً — js/diagnosis.js) -->
+    <div class="demo-track" data-demo-track>
     <div class="demo-wrap">
       <p class="sr-only"><span class="only-ar">عرض توضيحي متحرك ببيانات مثال: ربط حسابات Meta وGoogle Ads وSnapchat، ثم ملخص المتجر الذي يشرح لماذا ارتفعت تكلفة الطلب وأين، ثم التنبيهات مرتّبة حسب حجمها في الميزانية، ثم تفاصيل تنبيه عاجل مع الخطوة التالية.</span><span class="only-en">Animated demo with sample data: connecting Meta, Google Ads and Snapchat, then the store summary explaining why cost per order rose and where, then alerts ranked by their size in the budget, then an urgent alert's details with the next step.</span></p>
       <div class="demo" aria-hidden="true" data-demo>
         <div class="demo-bar">
           <span class="demo-lights"><i></i><i></i><i></i></span>
           <span class="demo-url">adscenter.online/app</span>
-          <span class="demo-paused"><span class="only-ar">⏸ متوقف مؤقتًا</span><span class="only-en">⏸ Paused</span></span>
           <span class="demo-tag"><span class="only-ar">بيانات توضيحية</span><span class="only-en">Sample data</span></span>
         </div>
         <div class="demo-screen">
@@ -141,12 +142,12 @@
           <!-- ٤. تفاصيل التنبيه والخطوة التالية -->
           <div class="demo-scene" data-scene>
             <div class="demo-detail-head demo-item" style="--d:0"><span class="demo-level lv-critical"><span class="only-ar">عاجل</span><span class="only-en">Urgent</span></span><b><span class="only-ar">إنفاق دون طلبات</span><span class="only-en">Spend without orders</span></b></div>
-            <p class="demo-text demo-item" style="--d:1"><span class="only-ar">أنفق «عرض الصيف» ٦٠ $ خلال آخر يومين دون أي طلب.</span><span class="only-en">“Summer offer” spent $60 in the last 2 days with no orders.</span></p>
+            <p class="demo-text demo-item" style="--d:1"><span class="only-ar">أنفق «عرض الصيف» <span data-amount="60">٦٠ $</span> خلال آخر يومين دون أي طلب.</span><span class="only-en">“Summer offer” spent <span data-amount="60">$60</span> in the last 2 days with no orders.</span></p>
             <div class="demo-chart demo-item" style="--d:2">
               <i style="--h:62%"></i><i style="--h:70%"></i><i style="--h:58%"></i><i style="--h:66%"></i><i style="--h:60%"></i><i class="bad" style="--h:74%"></i><i class="bad" style="--h:72%"></i>
             </div>
             <div class="demo-chart-key demo-item" style="--d:2.5"><span><i></i><span class="only-ar">الإنفاق اليومي — آخر ٧ أيام</span><span class="only-en">Daily spend — last 7 days</span></span><span class="bad"><i></i><span class="only-ar">يومان دون طلبات</span><span class="only-en">2 days with no orders</span></span></div>
-            <p class="demo-impact demo-item" style="--d:3"><span class="only-ar">📊 الحجم في ميزانيتك: ٦٢٦ $ خلال آخر ٧ أيام — ١٣٪ من إنفاق الحساب</span><span class="only-en">📊 Size in your budget: $626 in the last 7 days — 13% of account spend</span></p>
+            <p class="demo-impact demo-item" style="--d:3"><span class="only-ar">📊 الحجم في ميزانيتك: <span data-amount="626">٦٢٦ $</span> خلال آخر ٧ أيام — ١٣٪ من إنفاق الحساب</span><span class="only-en">📊 Size in your budget: <span data-amount="626">$626</span> in the last 7 days — 13% of account spend</span></p>
             <p class="demo-advice demo-item" style="--d:4"><span class="only-ar">💡 أرسله إلى مسؤول الإعلانات بضغطة، فقد يحتاج الإعلان إلى تعديل أو إيقاف.</span><span class="only-en">💡 Send it to your ads manager in one tap — the ad may need changes or a pause.</span></p>
           </div>
 
@@ -158,7 +159,9 @@
         <li data-step><span class="demo-step-fill"></span><span class="only-ar">تنبيهات حسب حجمها في ميزانيتك</span><span class="only-en">Alerts ranked by budget size</span></li>
         <li data-step><span class="demo-step-fill"></span><span class="only-ar">التفاصيل والخطوة التالية</span><span class="only-en">Details and next step</span></li>
       </ol>
-      <p class="demo-hint" aria-hidden="true"><span class="only-ar">اضغط على العرض لإيقافه مؤقتًا وقراءة التفاصيل.</span><span class="only-en">Tap the demo to pause it and read the details.</span></p>
+      <p class="demo-hint" aria-hidden="true"><span class="only-ar">مرّر الصفحة لأسفل لتنتقل بين الخطوات، أو اضغط اسم الخطوة.</span><span class="only-en">Scroll down to move through the steps, or tap a step's name.</span></p>
+    </div>
+    <div class="demo-scroll-space" aria-hidden="true"></div>
     </div>
   </section>
 

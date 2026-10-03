@@ -1312,7 +1312,7 @@
         });
       }));
     });
-    testAsync('العرض التوضيحي في الرئيسية بيتحرك لوحده (من غير زرار) وبيبيّن إنه بيانات مثال', function () {
+    testAsync('العرض التوضيحي في الرئيسية: بيانات مثال، ومبيتحركش لوحده (بيتحرك مع التمرير بس)', function () {
       var f = document.createElement('iframe');
       f.style.cssText = 'position:fixed;left:0;top:0;width:1280px;height:900px;opacity:0;pointer-events:none';
       f.src = '/home.html?t=' + Date.now();
@@ -1324,55 +1324,56 @@
         eq(d.querySelectorAll('.demo-steps [data-step]').length, 4, '4 step captions');
         ok(d.querySelector('[data-demo]').getAttribute('aria-hidden') === 'true' && d.querySelector('.demo-wrap .sr-only'), 'decorative for screen readers, with a text description');
         ok(/بيانات توضيحية/.test(d.querySelector('.demo-tag').textContent), 'labelled as sample data');
-        ok(!d.querySelector('[data-demo] button, [data-demo] a'), 'no buttons to press');
-        var demoText = d.querySelector('.demo-wrap').textContent;
-        ok(!/ج\.م|EGP/.test(demoText) && /\$/.test(demoText), 'amounts in dollars, no EGP left');
-        ok(d.querySelector('.demo-hint') && d.querySelector('[data-demo] .demo-paused'), 'tap-to-pause hint + paused label');
+        ok(!d.querySelector('[data-demo] button, [data-demo] a'), 'no buttons inside the demo');
+        ok(d.querySelector('[data-demo-track] .demo-scroll-space') && d.querySelector('.demo-hint'), 'scroll track + scroll hint');
+        ok(!d.querySelector('.demo-paused'), 'the old tap-to-pause label is gone');
         eq([active(d, '[data-scene]'), active(d, '.demo-steps [data-step]')], [0, 0], 'starts at step 1');
         return new Promise(function (r) { setTimeout(r, 3200); });
       }).then(function () {
-        var d = f.contentDocument, now = [active(d, '[data-scene]'), active(d, '.demo-steps [data-step]')];
-        // لو التاب مخفي (زي لوحة الاختبار وهي مقفولة) العرض لازم يفضل واقف عشان ميستهلكش جهاز الزائر
-        if (d.hidden) eq(now, [0, 0], 'tab hidden: stays paused on step 1 (saves the device)');
-        else eq(now, [1, 1], 'moved to step 2 on its own');
+        var d = f.contentDocument;
+        eq([active(d, '[data-scene]'), active(d, '.demo-steps [data-step]')], [0, 0], 'no scrolling = no auto-advance (not a looping GIF)');
       }).then(function () { f.remove(); }, function (e) { f.remove(); throw e; });
     });
-    testAsync('العرض التوضيحي: الضغط بيوقفه ثانيتين، وبيتقلّب حتى مع «تقليل الحركة»، والمبالغ بالدولار', function () {
-      var f = document.createElement('iframe'), t0;
+    testAsync('العرض التوضيحي: النزول بالصفحة بيقلّب المشاهد والطلوع بيرجّعها، والضغط على خطوة بينقل لها، والمبالغ بعملة بلد الزائر', function () {
+      var f = document.createElement('iframe');
       f.style.cssText = 'position:fixed;left:0;top:0;width:1280px;height:900px;opacity:0;pointer-events:none';
       function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
       return getText('/home.html').then(function (html) {
-        // «تقليل الحركة» شغال والتاب ظاهر — عشان النتيجة متتأثرش بإعدادات الجهاز ولا بلوحة الاختبار وهي مقفولة
+        // زائر من السعودية (المنطقة الزمنية) و«تقليل الحركة» شغال — عشان النتيجة متتأثرش بجهاز اللي بيشغّل الاختبار
         f.srcdoc = '<!doctype html><html lang="ar" dir="rtl"><head><link rel="stylesheet" href="/site.css"></head><body>' +
-          '<script>Object.defineProperty(document, "hidden", { configurable: true, get: function () { return false; } });' +
+          '<script>var R = Intl.DateTimeFormat.prototype.resolvedOptions; Intl.DateTimeFormat.prototype.resolvedOptions = function () { var o = R.call(this); o.timeZone = "Asia/Riyadh"; return o; };' +
           'window.matchMedia = function (q) { return { matches: /reduce/.test(q), media: q, addListener: function () {}, removeListener: function () {} }; };<\/script>' +
-          parse(html).querySelector('.demo-wrap').outerHTML + '<script src="/js/demo.js"><\/script></body></html>';
+          '<main>' + parse(html).querySelector('[data-demo-track]').outerHTML + '<div style="height:2400px"></div></main><script src="/js/demo.js"><\/script></body></html>';
         var loaded = new Promise(function (r) { f.onload = r; });
         document.body.appendChild(f);
         return loaded;
       }).then(function () {
-        var d = f.contentDocument, w = f.contentWindow, demo = d.querySelector('[data-demo]');
+        var d = f.contentDocument, w = f.contentWindow;
+        var track = d.querySelector('[data-demo-track]'), wrap = d.querySelector('.demo-wrap');
         function scene() { return Array.prototype.findIndex.call(d.querySelectorAll('[data-scene]'), function (s) { return s.classList.contains('is-active'); }); }
-        eq(scene(), 0, 'starts at scene 1');
-        demo.dispatchEvent(new w.PointerEvent('pointerdown', { bubbles: true }));
-        demo.dispatchEvent(new w.PointerEvent('pointerup', { bubbles: true }));
-        t0 = Date.now();
-        ok(demo.classList.contains('is-paused') && d.querySelector('.demo-steps').classList.contains('is-paused'), 'a tap pauses it');
-        ok(w.getComputedStyle(d.querySelector('.demo-paused')).display !== 'none' && w.getComputedStyle(d.querySelector('.demo-url')).display === 'none', 'shows «⏸ متوقف مؤقتًا» instead of the URL');
-        return sleep(3300).then(function () {
-          // من غير الإيقاف كان هيتنقل عند ٢٫٨ ثانية
-          eq(scene(), 0, 'still on scene 1 after 3.3s (the pause added time)');
-          ok(!demo.classList.contains('is-paused'), 'pause lifted by itself after 2s');
-          function poll() { return scene() === 1 || Date.now() - t0 > 9000 ? null : sleep(100).then(poll); }
-          return poll();
-        }).then(function () {
-          eq(scene(), 1, 'reduced motion: still moves to the next scene (no animation, but not frozen)');
-          ok(Date.now() - t0 >= 4500, 'resumed with the time that was left (' + (Date.now() - t0) + 'ms)');
-          eq(Array.prototype.map.call(d.querySelectorAll('[data-count]'), function (el) { return el.textContent; }), ['٤١٢', '١٢ $', '٢١٬٤٠٠ $'], 'reduced motion: figures at full value right away, in dollars');
-          d.documentElement.lang = 'en';
-          return sleep(50);
-        }).then(function () {
-          eq(d.querySelector('[data-count][data-money]').textContent, '$12', 'English money: $12');
+        var range = track.offsetHeight - wrap.offsetHeight, top0 = w.pageYOffset + track.getBoundingClientRect().top - parseFloat(w.getComputedStyle(wrap).top);
+        ok(range > 400, 'the demo stays pinned for a scroll distance (' + range + 'px)');
+        // instant: الصفحة فيها scroll-behavior: smooth، والحدث بنبعته بإيدنا (لوحة الاختبار المقفولة مبترسمش إطارات)
+        function at(fr) { w.scrollTo({ top: top0 + fr * range, behavior: 'instant' }); w.dispatchEvent(new w.Event('scroll')); return scene(); }
+        eq([at(0), at(0.3), at(0.6), at(0.9), at(1.3), at(0.4), at(0)], [0, 1, 2, 3, 3, 1, 0], 'scenes follow the scroll, both ways');
+        at(0.6);
+        ok(Math.abs(wrap.getBoundingClientRect().top - parseFloat(w.getComputedStyle(wrap).top)) < 2, 'pinned on screen while scrolling');
+        var fills = Array.prototype.map.call(d.querySelectorAll('.demo-step-fill'), function (el) { return el.style.transform; });
+        eq([fills[0], fills[1], fills[3]], ['scaleX(1)', 'scaleX(1)', 'scaleX(0)'], 'step bars follow the scroll');
+        at(0);
+        d.querySelectorAll('.demo-steps [data-step]')[3].click();
+        w.dispatchEvent(new w.Event('scroll'));
+        eq(scene(), 3, 'tapping a step jumps to it');
+        at(0.3);
+        eq(Array.prototype.map.call(d.querySelectorAll('[data-count]'), function (el) { return el.textContent; }), ['٤١٢', '٤٥ ر.س', '٨٠٬٣٠٠ ر.س'], 'reduced motion: full values right away, in riyals for a Saudi visitor');
+        eq(Array.prototype.map.call(d.querySelectorAll('[data-amount]'), function (el) { return el.textContent; }), ['٢٢٥ ر.س', '225 SAR', '٢٬٣٥٠ ر.س', '2,350 SAR'], 'sentence amounts in riyals, each in its own language');
+        d.documentElement.lang = 'en';
+        return sleep(50).then(function () {
+          eq(d.querySelector('[data-count][data-money]').textContent, '45 SAR', 'English: 45 SAR');
+          var A = w.AdsDemo;
+          eq([A.currencyFor('Asia/Kuwait'), A.currencyFor('Africa/Cairo'), A.currencyFor('Europe/London')], ['KWD', 'EGP', 'USD'], 'country by time zone, dollars for everyone else');
+          eq([A.moneyFor(12, 'KWD', true), A.moneyFor(12, 'USD', false), A.moneyFor(12, 'USD', true), A.moneyFor(21400, 'EGP', true)],
+            ['٣٫٧ د.ك', '$12', '١٢ $', '١٬٠٤٠٬٠٠٠ ج.م'], 'rounded like the tool writes money');
         });
       }).then(function () { f.remove(); }, function (e) { f.remove(); throw e; });
     });
@@ -2486,7 +2487,10 @@
       var loaded = new Promise(function (r) { f.onload = r; });
       document.body.appendChild(f);
       return loaded.then(function () {
-        eq(f.contentDocument.querySelector('[data-count][data-money]').textContent, '$12');
+        // العملة حسب المنطقة الزمنية لجهاز اللي بيشغّل الاختبار ($12 / 45 SAR / 582 EGP) — المهم الصيغة الإنجليزية من أول لحظة
+        var w = f.contentWindow, cur = w.AdsDemo.currencyFor(w.Intl.DateTimeFormat().resolvedOptions().timeZone);
+        eq(f.contentDocument.querySelector('[data-count][data-money]').textContent, w.AdsDemo.moneyFor(12, cur, false));
+        ok(!/[٠-٩]/.test(f.contentDocument.querySelector('[data-count][data-money]').textContent), 'English digits');
         f.remove();
       }).then(restore, function (e) { restore(); throw e; });
     });

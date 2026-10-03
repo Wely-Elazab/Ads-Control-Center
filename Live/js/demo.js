@@ -1,39 +1,73 @@
 // =====================================================================
-// Ads Center — العرض التوضيحي المتحرك في الصفحة الرئيسية (زي GIF بيتكرر)
+// Ads Center — العرض التوضيحي في الصفحة الرئيسية (بيتحرّك مع التمرير)
 // =====================================================================
-// بيقلّب ٤ مشاهد ([data-scene]) في حلقة: ربط الحسابات ← اللوحة ← التنبيهات ← تفاصيل تنبيه.
-// الأرقام في المشهد التاني بتعدّ لحد قيمتها (data-count، وdata-money = بالدولار) بصيغة اللغة الحالية.
-//  - الضغط على العرض بيوقفه PAUSE_MS (وكل ضغطة بتبدأ العدّ من جديد)، والضغط المطوّل بيوقفه لحد ما يشيل صباعه
-//  - «تقليل الحركة» في الجهاز: المشاهد بتتقلّب برضه بس من غير أي حركة (قطع مباشر، والأرقام بقيمتها على طول)
-//    — كتير من موبايلات أندرويد بيبقى الإعداد ده شغال فيها، ولو وقّفنا العرض خالص الزائر بيفتكره عطلان
-//  - بيقف لو المشهد مش ظاهر على الشاشة أو التاب مخفي — عشان ميستهلكش الجهاز
+// ٤ مشاهد ([data-scene]): ربط الحسابات ← ملخص المتجر ← التنبيهات ← تفاصيل تنبيه.
+// مش GIF بيتكرر لوحده (قرار صاحب المنتج ٣ أكتوبر ٢٠٢٦): العرض بيثبت على الشاشة (sticky جوه [data-demo-track])،
+// وكل ما الزائر ينزل بالصفحة بينتقل للمشهد اللي بعده، ولو طلع لفوق بيرجع. مسافة التمرير = .demo-scroll-space (site.css).
+// الضغط على اسم خطوة بينقل لها. الأرقام في المشهد التاني بتعدّ لحد قيمتها أول ما المشهد يظهر (data-count).
+//  - «تقليل الحركة» في الجهاز: نفس التنقّل مع التمرير، بس قطع مباشر من غير حركة، والأرقام بقيمتها على طول
+//  - متصفح قديم من غير overflow: clip (الـ sticky مبيشتغلش جوه main): مفيش مسافة تمرير، والخطوات بالضغط بس
+// المبالغ بعملة بلد الزائر (من المنطقة الزمنية لجهازه — من غير ما نجمع أو نبعت أي حاجة): ريال، درهم، دينار، جنيه…
+// وغير كده دولار. الأسعار تقريبية ومدوّرة — كلها بيانات توضيحية ومكتوب عليها كده
 (function () {
+  var AR = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+  function isAr() { return document.documentElement.lang !== 'en'; }
+
+  // ---------- العملة ----------
+  var ZONES = { 'Asia/Riyadh': 'SAR', 'Asia/Dubai': 'AED', 'Asia/Kuwait': 'KWD', 'Asia/Qatar': 'QAR', 'Asia/Bahrain': 'BHD',
+    'Asia/Muscat': 'OMR', 'Africa/Cairo': 'EGP', 'Asia/Amman': 'JOD' };
+  // كام وحدة مقابل الدولار: الخليجية مربوطة بالدولار، والدينار الكويتي والأردني والجنيه تقريبي
+  var PER_USD = { USD: 1, SAR: 3.75, AED: 3.6725, QAR: 3.64, BHD: 0.376, OMR: 0.3845, KWD: 0.307, JOD: 0.709, EGP: 48.5 };
+  // نفس أسماء العملات اللي الأداة بتكتبها (CURRENCY_LABELS في core.js)
+  var LABEL_AR = { USD: '$', SAR: 'ر.س', AED: 'د.إ', QAR: 'ر.ق', BHD: 'د.ب', OMR: 'ر.ع', KWD: 'د.ك', JOD: 'د.أ', EGP: 'ج.م' };
+  function currencyFor(zone) { return ZONES[zone] || 'USD'; }
+  function visitorCurrency() {
+    try { return currencyFor(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch (e) { return 'USD'; }
+  }
+  // تدوير مريح للعين: أقل من ١٠ بخانة عشرية، أقل من ١٠٠ رقم صحيح، والأكبر ٣ أرقام مهمة (٨٠٬٣٠٠ مش ٨٠٬٢٥٠)
+  function nice(v) {
+    if (v < 10) return Math.round(v * 10) / 10;
+    if (v < 100) return Math.round(v);
+    var p = Math.pow(10, Math.floor(Math.log(v) / Math.LN10) - 2);
+    return Math.round(v / p) * p;
+  }
+  function num(v, ar) {
+    var parts = (Math.round(v) === v ? String(v) : v.toFixed(1)).split('.');
+    var s = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (parts[1] ? '.' + parts[1] : '');
+    return ar ? s.replace(/,/g, '٬').replace('.', '٫').replace(/\d/g, function (d) { return AR[+d]; }) : s;
+  }
+  // نفس صيغة الأداة: «٤٥ ر.س» / «45 SAR»، والدولار بالإنجليزي «$12»
+  function moneyText(v, cur, ar) {
+    var n = num(v < 10 ? Math.round(v * 10) / 10 : Math.round(v), ar);
+    if (ar) return n + ' ' + LABEL_AR[cur];
+    return cur === 'USD' ? '$' + n : n + ' ' + cur;
+  }
+  function moneyFor(usd, cur, ar) { return moneyText(nice(usd * PER_USD[cur]), cur, ar); }
+  window.AdsDemo = { currencyFor: currencyFor, moneyFor: moneyFor };
+
   var root = document.querySelector('[data-demo]');
   if (!root) return;
+  var track = root.closest('[data-demo-track]');
+  var wrap = root.closest('.demo-wrap');
   var scenes = root.querySelectorAll('[data-scene]');
-  var stepsList = document.querySelector('.demo-steps');
-  var steps = document.querySelectorAll('.demo-steps [data-step]');
-  var DURATIONS = [2800, 3600, 3800, 4600];
-  var PAUSE_MS = 2000;
+  var steps = Array.prototype.slice.call(document.querySelectorAll('.demo-steps [data-step]'));
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var current = 0, timer = null, due = 0, left = DURATIONS[0], visible = true;
-  var pressing = false, pauseTimer = null, countRaf = null, countDone = null;
+  var cur = visitorCurrency();
+  var current = -1, countRaf = null, countDone = null;
 
-  function isAr() { return document.documentElement.lang !== 'en'; }
-  var AR = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-  // نفس صيغة الأداة بالعربي (٤٬٨٢٠ $)، وبالإنجليزي الصيغة المعتادة ($4,820)
-  function fmt(n, money) {
-    var s = Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    if (isAr()) {
-      s = s.replace(/,/g, '٬').replace(/\d/g, function (d) { return AR[+d]; });
-      return money ? s + ' $' : s;
-    }
-    return money ? '$' + s : s;
-  }
   function setCounts(progress) {
+    var ar = isAr();
     Array.prototype.forEach.call(root.querySelectorAll('[data-count]'), function (el) {
       var target = Number(el.getAttribute('data-count'));
-      el.textContent = fmt(target * progress, el.hasAttribute('data-money'));
+      if (el.hasAttribute('data-money')) el.textContent = moneyText(nice(target * PER_USD[cur]) * progress, cur, ar);
+      else el.textContent = num(Math.round(target * progress), ar);
+    });
+  }
+  function setAmounts() {
+    Array.prototype.forEach.call(root.querySelectorAll('[data-amount]'), function (el) {
+      // الجملة العربية والإنجليزية الاتنين في الصفحة (only-ar / only-en) — كل واحدة بلغتها
+      var ar = el.closest('.only-en') ? false : el.closest('.only-ar') ? true : isAr();
+      el.textContent = moneyFor(Number(el.getAttribute('data-amount')), cur, ar);
     });
   }
   function countUp() {
@@ -53,73 +87,57 @@
   }
 
   function show(i) {
+    if (i === current) return;
     current = i;
-    left = DURATIONS[i];
     Array.prototype.forEach.call(scenes, function (s, k) { s.classList.toggle('is-active', k === i); });
-    Array.prototype.forEach.call(steps, function (s, k) {
-      s.classList.toggle('is-done', k < i);
-      s.classList.remove('is-active');
-      if (k === i) {
-        s.style.setProperty('--dur', DURATIONS[i] + 'ms');
-        void s.offsetWidth; // يعيد تشغيل شريط التقدّم من الأول
-        s.classList.add('is-active');
-      }
-    });
+    steps.forEach(function (s, k) { s.classList.toggle('is-active', k === i); s.classList.toggle('is-done', k < i); });
     if (i === 1) { if (reduce) setCounts(1); else countUp(); }
   }
 
-  // العدّاد: run بيكمّل اللي فاضل من وقت المشهد، وhalt بيوقفه ويحفظ اللي فاضل
-  function paused() { return pressing || pauseTimer !== null; }
-  function run() {
-    clearTimeout(timer); timer = null;
-    if (!visible || document.hidden || paused()) return;
-    due = Date.now() + left;
-    timer = setTimeout(function () { show((current + 1) % scenes.length); run(); }, left);
+  // ---------- التمرير ----------
+  // range = المسافة اللي العرض بيفضل ثابت فيها (ارتفاع المسار ناقص العرض نفسه). صفر = المتصفح مبيدعمش الـ sticky هنا
+  function stickyTop() { return parseFloat(window.getComputedStyle(wrap).top) || 0; }
+  function range() { return track ? track.offsetHeight - wrap.offsetHeight : 0; }
+  function progress() {
+    var r = range();
+    if (r <= 1) return -1;
+    return Math.min(1, Math.max(0, (stickyTop() - track.getBoundingClientRect().top) / r));
   }
-  function halt() {
-    if (timer === null) return;
-    left = Math.max(0, due - Date.now());
-    clearTimeout(timer); timer = null;
+  function update() {
+    var p = progress();
+    if (p < 0) return; // من غير sticky: المشهد بيتغيّر بالضغط على الخطوات بس
+    var pos = p * scenes.length, i = Math.min(scenes.length - 1, Math.floor(pos));
+    show(i);
+    // شريط كل خطوة: المكتمل كامل، والحالي بقد ما الزائر نزل جوه مشهده
+    steps.forEach(function (s, k) {
+      var fill = s.querySelector('.demo-step-fill');
+      if (fill) fill.style.transform = 'scaleX(' + (k < i ? 1 : k > i ? 0 : Math.min(1, pos - i)) + ')';
+    });
   }
-  // يبدأ المشهد الحالي من الأول كل ما العرض يرجع يظهر — عشان الزائر يشوف القصة كاملة
-  function resume() { if (!visible || document.hidden) return; show(current); run(); }
+  // ارتفاع شريط الموقع اللي فوق (العرض بيثبت تحته) وارتفاع العرض نفسه (عشان يتوسّط الشاشة على الموبايل — site.css)
+  function measureBar() {
+    var bar = document.querySelector('.site-bar');
+    if (bar) document.documentElement.style.setProperty('--site-bar-h', bar.offsetHeight + 'px');
+    document.documentElement.style.setProperty('--demo-h', wrap.offsetHeight + 'px');
+  }
+  steps.forEach(function (s, k) {
+    s.addEventListener('click', function () {
+      var r = range();
+      if (r <= 1) { show(k); return; }
+      var top = Math.max(0, window.pageYOffset + track.getBoundingClientRect().top - stickyTop() + (k + 0.2) / scenes.length * r);
+      // «تقليل الحركة»: قفزة مباشرة (auto كان هيمشي على scroll-behavior: smooth بتاع الصفحة)
+      try { window.scrollTo({ top: top, behavior: reduce ? 'instant' : 'smooth' }); } catch (e) { window.scrollTo(0, top); }
+    });
+  });
+  window.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', function () { measureBar(); update(); });
+  // تغيير اللغة: الأرقام والمبالغ تتكتب بالصيغة الجديدة على طول
+  new MutationObserver(function () { setAmounts(); if (current === 1) setCounts(1); })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
 
-  // الإيقاف المؤقت بالضغط (الموبايل والكمبيوتر)
-  function setPausedLook(on) {
-    root.classList.toggle('is-paused', on);
-    if (stepsList) stepsList.classList.toggle('is-paused', on);
-  }
-  function press() {
-    pressing = true;
-    clearTimeout(pauseTimer); pauseTimer = null;
-    halt();
-    setPausedLook(true);
-  }
-  function release() {
-    if (!pressing) return;
-    pressing = false;
-    pauseTimer = setTimeout(function () { pauseTimer = null; setPausedLook(false); run(); }, PAUSE_MS);
-  }
-  var opts = { passive: true };
-  if (window.PointerEvent) {
-    root.addEventListener('pointerdown', press, opts);
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) { root.addEventListener(ev, release, opts); });
-  } else {
-    ['touchstart', 'mousedown'].forEach(function (ev) { root.addEventListener(ev, press, opts); });
-    ['touchend', 'touchcancel', 'mouseup', 'mouseleave'].forEach(function (ev) { root.addEventListener(ev, release, opts); });
-  }
-
-  if ('IntersectionObserver' in window) {
-    new IntersectionObserver(function (entries) {
-      visible = entries[0].isIntersecting;
-      if (visible) resume(); else halt();
-    }, { threshold: 0.25 }).observe(root);
-  }
-  document.addEventListener('visibilitychange', function () { if (document.hidden) halt(); else resume(); });
-  // تغيير اللغة: الأرقام تتكتب بالصيغة الجديدة على طول
-  new MutationObserver(function () { if (current === 1) setCounts(1); }).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
-
+  measureBar();
+  setAmounts();
   setCounts(1);
   show(0);
-  run();
+  update();
 })();
