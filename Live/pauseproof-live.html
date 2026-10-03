@@ -366,6 +366,13 @@
   .install-btn[hidden] { display: none; }
   .install-steps { margin: 4px 0 14px; padding-inline-start: 22px; font-size: 14px; line-height: 1.9; }
   .install-note { margin: 0; font-size: 13px; color: var(--ink-soft); }
+  .install-ask { display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap; background: var(--verified-bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin: 0 0 14px; }
+  .install-ask[hidden] { display: none; }
+  .install-ask-q { font-size: 14px; font-weight: 600; color: var(--ink); }
+  .install-ask-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .install-ask-actions .stop-btn, .install-ask-actions .ghost-btn { padding: 8px 14px; font-size: 13px; }
+  .install-ask-no { border: none; background: none; color: var(--ink-soft); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; padding: 8px 6px; text-decoration: underline; }
+  .install-ask-no:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   /* على الموبايل: صف للاسم والأيقونات، صف للتبويبات، صف للحساب وتسجيل الدخول */
   @media (max-width: 720px) {
     .appbar-inner { gap: 8px 10px; }
@@ -739,6 +746,16 @@
 </div>
 
 <div class="wrap">
+
+  <!-- آيفون: الأداة متعرفش إن الأيقونة اتضافت، فبتسأل في الزيارة اللي بعد فتح الخطوات (بطاقة مش نافذة) — renderInstallAsk في ui.js -->
+  <div class="install-ask" id="installAsk" role="region" aria-labelledby="installAskQ" hidden>
+    <span class="install-ask-q" id="installAskQ" data-i18n="install.askQ">هل أضفت Ads Center إلى الشاشة الرئيسية لهاتفك؟</span>
+    <span class="install-ask-actions">
+      <button type="button" class="stop-btn" id="installAskYes" data-i18n="install.askYes">نعم، أضفتها</button>
+      <button type="button" class="ghost-btn" id="installAskSteps" data-i18n="install.askSteps">اعرض الخطوات</button>
+      <button type="button" class="install-ask-no" id="installAskNo" data-i18n="install.askNo">لا، شكراً</button>
+    </span>
+  </div>
 
   <div id="viewAds" role="tabpanel" aria-labelledby="tabAds">
 

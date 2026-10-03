@@ -1554,9 +1554,9 @@
       });
     });
 
-    test('زرار «ثبّت الأداة»: أندرويد بيفتح نافذة المتصفح مرة، آيفون بيفتح الخطوات مرة، والأداة المثبّتة أو الكمبيوتر = مفيش زرار', function () {
+    test('زرار «ثبّت الأداة»: أندرويد بيفتح نافذة المتصفح مرة، آيفون بيفتح الخطوات، والأداة المثبّتة أو الكمبيوتر = مفيش زرار', function () {
       var real = { touch: window.isTouchDevice, installed: window.runningInstalled, ios: window.iosCanAddToHome };
-      var seenBefore = localStorage.getItem(INSTALL_SEEN_KEY);
+      var seenBefore = localStorage.getItem(INSTALL_KEY), sessionBefore = sessionStorage.getItem(INSTALL_SESSION_KEY);
       var env = { touch: true, installed: false, ios: false };
       window.isTouchDevice = function () { return env.touch; };
       window.runningInstalled = function () { return env.installed; };
@@ -1582,11 +1582,11 @@
         env.installed = false; env.touch = false; installPrompt = null; fire();
         ok(installBtn.hidden, 'computer: no button');
 
-        env.touch = true; env.ios = true; installPrompt = null; localStorage.removeItem(INSTALL_SEEN_KEY); renderInstallButton();
+        env.touch = true; env.ios = true; installPrompt = null; localStorage.removeItem(INSTALL_KEY); sessionStorage.removeItem(INSTALL_SESSION_KEY); renderInstallButton();
         ok(!installBtn.hidden, 'iPhone: steps button');
         installBtn.click();
         ok(!installOverlay.classList.contains('hidden'), 'steps open');
-        ok(installBtn.hidden, 'hidden after the steps were opened once (the icon opens Safari, so the tool cannot tell it was added)');
+        ok(!installBtn.hidden && installState().seen, 'the button stays until the customer answers the question');
         closeOverlays();
         ok(installOverlay.classList.contains('hidden'), 'closes like the other windows');
         var steps = installOverlay.textContent.replace(/ /g, ' ');
@@ -1594,8 +1594,63 @@
       } finally {
         window.isTouchDevice = real.touch; window.runningInstalled = real.installed; window.iosCanAddToHome = real.ios;
         installPrompt = null;
-        if (seenBefore === null) localStorage.removeItem(INSTALL_SEEN_KEY); else localStorage.setItem(INSTALL_SEEN_KEY, seenBefore);
-        renderInstallButton();
+        if (seenBefore === null) localStorage.removeItem(INSTALL_KEY); else localStorage.setItem(INSTALL_KEY, seenBefore);
+        if (sessionBefore === null) sessionStorage.removeItem(INSTALL_SESSION_KEY); else sessionStorage.setItem(INSTALL_SESSION_KEY, sessionBefore);
+        renderInstallButton(); renderInstallAsk();
+      }
+    });
+
+    test('سؤال آيفون «هل أضفت الأداة؟»: الزيارة اللي بعد الخطوات بس، ٣ زيارات بالكتير، و«نعم» أو «لا، شكراً» = مفيش زرار ولا سؤال تاني', function () {
+      var real = { touch: window.isTouchDevice, installed: window.runningInstalled, ios: window.iosCanAddToHome };
+      var keep = localStorage.getItem(INSTALL_KEY), keepSession = sessionStorage.getItem(INSTALL_SESSION_KEY);
+      var env = { installed: false, ios: true };
+      window.isTouchDevice = function () { return true; };
+      window.runningInstalled = function () { return env.installed; };
+      window.iosCanAddToHome = function () { return env.ios; };
+      function newVisit() { sessionStorage.removeItem(INSTALL_SESSION_KEY); renderInstallButton(); renderInstallAsk(); }
+      function shown() { return !installAsk.hidden; }
+      try {
+        installPrompt = null; localStorage.removeItem(INSTALL_KEY); newVisit();
+        ok(!shown(), 'never opened the steps: no question');
+        openInstallSteps(); closeOverlays(); renderInstallAsk();
+        ok(!shown(), 'not in the same visit the steps were opened');
+
+        newVisit();
+        ok(shown() && installState().asked === 1, 'next visit: the question');
+        renderInstallAsk();
+        eq(installState().asked, 1, 'counted once per visit');
+        document.getElementById('installAskSteps').click();
+        ok(!installOverlay.classList.contains('hidden') && !shown(), '«Show the steps» opens them and hides the card');
+        closeOverlays();
+        newVisit(); newVisit();
+        eq([shown(), installState().asked], [true, 3]);
+        newVisit();
+        ok(!shown(), 'ignored three times: stops asking');
+        ok(!installBtn.hidden, 'the header button stays (unobtrusive) until an answer');
+
+        localStorage.setItem(INSTALL_KEY, JSON.stringify({ seen: true, asked: 1, answer: null })); newVisit();
+        document.getElementById('installAskYes').click();
+        ok(!shown() && installBtn.hidden && installState().answer === 'yes', '«Yes»: no card, no button');
+        newVisit();
+        ok(!shown() && installBtn.hidden, '…and they never come back');
+
+        localStorage.setItem(INSTALL_KEY, JSON.stringify({ seen: true, asked: 0, answer: null })); newVisit();
+        document.getElementById('installAskNo').click();
+        newVisit();
+        ok(!shown() && installBtn.hidden && installState().answer === 'no', '«No, thanks»: the same');
+
+        localStorage.setItem(INSTALL_KEY, '1'); newVisit();
+        ok(shown(), 'steps opened before this change (old value) still get the question');
+        localStorage.setItem(INSTALL_KEY, JSON.stringify({ seen: true, asked: 0, answer: null }));
+        env.installed = true; newVisit();
+        ok(!shown(), 'opened from the icon as an app: we know, no question');
+        env.installed = false; env.ios = false; newVisit();
+        ok(!shown(), 'Android: no question');
+      } finally {
+        window.isTouchDevice = real.touch; window.runningInstalled = real.installed; window.iosCanAddToHome = real.ios;
+        if (keep === null) localStorage.removeItem(INSTALL_KEY); else localStorage.setItem(INSTALL_KEY, keep);
+        if (keepSession === null) sessionStorage.removeItem(INSTALL_SESSION_KEY); else sessionStorage.setItem(INSTALL_SESSION_KEY, keepSession);
+        closeOverlays(); renderInstallButton(); renderInstallAsk();
       }
     });
 

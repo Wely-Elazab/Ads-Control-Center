@@ -1979,11 +1979,17 @@
   // آيفون: مفيش نافذة تثبيت من الصفحة، فالزرار بيفتح الخطوات (installOverlay). الخطوات بتقفل «فتح كتطبيق ويب» فالأيقونة
   // بتفتح الأداة في Safari نفسه، اللي الدخول فيه متجرّب: وضع التطبيق المستقل على آيفون لسه ماتجرّبش مع نوافذ دخول
   // Meta وGoogle وSnapchat (فيه مصادر بتقول إن النافذة أو الرجوع من صفحة الدخول بيضيعوا هناك). بعد تجربة على جهاز حقيقي نغيّرها.
-  // ولأن الأيقونة بتفتح Safari عادي، الأداة متعرفش إنها اتضافت — فالزرار بيختفي على آيفون بعد أول مرة الخطوات تتفتح
-  // (والخطوات موجودة دايماً في /help#install). الأداة مفتوحة من الأيقونة، أو على كمبيوتر، أو جوه متصفح فيسبوك وإنستغرام = مفيش زرار
+  // ولأن الأيقونة بتفتح Safari عادي، الأداة متعرفش إنها اتضافت — فبنسأل العميل نفسه (installAsk): في الزيارة اللي بعد ما
+  // فتح الخطوات بتظهر بطاقة صغيرة فوق الصفحة (مش نافذة بتحجب الأرقام): «نعم، أضفتها» أو «لا، شكراً» = الزرار والبطاقة
+  // بيختفوا على طول، و«اعرض الخطوات» = الخطوات تاني والسؤال يرجع الزيارة الجاية. لو اتجاهلت بتظهر ٣ زيارات بالكتير.
+  // أندرويد والأداة المفتوحة من الأيقونة كتطبيق: بنعرف لوحدنا، فمفيش سؤال (قرار صاحب المنتج ٣ أكتوبر ٢٠٢٦).
+  // الأداة مفتوحة من الأيقونة، أو على كمبيوتر، أو جوه متصفح فيسبوك وإنستغرام = مفيش زرار ولا سؤال
   var installBtn = document.getElementById('installBtn');
   var installOverlay = document.getElementById('installOverlay');
-  var INSTALL_SEEN_KEY = 'acc.install.v1';
+  var installAsk = document.getElementById('installAsk');
+  var INSTALL_KEY = 'acc.install.v1';
+  var INSTALL_SESSION_KEY = 'acc.install.session';
+  var INSTALL_ASK_MAX = 3;
   var installPrompt = null;
   function runningInstalled() {
     return !!((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true);
@@ -1995,14 +2001,49 @@
     var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
     return ios && !/FBAN|FBAV|FB_IAB|Instagram|Snapchat|Line\/|TikTok|musical_ly/i.test(ua);
   }
-  function iosStepsSeen() { try { return localStorage.getItem(INSTALL_SEEN_KEY) === '1'; } catch (e) { return false; } }
+  // { seen: الخطوات اتفتحت، asked: عدد الزيارات اللي السؤال ظهر فيها، answer: 'yes' | 'no' | null }
+  // ('1' القديمة = الخطوات اتفتحت قبل كده من غير سؤال)
+  function installState() {
+    var raw = null;
+    try { raw = localStorage.getItem(INSTALL_KEY); } catch (e) { /* تخزين مقفول */ }
+    if (raw === '1') return { seen: true, asked: 0, answer: null };
+    try { var v = JSON.parse(raw || 'null'); if (v && typeof v === 'object') return { seen: !!v.seen, asked: Number(v.asked) || 0, answer: v.answer === 'yes' || v.answer === 'no' ? v.answer : null }; } catch (e) { /* قيمة غريبة */ }
+    return { seen: false, asked: 0, answer: null };
+  }
+  function saveInstallState(patch) {
+    var s = installState();
+    Object.keys(patch).forEach(function (k) { s[k] = patch[k]; });
+    try { localStorage.setItem(INSTALL_KEY, JSON.stringify(s)); } catch (e) { /* مش مهم */ }
+  }
+  // الزيارة دي: 'steps' = الخطوات اتفتحت فيها (مفيش سؤال لحد الزيارة الجاية)، 'asked' = السؤال اتحسب فيها خلاص
+  function installSession(v) {
+    try { if (v) sessionStorage.setItem(INSTALL_SESSION_KEY, v); return sessionStorage.getItem(INSTALL_SESSION_KEY); } catch (e) { return null; }
+  }
   // 'prompt' = نافذة تثبيت المتصفح جاهزة، 'ios' = خطوات آيفون، null = مفيش زرار
   function installMode() {
     if (runningInstalled() || !isTouchDevice()) return null;
     if (installPrompt) return 'prompt';
-    return iosCanAddToHome() && !iosStepsSeen() ? 'ios' : null;
+    return iosCanAddToHome() && !installState().answer ? 'ios' : null;
   }
   function renderInstallButton() { installBtn.hidden = !installMode(); }
+  // البطاقة: آيفون بس، بعد ما الخطوات اتفتحت في زيارة قبل كده، ولسه مفيش إجابة. أول ظهور في الزيارة بيتحسب مرة واحدة
+  function renderInstallAsk() {
+    var s = installState(), session = installSession();
+    var show = installMode() === 'ios' && s.seen && session !== 'steps' && (session === 'asked' || s.asked < INSTALL_ASK_MAX);
+    if (show && session !== 'asked') { saveInstallState({ asked: s.asked + 1 }); installSession('asked'); }
+    installAsk.hidden = !show;
+  }
+  function openInstallSteps() {
+    saveInstallState({ seen: true });
+    installSession('steps');
+    installAsk.hidden = true;
+    installOverlay.classList.remove('hidden');
+  }
+  function answerInstall(answer) {
+    saveInstallState({ answer: answer });
+    installAsk.hidden = true;
+    renderInstallButton();
+  }
   window.addEventListener('beforeinstallprompt', function (e) {
     e.preventDefault(); // من غير كده Chrome على الموبايل بيظهر شريطه الصغير لوحده — زرارنا هو اللي بيفتح النافذة
     installPrompt = e;
@@ -2016,15 +2057,15 @@
       installPrompt = null; // لو العميل قفل النافذة من غير تثبيت، المتصفح بيبعت الحدث تاني بعدين فالزرار يرجع
       renderInstallButton();
       p.prompt();
-    } else if (mode === 'ios') {
-      try { localStorage.setItem(INSTALL_SEEN_KEY, '1'); } catch (e) { /* مش مهم */ }
-      installOverlay.classList.remove('hidden');
-      renderInstallButton();
-    }
+    } else if (mode === 'ios') openInstallSteps();
   });
   document.getElementById('installClose').addEventListener('click', function () { installOverlay.classList.add('hidden'); });
   installOverlay.addEventListener('click', function (e) { if (e.target === installOverlay) installOverlay.classList.add('hidden'); });
+  document.getElementById('installAskYes').addEventListener('click', function () { answerInstall('yes'); });
+  document.getElementById('installAskNo').addEventListener('click', function () { answerInstall('no'); });
+  document.getElementById('installAskSteps').addEventListener('click', openInstallSteps);
   renderInstallButton();
+  renderInstallAsk();
 
   // ---------- النوافذ المنبثقة: التركيز (لوحة المفاتيح وقارئات الشاشة) ----------
   // لما نافذة تفتح: التركيز بيروح لزرار الإغلاق جواها، وTab بيلف جوه النافذة بس (مش ورا الخلفية).
