@@ -1513,6 +1513,130 @@
     });
   });
 
+  // ---------- التثبيت على شاشة الهاتف (manifest.webmanifest + installBtn في ui.js) ----------
+  describe('التثبيت على الهاتف', function () {
+    // مقاس صورة PNG من رأسها (IHDR) — عشان الأيقونة اللي مكتوب إنها ٥١٢ تكون ٥١٢ فعلاً
+    function pngSize(u) {
+      return fetch(u + '?t=' + Date.now()).then(function (r) {
+        if (!r.ok) throw new Error(u + ' → HTTP ' + r.status);
+        return r.arrayBuffer();
+      }).then(function (buf) {
+        var b = new Uint8Array(buf), dv = new DataView(buf);
+        var png = [137, 80, 78, 71, 13, 10, 26, 10].every(function (x, i) { return b[i] === x; });
+        return png ? dv.getUint32(16) + 'x' + dv.getUint32(20) : 'not a png';
+      });
+    }
+    testAsync('بيانات التثبيت: الاسم والأيقونات (بمقاساتها الحقيقية) والأداة هي صفحة البداية، وعرض كتطبيق', function () {
+      var m;
+      return fetch('/manifest.webmanifest?t=' + Date.now()).then(function (r) { return r.json(); }).then(function (json) {
+        m = json;
+        eq([m.id, m.name, m.short_name, m.start_url, m.scope, m.display, m.lang, m.dir], ['/app', 'Ads Center', 'Ads Center', '/app', '/', 'standalone', 'ar', 'rtl']);
+        var any = m.icons.filter(function (i) { return (i.purpose || 'any') === 'any'; }).map(function (i) { return i.sizes; }).sort();
+        eq(any, ['192x192', '512x512'], 'Chrome needs 192 and 512');
+        ok(m.icons.some(function (i) { return i.purpose === 'maskable'; }), 'a maskable icon for Android');
+        return Promise.all(m.icons.map(function (i) { return pngSize(i.src); }));
+      }).then(function (sizes) {
+        eq(sizes, m.icons.map(function (i) { return i.sizes; }));
+        return pngSize('/icons/apple-touch-icon.png');
+      }).then(function (s) { eq(s, '180x180', 'iPhone icon'); });
+    });
+
+    testAsync('الأداة والصفحة الرئيسية بيشاوروا على بيانات التثبيت وأيقونة آيفون، ومفيش service worker', function () {
+      return Promise.all(['/pauseproof-live.html', '/home.html', '/js/ui.js', '/js/main.js', '/js/core.js'].map(function (u) {
+        return fetch(u + '?t=' + Date.now()).then(function (r) { return r.text(); });
+      })).then(function (texts) {
+        texts.slice(0, 2).forEach(function (html) {
+          var d = new DOMParser().parseFromString(html, 'text/html');
+          ok(d.querySelector('link[rel="manifest"][href="/manifest.webmanifest"]'), 'manifest link');
+          ok(d.querySelector('link[rel="apple-touch-icon"][href="/icons/apple-touch-icon.png"]'), 'iPhone icon link');
+        });
+        ok(texts.every(function (s) { return s.indexOf('serviceWorker.register') < 0; }), 'no service worker (it would cache old versions of the tool)');
+      });
+    });
+
+    test('زرار «ثبّت الأداة»: أندرويد بيفتح نافذة المتصفح مرة، آيفون بيفتح الخطوات مرة، والأداة المثبّتة أو الكمبيوتر = مفيش زرار', function () {
+      var real = { touch: window.isTouchDevice, installed: window.runningInstalled, ios: window.iosCanAddToHome };
+      var seenBefore = localStorage.getItem(INSTALL_SEEN_KEY);
+      var env = { touch: true, installed: false, ios: false };
+      window.isTouchDevice = function () { return env.touch; };
+      window.runningInstalled = function () { return env.installed; };
+      window.iosCanAddToHome = function () { return env.ios; };
+      function fire() {
+        var ev = new Event('beforeinstallprompt', { cancelable: true });
+        ev.prompted = 0;
+        ev.prompt = function () { ev.prompted++; };
+        window.dispatchEvent(ev);
+        return ev;
+      }
+      try {
+        installPrompt = null; renderInstallButton();
+        ok(installBtn.hidden, 'hidden until the browser says the tool can be installed');
+        var ev = fire();
+        ok(ev.defaultPrevented && !installBtn.hidden, 'our button instead of the browser bar');
+        installBtn.click();
+        eq(ev.prompted, 1);
+        ok(installBtn.hidden && installPrompt === null, 'the event works once — hidden until the browser sends it again');
+
+        env.installed = true; fire();
+        ok(installBtn.hidden, 'already opened from the home screen');
+        env.installed = false; env.touch = false; installPrompt = null; fire();
+        ok(installBtn.hidden, 'computer: no button');
+
+        env.touch = true; env.ios = true; installPrompt = null; localStorage.removeItem(INSTALL_SEEN_KEY); renderInstallButton();
+        ok(!installBtn.hidden, 'iPhone: steps button');
+        installBtn.click();
+        ok(!installOverlay.classList.contains('hidden'), 'steps open');
+        ok(installBtn.hidden, 'hidden after the steps were opened once (the icon opens Safari, so the tool cannot tell it was added)');
+        closeOverlays();
+        ok(installOverlay.classList.contains('hidden'), 'closes like the other windows');
+        var steps = installOverlay.textContent.replace(/ /g, ' ');
+        ok(steps.indexOf('Open as Web App') > -1, 'iPhone steps turn off "Open as Web App" until full app mode is tested on a real iPhone');
+      } finally {
+        window.isTouchDevice = real.touch; window.runningInstalled = real.installed; window.iosCanAddToHome = real.ios;
+        installPrompt = null;
+        if (seenBefore === null) localStorage.removeItem(INSTALL_SEEN_KEY); else localStorage.setItem(INSTALL_SEEN_KEY, seenBefore);
+        renderInstallButton();
+      }
+    });
+
+    test('آيفون: Safari وChrome آه، ومتصفحات فيسبوك وإنستغرام وأندرويد لأ', function () {
+      var iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1';
+      eq([
+        iosCanAddToHome(iphone),
+        iosCanAddToHome(iphone.replace('Version/18.5', 'CriOS/140.0.0.0')),
+        iosCanAddToHome(iphone + ' [FBAN/FBIOS;FBAV/500.0]'),
+        iosCanAddToHome(iphone + ' Instagram 400.0'),
+        iosCanAddToHome('Mozilla/5.0 (Linux; Android 15; SM-S921B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36')
+      ], [true, true, false, false, false]);
+    });
+
+    test('Meta في تاب جديد (أو من الأيقونة): الجلسة شغّالة = نفس الحساب على طول، غير كده شاشة الربط من غير رسالة خطأ، و«فصل» = مفيش محاولة', function () {
+      var real = { FB: window.FB, queue: fbReadyQueue, load: window.loadAdAccounts, last: lastAccounts.meta };
+      var loaded = [], status = 'connected';
+      window.FB = { getLoginStatus: function (cb) { cb({ status: status }); } };
+      fbReadyQueue = null;
+      window.loadAdAccounts = function (id) { loaded.push(id); };
+      try {
+        delete activeSources.meta; setPlatformOptions('meta', []); setPlatformState('meta', null);
+        lastAccounts.meta = 'act_42';
+        autoReconnectMeta();
+        eq([loaded, activeSources.meta], [['act_42'], 'act_42'], 'same account straight away');
+
+        delete activeSources.meta; loaded = []; status = 'unknown';
+        autoReconnectMeta();
+        eq([loaded, activeSources.meta, platformState.meta || null], [[], undefined, null], 'no session: connect screen, no error card');
+
+        status = 'connected'; delete lastAccounts.meta;
+        autoReconnectMeta();
+        eq(loaded, [], 'after «Disconnect» (no remembered account) nothing happens');
+      } finally {
+        window.FB = real.FB; fbReadyQueue = real.queue; window.loadAdAccounts = real.load;
+        if (real.last === undefined) delete lastAccounts.meta; else lastAccounts.meta = real.last;
+        delete activeSources.meta;
+      }
+    });
+  });
+
   describe('Cloudflare', function () {
     // الـ Worker نفسه (cloudflare/worker.js) بيتحمّل هنا كـ module، وبنديله ASSETS وهمي بيقرا الملفات من
     // السيرفر المحلي (ملف مش موجود = 404 زي Cloudflare) — فبنختبر الـ routes والرؤوس وطبقة التحويل

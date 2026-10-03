@@ -75,6 +75,21 @@
   ['google', 'snapchat'].forEach(function (p) {
     if (!pendingRedirects[p] && !isConnected(p) && sealedFor(p)) markExpired(p);
   });
+  // وMeta في تاب جديد: لو العميل كان رابطها ومعملش «فصل» (آخر حساب لسه محفوظ — «فصل» بيمسحه)، بنسأل مكتبة فيسبوك
+  // بهدوء: الجلسة لسه شغّالة = نفس الحساب على طول. غير كده بتفضل شاشة «اربط حسابك» زي الأول، من غير أي رسالة خطأ
+  // (Safari غالباً بيمنع السؤال ده، فالربط هناك بيفضل بضغطة واحدة)
+  autoReconnectMeta();
+  function autoReconnectMeta() {
+    var last = lastAccounts.meta;
+    if (!last || isConnected('meta') || fbSdkFailed) return;
+    whenFbReady(function () {
+      FB.getLoginStatus(function (resp) {
+        if (!resp || resp.status !== 'connected' || isConnected('meta')) return;
+        activeSources.meta = last;
+        loadAdAccounts(last);
+      });
+    });
+  }
   probeGoogleCodeFlow();
 
   render();

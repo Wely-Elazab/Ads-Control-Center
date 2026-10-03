@@ -6,6 +6,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<!-- التثبيت على شاشة الهاتف: الأيقونة واسم التطبيق وصفحة البداية (/app) في manifest.webmanifest، وأيقونة آيفون منفصلة
+     لأنه مبيقراش أيقونات الـ manifest. مفيش service worker: Chrome مبقاش يحتاجه للتثبيت، وكان هيخزّن نسخ قديمة من الأداة -->
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Ads Center">
 <meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#14171C" media="(prefers-color-scheme: dark)">
 <meta name="description" content="لوحة Ads Center لأصحاب المتاجر الإلكترونية: ما الذي تغيّر في طلبات متجرك من إعلانات Meta وGoogle Ads وSnapchat ولماذا، مع تقييم لكل إعلان وتنبيهات واضحة — للقراءة فقط، دون أي تغيير في حساباتك.">
@@ -357,6 +362,10 @@
   .lang-toggle { border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 7px 13px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
   .account-select { max-width: 230px; }
   .appbar-icons { display: flex; align-items: center; gap: 8px; }
+  .install-btn { border-color: var(--verified); color: var(--verified); }
+  .install-btn[hidden] { display: none; }
+  .install-steps { margin: 4px 0 14px; padding-inline-start: 22px; font-size: 14px; line-height: 1.9; }
+  .install-note { margin: 0; font-size: 13px; color: var(--ink-soft); }
   /* على الموبايل: صف للاسم والأيقونات، صف للتبويبات، صف للحساب وتسجيل الدخول */
   @media (max-width: 720px) {
     .appbar-inner { gap: 8px 10px; }
@@ -708,6 +717,8 @@
       <button type="button" class="stop-btn" id="loginMenuBtn" data-i18n="btn.login">تسجيل الدخول</button>
     </div>
     <div class="appbar-icons">
+      <!-- بيظهر على الموبايل بس، ولو الأداة مش مثبّتة — installBtn في ui.js -->
+      <button type="button" class="lang-toggle install-btn" id="installBtn" title="أضف Ads Center إلى الشاشة الرئيسية لهاتفك لتفتحه بلمسة واحدة" data-i18n="install.btn" data-i18n-title="install.btnTitle" hidden>ثبّت الأداة</button>
       <button type="button" class="icon-toggle" id="themeToggle" aria-label="المظهر" data-i18n-aria="theme.aria">☀️</button>
       <button type="button" class="lang-toggle" id="langToggle" data-i18n="lang.toggle">EN</button>
     </div>
@@ -970,6 +981,23 @@
           <a href="/help" data-i18n="help.steps">خطوات الربط</a>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- «ثبّت الأداة» على آيفون: Safari مفيهوش نافذة تثبيت تتفتح من الصفحة، فدي الخطوات — installBtn في ui.js -->
+<div id="installOverlay" class="expand-overlay hidden">
+  <div class="expand-card install-card" role="dialog" aria-modal="true" aria-labelledby="installTitle">
+    <button class="expand-close" id="installClose" aria-label="إغلاق" data-i18n-aria="btn.close">✕</button>
+    <div class="expand-body" style="padding-top:24px;">
+      <div class="expand-title" id="installTitle" data-i18n="install.iosTitle">أضف Ads Center إلى الشاشة الرئيسية</div>
+      <div class="expand-sub" data-i18n="install.iosSub">افتح الأداة بلمسة واحدة من شاشة هاتفك، دون متجر تطبيقات ودون أي رسوم.</div>
+      <ol class="install-steps">
+        <li data-i18n="install.ios1">اضغط زر المشاركة ⬆ في Safari (أسفل الشاشة، أو من قائمة «…»).</li>
+        <li data-i18n="install.ios2">اختر «إضافة إلى الشاشة الرئيسية» <bdi>(Add to Home Screen)</bdi>. إن لم يظهر، فمرّر القائمة لأعلى.</li>
+        <li data-i18n="install.ios3">إن ظهر خيار «فتح كتطبيق ويب» <bdi>(Open as Web App)</bdi> فأوقفه، ثم اضغط «إضافة» <bdi>(Add)</bdi>.</li>
+      </ol>
+      <p class="install-note" data-i18n="install.iosNote">تفتح الأيقونة الأداة في Safari بحساباتك المربوطة كما هي.</p>
     </div>
   </div>
 </div>

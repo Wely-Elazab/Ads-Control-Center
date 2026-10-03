@@ -1,0 +1,18 @@
+{
+  "id": "/app",
+  "name": "Ads Center",
+  "short_name": "Ads Center",
+  "description": "افهم ما يحدث في إعلانات متجرك الإلكتروني ولماذا: ما صرفته، وما عاد عليك من طلبات، وما يحتاج إلى انتباهك.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F5F6F2",
+  "theme_color": "#F5F6F2",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

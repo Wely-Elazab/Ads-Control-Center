@@ -1652,6 +1652,7 @@
     expandOverlay.classList.add('hidden');
     settingsOverlay.classList.add('hidden');
     platformOverlay.classList.add('hidden');
+    installOverlay.classList.add('hidden');
     closeFilters();
   }
   document.addEventListener('keydown', function (e) {
@@ -1972,6 +1973,59 @@
     if (document.visibilityState === 'visible' && isStale() && !anyLoading() && Object.keys(activeSources).length) refreshAll();
   });
 
+  // ---------- التثبيت على شاشة الهاتف (manifest.webmanifest) ----------
+  // أندرويد (Chrome وSamsung Internet): لما الصفحة تبقى قابلة للتثبيت المتصفح بيبعت beforeinstallprompt — بنمسكه
+  // ونظهر «ثبّت الأداة»، والضغط بيفتح نافذة التثبيت بتاعة المتصفح نفسه (الحدث بيتستخدم مرة واحدة).
+  // آيفون: مفيش نافذة تثبيت من الصفحة، فالزرار بيفتح الخطوات (installOverlay). الخطوات بتقفل «فتح كتطبيق ويب» فالأيقونة
+  // بتفتح الأداة في Safari نفسه، اللي الدخول فيه متجرّب: وضع التطبيق المستقل على آيفون لسه ماتجرّبش مع نوافذ دخول
+  // Meta وGoogle وSnapchat (فيه مصادر بتقول إن النافذة أو الرجوع من صفحة الدخول بيضيعوا هناك). بعد تجربة على جهاز حقيقي نغيّرها.
+  // ولأن الأيقونة بتفتح Safari عادي، الأداة متعرفش إنها اتضافت — فالزرار بيختفي على آيفون بعد أول مرة الخطوات تتفتح
+  // (والخطوات موجودة دايماً في /help#install). الأداة مفتوحة من الأيقونة، أو على كمبيوتر، أو جوه متصفح فيسبوك وإنستغرام = مفيش زرار
+  var installBtn = document.getElementById('installBtn');
+  var installOverlay = document.getElementById('installOverlay');
+  var INSTALL_SEEN_KEY = 'acc.install.v1';
+  var installPrompt = null;
+  function runningInstalled() {
+    return !!((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true);
+  }
+  function isTouchDevice() { return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); }
+  // آيفون وآيباد (آيباد بيقول إنه Mac، فبنفرّقه باللمس). متصفحات التطبيقات مفيهاش «إضافة إلى الشاشة الرئيسية»
+  function iosCanAddToHome(ua) {
+    ua = ua || navigator.userAgent || '';
+    var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    return ios && !/FBAN|FBAV|FB_IAB|Instagram|Snapchat|Line\/|TikTok|musical_ly/i.test(ua);
+  }
+  function iosStepsSeen() { try { return localStorage.getItem(INSTALL_SEEN_KEY) === '1'; } catch (e) { return false; } }
+  // 'prompt' = نافذة تثبيت المتصفح جاهزة، 'ios' = خطوات آيفون، null = مفيش زرار
+  function installMode() {
+    if (runningInstalled() || !isTouchDevice()) return null;
+    if (installPrompt) return 'prompt';
+    return iosCanAddToHome() && !iosStepsSeen() ? 'ios' : null;
+  }
+  function renderInstallButton() { installBtn.hidden = !installMode(); }
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault(); // من غير كده Chrome على الموبايل بيظهر شريطه الصغير لوحده — زرارنا هو اللي بيفتح النافذة
+    installPrompt = e;
+    renderInstallButton();
+  });
+  window.addEventListener('appinstalled', function () { installPrompt = null; renderInstallButton(); });
+  installBtn.addEventListener('click', function () {
+    var mode = installMode();
+    if (mode === 'prompt') {
+      var p = installPrompt;
+      installPrompt = null; // لو العميل قفل النافذة من غير تثبيت، المتصفح بيبعت الحدث تاني بعدين فالزرار يرجع
+      renderInstallButton();
+      p.prompt();
+    } else if (mode === 'ios') {
+      try { localStorage.setItem(INSTALL_SEEN_KEY, '1'); } catch (e) { /* مش مهم */ }
+      installOverlay.classList.remove('hidden');
+      renderInstallButton();
+    }
+  });
+  document.getElementById('installClose').addEventListener('click', function () { installOverlay.classList.add('hidden'); });
+  installOverlay.addEventListener('click', function (e) { if (e.target === installOverlay) installOverlay.classList.add('hidden'); });
+  renderInstallButton();
+
   // ---------- النوافذ المنبثقة: التركيز (لوحة المفاتيح وقارئات الشاشة) ----------
   // لما نافذة تفتح: التركيز بيروح لزرار الإغلاق جواها، وTab بيلف جوه النافذة بس (مش ورا الخلفية).
   // لما تتقفل: التركيز بيرجع للزرار اللي فتحها. بنراقب كلاس hidden نفسه، فبيشتغل مهما كانت طريقة الفتح والقفل
@@ -1980,7 +2034,7 @@
       root.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])'),
       function (el) { return !el.hidden && el.getClientRects().length > 0; });
   }
-  [platformOverlay, expandOverlay, settingsOverlay, filterDrawer].forEach(function (dlg) {
+  [platformOverlay, expandOverlay, settingsOverlay, installOverlay, filterDrawer].forEach(function (dlg) {
     if (!dlg || !window.MutationObserver) return;
     var opener = null, isOpen = false;
     new MutationObserver(function () {
