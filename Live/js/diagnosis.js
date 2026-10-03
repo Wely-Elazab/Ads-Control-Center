@@ -689,11 +689,22 @@ var DX = (function () {
   }
 
   // ---------- المواسم والمناسبات (سياق بس — عمرها ما بتتقال كسبب) ----------
+  // c = دولة واحدة، أو قايمة دول، أو '*' للكل. المواسم الطويلة (المدارس، الصيف) بتظهر بس لما فترة تبقى جوه الموسم
+  // والتانية برّه — يعني عند بدايته ونهايته، وده بالظبط الوقت اللي بيفسّر فيه فرق
+  var GULF = ['SA', 'KW', 'AE', 'QA', 'BH', 'OM'];
   var FIXED_EVENTS = [
     { id: 'saNational', md: '09-23', days: 1, c: 'SA' }, { id: 'saFounding', md: '02-22', days: 1, c: 'SA' },
     { id: 'kwNational', md: '02-25', days: 2, c: 'KW' }, { id: 'aeNational', md: '12-02', days: 2, c: 'AE' },
     { id: 'qaNational', md: '12-18', days: 1, c: 'QA' }, { id: 'bhNational', md: '12-16', days: 2, c: 'BH' },
-    { id: 'singles', md: '11-11', days: 1, c: '*' }
+    // عُمان: ٢٠ و٢١ نوفمبر من ٢٠٢٥ (المرسوم السلطاني ١٥/٢٠٢٥ — قبلها كان ١٨ نوفمبر)
+    { id: 'omNational', md: '11-20', days: 2, c: 'OM' },
+    { id: 'singles', md: '11-11', days: 1, c: '*' },
+    // عيد الأم ٢١ مارس: الشراء بيحصل في الأسبوع اللي قبله (هدايا)، مش في اليوم نفسه
+    { id: 'mothersDay', md: '03-15', days: 7, c: '*' },
+    // السفر الصيفي في الخليج (منتصف يونيو لآخر أغسطس تقريباً): مبيعات متاجر كتير بتقل
+    { id: 'summerTravel', md: '06-20', days: 62, c: GULF },
+    // العودة للمدارس: الخليج أواخر أغسطس (الكويت منتصف سبتمبر)، ومصر أواخر سبتمبر — مواعيد تقريبية بتتغير كل سنة
+    { id: 'backToSchool', md: '08-10', days: 32, c: GULF }, { id: 'backToSchool', md: '09-01', days: 30, c: 'EG' }
   ];
   var TZ_COUNTRY = { 'Asia/Riyadh': 'SA', 'Asia/Kuwait': 'KW', 'Asia/Dubai': 'AE', 'Asia/Qatar': 'QA', 'Asia/Bahrain': 'BH', 'Asia/Muscat': 'OM', 'Africa/Cairo': 'EG' };
   // التقويم الهجري (أم القرى) من المتصفح نفسه — لو مش مدعوم بنتجاهل رمضان والأعياد بدل ما نخمّن
@@ -722,9 +733,9 @@ var DX = (function () {
   function eventsOn(key, countries) {
     var md = key.slice(5), ids = [];
     FIXED_EVENTS.forEach(function (ev) {
-      if (ev.c !== '*' && countries.indexOf(ev.c) < 0) return;
+      if (ev.c !== '*' && ![].concat(ev.c).some(function (c) { return countries.indexOf(c) > -1; })) return;
       var start = key.slice(0, 5) + ev.md;
-      if (key >= start && key <= shiftKey(start, ev.days - 1)) ids.push(ev.id);
+      if (key >= start && key <= shiftKey(start, ev.days - 1) && ids.indexOf(ev.id) < 0) ids.push(ev.id);
     });
     if (isWhiteFridayWeekend(key)) ids.push('whiteFriday');
     if (+key.slice(8) >= 25) ids.push('monthEnd');
@@ -1561,7 +1572,8 @@ var DX = (function () {
     var o = r.opportunity;
     if (!o) return null;
     var lines = [t('dx.opp.scale', { cpa: M(o.cpa), med: M(o.medCpa) })];
-    var ev = (r.context && r.context.cur || []).filter(function (id) { return id !== 'monthEnd'; });
+    // نهاية الشهر بتتكرر كل شهر، والسفر الصيفي بيقلّل المبيعات — الاتنين مش تفسير لتحسّن
+    var ev = (r.context && r.context.cur || []).filter(function (id) { return id !== 'monthEnd' && id !== 'summerTravel'; });
     if (ev.length) lines.push(t('dx.opp.season', { events: listText(ev.map(function (id) { return t('dx.event.' + id); })) }));
     return { kind: 'opportunity', title: t('dx.opp.title'), lines: lines, next: t('dx.opp.check'), owner: 'ads', conf: 'medium', fbKey: 'opp' };
   }

@@ -2275,6 +2275,21 @@
         ok(X.eventsOn('2026-03-15', ['SA']).indexOf('ramadanLast') > -1, 'last ten days');
       }
     });
+    test('المناسبات: عُمان، عيد الأم، السفر الصيفي، العودة للمدارس — ولكل دولة مواعيدها', function () {
+      var has = function (key, cs, id) { return X.eventsOn(key, cs).indexOf(id) > -1; };
+      ok(has('2026-11-20', ['OM'], 'omNational') && has('2026-11-21', ['OM'], 'omNational'), 'Oman: 20–21 November');
+      ok(!has('2026-11-18', ['OM'], 'omNational') && !has('2026-11-20', ['SA'], 'omNational'), 'not the old date, not other countries');
+      ok(has('2026-03-18', ['SA'], 'mothersDay') && has('2026-03-21', ['EG'], 'mothersDay') && !has('2026-03-22', ['SA'], 'mothersDay'), 'gift week before March 21');
+      ok(has('2026-07-01', ['AE'], 'summerTravel') && !has('2026-07-01', ['EG'], 'summerTravel') && !has('2026-09-01', ['SA'], 'summerTravel'), 'Gulf summer only');
+      ok(has('2026-08-20', ['KW'], 'backToSchool') && !has('2026-08-20', ['EG'], 'backToSchool') && has('2026-09-20', ['EG'], 'backToSchool'), 'school dates per country');
+      eq(X.eventsOn('2026-08-20', ['SA', 'AE']).filter(function (id) { return id === 'backToSchool'; }).length, 1, 'listed once for several countries');
+      ['ar', 'en'].forEach(function (l) {
+        withLang(l, function () {
+          ['omNational', 'mothersDay', 'summerTravel', 'backToSchool'].forEach(function (id) { ok(t('dx.event.' + id) !== 'dx.event.' + id, l + ' ' + id); });
+          ['SA', 'KW', 'AE', 'QA', 'BH', 'OM', 'EG'].forEach(function (c) { ok(t('dx.pay.' + c) !== 'dx.pay.' + c, l + ' pay ' + c); });
+        });
+      });
+    });
     test('جدول الأسباب: كل سبب وكل «تحقّق أولاً» ليه نص في اللغتين، والبحث بيرجع للأعم لو مفيش صف بالظبط', function () {
       var missing = [];
       ['ar', 'en'].forEach(function (l) {
