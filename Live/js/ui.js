@@ -650,6 +650,7 @@
     renderTopAlerts();
     renderAlerts();
     renderDiagnosis();
+    maybeShowWelcome();
   }
 
   // ---------- ملخص المتجر (js/diagnosis.js) ----------
@@ -1653,6 +1654,7 @@
     settingsOverlay.classList.add('hidden');
     platformOverlay.classList.add('hidden');
     installOverlay.classList.add('hidden');
+    if (welcomeOverlay && !welcomeOverlay.classList.contains('hidden')) closeWelcome(); // Esc = القيم المقترحة
     closeFilters();
   }
   document.addEventListener('keydown', function (e) {
@@ -1808,36 +1810,46 @@
   alertsListEl.addEventListener('keydown', openAlertAd);
 
   // ---------- إعدادات التنبيهات ----------
-  // الشاشة الأساسية: نمط جاهز + العائد المستهدف + فترة التعلّم. باقي الحدود تحت "إعدادات متقدمة"
+  // الشاشة الأساسية بلغة صاحب المتجر: حساسية التنبيهات + سؤالين عن الفلوس (كم تبيع مقابل كل ١ بتصرفه، وتحت أي قيمة بتخسر).
+  // باقي الحدود (١٦ رقم بمصطلحاتها) تحت «إعدادات متقدمة لمسؤول الإعلانات» — قرار صاحب المنتج ٣ أكتوبر ٢٠٢٦.
+  // نفس الجزء الأساسي بيظهر في نافذة أول مرة (welcomeOverlay تحت)
   var settingsOverlay = document.getElementById('settingsOverlay');
   var settingsForm = document.getElementById('settingsForm');
   var SETTING_UNITS = i18nMap({ multiple: 'unit.multiple', ratio: 'unit.ratio', days: 'unit.days', times: 'unit.times', count: 'unit.count' });
-  var MAIN_SETTINGS = { roasTarget: true, learningDays: true };
+  var MAIN_SETTINGS = { roasTarget: true, roasBreakEven: true };
+  var MAIN_ORDER = ['roasTarget', 'roasBreakEven'];
   var PRESET_LABELS = {
     calm: i18nMap({ name: 'preset.calm', help: 'preset.calm.help' }),
     balanced: i18nMap({ name: 'preset.balanced', help: 'preset.balanced.help' }),
     strict: i18nMap({ name: 'preset.strict', help: 'preset.strict.help' })
   };
 
-  function settingRow(m, value) {
+  // copyKey = نص الشاشة الأساسية بلغة صاحب المتجر (goal.*) بدل اسم الحد الفني (set.*) اللي في «المتقدمة»
+  function settingRow(m, value, copyKey) {
     var shown = m.kind === 'ratio' ? Math.round(value * 100) : value;
     var step = m.kind === 'multiple' ? '0.1' : '1';
+    var label = copyKey ? t(copyKey) : m.label, help = copyKey ? t(copyKey + '.help') : m.help;
     // نص مش number: خانة الأرقام بتعتبر «٢٫٥» أو «2,5» قيمة فاضية، فكانت بتتشال في صمت وترجع للافتراضي
-    return '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(m.label) + '</span><span class="setting-help">' + esc(m.help) + '</span></span>' +
+    return '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(label) + '</span><span class="setting-help">' + esc(help) + '</span></span>' +
       '<span class="setting-input"><input type="text" inputmode="decimal" dir="ltr" autocomplete="off" spellcheck="false" data-step="' + step + '" name="' + m.key + '" value="' + shown + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
+  }
+  // الحساسية + أهداف المتجر — radioName مختلف لكل نافذة: أزرار الاختيار برا <form> بتتجمّع بالاسم في الصفحة كلها
+  function settingsCoreHtml(current, preset, radioName) {
+    var byKey = {};
+    PauseProofAlerts.SETTINGS_META.forEach(function (m) { byKey[m.key] = m; });
+    return '<fieldset class="settings-group"><legend>' + t('settings.sensitivity') + '</legend><div class="preset-options">' +
+      Object.keys(PRESET_LABELS).map(function (p) {
+        return '<label class="preset-option"><input type="radio" name="' + radioName + '" value="' + p + '"' + (p === preset ? ' checked' : '') + '>' +
+          '<span class="preset-name">' + PRESET_LABELS[p].name + '</span><span class="preset-help">' + PRESET_LABELS[p].help + '</span></label>';
+      }).join('') + '</div></fieldset>' +
+      '<fieldset class="settings-group"><legend>' + t('settings.goals') + '</legend>' +
+      MAIN_ORDER.map(function (k) { return settingRow(byKey[k], current[k], 'goal.' + k); }).join('') +
+      '</fieldset>';
   }
 
   function renderSettingsForm() {
     var current = PauseProofAlerts.mergeSettings(alertSettings);
     var preset = alertSettings._preset || 'balanced';
-    var presetHtml = '<fieldset class="settings-group"><legend>' + t('settings.sensitivity') + '</legend><div class="preset-options">' +
-      Object.keys(PRESET_LABELS).map(function (p) {
-        return '<label class="preset-option"><input type="radio" name="_preset" value="' + p + '"' + (p === preset ? ' checked' : '') + '>' +
-          '<span class="preset-name">' + PRESET_LABELS[p].name + '</span><span class="preset-help">' + PRESET_LABELS[p].help + '</span></label>';
-      }).join('') + '</div></fieldset>';
-    var mainHtml = '<fieldset class="settings-group"><legend>' + t('settings.goals') + '</legend>' +
-      PauseProofAlerts.SETTINGS_META.filter(function (m) { return MAIN_SETTINGS[m.key]; }).map(function (m) { return settingRow(m, current[m.key]); }).join('') +
-      '</fieldset>';
     var groups = {};
     PauseProofAlerts.SETTINGS_META.forEach(function (m) {
       if (MAIN_SETTINGS[m.key]) return;
@@ -1847,7 +1859,7 @@
       Object.keys(groups).map(function (g) {
         return '<fieldset class="settings-group"><legend>' + esc(g) + '</legend>' + groups[g].map(function (m) { return settingRow(m, current[m.key]); }).join('') + '</fieldset>';
       }).join('') + '</details>';
-    settingsForm.innerHTML = presetHtml + mainHtml + advancedHtml;
+    settingsForm.innerHTML = settingsCoreHtml(current, preset, '_preset') + advancedHtml;
     var errEl = document.getElementById('settingsError');
     if (errEl) errEl.textContent = '';
   }
@@ -1875,10 +1887,30 @@
   // التحقق قبل الحفظ: كل قيمة جوه حدودها، والحدود المرتبطة مترتبة (حد «مراجعة» أكبر من «تحسين»...).
   // قبل كده القيمة الغلط كانت بترجع للافتراضي من غير ما العميل يعرف، والحدود المتلخبطة كانت بتتقبل
   var settingsErrorEl = document.getElementById('settingsError');
-  function clearSettingsErrors() {
-    settingsForm.querySelectorAll('.setting-row.invalid').forEach(function (r) { r.classList.remove('invalid'); });
-    settingsForm.querySelectorAll('.setting-error').forEach(function (e) { e.remove(); });
-    if (settingsErrorEl) settingsErrorEl.textContent = '';
+  function clearSettingsErrors(root, errEl) {
+    root = root || settingsForm; errEl = errEl || settingsErrorEl;
+    root.querySelectorAll('.setting-row.invalid').forEach(function (r) { r.classList.remove('invalid'); });
+    root.querySelectorAll('.setting-error').forEach(function (e) { e.remove(); });
+    if (errEl) errEl.textContent = '';
+  }
+  // الأخطاء جنب الخانة نفسها + رسالة عامة تحت — true = فيه أخطاء
+  function showSettingsErrors(r, errEl) {
+    if (!r.errors.length) return false;
+    r.errors.forEach(function (err) {
+      var row = err.input.closest('.setting-row');
+      if (row && !row.classList.contains('invalid')) {
+        row.classList.add('invalid');
+        var box = document.createElement('span');
+        box.className = 'setting-error';
+        box.textContent = err.text;
+        row.querySelector('.setting-text').appendChild(box);
+      }
+      var det = err.input.closest('details');
+      if (det) det.open = true; // الخطأ جوه «الإعدادات المتقدمة» — بنفتحها عشان يبان
+    });
+    if (errEl) errEl.textContent = t('set.err.fix');
+    r.errors[0].input.focus();
+    return true;
   }
   // الأرقام العربية (٠-٩) والفارسية (۰-۹) والفاصلة (٫ أو ,) → رقم عادي. «١٫٥» و«1,5» و«1.5» كلهم ١٫٥
   function settingNumberText(v) {
@@ -1887,10 +1919,11 @@
       .replace(/[\u06F0-\u06F9]/g, function (d) { return String(d.charCodeAt(0) - 0x06F0); })
       .replace(/[\u066B,]/g, '.').replace(/\s+/g, '');
   }
-  function readSettingsForm() {
-    var picked = settingsForm.querySelector('[name="_preset"]:checked');
+  function readSettingsForm(root, radioName) {
+    root = root || settingsForm;
+    var picked = root.querySelector('[name="' + (radioName || '_preset') + '"]:checked');
     var next = { _preset: picked ? picked.value : 'balanced' }, errors = [];
-    var inputOf = function (key) { return settingsForm.querySelector('[name="' + key + '"]'); };
+    var inputOf = function (key) { return root.querySelector('[name="' + key + '"]'); };
     PauseProofAlerts.SETTINGS_META.forEach(function (m) {
       var input = inputOf(m.key);
       if (!input) return;
@@ -1912,29 +1945,48 @@
   document.getElementById('settingsSave').addEventListener('click', function () {
     clearSettingsErrors();
     var r = readSettingsForm();
-    if (r.errors.length) {
-      r.errors.forEach(function (err) {
-        var row = err.input.closest('.setting-row');
-        if (row && !row.classList.contains('invalid')) {
-          row.classList.add('invalid');
-          var box = document.createElement('span');
-          box.className = 'setting-error';
-          box.textContent = err.text;
-          row.querySelector('.setting-text').appendChild(box);
-        }
-        var det = err.input.closest('details');
-        if (det) det.open = true; // الخطأ جوه «الإعدادات المتقدمة» — بنفتحها عشان يبان
-      });
-      if (settingsErrorEl) settingsErrorEl.textContent = t('set.err.fix');
-      r.errors[0].input.focus();
-      return;
-    }
+    if (showSettingsErrors(r, settingsErrorEl)) return;
     alertSettings = r.values;
     var saved = storeAlertSettings(alertSettings);
     settingsOverlay.classList.add('hidden');
     render();
     if (!saved) setStatus(msg('settings.notSaved'));
   });
+
+  // ---------- نافذة أول مرة: ضبط التنبيهات على أهداف المتجر ----------
+  // أول ما العميل يربط حساب (أي منصة) وهو لسه مسجّلش إعدادات، بتظهر مرة واحدة: الحساسية + السؤالين عن الفلوس،
+  // مع توضيح إنها بتتعدّل في أي وقت من «التنبيهات» ← «إعدادات التنبيهات». بتظهر وهو الحساب بيتحمّل، فوقت الانتظار
+  // بيتستغل ومش بتغطي النتيجة بعد ما تظهر. «استخدم القيم المقترحة» أو ✕ أو Esc = الافتراضي، ومش بتظهر تاني.
+  // ملحوظة: الإعدادات دي محفوظة في المتصفح وبتأثر على التنبيهات جوه الأداة؛ تنبيهات البريد لسه بالقيم الافتراضية (runner.ts)
+  var welcomeOverlay = document.getElementById('welcomeOverlay');
+  var welcomeForm = document.getElementById('welcomeForm');
+  var welcomeErrorEl = document.getElementById('welcomeError');
+  var WELCOME_KEY = 'acc.welcome.v1';
+  function welcomeDone() { try { return localStorage.getItem(WELCOME_KEY) === '1'; } catch (e) { return true; } }
+  function markWelcomeDone() { try { localStorage.setItem(WELCOME_KEY, '1'); } catch (e) { /* مش مهم */ } }
+  function maybeShowWelcome() {
+    if (!welcomeOverlay || welcomeDone() || !welcomeOverlay.classList.contains('hidden') || !PLATFORMS.some(isConnected)) return;
+    // عميل ظبط إعداداته قبل الميزة دي — منسألهوش
+    if (Object.keys(alertSettings).length) { markWelcomeDone(); return; }
+    // نافذة تانية مفتوحة (اختيار المنصة مثلاً) — نستنى الرسم الجاي
+    if (document.querySelector('.expand-overlay:not(.hidden)')) return;
+    welcomeForm.innerHTML = settingsCoreHtml(PauseProofAlerts.mergeSettings({}), 'balanced', '_welcomePreset');
+    clearSettingsErrors(welcomeForm, welcomeErrorEl);
+    welcomeOverlay.classList.remove('hidden');
+  }
+  function closeWelcome() { markWelcomeDone(); welcomeOverlay.classList.add('hidden'); }
+  document.getElementById('welcomeSave').addEventListener('click', function () {
+    clearSettingsErrors(welcomeForm, welcomeErrorEl);
+    var r = readSettingsForm(welcomeForm, '_welcomePreset');
+    if (showSettingsErrors(r, welcomeErrorEl)) return;
+    alertSettings = r.values;
+    var saved = storeAlertSettings(alertSettings);
+    closeWelcome();
+    render();
+    if (!saved) setStatus(msg('settings.notSaved'));
+  });
+  document.getElementById('welcomeSkip').addEventListener('click', closeWelcome);
+  document.getElementById('welcomeClose').addEventListener('click', closeWelcome);
 
   function resetFilterChips() {
     document.querySelectorAll('.filter-group').forEach(function (g) { g.querySelectorAll('.chip').forEach(function (ch) { ch.classList.toggle('active', ch.dataset.value === 'all'); }); });
@@ -2075,7 +2127,7 @@
       root.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])'),
       function (el) { return !el.hidden && el.getClientRects().length > 0; });
   }
-  [platformOverlay, expandOverlay, settingsOverlay, installOverlay, filterDrawer].forEach(function (dlg) {
+  [platformOverlay, expandOverlay, settingsOverlay, installOverlay, welcomeOverlay, filterDrawer].forEach(function (dlg) {
     if (!dlg || !window.MutationObserver) return;
     var opener = null, isOpen = false;
     new MutationObserver(function () {

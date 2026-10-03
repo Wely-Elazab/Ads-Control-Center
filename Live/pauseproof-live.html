@@ -15,6 +15,16 @@
 <meta name="theme-color" content="#14171C" media="(prefers-color-scheme: dark)">
 <meta name="description" content="لوحة Ads Center لأصحاب المتاجر الإلكترونية: ما الذي تغيّر في طلبات متجرك من إعلانات Meta وGoogle Ads وSnapchat ولماذا، مع تقييم لكل إعلان وتنبيهات واضحة — للقراءة فقط، دون أي تغيير في حساباتك.">
 <title>Ads Center</title>
+<!-- معاينة الرابط لما يتشارك — نفس صورة الصفحة الرئيسية (og.png) -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Ads Center">
+<meta property="og:title" content="Ads Center — اعرف لماذا تغيّرت مبيعات متجرك من الإعلانات">
+<meta property="og:description" content="ما الذي تغيّر في طلبات متجرك من إعلانات Meta وGoogle Ads وSnapchat ولماذا، مع تنبيهات واضحة — للقراءة فقط، دون أي تغيير في حساباتك.">
+<meta property="og:url" content="https://adscenter.online/app">
+<meta property="og:image" content="https://adscenter.online/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <!-- اللغة والاتجاه والوضع الداكن بيتحددوا قبل ما الصفحة ترسم — عشان مفيش وميض بلغة أو لون غلط -->
 <script src="js/theme.js"></script>
 <script src="js/i18n.js"></script>
@@ -814,7 +824,8 @@
       </details>
 
       <!-- ملخص المتجر: إيه اللي اتغيّر في النتايج، وفين، وليه على الأرجح (js/diagnosis.js).
-           مخفي لحد ما يتراجع على حسابات حقيقية — بيظهر بـ ?dx=1 في الرابط -->
+           ظاهر للكل من ٢٩ سبتمبر ٢٠٢٦ — hidden هنا بس لحد ما يبقى فيه حساب متصل (renderDiagnosis في ui.js)،
+           و?dx=0 بيخفيه على الجهاز ده (DX_ON في core.js) -->
       <section class="app-sec app-sec-store" id="storeSec" aria-labelledby="secStore" hidden>
         <div class="dx-top">
           <h2 class="sec-title" id="secStore" data-i18n="dx.title">ملخص المتجر</h2>
@@ -1054,6 +1065,23 @@
       <div class="settings-actions">
         <button type="button" class="stop-btn" id="settingsSave" data-i18n="settings.save">حفظ</button>
         <button type="button" class="ghost-btn" id="settingsReset" data-i18n="settings.reset">استعادة القيم الافتراضية</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- أول مرة يربط فيها العميل حساباً: ضبط التنبيهات على أهداف متجره (مرة واحدة) — maybeShowWelcome في ui.js -->
+<div id="welcomeOverlay" class="expand-overlay hidden">
+  <div class="expand-card settings-card" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+    <button class="expand-close" id="welcomeClose" aria-label="إغلاق" data-i18n-aria="btn.close">✕</button>
+    <div class="expand-body" style="padding-top:24px;">
+      <div class="expand-title" id="welcomeTitle" data-i18n="welcome.title">لنضبط التنبيهات على أهداف متجرك</div>
+      <div class="expand-sub" data-i18n="welcome.sub">ثلاثة اختيارات تكفي لتناسبك التنبيهات، ويمكنك تعديلها في أي وقت من تبويب «التنبيهات» ← «إعدادات التنبيهات».</div>
+      <div id="welcomeForm"></div>
+      <div class="settings-error" id="welcomeError" role="alert"></div>
+      <div class="settings-actions">
+        <button type="button" class="stop-btn" id="welcomeSave" data-i18n="welcome.save">حفظ</button>
+        <button type="button" class="ghost-btn" id="welcomeSkip" data-i18n="welcome.skip">استخدم القيم المقترحة</button>
       </div>
     </div>
   </div>

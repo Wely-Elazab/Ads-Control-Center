@@ -1541,6 +1541,22 @@
       }).then(function (s) { eq(s, '180x180', 'iPhone icon'); });
     });
 
+    testAsync('صورة المعاينة لما الرابط يتشارك: ١٢٠٠×٦٣٠، والصفحات اللي بتتشارك بتشاور عليها برابط كامل', function () {
+      return pngSize('/og.png').then(function (s) {
+        eq(s, '1200x630');
+        return Promise.all(['/home.html', '/join.html', '/help.html', '/pauseproof-live.html'].map(function (u) {
+          return fetch(u + '?t=' + Date.now()).then(function (r) { return r.text(); });
+        }));
+      }).then(function (pages) {
+        pages.forEach(function (html, i) {
+          var d = new DOMParser().parseFromString(html, 'text/html');
+          var img = d.querySelector('meta[property="og:image"]'), card = d.querySelector('meta[name="twitter:card"]');
+          eq([img && img.getAttribute('content'), card && card.getAttribute('content')], ['https://adscenter.online/og.png', 'summary_large_image'], 'page ' + i);
+          ok(d.querySelector('meta[property="og:title"]') && d.querySelector('meta[property="og:url"]'), 'title and url ' + i);
+        });
+      });
+    });
+
     testAsync('الأداة والصفحة الرئيسية بيشاوروا على بيانات التثبيت وأيقونة آيفون، ومفيش service worker', function () {
       return Promise.all(['/pauseproof-live.html', '/home.html', '/js/ui.js', '/js/main.js', '/js/core.js'].map(function (u) {
         return fetch(u + '?t=' + Date.now()).then(function (r) { return r.text(); });
@@ -1688,6 +1704,67 @@
         window.FB = real.FB; fbReadyQueue = real.queue; window.loadAdAccounts = real.load;
         if (real.last === undefined) delete lastAccounts.meta; else lastAccounts.meta = real.last;
         delete activeSources.meta;
+      }
+    });
+  });
+
+  // ---------- إعدادات التنبيهات بلغة صاحب المتجر + نافذة أول مرة (ui.js) ----------
+  describe('إعدادات التنبيهات لصاحب المتجر', function () {
+    test('الشاشة الأساسية: الحساسية وسؤالين عن الفلوس، وباقي الحدود (ومنها فترة التعلّم) في «المتقدمة» لمسؤول الإعلانات', function () {
+      renderSettingsForm();
+      var adv = settingsForm.querySelector('details.settings-advanced');
+      var main = Array.prototype.filter.call(settingsForm.querySelectorAll('input[type="text"]'), function (i) { return !adv.contains(i); }).map(function (i) { return i.name; });
+      eq(main, ['roasTarget', 'roasBreakEven']);
+      ok(adv.querySelector('[name="learningDays"]'), 'learning period moved to advanced');
+      eq(settingsForm.querySelectorAll('[name="_preset"]').length, 3);
+      var text = settingsForm.textContent;
+      ok(text.indexOf(t('goal.roasTarget')) > -1 && text.indexOf(t('goal.roasBreakEven')) > -1, 'money questions, not the technical names');
+      ok(text.indexOf(t('set.roasTarget')) < 0, 'no technical label on the main screen');
+    });
+
+    test('نافذة أول مرة: تظهر مرة واحدة أول ما يتربط حساب، والحفظ بيتحقق من القيم، و«القيم المقترحة» أو Esc = الافتراضي', function () {
+      var keepFlag = localStorage.getItem(WELCOME_KEY), keepSettings = alertSettings, hadMeta = activeSources.meta;
+      try {
+        localStorage.removeItem(WELCOME_KEY); alertSettings = {}; delete activeSources.meta;
+        maybeShowWelcome();
+        ok(welcomeOverlay.classList.contains('hidden'), 'no account yet: nothing');
+
+        activeSources.meta = 'act_1';
+        render();
+        ok(!welcomeOverlay.classList.contains('hidden'), 'first account: the window opens');
+        eq(welcomeForm.querySelectorAll('[name="_welcomePreset"]').length, 3, 'its own radio group (not shared with the settings window)');
+        welcomeForm.querySelector('[name="_welcomePreset"][value="strict"]').checked = true;
+        welcomeForm.querySelector('[name="roasBreakEven"]').value = '٤';
+        welcomeForm.querySelector('[name="roasTarget"]').value = '3';
+        document.getElementById('welcomeSave').click();
+        ok(!welcomeOverlay.classList.contains('hidden') && welcomeForm.querySelector('.setting-row.invalid [name="roasTarget"]'), 'target below the loss point: error, nothing saved');
+        eq(JSON.stringify(alertSettings), '{}');
+        welcomeForm.querySelector('[name="roasTarget"]').value = '5';
+        document.getElementById('welcomeSave').click();
+        eq([alertSettings._preset, alertSettings.roasTarget, alertSettings.roasBreakEven], ['strict', 5, 4]);
+        ok(welcomeOverlay.classList.contains('hidden') && welcomeDone(), 'closed and never again');
+        render();
+        ok(welcomeOverlay.classList.contains('hidden'));
+
+        localStorage.removeItem(WELCOME_KEY); alertSettings = {};
+        render();
+        closeOverlays();
+        ok(welcomeOverlay.classList.contains('hidden') && welcomeDone() && JSON.stringify(alertSettings) === '{}', 'Esc = suggested values, never again');
+
+        localStorage.removeItem(WELCOME_KEY); alertSettings = {};
+        render();
+        document.getElementById('welcomeSkip').click();
+        ok(welcomeDone() && JSON.stringify(alertSettings) === '{}', '«Use the suggested values»');
+
+        localStorage.removeItem(WELCOME_KEY); alertSettings = { roasTarget: 4 };
+        render();
+        ok(welcomeOverlay.classList.contains('hidden') && welcomeDone(), 'already set their own settings: not asked');
+      } finally {
+        closeOverlays();
+        alertSettings = keepSettings;
+        if (hadMeta === undefined) delete activeSources.meta; else activeSources.meta = hadMeta;
+        if (keepFlag === null) localStorage.removeItem(WELCOME_KEY); else localStorage.setItem(WELCOME_KEY, keepFlag);
+        render();
       }
     });
   });

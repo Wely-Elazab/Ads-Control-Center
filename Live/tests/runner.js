@@ -6,11 +6,13 @@
 // 3) بيمنع تحميل مكتبات Meta وGoogle (مش محتاجينها، والاختبارات بتشتغل من غير نت)
 // 4) بيحمّل ملفات الأداة بنفس ترتيب الموقع، وبعدين tests.js
 (function () {
-  var KEYS_LOCAL = ['acc.lang', 'acc.theme', 'acc.period.v1', 'acc.view.v1', 'acc.lastAccount.v1', 'pauseproof.alertSettings.v1'];
+  var KEYS_LOCAL = ['acc.lang', 'acc.theme', 'acc.period.v1', 'acc.view.v1', 'acc.lastAccount.v1', 'pauseproof.alertSettings.v1', 'acc.welcome.v1', 'acc.install.v1'];
   var KEYS_SESSION = ['pauseproof.session.v1', 'pauseproof.oauthState'];
   var backup = { local: {}, session: {} };
   KEYS_LOCAL.forEach(function (k) { backup.local[k] = localStorage.getItem(k); localStorage.removeItem(k); });
   KEYS_SESSION.forEach(function (k) { backup.session[k] = sessionStorage.getItem(k); sessionStorage.removeItem(k); });
+  // نافذة أول مرة (ضبط التنبيهات) متظهرش في نص الاختبارات — اختبارها بيشيل العلامة دي بنفسه
+  localStorage.setItem('acc.welcome.v1', '1');
   window.__restoreStorage = function () {
     KEYS_LOCAL.forEach(function (k) { if (backup.local[k] == null) localStorage.removeItem(k); else localStorage.setItem(k, backup.local[k]); });
     KEYS_SESSION.forEach(function (k) { if (backup.session[k] == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, backup.session[k]); });
