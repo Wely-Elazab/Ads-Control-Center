@@ -13,7 +13,7 @@
 | `digest_settings` | البريد، أيام الملخص (الافتراضي الأحد والأربعاء)، الساعة (٩ صباحاً)، توقيت الحساب، اللغة، وقت الموافقة ونسختها | `digest.enable` / `digest.update` |
 | `alert_marks` | بصمة كل تنبيه اتبعت (نوعه + العنصر + أول/آخر إرسال + آخر ظهور + اتحلّ إمتى) — عشان منكررش ونقول «حُلّت/مستمرة» | المُشغّل (`runner.ts`) |
 | `send_log` | كل رسالة: نوعها وحالتها ورقمها عند Resend — **من غير محتوى** | كل إرسال |
-| `pilot_requests` | طلبات الانضمام من نموذج `/join`: الاسم، النشاط، المتجر، البلد، المنصات، رابط فيسبوك، بريد Google، البريد، واتساب، وقت الموافقة على بند التجربة، والحالة (`new` / `activated`) | `join` (عام، من غير دخول) — صف واحد لكل بريد |
+| `pilot_requests` | طلبات الانضمام من نموذج `/join`: الصفة (`role`: مسؤول إعلانات / وكالة / صاحب متجر بيدير إعلاناته / صاحب متجر عنده مسؤول إعلانات)، الاسم، النشاط، المتجر، البلد، المنصات، رابط فيسبوك، بريد Google، البريد، واتساب، وقت الموافقة على بند التجربة، والحالة (`new` / `activated`) | `join` (عام، من غير دخول) — صف واحد لكل بريد |
 
 **مش بيتحفظ:** محتوى الملخصات والتنبيهات، أرقام الإعلانات، الصور، أي بيانات Google أو Snapchat، ومفاتيح Meta لغير من فعّل الملخص.
 
@@ -77,7 +77,9 @@ select s.account_id, s.summary_days, s.summary_hour, s.timezone, t.expires_at, t
 -- رسائل فشلت آخر أسبوع
 select account_id, type, error, sent_at from send_log where status = 'failed' and sent_at > now() - interval '7 days' order by sent_at desc;
 -- طلبات الانضمام اللي لسه متفعّلتش
-select created_at, name, business, email, platforms, fb_profile, google_email, submissions from pilot_requests where status = 'new' order by created_at desc;
+select created_at, role, name, business, email, platforms, fb_profile, google_email, submissions from pilot_requests where status = 'new' order by created_at desc;
+-- مين اللي بيطلب الانضمام (الصفة × البلد)
+select role, country, count(*) from pilot_requests group by 1, 2 order by 3 desc;
 ```
 
 ## حذف بيانات عميل عند طلبه (سياسة الخصوصية: خلال ٣٠ يوم)

@@ -1,6 +1,7 @@
 // صفحة /join — نموذج طلب الانضمام للتجربة (join.html) → دالة sync (action: join، في supabase/functions/sync/join.ts)
 // الدالة هي اللي بتتحقق فعلاً (وبترجّع اسم الحقل الغلط)، والتحقق هنا عشان العميل يعرف الغلط قبل ما يبعت.
 // حقل فيسبوك بيظهر بس لو اختار Meta، وبريد Google لو اختار Google Ads.
+// «أنت:» (role) إجباري وأول حاجة: مسؤول إعلانات / وكالة / صاحب متجر بيدير إعلاناته / صاحب متجر عنده مسؤول إعلانات.
 // ms = الوقت من فتح الصفحة لحد الإرسال، وhpx حقل مخفي — الاتنين للحماية من البرامج (الدالة بتتجاهل الطلب من غير ما تقول)
 (function () {
   var SYNC_URL = 'https://rhrrnxsgodiideqeollo.supabase.co/functions/v1/sync';
@@ -11,9 +12,10 @@
   if (!form) return;
 
   var MESSAGES = {
+    role: { ar: 'اختر ما يصفك من الخيارات أعلى النموذج.', en: 'Please choose what describes you at the top of the form.' },
     name: { ar: 'اكتب اسمك.', en: 'Please enter your name.' },
     business: { ar: 'اكتب اسم نشاطك التجاري.', en: 'Please enter your business name.' },
-    store: { ar: 'اكتب رابط متجرك، مثل example.com.', en: 'Please enter your store link, like example.com.' },
+    store: { ar: 'اكتب رابط المتجر، مثل example.com.', en: 'Please enter the store link, like example.com.' },
     country: { ar: 'اكتب البلد.', en: 'Please enter your country.' },
     platforms: { ar: 'اختر منصة واحدة على الأقل.', en: 'Please choose at least one platform.' },
     fb: { ar: 'الصق رابط حسابك الشخصي على فيسبوك، مثل facebook.com/اسمك.', en: 'Please paste your personal Facebook profile link, like facebook.com/yourname.' },
@@ -24,11 +26,13 @@
     busy: { ar: 'وصلتنا طلبات كثيرة الآن. حاول مرة أخرى بعد قليل، أو راسلنا على support@adscenter.online.', en: 'We\'re receiving a lot of requests right now. Please try again shortly, or email us at support@adscenter.online.' },
     failed: { ar: 'تعذّر إرسال الطلب الآن. حاول مرة أخرى بعد قليل، أو راسلنا على support@adscenter.online.', en: 'We couldn\'t send your request right now. Please try again shortly, or email us at support@adscenter.online.' }
   };
-  var FIELD_INPUT = { name: 'jName', business: 'jBusiness', store: 'jStore', country: 'jCountry', fb: 'jFb', email: 'jEmail', googleEmail: 'jGoogle', whatsapp: 'jWhatsapp', consent: 'jConsent' };
+  var FIELD_INPUT = { role: 'jRole1', name: 'jName', business: 'jBusiness', store: 'jStore', country: 'jCountry', fb: 'jFb', email: 'jEmail', googleEmail: 'jGoogle', whatsapp: 'jWhatsapp', consent: 'jConsent' };
   var EMAIL = /^[^@\s<>"',;]{1,64}@[^@\s<>"',;]{1,190}\.[A-Za-z]{2,24}$/;
 
   function lang() { return document.documentElement.lang === 'en' ? 'en' : 'ar'; }
   function value(name) { var el = form.elements[name]; return el ? String(el.value || '').trim() : ''; }
+  // مجموعة أزرار الاختيار (radio): القيمة المختارة، أو فاضي لو مفيش
+  function role() { var c = form.querySelector('input[name="role"]:checked'); return c ? c.value : ''; }
   function platforms() {
     return Array.prototype.filter.call(form.querySelectorAll('input[name="platforms"]'), function (c) { return c.checked; })
       .map(function (c) { return c.value; });
@@ -65,6 +69,7 @@
   // نفس قواعد الدالة تقريباً — اللي يعدّي هنا ويترفض هناك بيظهر بنفس الرسالة
   function firstProblem() {
     var chosen = platforms();
+    if (!role()) return 'role';
     if (!value('name')) return 'name';
     if (!value('business')) return 'business';
     if (!/\.[^.\s]{2,}/.test(value('store'))) return 'store';
@@ -93,6 +98,8 @@
 
   form.addEventListener('change', function (e) {
     if (e.target && e.target.name === 'platforms') syncPlatformFields();
+    // الغلط متعلّم على أول اختيار بس، فأي اختيار في المجموعة بيشيله
+    if (e.target && e.target.name === 'role' && form.querySelector('input[name="role"][aria-invalid]')) clearErrors();
   });
   form.addEventListener('input', function (e) {
     if (e.target && e.target.getAttribute('aria-invalid')) clearErrors();
@@ -104,7 +111,7 @@
     if (problem) { showError(problem); return; }
     var chosen = platforms();
     var body = {
-      action: 'join', lang: lang(), name: value('name'), business: value('business'), store: value('store'), country: value('country'),
+      action: 'join', lang: lang(), role: role(), name: value('name'), business: value('business'), store: value('store'), country: value('country'),
       platforms: chosen, fb: chosen.indexOf('meta') > -1 ? value('fb') : '', email: value('email'),
       googleEmail: chosen.indexOf('google') > -1 ? value('googleEmail') : '', whatsapp: value('whatsapp'),
       consent: form.elements.consent.checked, hp: value('hpx'), ms: Date.now() - started

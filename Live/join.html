@@ -45,20 +45,33 @@
 
   <section data-join-state="form">
     <h1><span class="only-ar">اطلب الانضمام إلى التجربة</span><span class="only-en">Request to join the pilot</span></h1>
-    <p><span class="only-ar">الأداة متاحة حالياً لعدد محدود من أصحاب المتاجر ضمن تجربة مغلقة. أرسل إلينا بياناتك، وسنراجع طلبك ونفعّل حسابك خلال ٢٤ ساعة، ثم نرسل إليك خطوات الربط على بريدك.</span><span class="only-en">The tool is currently available to a limited number of store owners in a closed pilot. Send us your details, and we'll review your request, activate your access within 24 hours and email you the connection steps.</span></p>
+    <p><span class="only-ar">الأداة متاحة حالياً لعدد محدود من مسؤولي الإعلانات والوكالات وأصحاب المتاجر ضمن تجربة مغلقة. أرسل إلينا بياناتك، وسنراجع طلبك ونفعّل حسابك خلال ٢٤ ساعة، ثم نرسل إليك خطوات الربط على بريدك.</span><span class="only-en">The tool is currently available to a limited number of media buyers, agencies and store owners in a closed pilot. Send us your details, and we'll review your request, activate your access within 24 hours and email you the connection steps.</span></p>
 
     <form id="joinForm" class="join-form" novalidate>
+      <!-- «أنت:» — مين اللي بيطلب (قرار صاحب المنتج ٥ أكتوبر ٢٠٢٦: الأداة الحالية لمسؤول الإعلانات، والسؤال ده
+           بيدّينا دليل من أول طلب بدل التخمين). القيم لازم تطابق ROLES في join.ts وقيد الجدول pilot_requests.role -->
+      <fieldset class="field">
+        <legend><span class="only-ar">أنت:</span><span class="only-en">You are:</span></legend>
+        <div class="checks">
+          <label class="check"><input type="radio" name="role" value="media_buyer" id="jRole1" required> <span><span class="only-ar">مسؤول إعلانات (مستقل أو لدى شركة)</span><span class="only-en">A media buyer (freelance or in-house)</span></span></label>
+          <label class="check"><input type="radio" name="role" value="agency"> <span><span class="only-ar">وكالة تسويق</span><span class="only-en">A marketing agency</span></span></label>
+          <label class="check"><input type="radio" name="role" value="owner_self"> <span><span class="only-ar">صاحب متجر، وأدير إعلاناتي بنفسي</span><span class="only-en">A store owner who runs their own ads</span></span></label>
+          <label class="check"><input type="radio" name="role" value="owner_managed"> <span><span class="only-ar">صاحب متجر، ويدير إعلاناتي مسؤول إعلانات أو وكالة</span><span class="only-en">A store owner whose ads are run by a media buyer or agency</span></span></label>
+        </div>
+      </fieldset>
+
       <div class="field">
         <label for="jName"><span class="only-ar">الاسم</span><span class="only-en">Your name</span></label>
         <input id="jName" name="name" type="text" autocomplete="name" maxlength="100" required>
       </div>
       <div class="field">
-        <label for="jBusiness"><span class="only-ar">اسم النشاط التجاري</span><span class="only-en">Business name</span></label>
+        <label for="jBusiness"><span class="only-ar">اسم النشاط التجاري (المتجر أو الوكالة)</span><span class="only-en">Business name (store or agency)</span></label>
         <input id="jBusiness" name="business" type="text" autocomplete="organization" maxlength="120" required>
       </div>
       <div class="field">
         <label for="jStore"><span class="only-ar">رابط المتجر</span><span class="only-en">Store link</span></label>
-        <input id="jStore" name="store" type="text" inputmode="url" autocomplete="url" maxlength="300" dir="ltr" placeholder="example.com" required>
+        <input id="jStore" name="store" type="text" inputmode="url" autocomplete="url" maxlength="300" dir="ltr" placeholder="example.com" required aria-describedby="jStoreHint">
+        <p class="hint" id="jStoreHint"><span class="only-ar">إن كنت تدير إعلانات أكثر من متجر، فاكتب رابط أحدها.</span><span class="only-en">If you run ads for several stores, enter one of them.</span></p>
       </div>
       <div class="field">
         <label for="jCountry"><span class="only-ar">البلد</span><span class="only-en">Country</span></label>

@@ -1,5 +1,6 @@
 // طلبات الانضمام للتجربة المغلقة (نموذج /join) — بدل رسالة البريد الجاهزة (mailto) اللي كانت بتضيع لو مفيش برنامج بريد
-//   join          ← { lang, name, business, store, country, platforms, fb?, googleEmail?, email, whatsapp?, consent: true, hp, ms }
+//   join          ← { lang, role, name, business, store, country, platforms, fb?, googleEmail?, email, whatsapp?, consent: true, hp, ms }
+//                    role = «أنت:» في النموذج (من ٥ أكتوبر ٢٠٢٦): media_buyer / agency / owner_self / owner_managed
 //                    عام (من غير دخول): بيتحفظ في pilot_requests، ويوصلنا إشعار على support@ فيه البيانات وزرار «أرسلت الدعوة»
 //   join.peek     ← { id, sig }  صفحة /invited (الرابط الموقّع اللي في إشعارنا): بيانات الطلب عشان نراجعها قبل الإرسال
 //   join.activate ← { id, sig }  بيبعت للعميل رسالة التفعيل (قبول دعوة فيسبوك من الموبايل أو الكمبيوتر + الربط) ويعلّم الطلب
@@ -18,6 +19,11 @@ import { linkSig, sameString, cleanEmail } from './digest.ts';
 const CONSENT_VERSION = '2026-10-01';
 const SIG_LABEL = 'ads-center/join-invited/v1:';
 const PLATFORMS = ['meta', 'google', 'snapchat', 'tiktok'];
+// «أنت:» — لازم تطابق join.html وقيد الجدول (pilot_requests.role). الأسماء دي اللي بتظهر في إشعارنا وصفحة /invited
+const ROLES: Record<string, string> = {
+  media_buyer: 'مسؤول إعلانات', agency: 'وكالة تسويق',
+  owner_self: 'صاحب متجر يدير إعلاناته بنفسه', owner_managed: 'صاحب متجر يدير إعلاناته مسؤول إعلانات أو وكالة'
+};
 const HOURLY_MAX = 30;                 // أكتر من كده في الساعة = حد بيغرقنا — بنرفض لحد ما الساعة تعدّي
 const MIN_FILL_MS = 2500;              // أسرع من كده = برنامج مش إنسان: بنرد «تم» من غير ما نحفظ
 const REPEAT_QUIET_MS = 10 * 60000;    // نفس البريد بعت تاني خلال ١٠ دقايق: بنحدّث الطلب من غير إشعار جديد
@@ -28,11 +34,11 @@ const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const FB_REQUESTS = 'https://www.facebook.com/settings/?tab=applications';
 
 type Req = {
-  id: string; email: string; name: string; business: string; store_url: string; country: string; platforms: string[];
+  id: string; email: string; role: string | null; name: string; business: string; store_url: string; country: string; platforms: string[];
   fb_profile: string | null; google_email: string | null; whatsapp: string | null; lang: string; status: string;
   submissions: number; activated_at: string | null; created_at: string; updated_at: string;
 };
-const COLUMNS = 'id,email,name,business,store_url,country,platforms,fb_profile,google_email,whatsapp,lang,status,submissions,activated_at,created_at,updated_at';
+const COLUMNS = 'id,email,role,name,business,store_url,country,platforms,fb_profile,google_email,whatsapp,lang,status,submissions,activated_at,created_at,updated_at';
 
 // ---------- تنظيف المدخلات ----------
 // سطر واحد: من غير رموز تحكم ولا علامات اتجاه (بتلخبط العرض في الإشعار)، والمسافات الزيادة بتتشال
@@ -84,7 +90,7 @@ async function one(query: string): Promise<Req | null> {
 const sigOf = (id: string) => linkSig(SIG_LABEL, 'join:' + id);
 function publicView(r: Req) {
   return {
-    name: r.name, business: r.business, email: r.email, store: r.store_url, country: r.country, platforms: r.platforms,
+    role: r.role ? ROLES[r.role] || r.role : null, name: r.name, business: r.business, email: r.email, store: r.store_url, country: r.country, platforms: r.platforms,
     fb: r.fb_profile, googleEmail: r.google_email, whatsapp: r.whatsapp, lang: r.lang, status: r.status,
     submissions: r.submissions, activatedAt: r.activated_at, createdAt: r.created_at
   };
@@ -116,12 +122,14 @@ function hoursAr(n: number): string {
 // remind = تذكير الطلب المتأخر (joinReminders): نفس الإشعار بعنوان وتنبيه في أوله
 async function adminMail(r: Req, repeat: boolean, remind?: { elapsed: number; left: number }) {
   const has = (p: string) => r.platforms.indexOf(p) > -1;
+  const role = r.role ? ROLES[r.role] || r.role : '';
   const subject = remind
     ? (remind.left > 0 ? 'تذكير: باقٍ ' + hoursAr(remind.left) + ' على موعد تفعيل ' : 'تذكير: تجاوز موعد الـ٢٤ ساعة لتفعيل ') + r.name + ' — ' + r.business
-    : (repeat ? 'تحديث طلب انضمام: ' : 'طلب انضمام جديد: ') + r.name + ' — ' + r.business;
+    : (repeat ? 'تحديث طلب انضمام: ' : 'طلب انضمام جديد: ') + r.name + ' — ' + r.business + (role ? ' (' + role + ')' : '');
   const td = 'padding:6px 0;border-bottom:1px solid #e5e7eb;vertical-align:top';
   const row = (k: string, v: string) => '<tr><td style="' + td + ';' + MUTED + ';white-space:nowrap;padding-inline-end:14px">' + k + '</td><td style="' + td + '">' + v + '</td></tr>';
   const rows = [
+    role ? row('الصفة', esc(role)) : '',
     row('الاسم', esc(r.name)), row('النشاط', esc(r.business)), row('المتجر', link(r.store_url)), row('البلد', esc(r.country)),
     row('المنصات', esc(r.platforms.map((p) => NAMES[p] || p).join('، '))),
     r.fb_profile ? row('فيسبوك', link(r.fb_profile)) : '',
@@ -243,6 +251,8 @@ async function submit(b: any, origin: string | null): Promise<Response> {
   // الحقل المخفي اتملا، أو النموذج اتملا في أقل من ثانيتين ونص: برنامج — بنرد عادي من غير ما نحفظ حاجة
   if ((typeof b.hp === 'string' && b.hp) || !(Number(b.ms) >= MIN_FILL_MS)) return reply(200, { ok: true }, origin);
   const lang = b.lang === 'en' ? 'en' : 'ar';
+  const role = typeof b.role === 'string' && Object.prototype.hasOwnProperty.call(ROLES, b.role) ? b.role : null;
+  if (!role) return bad('role');
   const name = line(b.name, 100); if (!name) return bad('name');
   const business = line(b.business, 120); if (!business) return bad('business');
   const store = cleanStore(b.store); if (!store) return bad('store');
@@ -263,7 +273,7 @@ async function submit(b: any, origin: string | null): Promise<Response> {
   if (Array.isArray(recent) && recent.length > HOURLY_MAX) return reply(429, { error: 'busy' }, origin);
 
   const now = new Date().toISOString();
-  const fields = { name, business, store_url: store, country, platforms, fb_profile: fb, google_email: google, whatsapp, lang,
+  const fields = { role, name, business, store_url: store, country, platforms, fb_profile: fb, google_email: google, whatsapp, lang,
     consent_at: now, consent_version: CONSENT_VERSION, updated_at: now };
   const prev = await one('email=eq.' + encodeURIComponent(email));
   let row: Req;

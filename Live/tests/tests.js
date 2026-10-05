@@ -1146,9 +1146,18 @@
       return fetch('/join.html?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (html) {
         var doc = new DOMParser().parseFromString(html, 'text/html'), form = doc.getElementById('joinForm');
         ok(form, 'form');
-        ['name', 'business', 'store', 'country', 'fb', 'email', 'googleEmail', 'whatsapp', 'consent', 'hpx'].forEach(function (n) {
+        ['role', 'name', 'business', 'store', 'country', 'fb', 'email', 'googleEmail', 'whatsapp', 'consent', 'hpx'].forEach(function (n) {
           ok(form.elements[n], 'field: ' + n);
         });
+        // «أنت:» أول حاجة في النموذج، وقيمها نفس ROLES في join.ts وقيد الجدول (pilot_requests.role)
+        var roles = form.querySelectorAll('input[name="role"]');
+        eq(Array.prototype.map.call(roles, function (c) { return c.type + ':' + c.value; }),
+          ['radio:media_buyer', 'radio:agency', 'radio:owner_self', 'radio:owner_managed']);
+        eq(form.querySelector('input, select, textarea').name, 'role', 'role comes first');
+        ok(Array.prototype.every.call(roles, function (c) {
+          var l = c.closest('label');
+          return l.querySelector('.only-ar').textContent.trim() && l.querySelector('.only-en').textContent.trim();
+        }), 'every choice in both languages');
         eq(Array.prototype.map.call(form.querySelectorAll('input[name="platforms"]'), function (c) { return c.value; }), ['meta', 'google', 'snapchat', 'tiktok']);
         ok(form.elements.consent.required, 'consent required');
         ok(form.querySelector('.consent .only-ar a[href="/terms#pilot"]') && form.querySelector('.consent .only-en a[href="/terms#pilot-en"]'), 'links the pilot terms');
@@ -1402,7 +1411,7 @@
       }));
     });
     // js/join-form.js على مقاس موبايل: الطلب بيتبعت لدالة sync (fetch وهمي هنا — مفيش طلب حقيقي)
-    testAsync('نموذج الانضمام: حقل فيسبوك مع Meta بس، والغلط بيظهر على الحقل، والطلب بيتبعت كامل', function () {
+    testAsync('نموذج الانضمام: «أنت:» إجباري، وحقل فيسبوك مع Meta بس، والغلط بيظهر على الحقل، والطلب بيتبعت كامل', function () {
       var f;
       return framePage('/join.html', 375, 800).then(function (fr) {
         f = fr;
@@ -1413,7 +1422,11 @@
         ok(!fbBox.hidden && googleBox.hidden, 'facebook field shows with Meta only');
         form.requestSubmit();
         ok(!err.hidden && err.textContent, 'error shown');
-        eq(d.activeElement && d.activeElement.id, 'jName', 'focus on the first wrong field');
+        eq(d.activeElement && d.activeElement.id, 'jRole1', 'focus on the first wrong field («أنت:»)');
+        form.querySelector('input[name="role"][value="agency"]').click();
+        ok(err.hidden && !form.querySelector('[aria-invalid]'), 'choosing any role clears the error');
+        form.requestSubmit();
+        eq(d.activeElement && d.activeElement.id, 'jName', 'then the name');
         function set(id, v) { d.getElementById(id).value = v; }
         set('jName', 'Test'); set('jBusiness', 'Shop'); set('jStore', 'shop.example'); set('jCountry', 'مصر');
         set('jFb', 'facebook.com/test.user'); set('jEmail', 'a@b.co');
@@ -1425,7 +1438,7 @@
         form.requestSubmit();
         return new Promise(function (r) { setTimeout(r, 30); }).then(function () {
           ok(sent, 'sent');
-          eq([sent.action, sent.platforms, sent.fb, sent.email, sent.googleEmail, sent.consent, sent.hp], ['join', ['meta'], 'facebook.com/test.user', 'a@b.co', '', true, '']);
+          eq([sent.action, sent.role, sent.platforms, sent.fb, sent.email, sent.googleEmail, sent.consent, sent.hp], ['join', 'agency', ['meta'], 'facebook.com/test.user', 'a@b.co', '', true, '']);
           ok(sent.ms >= 0, 'fill time');
           ok(d.querySelector('[data-join-state="form"]').hidden && !d.querySelector('[data-join-state="done"]').hidden, 'done state');
         });
