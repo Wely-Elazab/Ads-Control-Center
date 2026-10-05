@@ -1857,6 +1857,14 @@
           return w.default.fetch(new Request('https://www.adscenter.online/help?x=1'), fakeEnv());
         }).then(function (res) {
           eq([res.status, res.headers.get('Location')], [301, 'https://adscenter.online/help?x=1'], 'www redirect');
+          // من غير تشفير (http) بيتحوّل لـ https بنفس المسار — الصفحات والـ API
+          return Promise.all(['http://adscenter.online/app?x=1', 'http://adscenter.online/', 'http://www.adscenter.online/join', 'http://adscenter.online/api/google-token']
+            .map(function (u) { return w.default.fetch(new Request(u), fakeEnv()); }));
+        }).then(function (list) {
+          eq(list.map(function (r) { return r.status + ' ' + r.headers.get('Location'); }), [
+            '301 https://adscenter.online/app?x=1', '301 https://adscenter.online/', '301 https://adscenter.online/join', '301 https://adscenter.online/api/google-token'
+          ], 'http → https');
+          ok(list[0].headers.get('Strict-Transport-Security'), 'HSTS on the redirect too');
         });
       });
     });

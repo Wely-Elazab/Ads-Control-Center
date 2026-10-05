@@ -189,6 +189,14 @@ export default {
       return withSecurityHeaders(new Response(null, { status: 301, headers: { Location: 'https://' + url.hostname.slice(4) + path + url.search } }));
     }
 
+    // http://adscenter.online → https بنفس المسار. قبل كده كل الصفحات (حتى /app) كانت بتفتح من غير تشفير،
+    // وده بيبان ثغرة في أي فحص أمني للنطاق (TikTok رفض ملف المطوّر ٥ أكتوبر ٢٠٢٦ «بسبب أمان النطاق»).
+    // HSTS لوحده مش كفاية: المتصفح بيتجاهله على http ومبيعرفوش غير بعد أول زيارة https.
+    // على localhost (صفحة الاختبارات المحلية) مفيش تحويل
+    if (url.protocol === 'http:' && url.hostname === 'adscenter.online') {
+      return withSecurityHeaders(new Response(null, { status: 301, headers: { Location: 'https://' + url.hostname + path + url.search } }));
+    }
+
     if (path.indexOf('/api/') === 0) {
       const name = path.slice(5).replace(/\/+$/, '');
       if (Object.prototype.hasOwnProperty.call(HANDLERS, name)) {
