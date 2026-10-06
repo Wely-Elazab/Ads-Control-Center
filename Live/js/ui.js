@@ -1598,7 +1598,7 @@
     var pp = platOf(c);
     var boxes;
     if (pp && p.results != null) {
-      // Meta وSnapchat: الأرقام الأساسية «الأقرب للمتجر» جنب رقم المنصة والفرق — مكان المربعات الخمسة
+      // Meta وSnapchat وGoogle: الأرقام الأساسية «الأقرب للمتجر» جنب رقم المنصة والفرق — مكان المربعات الخمسة
       boxes = compareMarkup(c, p, pp, hl, pl);
       if (c.frequency != null) boxes += metricBox(t('x.freq'), numAr(c.frequency) + ' ' + I18N.measureNoun(c.frequency, 'n.time'), mv(c, 'frequency'));
     } else {

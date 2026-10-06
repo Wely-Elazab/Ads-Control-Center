@@ -2,7 +2,7 @@
 // GOOGLE_ADS_DEVELOPER_TOKEN اختياري: من ٩ سبتمبر ٢٠٢٦ Google بتحدد الصلاحية من مشروع Google Cloud
 // اللي طلع منه مفتاح الدخول، والـ developer token لو اتبعت بيتجاهل (بنسيبه لو موجود للتوافق)
 
-import { gaql, adKey, missingSpendKeys } from './_google.js';
+import { gaql, adKey, missingSpendKeys, STORE_SEGMENTS, STORE_FILTER, storeRow } from './_google.js';
 import { last7DaysRange, resolvePeriod } from './_dates.js';
 import { guardRequest } from './_cors.js';
 import { verifyGoogleToken, sendVerifyFailure } from './_verify.js';
@@ -107,6 +107,16 @@ export default async function handler(req, res) {
   const pmaxRows = (since, until, daily) => gaql(opts, pmaxQuery(true, since, until, daily))
     .catch(function () { return gaql(opts, pmaxQuery(false, since, until, daily)); });
 
+  // «الأقرب للمتجر» جنب أرقام المنصة (_google.js): استعلامات تحويلات بس، للإعلانات ولحملات PMax، لآخر ٧ أيام
+  // وللفترة المختارة. فشلها = null، والأداة بتعرض رقم المنصة زي الأول من غير مقارنة
+  const storeQuery = (from, select, since, until, daily, where) => `
+    SELECT ${select},${daily ? ' segments.date,' : ''} ${STORE_SEGMENTS}, metrics.conversions, metrics.conversions_value
+    FROM ${from}
+    WHERE segments.date BETWEEN '${since}' AND '${until}'${where || ''}${STORE_FILTER}
+  `;
+  const storeRows = (query) => gaql(opts, query).then(function (rows) { return rows.filter(storeRow); }).catch(function () { return null; });
+  const PMAX_ONLY = " AND campaign.advertising_channel_type = 'PERFORMANCE_MAX'";
+
   try {
     // مجاميع الفترة المختارة: صف واحد لكل إعلان (من غير تقسيم بالأيام). آخر ٧ أيام مش محتاجة طلب إضافي
     const periodQuery = `
@@ -119,7 +129,15 @@ export default async function handler(req, res) {
     const pmaxDaily = pmaxRows(range.since, range.until, true).catch(function (err) { return { error: String(err && err.message ? err.message : err) }; });
     const pmaxPeriod = periodRange.isDefault ? Promise.resolve(null) : pmaxRows(periodRange.since, periodRange.until, false).catch(function () { return null; });
 
-    const results = await Promise.all([adsWhere(ACTIVE_ONLY), gaql(opts, metricsQuery), periodRows, pmaxDaily, pmaxPeriod]);
+    const custom = !periodRange.isDefault;
+    const store = Promise.all([
+      storeRows(storeQuery('ad_group_ad', 'ad_group.id, ad_group_ad.ad.id', range.since, range.until, true)),
+      custom ? storeRows(storeQuery('ad_group_ad', 'ad_group.id, ad_group_ad.ad.id', periodRange.since, periodRange.until, false)) : null,
+      storeRows(storeQuery('campaign', 'campaign.id', range.since, range.until, true, PMAX_ONLY)),
+      custom ? storeRows(storeQuery('campaign', 'campaign.id', periodRange.since, periodRange.until, false, PMAX_ONLY)) : null
+    ]);
+
+    const results = await Promise.all([adsWhere(ACTIVE_ONLY), gaql(opts, metricsQuery), periodRows, pmaxDaily, pmaxPeriod, store]);
     let ads = results[0];
 
     // إعلانات اتحذفت بعد ما صرفت في الفترة: بنجيبها برقمها (حتى لو محذوفة) عشان صرفها يتحسب.
@@ -134,12 +152,15 @@ export default async function handler(req, res) {
       }
     }
 
-    const pmax = results[3];
+    const pmax = results[3], st = results[5];
     res.status(200).json({
       ads: ads, metrics: results[1], periodMetrics: results[2],
       pmax: Array.isArray(pmax) ? pmax : null,
       pmaxPeriod: Array.isArray(results[4]) ? results[4] : null,
       pmaxError: pmax && !Array.isArray(pmax) ? pmax.error : null,
+      // «الأقرب للمتجر»: الفترة بتيجي بس لو أرقام المنصة للفترة نفسها رجعت (عشان المقارنة تبقى على نفس الأيام)
+      storeMetrics: st[0], storePeriodMetrics: results[2] ? st[1] : null,
+      storePmax: Array.isArray(pmax) ? st[2] : null, storePmaxPeriod: Array.isArray(results[4]) ? st[3] : null,
       range: range, period: periodRange
     });
   } catch (err) {

@@ -7,8 +7,12 @@
 // الشراء من «التحويلات» الأساسية (نفس عمود Conversions في Google Ads) — ولو الحساب حاطط الشراء كإجراء ثانوي
 // (أساسي = صفر وكل التحويلات > صفر) بنرجع لـ «كل التحويلات». السلة وبدء الدفع من «كل التحويلات» دايماً،
 // لأنهم غالباً إجراءات ثانوية مش بيتحسّن عليها. لم يُختبر على حساب Google حقيقي بعد.
+//
+// التحويلات على «الأقرب للمتجر» زي الإعلانات (_google.js): الحساب يوم بيوم والحملات والشبكة. الجهاز والدولة Google
+// مبيسمحش فيهم بالتقسيمين، فبيفضلوا بأرقام المنصة — والمحرك بيوقف تحليل الطلبات عليهم لوحده لو مطلعوش مطابقين للإجمالي.
+// لو استعلام الحساب اليومي رفض الفلتر، الملخص كله بيرجع لأرقام المنصة (قرار واحد عشان المصادر متتلخبطش)
 
-import { gaql } from './_google.js';
+import { gaql, STORE_SEGMENTS, STORE_FILTER, storeRow } from './_google.js';
 import { guardRequest } from './_cors.js';
 import { verifyGoogleToken, sendVerifyFailure } from './_verify.js';
 import { text, shaped, TOKEN_MAX, badRequest } from './_input.js';
@@ -41,12 +45,12 @@ export function googleGoal(c) {
 
 // التقسيمات: from = الجدول، key/name/goal = إزاي نطلّع مفتاح الجزء واسمه وهدفه من الصف
 const DIMS = [
-  { id: 'campaign', from: 'campaign', select: 'campaign.id, campaign.name, campaign.advertising_channel_type, campaign.bidding_strategy_type',
+  { id: 'campaign', from: 'campaign', store: true, select: 'campaign.id, campaign.name, campaign.advertising_channel_type, campaign.bidding_strategy_type',
     key: function (r) { return r.campaign && r.campaign.id; }, name: function (r) { return r.campaign && r.campaign.name; },
     goal: function (r) { return googleGoal(r.campaign); } },
   { id: 'gDevice', from: 'customer', select: 'segments.device',
     key: function (r) { return r.segments && r.segments.device; } },
-  { id: 'network', from: 'customer', select: 'segments.ad_network_type',
+  { id: 'network', from: 'customer', store: true, select: 'segments.ad_network_type',
     key: function (r) { return r.segments && r.segments.adNetworkType; } },
   { id: 'country', from: 'user_location_view', select: 'user_location_view.country_criterion_id',
     key: function (r) {
@@ -72,19 +76,28 @@ export default async function handler(req, res) {
   const costQuery = function (select, from, r) {
     return 'SELECT segments.date, ' + (select ? select + ', ' : '') + 'metrics.cost_micros, metrics.impressions, metrics.clicks FROM ' + from + ' WHERE ' + between(r);
   };
-  const convQuery = function (select, from, r) {
-    return 'SELECT segments.date, ' + (select ? select + ', ' : '') + 'segments.conversion_action_category, metrics.conversions, metrics.all_conversions, ' +
-      'metrics.conversions_value, metrics.all_conversions_value FROM ' + from + ' WHERE ' + between(r) +
-      " AND segments.conversion_action_category IN ('PURCHASE', 'ADD_TO_CART', 'BEGIN_CHECKOUT')";
+  const convQuery = function (select, from, r, store) {
+    return 'SELECT segments.date, ' + (select ? select + ', ' : '') + 'segments.conversion_action_category, ' + (store ? STORE_SEGMENTS + ', ' : '') +
+      'metrics.conversions, metrics.all_conversions, metrics.conversions_value, metrics.all_conversions_value FROM ' + from + ' WHERE ' + between(r) +
+      " AND segments.conversion_action_category IN ('PURCHASE', 'ADD_TO_CART', 'BEGIN_CHECKOUT')" + (store ? STORE_FILTER : '');
+  };
+  const conv = function (select, from, r, store) {
+    return store ? gaql(opts, convQuery(select, from, r, true)).then(function (rows) { return rows.filter(storeRow); }) : gaql(opts, convQuery(select, from, r, false));
   };
 
   try {
-    const dailyP = Promise.all([gaql(opts, costQuery('', 'customer', ranges.daily)), gaql(opts, convQuery('', 'customer', ranges.daily))]);
-    const dimPs = DIMS.map(function (d) {
-      return Promise.all([gaql(opts, costQuery(d.select, d.from, span)), gaql(opts, convQuery(d.select, d.from, span))])
-        .catch(function (e) { return { error: String(e && e.message ? e.message : e) }; });
-    });
-    const dailyRes = await dailyP;
+    const costDaily = gaql(opts, costQuery('', 'customer', ranges.daily));
+    costDaily.catch(function () {});   // الخطأ بيتعامل معاه تحت (await) — ده بس عشان ميتسجّلش «رفض من غير معالجة» وإحنا مستنيين التحويلات
+    const runDims = function (store) {
+      return DIMS.map(function (d) {
+        return Promise.all([gaql(opts, costQuery(d.select, d.from, span)), conv(d.select, d.from, span, store && d.store)])
+          .catch(function (e) { return { error: String(e && e.message ? e.message : e) }; });
+      });
+    };
+    let store = true, dimPs = runDims(true);
+    let convDaily = await conv('', 'customer', ranges.daily, true).catch(function () { store = false; return null; });
+    if (!store) { dimPs = runDims(false); convDaily = await conv('', 'customer', ranges.daily, false); }
+    const dailyRes = [await costDaily, convDaily];
     const dimRes = await Promise.all(dimPs);
 
     // الشراء أساسي ولا ثانوي في الحساب ده؟ (من الأرقام اليومية كلها)
@@ -122,6 +135,7 @@ export default async function handler(req, res) {
       daily: dxDaily(toRows(dailyRes[0], dailyRes[1])),
       dims: dims,
       purchases: usePrimary ? 'primary' : (all > 0 ? 'all' : 'none'),
+      numbers: store ? 'store' : 'platform',
       dimErrors: DIMS.map(function (d, i) { return Array.isArray(dimRes[i]) ? null : { id: d.id, error: dimRes[i].error }; }).filter(Boolean)
     });
   } catch (err) {

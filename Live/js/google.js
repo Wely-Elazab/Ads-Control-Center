@@ -192,14 +192,15 @@
       }
       var days = daysFromRange(payload.range);
       // حملات Performance Max بتتعرض ككارت لكل حملة جنب الإعلانات (Google مبترجّعش إعلاناتها منفصلة)
-      var pmaxCandidates = transformGooglePmax(payload.pmax, payload.pmaxPeriod, days, info.currency);
+      var pmaxCandidates = transformGooglePmax(payload.pmax, payload.pmaxPeriod, days, info.currency, payload.storePmax, payload.storePmaxPeriod);
       if ((!payload.ads || !payload.ads.length) && !pmaxCandidates.length) {
         setPlatformState('google', { kind: 'empty' });
         setLoading('google', false, msg('s.noAdsGoogle'));
         render();
         return;
       }
-      var googleCandidates = transformGoogleRows(payload.ads || [], payload.metrics || [], days, info.currency, payload.periodMetrics).concat(pmaxCandidates);
+      var googleCandidates = transformGoogleRows(payload.ads || [], payload.metrics || [], days, info.currency, payload.periodMetrics,
+        payload.storeMetrics, payload.storePeriodMetrics).concat(pmaxCandidates);
       mergeCandidates(googleCandidates, 'google:' + customerId);
       cacheSource('google:' + customerId, googleCandidates);
       setPlatformState('google', null);
@@ -295,8 +296,58 @@
     if (camp.status && camp.status !== 'ENABLED') return { active: false, level: 'campaign', reason: null };
     return { active: true, level: null, reason: null };
   }
+  // ---------- «الأقرب للمتجر» (api/_google.js) ----------
+  // صفوف تحويلات بس (النقرة خلال ٧ أيام) — بنجمعها لكل مفتاح، ولكل يوم لو daily. null = مفيش مقارنة
+  function googleStoreSums(rows, keyOf, daily) {
+    if (!Array.isArray(rows)) return null;
+    var out = {};
+    rows.forEach(function (row) {
+      var k = keyOf(row), date = ggPick(row, 'segments.date');
+      if (!k || (daily && !date)) return;
+      var m = row.metrics || {};
+      var acc;
+      if (daily) { var byDay = out[k] = out[k] || {}; acc = byDay[date] = byDay[date] || { results: 0, sales: 0 }; }
+      else acc = out[k] = out[k] || { results: 0, sales: 0 };
+      acc.results += parseFloat(m.conversions || 0);
+      acc.sales += parseFloat(m.conversionsValue || 0);
+    });
+    return out;
+  }
+  // يوم بيوم: الصرف، والنتائج والمبيعات = «الأقرب للمتجر» لو موجود (ومش أكبر من رقم المنصة في أي يوم)، وإلا رقم المنصة.
+  // تحويلات Google ممكن تكون كسور (٠٫٥ تحويلة مثلاً) — بنجمع القيم الأصلية ونقرّب الإجمالي بس،
+  // عشان أيام فيها كسور صغيرة ماتتحسبش صفر
+  function googleDays(days, perDay, storeDay) {
+    var o = { daily: [], dailyResults: [], dailySales: [], raw: 0, platRaw: 0, platSales: 0 };
+    days.forEach(function (day) {
+      var r = perDay[day.key], res = r ? r.results : 0, sales = r ? r.sales : 0;
+      o.platRaw += res; o.platSales += sales;
+      if (storeDay) {
+        var s = storeDay[day.key];
+        res = Math.min(s ? s.results : 0, res);
+        sales = Math.min(s ? r2(s.sales) : 0, sales);
+      }
+      o.daily.push(r ? r.spend : 0);
+      o.raw += res;
+      o.dailyResults.push(Math.round(res));
+      o.dailySales.push(sales);
+    });
+    return o;
+  }
+  // الفترة المختارة: «الأقرب للمتجر» ورقم المنصة جنبه (core.js platOf)، ولو طلبه فشل رقم المنصة من غير مقارنة
+  function googlePeriod(pRow, ps) {
+    if (!pRow) return null;
+    if (!ps) return buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales);
+    var p = buildPeriod(pRow.spend, Math.round(Math.min(ps.results, pRow.results)), Math.min(ps.sales, pRow.sales));
+    p.plat = { results: Math.round(pRow.results), sales: r2(pRow.sales) };
+    return p;
+  }
+
   // dailyRows: صف لكل حملة × يوم فيه صرف (آخر ٧ أيام) — periodRows: صف لكل حملة في الفترة المختارة
-  function transformGooglePmax(dailyRows, periodRows, days, currency) {
+  // storeDaily/storePeriod: «الأقرب للمتجر» لنفس الحملات (null = مفيش مقارنة)
+  function transformGooglePmax(dailyRows, periodRows, days, currency, storeDaily, storePeriod) {
+    var campOf = function (row) { return ggPick(row, 'campaign.id'); };
+    var storeByDate = googleStoreSums(storeDaily, campOf, true);
+    var storeTotals = Array.isArray(periodRows) ? googleStoreSums(storePeriod, campOf, false) : null;
     var byCamp = {}, order = [];
     var entry = function (camp) {
       if (!byCamp[camp.id]) { byCamp[camp.id] = { camp: camp, perDay: {}, period: null }; order.push(camp.id); }
@@ -328,16 +379,10 @@
       var e = byCamp[campId], camp = e.camp;
       var id = 'gp-' + campId;
       var delivery = googleCampaignDelivery(camp);
-      var daily = [], dailyResults = [], dailySales = [], rawResults = 0;
-      days.forEach(function (day) {
-        var r = e.perDay[day.key];
-        daily.push(r ? r.spend : 0);
-        rawResults += r ? r.results : 0;
-        dailyResults.push(r ? Math.round(r.results) : 0);
-        dailySales.push(r ? r.sales : 0);
-      });
+      var g = googleDays(days, e.perDay, storeByDate && (storeByDate[campId] || {}));
+      var daily = g.daily, dailyResults = g.dailyResults, dailySales = g.dailySales;
       var spend = daily.reduce(function (a, b) { return a + b; }, 0);
-      var totalResults = Math.round(rawResults);
+      var totalResults = Math.round(g.raw);
       var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
       var pRow = Array.isArray(periodRows) ? (e.period || { spend: 0, results: 0, sales: 0 }) : null;
       var name = camp.name || ('Performance Max #' + campId);
@@ -363,7 +408,8 @@
         pausedLevel: delivery.level,
         deliveryReason: delivery.reason || null,
         platformStatus: camp.primaryStatus || camp.status || null,
-        period: pRow ? buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales) : null,
+        period: googlePeriod(pRow, storeTotals && (storeTotals[campId] || { results: 0, sales: 0 })),
+        plat: storeByDate ? { results: Math.round(g.platRaw), sales: r2(g.platSales) } : null,
         fail: false
       };
     });
@@ -371,7 +417,11 @@
 
   // adRows: كل الإعلانات بحالتها (من غير تاريخ) — metricRows: صف لكل إعلان × يوم فيه نشاط
   // المفتاح adGroupId-adId لأن نفس الإعلان ممكن يتكرر في أكتر من مجموعة إعلانية
-  function transformGoogleRows(adRows, metricRows, days, currency, periodRows) {
+  // storeRows/storePeriodRows: «الأقرب للمتجر» لنفس الإعلانات (null = مفيش مقارنة)
+  function transformGoogleRows(adRows, metricRows, days, currency, periodRows, storeRows, storePeriodRows) {
+    var adKeyOf = function (row) { var g = ggPick(row, 'adGroup.id'), a = ggPick(row, 'adGroupAd.ad.id'); return g && a ? g + '-' + a : null; };
+    var storeByDate = googleStoreSums(storeRows, adKeyOf, true);
+    var storeTotals = Array.isArray(periodRows) ? googleStoreSums(storePeriodRows, adKeyOf, false) : null;
     var byDate = {};
     metricRows.forEach(function (row) {
       var key = ggPick(row, 'adGroup.id') + '-' + ggPick(row, 'adGroupAd.ad.id');
@@ -410,20 +460,10 @@
       var adStatus = ggPick(row, 'adGroupAd.status'), agStatus = ggPick(row, 'adGroup.status'), campStatus = ggPick(row, 'campaign.status');
       var approval = ggPick(row, 'adGroupAd.policySummary.approvalStatus');
       var delivery = googleDelivery(row, adStatus, agStatus, campStatus, approval);
-      var perDay = byDate[key] || {};
-      var daily = [], dailyResults = [], dailySales = [];
-      // تحويلات Google ممكن تكون كسور (٠٫٥ تحويلة مثلاً) — بنجمع القيم الأصلية ونقرّب الإجمالي بس،
-      // عشان أيام فيها كسور صغيرة ماتتحسبش صفر
-      var rawResults = 0;
-      days.forEach(function (day) {
-        var r = perDay[day.key];
-        daily.push(r ? r.spend : 0);
-        rawResults += r ? r.results : 0;
-        dailyResults.push(r ? Math.round(r.results) : 0);
-        dailySales.push(r ? r.sales : 0);
-      });
+      var g = googleDays(days, byDate[key] || {}, storeByDate && (storeByDate[key] || {}));
+      var daily = g.daily, dailyResults = g.dailyResults, dailySales = g.dailySales;
       var spend = daily.reduce(function (a, b) { return a + b; }, 0);
-      var totalResults = Math.round(rawResults);
+      var totalResults = Math.round(g.raw);
       var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
       return {
         id: id, platform: 'Google Ads', currency: currency || null,
@@ -452,7 +492,8 @@
         pausedLevel: delivery.level,
         deliveryReason: delivery.reason || null,
         platformStatus: ggPick(row, 'adGroupAd.primaryStatus') || adStatus || null,
-        period: pRow ? buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales) : null,
+        period: googlePeriod(pRow, storeTotals && (storeTotals[key] || { results: 0, sales: 0 })),
+        plat: storeByDate ? { results: Math.round(g.platRaw), sales: r2(g.platSales) } : null,
         _resourceName: row.adGroupAd && row.adGroupAd.resourceName,
         fail: false
       };

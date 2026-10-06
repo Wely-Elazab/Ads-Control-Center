@@ -3,6 +3,20 @@
 
 export const GOOGLE_ADS_API = 'https://googleads.googleapis.com/v24';
 
+// «الأقرب للمتجر» (قرار ٦ أكتوبر ٢٠٢٦): التحويلات اللي Google بينسبها لنقرة على الإعلان (مش ظهور ولا مشاهدة فيديو)
+// وحصلت خلال ٧ أيام منها. التقسيمين دول بيتطلبوا مع مقاييس التحويلات بس (مش الصرف والنقرات)، ومش متاحين
+// مع الجهاز (segments.device) ولا الدولة (user_location_view). «آخر نقرة» مش ممكنة من الاستعلام: نموذج الإسناد
+// متحدد على إجراء التحويل نفسه. Google بيقول إن الأيام محسوبة «من الظهور» — لم يُختبر على حساب حقيقي بعد
+export const STORE_LAGS = ['LESS_THAN_ONE_DAY', 'ONE_TO_TWO_DAYS', 'TWO_TO_THREE_DAYS', 'THREE_TO_FOUR_DAYS', 'FOUR_TO_FIVE_DAYS', 'FIVE_TO_SIX_DAYS', 'SIX_TO_SEVEN_DAYS'];
+export const STORE_SEGMENTS = 'segments.conversion_attribution_event_type, segments.conversion_lag_bucket';
+export const STORE_FILTER = " AND segments.conversion_attribution_event_type = 'INTERACTION' AND segments.conversion_lag_bucket IN (" +
+  STORE_LAGS.map(function (l) { return "'" + l + "'"; }).join(', ') + ')';
+// احتياطي فوق الفلتر: الصف يتحسب بس لو Google رجّعه بالنوع والمدة اللي طلبناهم
+export function storeRow(row) {
+  const s = (row && row.segments) || {};
+  return s.conversionAttributionEventType === 'INTERACTION' && STORE_LAGS.indexOf(s.conversionLagBucket) > -1;
+}
+
 // رسالة الخطأ الحقيقية من Google بدل ما تتخبّى ورا "مفيش بيانات"
 function firstDetail(data) {
   const e = Array.isArray(data) ? (data[0] && data[0].error) : (data && data.error);

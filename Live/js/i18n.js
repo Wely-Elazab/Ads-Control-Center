@@ -82,7 +82,7 @@
       'diff.title': 'لماذا قد تختلف الأرقام قليلاً عن لوحة المنصة؟',
       'diff.today': 'أرقام اليوم ما زالت تتحدّث، إذ تحتسب المنصة الإنفاق والنتائج على مدار اليوم.',
       'diff.late': 'قد تُسجَّل بعض التحويلات متأخرة (حتى ٧ أيام بعد النقرة)، لذا قد ترتفع أرقام الأيام الأخيرة قليلاً عند التحديث.',
-      'diff.source': 'الأرقام مأخوذة من المنصة نفسها وفق المنطقة الزمنية للحساب الإعلاني، وفي Meta وSnapchat نستبعد منها ما لا يوجد دليل كافٍ على أن الإعلان هو من جلبه، لتقترب الأرقام من طلبات متجرك.',
+      'diff.source': 'الأرقام مأخوذة من المنصة نفسها وفق المنطقة الزمنية للحساب الإعلاني، وفي Meta وSnapchat وGoogle نستبعد منها ما لا يوجد دليل كافٍ على أن الإعلان هو من جلبه، لتقترب الأرقام من طلبات متجرك.',
       'diff.compare': 'للمقارنة السريعة: افتح أي إعلان واضغط الزر الذي يفتحه في المنصة (مثل «افتح في Google Ads»).',
 
       // شريط الأدوات والفلاتر
@@ -1159,7 +1159,7 @@
       'diff.title': 'Why might numbers differ slightly from the platform?',
       'diff.today': 'Today\'s numbers are still updating — the platform keeps counting spend and results through the day.',
       'diff.late': 'Conversions are sometimes recorded late (up to 7 days after the click), so the last few days can rise a little when you refresh.',
-      'diff.source': 'Numbers come straight from the platform, in the ad account\'s time zone, and on Meta and Snapchat we remove what there\'s no solid evidence the ad brought in, so the numbers come closer to your store\'s orders.',
+      'diff.source': 'Numbers come straight from the platform, in the ad account\'s time zone, and on Meta, Snapchat and Google we remove what there\'s no solid evidence the ad brought in, so the numbers come closer to your store\'s orders.',
       'diff.compare': 'To compare quickly: open any ad and press the button that opens it in the platform (like "Open in Google Ads").',
 
       'filters.btn': 'Filters',

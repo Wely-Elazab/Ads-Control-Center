@@ -400,6 +400,127 @@
     });
   });
 
+  // «الأقرب للمتجر» في Google (قرار ٦ أكتوبر ٢٠٢٦): التحويلات بعد نقرة على الإعلان وخلال ٧ أيام منها، جنب رقم المنصة
+  describe('أرقام Google — الأقرب للمتجر', function () {
+    var M = 1000000;
+    var adRows = [{ adGroup: { id: '7', name: 'AG', status: 'ENABLED' }, adGroupAd: { ad: { id: '9', name: 'Search ad' }, status: 'ENABLED' }, campaign: { id: '3', name: 'Search', status: 'ENABLED' } }];
+    var who = { adGroup: { id: '7' }, adGroupAd: { ad: { id: '9' } } };
+    var day = function (i, m) { return Object.assign({ segments: { date: KEYS[i] }, metrics: m }, who); };
+    var plat = [day(5, { costMicros: String(100 * M), conversions: 10, conversionsValue: 1000 }), day(6, { costMicros: String(50 * M), conversions: 4, conversionsValue: 400 })];
+    var store = [day(5, { conversions: 6, conversionsValue: 600 }), day(6, { conversions: 3, conversionsValue: 300 })];
+    var json = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
+
+    test('الأرقام الأساسية = «الأقرب للمتجر»، ورقم المنصة جنبها', function () {
+      var c = transformGoogleRows(adRows, plat, DAYS, 'SAR', null, store, null)[0];
+      eq([c.results, c.dailySales[5] + c.dailySales[6], c.spend, c.resultKey], [9, 900, 150, 'conversion']);
+      eq(c.plat, { results: 14, sales: 1400 });
+      var pp = platOf(c);
+      eq([pp.results, pp.sales, pp.spend], [14, 1400, 150]);
+    });
+    test('«الأقرب للمتجر» مبيطلعش أكبر من رقم المنصة، والكسور بتتجمع قبل التقريب', function () {
+      var c = transformGoogleRows(adRows, plat, DAYS, 'SAR', null, [day(5, { conversions: 12, conversionsValue: 1200 }), day(6, { conversions: 0.6, conversionsValue: 60 })], null)[0];
+      eq([c.dailyResults[5], c.dailySales[5], c.dailyResults[6], c.results], [10, 1000, 1, 11]);
+    });
+    test('طلب «الأقرب للمتجر» فشل = أرقام المنصة زي الأول ومن غير مقارنة', function () {
+      var c = transformGoogleRows(adRows, plat, DAYS, 'SAR', null, null, null)[0];
+      eq([c.results, c.plat, platOf(c)], [14, null, null]);
+    });
+    test('الفترة المختارة: «الأقرب للمتجر» ورقم المنصة جنبه، ولو طلبها فشل رقم المنصة من غير مقارنة', function () {
+      var pPlat = [Object.assign({ metrics: { costMicros: String(300 * M), conversions: 20, conversionsValue: 2000 } }, who)];
+      var pStore = [Object.assign({ metrics: { conversions: 15, conversionsValue: 1500 } }, who)];
+      var c = transformGoogleRows(adRows, plat, DAYS, 'SAR', pPlat, store, pStore)[0];
+      eq([c.period.results, c.period.sales, c.period.spend], [15, 1500, 300]);
+      var pp = platOf(c);
+      eq([pp.results, pp.sales], [20, 2000]);
+      var c2 = transformGoogleRows(adRows, plat, DAYS, 'SAR', pPlat, store, null)[0];
+      eq([c2.period.results, c2.period.plat, platOf(c2)], [20, undefined, null]);
+    });
+    test('حملات Performance Max: نفس المقارنة', function () {
+      var camp = { id: '21', name: 'PMax', status: 'ENABLED', primaryStatus: 'ELIGIBLE' };
+      var rows = [{ campaign: camp, segments: { date: KEYS[5] }, metrics: { costMicros: String(80 * M), conversions: 8, conversionsValue: 800 } }];
+      var p = transformGooglePmax(rows, null, DAYS, 'SAR', [{ campaign: { id: '21' }, segments: { date: KEYS[5] }, metrics: { conversions: 5, conversionsValue: 500 } }], null)[0];
+      eq([p.results, p.dailySales[5], p.plat], [5, 500, { results: 8, sales: 800 }]);
+      eq(transformGooglePmax(rows, null, DAYS, 'SAR', null, null)[0].plat, null);
+    });
+
+    testAsync('السيرفر: استعلامات «الأقرب للمتجر» بالنقرة وخلال ٧ أيام، وأي صف بنوع تاني بيتشال، وفشلها مبيوقفش الإعلانات', function () {
+      var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process, queries = [], failStore = false;
+      window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
+      var rows = function (results) { return json([{ results: results }]); };
+      window.fetch = function (url, opts) {
+        var u = String(url);
+        if (u.indexOf('tokeninfo') > -1) return json({ aud: 'cid', scope: 'https://www.googleapis.com/auth/adwords' });
+        var q = JSON.parse(opts.body).query;
+        queries.push(q);
+        if (q.indexOf('conversion_attribution_event_type') > -1) {
+          if (failStore) return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ error: { message: 'bad' } }); } });
+          return rows([
+            Object.assign({ segments: { date: KEYS[5], conversionAttributionEventType: 'INTERACTION', conversionLagBucket: 'LESS_THAN_ONE_DAY' }, metrics: { conversions: 6, conversionsValue: 600 } }, who),
+            Object.assign({ segments: { date: KEYS[5], conversionAttributionEventType: 'ENGAGED_VIEW', conversionLagBucket: 'LESS_THAN_ONE_DAY' }, metrics: { conversions: 4, conversionsValue: 400 } }, who)
+          ]);
+        }
+        if (q.indexOf('ad_group_ad.ad.name') > -1) return rows(adRows);
+        if (q.indexOf('FROM ad_group_ad') > -1) return rows(plat);
+        return rows([]);
+      };
+      var restore = function () { window.fetch = realFetch; if (hadProcess) window.process = prevProcess; else delete window.process; };
+      var run = function () {
+        var out = null;
+        queries = [];
+        var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+        return import('/api/google-ads-fetch.js').then(function (m) {
+          return m.default({ method: 'POST', headers: {}, body: { accessToken: 'tok-store', customerId: '1234567890' } }, res);
+        }).then(function () { return out; });
+      };
+      return run().then(function (out) {
+        var storeQ = queries.filter(function (x) { return x.indexOf('conversion_attribution_event_type') > -1; });
+        eq(storeQ.length, 2, 'ads + PMax for the last 7 days');
+        ok(storeQ.every(function (x) {
+          return x.indexOf("segments.conversion_attribution_event_type = 'INTERACTION'") > -1 && x.indexOf("'SIX_TO_SEVEN_DAYS')") > -1 &&
+            x.indexOf('SEVEN_TO_EIGHT') < 0 && x.indexOf('metrics.cost_micros') < 0;
+        }), storeQ[0]);
+        eq(out.storeMetrics.length, 1, 'the engaged-view row is dropped');
+        eq(out.storeMetrics[0].metrics.conversions, 6);
+        failStore = true;
+        return run();
+      }).then(function (out) {
+        restore();
+        eq([out.ads.length, out.storeMetrics, out.storePmax], [1, null, null], 'ads still load, no comparison');
+      }, function (e) { restore(); throw e; });
+    });
+
+    testAsync('السيرفر: لو Google رفض الفلتر في ملخص المتجر، الملخص كله بأرقام المنصة', function () {
+      var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process, queries = [];
+      window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
+      window.fetch = function (url, opts) {
+        var u = String(url);
+        if (u.indexOf('tokeninfo') > -1) return json({ aud: 'cid', scope: 'https://www.googleapis.com/auth/adwords' });
+        var q = JSON.parse(opts.body).query;
+        queries.push(q);
+        if (q.indexOf('conversion_attribution_event_type') > -1) return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ error: { message: 'bad' } }); } });
+        if (q.indexOf('conversion_action_category') > -1 && q.indexOf('FROM customer') > -1 && q.indexOf('segments.device') < 0 && q.indexOf('ad_network_type') < 0) {
+          return json([{ results: [{ segments: { date: '2026-09-25', conversionActionCategory: 'PURCHASE' }, metrics: { conversions: 4, allConversions: 4, conversionsValue: 400, allConversionsValue: 400 } }] }]);
+        }
+        if (q.indexOf('FROM customer') > -1 && q.indexOf('segments.device') < 0 && q.indexOf('ad_network_type') < 0) {
+          return json([{ results: [{ segments: { date: '2026-09-25' }, metrics: { costMicros: '80000000', impressions: '900', clicks: '40' } }] }]);
+        }
+        return json([{ results: [] }]);
+      };
+      var restore = function () { window.fetch = realFetch; if (hadProcess) window.process = prevProcess; else delete window.process; };
+      var out = null, code = null;
+      var res = { setHeader: function () {}, status: function (c) { code = c; return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      var ws = DX.windows('2026-09-21', '2026-09-27');
+      return import('/api/google-diagnosis.js').then(function (m) {
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 'tok-dx2', customerId: '1234567890',
+          daily: { since: ws[ws.length - 1].since, until: '2026-09-27' }, windows: ws.slice(0, 3).map(function (w) { return { since: w.since, until: w.until }; }) } }, res);
+      }).then(function () {
+        restore();
+        eq([code, out.numbers], [200, 'platform']);
+        eq(out.daily.filter(function (d) { return d.date === '2026-09-25'; })[0].pur, 4, 'the summary still works');
+      }, function (e) { restore(); throw e; });
+    });
+  });
+
   describe('حالة الإعلان — Google Ads', function () {
     function level(row, a, g, c, appr) { var d = googleDelivery(row, a || 'ENABLED', g || 'ENABLED', c || 'ENABLED', appr || 'APPROVED'); return d.active ? 'active' : d.level; }
     test('مؤهل = شغّال', function () { eq(level({ adGroupAd: { primaryStatus: 'ELIGIBLE' } }), 'active'); });
@@ -3833,12 +3954,15 @@
     var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process;
     window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
     var rows = function (results) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve([{ results: results }]); } }); };
-    var campaignQuery = '';
+    var campaignQuery = '', queries = [];
     window.fetch = function (url, opts) {
       var u = String(url);
       if (u.indexOf('tokeninfo') > -1) return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ aud: 'cid', scope: 'https://www.googleapis.com/auth/adwords' }); } });
       var q = JSON.parse(opts.body).query, conv = q.indexOf('conversion_action_category') > -1, date = '2026-09-25';
-      var seg = function (extra) { return Object.assign({ date: date }, extra || {}); };
+      queries.push(q);
+      // «الأقرب للمتجر»: Google بيرجّع الصفوف مقسّمة بنوع الإسناد والمدة لما بنطلبهم
+      var store = q.indexOf('conversion_attribution_event_type') > -1;
+      var seg = function (extra) { return Object.assign({ date: date }, store ? { conversionAttributionEventType: 'INTERACTION', conversionLagBucket: 'ONE_TO_TWO_DAYS' } : {}, extra || {}); };
       var base = function (extra) { return Object.assign({ segments: seg(extra && extra.segments) }, extra || {}); };
       if (q.indexOf('campaign.id') > -1) {
         campaignQuery = q;
@@ -3876,6 +4000,14 @@
       ok(campaignQuery.indexOf('campaign.bidding_strategy_type') > -1 && campaignQuery.indexOf('campaign.advertising_channel_type') > -1, 'goal fields requested');
       eq(camp.goal, 'traffic');
       eq(out.dims.filter(function (x) { return x.id === 'country'; })[0].segs[0].key, 'SA', 'criterion 2682 = Saudi Arabia');
+      // التحويلات على «الأقرب للمتجر»: الحساب والحملات والشبكة بالفلتر، والجهاز والدولة (Google مبيسمحش) من غيره
+      eq(out.numbers, 'store');
+      var convQ = queries.filter(function (x) { return x.indexOf('conversion_action_category') > -1; });
+      var filtered = function (pred) { return convQ.filter(pred).every(function (x) { return x.indexOf("conversion_attribution_event_type = 'INTERACTION'") > -1; }); };
+      ok(filtered(function (x) { return x.indexOf('FROM customer') > -1 && x.indexOf('segments.device') < 0; }), 'account and network use the store filter');
+      ok(filtered(function (x) { return x.indexOf('campaign.id') > -1; }), 'campaigns use the store filter');
+      ok(convQ.filter(function (x) { return x.indexOf('segments.device') > -1 || x.indexOf('user_location_view') > -1; })
+        .every(function (x) { return x.indexOf('conversion_attribution_event_type') < 0; }), 'device and country without it');
       return import('/api/google-diagnosis.js');
     }).then(function (m) {
       var g = m.googleGoal;
