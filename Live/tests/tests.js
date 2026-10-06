@@ -329,6 +329,64 @@
       var rows = [{ date_start: KEYS[6], spend: '10', actions: [] }];
       eq(transformRealAd(a, rows, {}, DAYS, null, 'SAR', null, null).active, true);
     });
+
+    // «الأقرب للمتجر» (قرار ٦ أكتوبر ٢٠٢٦): الأساس = نقرة خلال ٧ أيام، ورقم المنصة (value) للمقارنة بس.
+    // Meta بتشيل النوافذ اللي قيمتها صفر — يوم كل نتايجه من المشاهدة = «نقرة ٧ أيام» صفر
+    test('الأقرب للمتجر = النقرة خلال ٧ أيام، ورقم المنصة جنبه للمقارنة', function () {
+      var rows = [
+        { date_start: KEYS[5], spend: '50', actions: [{ action_type: 'omni_purchase', value: '5', '7d_click': '3', '1d_view': '2' }],
+          action_values: [{ action_type: 'omni_purchase', value: '500', '7d_click': '300', '1d_view': '200' }] },
+        { date_start: KEYS[6], spend: '50', actions: [{ action_type: 'omni_purchase', value: '2', '1d_view': '2' }],
+          action_values: [{ action_type: 'omni_purchase', value: '200', '1d_view': '200' }] }
+      ];
+      var c = transformRealAd(baseAd(), rows, {}, DAYS, null, 'SAR', null, null);
+      eq([c.results, c.dailyResults[5], c.dailyResults[6], sumArr(c.dailySales), c.roas], [3, 3, 0, 300, 3]);
+      eq(c.plat, { results: 7, sales: 700 });
+    });
+    test('الأقرب للمتجر مش أكتر من رقم المنصة، ومن غير نوافذ = رقم المنصة ومفيش مقارنة', function () {
+      var narrow = [{ date_start: KEYS[6], spend: '30', actions: [{ action_type: 'omni_purchase', value: '1', '7d_click': '2' }] }];
+      eq(transformRealAd(baseAd(), narrow, {}, DAYS, null, 'SAR', null, null).results, 1, 'ad set uses a narrower window');
+      var old = [{ date_start: KEYS[6], spend: '30', actions: [{ action_type: 'omni_purchase', value: '4' }] }];
+      var c = transformRealAd(baseAd(), old, {}, DAYS, null, 'SAR', null, null);
+      eq([c.results, c.plat], [4, null], 'no windows returned');
+      eq(platOf(c), null);
+    });
+    test('عمود Results بتاع Meta: نوع النتيجة منه، والأقرب للمتجر من actions لنفس النوع', function () {
+      var rows = [{ date_start: KEYS[6], spend: '40',
+        results: [{ indicator: 'actions:offsite_conversion.fb_pixel_purchase', values: [{ value: '4', attribution_windows: ['7d_click'] }, { value: '6', attribution_windows: ['default'] }] }],
+        actions: [{ action_type: 'offsite_conversion.fb_pixel_purchase', value: '6', '7d_click': '4', '1d_view': '2' }] }];
+      var c = transformRealAd(baseAd(), rows, {}, DAYS, null, 'SAR', null, null);
+      eq([c.resultKey, c.results, c.plat.results], ['purchase', 4, 6]);
+    });
+    test('الفترة المختارة: الأقرب للمتجر في الكارت، ورقم المنصة في platOf بنفس الإنفاق', function () {
+      var periodRow = { spend: '200', actions: [{ action_type: 'omni_purchase', value: '10', '7d_click': '8', '1d_view': '2' }],
+        action_values: [{ action_type: 'omni_purchase', value: '1000', '7d_click': '800', '1d_view': '200' }] };
+      var c = transformRealAd(baseAd(), [], {}, DAYS, null, 'SAR', null, periodRow);
+      var p = periodOf(c), pp = platOf(c);
+      eq([p.results, p.sales, p.cpr, p.roas], [8, 800, 25, 4]);
+      eq([pp.spend, pp.results, pp.sales, pp.cpr, pp.roas], [200, 10, 1000, 20, 5]);
+    });
+    testAsync('طلبات أرقام Meta بتطلب «نقرة ٧ أيام»، ولو اترفضت بتتعاد من غيرها', function () {
+      var calls = [], hadFB = 'FB' in window, prevFB = window.FB;
+      window.FB = { api: function (path, params, cb) {
+        calls.push({ path: path, w: params.action_attribution_windows || null });
+        cb(params.action_attribution_windows && /act_bad/.test(path) ? { error: { message: 'unsupported' } } : { data: [{ x: 1 }] });
+      } };
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      return Promise.all([
+        fbPagesPromise('/act_1/insights', { fields: 'ad_id,spend,actions,action_values' }, 10),
+        fbPagesPromise('/act_1/insights', { fields: 'ad_id,frequency,reach' }, 10),
+        fbPagesPromise('/act_1/ads', { fields: 'id,name' }, 10),
+        fbPagesPromise('/act_bad/insights', { fields: 'date_start,actions' }, 10)
+      ]).then(function (res) {
+        restore();
+        var windows = JSON.stringify(['7d_click', '1d_view', '1d_ev']);
+        eq(calls.map(function (c) { return c.path + ' ' + (c.w ? 'w' : '-'); }),
+          ['/act_1/insights w', '/act_1/insights -', '/act_1/ads -', '/act_bad/insights w', '/act_bad/insights -']);
+        eq(calls[0].w, windows);
+        ok(res.every(function (r) { return !r.err && r.data.length === 1; }), 'every request ends with data');
+      }, function (e) { restore(); throw e; });
+    });
   });
 
   describe('صياغة الفصحى مع الأعداد', function () {
@@ -470,6 +528,27 @@
       eq(a.impactText, t('al.impact', { spend: money(620, 'SAR'), pct: t('al.impactPct', { pct: ar(31) }) }));
       eq(issuesOf(r, 'waste')[0].impactText, a.impactText, 'same line in the ad details');
       ok(/alert-impact/.test(alertMarkup(a)) && alertMarkup(a).indexOf(esc(a.impactText)) > -1, 'shown on the alert card');
+    });
+    // التنبيهات مبنية على «الأقرب للمتجر» (results)، وتنبيهات النتائج والتكلفة والعائد بتعرض رقم المنصة جنبه (c.plat)
+    test('المقارنة في التنبيه: رقم المنصة جنب الأقرب للمتجر في التنبيه وتفاصيل الإعلان وكارت التنبيه', function () {
+      var w = ad('waste', { daily: [100, 100, 100, 100, 100, 100, 20], res: [5, 5, 5, 5, 0, 0, 0], sales: [500, 500, 500, 500, 0, 0, 0] });
+      w.plat = { results: 31, sales: 3100 };
+      var rej = ad('rej', { daily: [100, 100, 100, 100, 100, 100, 0], active: false, pausedLevel: 'rejected' });
+      rej.plat = { results: 9, sales: 0 };
+      var r = engine(baseAccount().concat([w, rej]));
+      var a = r.alerts.filter(function (x) { return x.adId === 'waste' && x.code === 'waste'; })[0];
+      var want = t('al.compare', {
+        p: I18N.countPhrase(31, 'purchase', ar), pr: t('al.cmpRoas', { r: numAr(3100 / 620) }),
+        s: I18N.countPhrase(20, 'purchase', ar), sr: t('al.cmpRoas', { r: numAr(2000 / 620) })
+      });
+      eq(a.compare, want);
+      eq(issuesOf(r, 'waste').filter(function (i) { return i.code === 'waste'; })[0].compare, want, 'same line in the ad details');
+      ok(alertMarkup(a).indexOf('alert-compare') > -1 && alertMarkup(a).indexOf(esc(want)) > -1, 'shown on the alert card');
+      ok(!issuesOf(r, 'rej')[0].compare, 'a rejected ad has nothing to compare');
+      w.plat = { results: 20, sales: 2000 };
+      ok(!engine(baseAccount().concat([w])).alerts.some(function (x) { return x.compare; }), 'same numbers = no line');
+      delete w.plat;
+      ok(!engine(baseAccount().concat([w])).alerts.some(function (x) { return x.compare; }), 'no platform number = no line');
     });
     test('حجم المشكلة: أقل من ١٪ بيتكتب كده، وتنبيه الحساب بيوضّح إنه بيشمل الحساب كله', function () {
       var ads = [ad('huge', { daily: steady(10000), res: steady(100) }), ad('tiny', { daily: steady(10), res: steady(0), freq: 9 }), ad('g2', { daily: steady(10000), res: steady(100) })];
@@ -933,6 +1012,28 @@
       openExpand(c);
       var cells = Array.prototype.map.call(document.querySelectorAll('#expandChart tbody tr:first-child td'), function (td) { return td.textContent; });
       eq(cells.slice(0, 3), [t('x.spend'), '٠٫٤', '١٢٬٥٠٠'], 'no empty "()" when the currency is unknown');
+      expandOverlay.classList.add('hidden');
+    });
+    // الكارت برا = «الأقرب للمتجر» بس؛ والتفاصيل جوه = جدول المنصة مقابل الأقرب للمتجر والفرق وشرح الفايدة
+    test('تفاصيل الإعلان: جدول أرقام المنصة مقابل الأقرب للمتجر، والكارت برا من غير مقارنة', function () {
+      var c = ad('cmp1', { daily: steady(100), res: [10, 10, 10, 10, 10, 10, 22], sales: steady(1000) });
+      c.plat = { results: 100, sales: 8750 };
+      candidates = [c];
+      render();
+      var card = document.getElementById('card-cmp1');
+      ok(card && card.textContent.indexOf(fmtNum(82)) > -1 && card.textContent.indexOf(fmtNum(100)) === -1, 'card shows our number only');
+      openExpand(c);
+      var box = document.querySelector('#expandMetrics .attr-compare');
+      ok(box, 'comparison table');
+      var rowText = function (i) { return Array.prototype.map.call(box.querySelectorAll('tbody tr')[i].children, function (x) { return x.textContent.trim(); }); };
+      eq(rowText(1), [resultLabelOf(c), fmtNum(100), fmtNum(82), '−' + t('cmp.pct', { n: ar(18) })], 'orders: platform, ours, difference');
+      eq(rowText(2)[3], '+' + t('cmp.pct', { n: ar(22) }), 'cost per order went up');
+      ok(box.querySelectorAll('tbody tr')[2].querySelector('.cmp-worse'), 'higher cost is marked as worse');
+      eq(box.querySelector('.attr-note').textContent, t('cmp.note', { n: I18N.countPhrase(18, 'purchase', ar), v: t('cmp.noteValue', { m: money(1750, 'SAR') }) }));
+      expandOverlay.classList.add('hidden');
+      delete c.plat;
+      openExpand(c);
+      ok(!document.querySelector('#expandMetrics .attr-compare') && document.querySelectorAll('#expandMetrics .metric-box').length >= 4, 'no platform number = the old boxes');
       expandOverlay.classList.add('hidden');
     });
     test('نص الخطأ اللي في الرابط مبيظهرش — رسالة من عندنا بس', function () {

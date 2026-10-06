@@ -1467,6 +1467,49 @@
 
   function metricBox(label, value, extraCls) { return '<div class="metric-box' + (extraCls || '') + '"><div class="metric-label">' + label + '</div><div class="metric-value">' + value + '</div></div>'; }
 
+  // ---------- أرقام المنصة مقابل «الأقرب للمتجر» (قرار صاحب المنتج ٦ أكتوبر ٢٠٢٦) ----------
+  // كل الأداة (الكروت والتقييم والتنبيهات) مبنية على «الأقرب للمتجر» = اللي نقر على الإعلان واشترى خلال ٧ أيام.
+  // الجدول ده جوه تفاصيل الإعلان بس: رقم المنصة، رقمنا، والفرق — والشرح تحته بلغة الفايدة مش بلغة تقنية.
+  // lowerIsBetter: التكلفة الزيادة أسوأ، والطلبات والمبيعات والعائد الأقل أسوأ
+  function cmpDiff(store, plat, lowerIsBetter) {
+    if (store == null || plat == null || !(plat > 0)) return { txt: '—', cls: '' };
+    var d = (store - plat) / plat;
+    var pct = Math.round(Math.abs(d) * 100);
+    if (pct === 0) return { txt: t('cmp.same'), cls: '' };
+    var worse = lowerIsBetter ? d > 0 : d < 0;
+    return { txt: '<bdi dir="ltr">' + (d > 0 ? '+' : '−') + t('cmp.pct', { n: ar(pct) }) + '</bdi>', cls: worse ? ' cmp-worse' : ' cmp-better' };
+  }
+  function compareMarkup(c, p, pp, hl, pl) {
+    var cur = c.currency;
+    var one = esc(t('res1.' + (c.resultKey || 'generic')));
+    var row = function (label, platTxt, storeTxt, diff, mark) {
+      return '<tr><th scope="row">' + label + '</th><td><span class="mono">' + platTxt + '</span></td>' +
+        '<td class="cmp-store' + (mark || '') + '"><span class="mono">' + storeTxt + '</span></td>' +
+        '<td class="cmp-diff' + diff.cls + '">' + diff.txt + '</td></tr>';
+    };
+    var none = { txt: '—', cls: '' };
+    var rows =
+      row(t('x.spend'), money(p.spend, cur), money(p.spend, cur), none, hl('spend') || hl('delivery')) +
+      row(esc(resultLabelOf(c)), pp.results != null ? fmtNum(pp.results) : '—', fmtNum(p.results), cmpDiff(p.results, pp.results), hl('results')) +
+      row(t('cmp.cpr', { r: one }), pp.cpr != null ? money(pp.cpr, cur) : '—', p.cpr != null ? money(p.cpr, cur) : '—', cmpDiff(p.cpr, pp.cpr, true), hl('cpr'));
+    if (pp.sales > 0 || p.sales > 0) {
+      rows += row(t('x.sales'), money(pp.sales, cur), money(p.sales, cur), cmpDiff(p.sales, pp.sales)) +
+        row(t('cmp.roas'), roasStr(pp.roas), roasStr(p.roas), cmpDiff(p.roas, pp.roas), hl('roas'));
+    }
+    var gone = Math.max(0, (pp.results || 0) - (p.results || 0));
+    var goneSales = Math.max(0, (pp.sales || 0) - (p.sales || 0));
+    var note = gone > 0
+      ? t('cmp.note', { n: I18N.countPhrase(gone, c.resultKey, ar), v: goneSales > 0 ? t('cmp.noteValue', { m: money(goneSales, cur) }) : '' })
+      : t('cmp.noteSame');
+    return '<div class="attr-compare">' +
+      '<div class="attr-title">' + t('cmp.title') + pl + '</div>' +
+      '<div class="attr-table-wrap"><table class="attr-table"><thead><tr><th></th><th scope="col">' + t('cmp.platform') + '</th>' +
+      '<th scope="col" class="cmp-store">' + t('cmp.store') + '</th><th scope="col">' + t('cmp.diff') + '</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>' +
+      '<p class="attr-note">' + esc(note) + '</p>' +
+    '</div>';
+  }
+
   var DEST_LABELS = i18nMap({ whatsapp: 'dest.whatsapp', messenger: 'dest.messenger', website: 'dest.website' });
 
   function issueMarkup(i) {
@@ -1474,6 +1517,7 @@
       '<div class="issue-title"><span class="issue-level">' + LEVELS[i.level].label + '</span>' + esc(i.title) + '</div>' +
       '<div class="issue-detail">' + esc(i.detail) + '</div>' +
       (i.impactText ? '<div class="issue-impact">📊 ' + esc(i.impactText) + '</div>' : '') +
+      (i.compare ? '<div class="issue-compare">🔍 ' + esc(i.compare) + '</div>' : '') +
       '<div class="issue-advice">💡 ' + esc(i.advice) + '</div>' +
     '</div>';
   }
@@ -1551,13 +1595,21 @@
     var hl = function (metric) { return period.preset === 'last7' ? mv(c, metric) : ''; };
     var pl = ' (' + periodLabel() + ')';
     var resultsLabelTxt = p.results != null ? (t('x.results') + ' — ' + esc(resultLabelOf(c)) + pl) : t('x.results') + pl;
-    var boxes =
-      metricBox(t('x.spend') + pl, money(p.spend, cur), hl('spend') || hl('delivery')) +
-      metricBox(resultsLabelTxt, p.results != null ? fmtNum(p.results) : t('x.noConversions'), hl('results')) +
-      metricBox(t('x.cpr'), p.cpr != null ? money(p.cpr, cur) : '—', hl('cpr')) +
-      metricBox(t('x.roas'), roasStr(p.roas), hl('roas'));
-    if (c.frequency != null) boxes += metricBox(t('x.freq'), numAr(c.frequency) + ' ' + I18N.measureNoun(c.frequency, 'n.time'), mv(c, 'frequency'));
-    boxes += metricBox(t('x.sales') + pl, p.sales > 0 ? money(p.sales, cur) : t('x.noSales'));
+    var pp = platOf(c);
+    var boxes;
+    if (pp && p.results != null) {
+      // Meta: الأرقام الأساسية «الأقرب للمتجر» جنب رقم المنصة والفرق — مكان المربعات الخمسة
+      boxes = compareMarkup(c, p, pp, hl, pl);
+      if (c.frequency != null) boxes += metricBox(t('x.freq'), numAr(c.frequency) + ' ' + I18N.measureNoun(c.frequency, 'n.time'), mv(c, 'frequency'));
+    } else {
+      boxes =
+        metricBox(t('x.spend') + pl, money(p.spend, cur), hl('spend') || hl('delivery')) +
+        metricBox(resultsLabelTxt, p.results != null ? fmtNum(p.results) : t('x.noConversions'), hl('results')) +
+        metricBox(t('x.cpr'), p.cpr != null ? money(p.cpr, cur) : '—', hl('cpr')) +
+        metricBox(t('x.roas'), roasStr(p.roas), hl('roas'));
+      if (c.frequency != null) boxes += metricBox(t('x.freq'), numAr(c.frequency) + ' ' + I18N.measureNoun(c.frequency, 'n.time'), mv(c, 'frequency'));
+      boxes += metricBox(t('x.sales') + pl, p.sales > 0 ? money(p.sales, cur) : t('x.noSales'));
+    }
     document.getElementById('expandMetrics').innerHTML = boxes;
 
     // السلسلة الثانية: مبيعات فعلية لو موجودة، وإلا عدد النتائج (حسب هدف الإعلان نفسه) كبديل مفيد
@@ -1741,6 +1793,7 @@
       '<div class="alert-title">' + esc(a.title) + '</div>' +
       '<p class="alert-detail">' + esc(a.detail) + '</p>' +
       (a.impactText ? '<p class="alert-impact">📊 ' + esc(a.impactText) + '</p>' : '') +
+      (a.compare ? '<p class="alert-compare">🔍 ' + esc(a.compare) + '</p>' : '') +
       '<p class="alert-advice">💡 ' + esc(a.advice) + '</p>' +
     '</article>';
   }

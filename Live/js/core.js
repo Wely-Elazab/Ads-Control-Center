@@ -413,6 +413,13 @@
       roas: (sales > 0 && spend > 0) ? sales / spend : null
     };
   }
+  // رقم المنصة للفترة المختارة (نفس الإنفاق) — جنب «الأقرب للمتجر» اللي في periodOf. Meta بس دلوقتي (c.plat
+  // من meta.js)؛ null = مفيش مقارنة للإعلان ده (منصة تانية، أو Meta مرجّعتش النوافذ)
+  function platOf(c) {
+    var pl = c.period ? c.period.plat : c.plat;
+    if (!pl) return null;
+    return buildPeriod(periodOf(c).spend, pl.results, pl.sales);
+  }
 
   // ---------- ملخص المتجر (js/diagnosis.js) ----------
   // ظاهر للكل من ٢٩ سبتمبر ٢٠٢٦ (بقى الميزة الأساسية في الصفحة الرئيسية). ?dx=0 بيخفيه على الجهاز ده

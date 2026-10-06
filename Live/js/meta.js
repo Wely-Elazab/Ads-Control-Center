@@ -177,10 +177,24 @@
   // الطلبات الأربعة (الإعلانات، حالة المجموعات، الإنفاق اليومي، تكرار الظهور) مالهمش علاقة ببعض،
   // فبتتبعت كلها مرة واحدة بالتوازي بدل ما تستنى بعضها بالدور — ده أكبر سبب في بطء التحميل.
   // وأول ما الإعلانات وحالتها يوصلوا بنعرض الكروت على طول، وأرقام الإنفاق بتتملي لما توصل.
+  // «الأقرب للمتجر» (قرار صاحب المنتج ٦ أكتوبر ٢٠٢٦): أي طلب أرقام فيه actions بيطلب كمان رقم «نقرة خلال ٧ أيام»
+  // جنب رقم المنصة (value = إعداد المجموعة الإعلانية، زي Ads Manager). ده المكان الوحيد اللي بيعدّي عليه كل طلب
+  // أرقام لـ Meta (الأداة والملخص والمُشغّل بتاع البريد). 1d_view و1d_ev بنطلبهم عشان لو الإعلان كل نتايجه
+  // من المشاهدة، المفتاح بتاعهم يظهر ونعرف إن «نقرة ٧ أيام» = صفر (Meta بتشيل النوافذ اللي قيمتها صفر).
+  // لو Meta رفضت الطلب بالنوافذ، بنعيده من غيرها والأرقام بتفضل زي الأول (من غير مقارنة)
+  var ATTR_WINDOWS = JSON.stringify(['7d_click', '1d_view', '1d_ev']);
   function fbPagesPromise(path, params, cap) {
-    return new Promise(function (resolve) {
-      fetchAllPages(path, params, cap, function (err, data, truncated) { resolve({ err: err, data: data || [], truncated: truncated }); });
-    });
+    var auto = /\/insights$/.test(path) && /(^|,)actions(,|$)/.test(params.fields || '') && !params.action_attribution_windows;
+    var once = function (q) {
+      return new Promise(function (resolve) {
+        fetchAllPages(path, q, cap, function (err, data, truncated) { resolve({ err: err, data: data || [], truncated: truncated }); });
+      });
+    };
+    if (!auto) return once(params);
+    var withWindows = {};
+    for (var k in params) withWindows[k] = params[k];
+    withWindows.action_attribution_windows = ATTR_WINDOWS;
+    return once(withWindows).then(function (res) { return res.err ? once(params) : res; });
   }
   // أرقام الإعلانات مع "results" = رقم Meta نفسها لعمود Results في Ads Manager (بنفس إعدادات الإحالة).
   // لو الحقل ده اترفض لأي سبب، بنعيد الطلب من غيره ونرجع لطريقتنا (نوع النتيجة من هدف المجموعة)
@@ -459,16 +473,18 @@
 
   // بيرجع دايماً قيمة (حتى لو صفر) للحدث المرتبط فعلياً بهدف الإعلان — مش بيقفز لمقياس تاني
   // لو القيمة صفر، عشان كده منقدرش نفرّق "صفر نتائج فعلي" عن "الحدث ده مش موجود خالص"
+  // value = «الأقرب للمتجر»، وplatform = رقم المنصة لنفس الحدث (للمقارنة)
   function resultForGoal(actionsArr, goal) {
     var candidates = GOAL_TO_ACTION[goal];
     if (candidates) {
       var c = candidates[0];
       var found = valueForType(actionsArr, c.type);
-      return { value: found || 0, key: c.key, type: c.type, matchedGoal: true };
+      return { value: found || 0, platform: valueForType(actionsArr, c.type, true) || 0, key: c.key, type: c.type, matchedGoal: true };
     }
     for (var i = 0; i < FALLBACK_ACTION_TYPES.length; i++) {
-      var v = valueForType(actionsArr, FALLBACK_ACTION_TYPES[i].type);
-      if (v) return { value: v, key: FALLBACK_ACTION_TYPES[i].key, type: FALLBACK_ACTION_TYPES[i].type, matchedGoal: false };
+      var p = valueForType(actionsArr, FALLBACK_ACTION_TYPES[i].type, true);
+      // الاختيار بيتم برقم المنصة (زي الأول) عشان نوع النتيجة ميتغيّرش لو «الأقرب للمتجر» صفر
+      if (p) return { value: valueForType(actionsArr, FALLBACK_ACTION_TYPES[i].type) || 0, platform: p, key: FALLBACK_ACTION_TYPES[i].key, type: FALLBACK_ACTION_TYPES[i].type, matchedGoal: false };
     }
     return null;
   }
@@ -476,16 +492,25 @@
   // وبيغطي حالات طريقتنا مبتفهمهاش (زي مجموعة Conversions بتحسّن على Lead مش Purchase).
   // شكله: [{ indicator: "actions:offsite_conversion.fb_pixel_purchase", values: [{ value: "12" }] }]
   // بنقراه بحذر: لو الشكل مختلف أو القيمة مش رقم بنرجّع null ونكمّل بطريقتنا
+  // الرقم هنا = رقم المنصة (platform). «الأقرب للمتجر» (value) لنفس الحدث بنجيبه من actions، ولو الحدث مش فيها
+  // بيفضل رقم المنصة. لو Meta رجّعت أكتر من قيمة (واحدة لكل نافذة)، رقم المنصة = اللي من غير نافذة (الافتراضي)
+  function resultsValue(values) {
+    if (values.length <= 1) return values[0] && values[0].value;
+    var plain = values.filter(function (v) { return v && (!v.attribution_windows || v.attribution_windows.indexOf('default') > -1); })[0];
+    if (plain) return plain.value;
+    return values.reduce(function (m, v) { var n = parseFloat(v && v.value); return isFinite(n) && n > m ? n : m; }, -Infinity);
+  }
   function metaResults(row) {
     var list = row && row.results;
     if (!Array.isArray(list) || !list.length || !list[0]) return null;
     var r = list[0];
-    var raw = Array.isArray(r.values) ? (r.values[0] && r.values[0].value) : (r.value != null ? r.value : r.values);
-    var value = parseFloat(raw);
-    if (!isFinite(value)) return null;
+    var raw = Array.isArray(r.values) ? resultsValue(r.values) : (r.value != null ? r.value : r.values);
+    var platform = parseFloat(raw);
+    if (!isFinite(platform)) return null;
     var indicator = String(r.indicator || '');
     var type = indicator.slice(indicator.lastIndexOf(':') + 1) || null;
-    return { value: value, key: resultKeyForType(type), type: type, matchedGoal: true };
+    var store = valueForType(row.actions, type);
+    return { value: store != null ? Math.min(store, platform) : platform, platform: platform, key: resultKeyForType(type), type: type, matchedGoal: true };
   }
   // نوع الحدث من Meta → اسم النتيجة بتاعنا (مشتريات، عملاء محتملون...)
   function resultKeyForType(type) {
@@ -507,12 +532,33 @@
     if (/^reach$/.test(s)) return 'reach';
     return 'generic';
   }
-  function valueForType(actionsArr, type) {
+  // الرقم الأساسي في الأداة كلها = «الأقرب للمتجر»: النتائج اللي جات بعد نقرة على الإعلان خلال ٧ أيام بس
+  // (من غير اللي شاف الإعلان ومنقرش). ومش أكتر من رقم المنصة نفسها — لو المجموعة إعدادها أضيق (نقرة يوم)
+  // رقمها هو الأقرب. platform = رقم المنصة زي ما هو (للمقارنة بس). صف من غير أي مفتاح نافذة = Meta مرجّعتش
+  // نوافذ (طلب قديم أو اتعاد من غيرها، أو نوع حدث مالوش نوافذ زي النقرات) → رقم المنصة نفسه
+  var STORE_WINDOW = '7d_click';
+  var WINDOW_KEYS = ['7d_click', '1d_view', '1d_ev', '1d_click', '28d_click'];
+  function hasWindows(a) {
+    for (var i = 0; i < WINDOW_KEYS.length; i++) if (a && a[WINDOW_KEYS[i]] != null) return true;
+    return false;
+  }
+  function actNum(a, platform) {
+    var v = parseFloat(a.value);
+    if (!isFinite(v)) return null;
+    if (platform || !hasWindows(a)) return v;
+    var c = parseFloat(a[STORE_WINDOW]);
+    return Math.min(isFinite(c) ? c : 0, v);
+  }
+  function valueForType(actionsArr, type, platform) {
     if (!actionsArr || !type) return null;
     for (var i = 0; i < actionsArr.length; i++) {
-      if (actionsArr[i].action_type === type) { var v = parseFloat(actionsArr[i].value); return isFinite(v) ? v : null; }
+      if (actionsArr[i].action_type === type) return actNum(actionsArr[i], platform);
     }
     return null;
+  }
+  // الصف ده فيه أرقام بالنوافذ؟ (يعني المقارنة بين المنصة و«الأقرب للمتجر» متاحة)
+  function rowHasWindows(row) {
+    return !!(row && ((row.actions || []).some(hasWindows) || (row.action_values || []).some(hasWindows)));
   }
 
   function destinationInfo(creative) {
@@ -676,21 +722,26 @@
     var resultOfRow = function (row) {
       if (!firstMeta) return resultForGoal(row.actions, goal);
       var m = metaResults(row);
-      return m || { value: 0, key: firstMeta.key, type: firstMeta.type, matchedGoal: true };
+      return m || { value: 0, platform: 0, key: firstMeta.key, type: firstMeta.type, matchedGoal: true };
     };
+    // رقم المنصة للأسبوع (للمقارنة في التفاصيل والتنبيهات بس — كل الحسابات على «الأقرب للمتجر»)
+    var platResults = 0, platSales = 0, compared = false;
     days.forEach(function (day) {
       var row = byDate[day.key];
       var spendVal = row ? r2(num(row.spend)) : 0;
       daily.push(spendVal);
       if (row) {
+        if (rowHasWindows(row)) compared = true;
         var found = resultOfRow(row);
         if (found) {
           totalResultsVal += found.value;
+          platResults += found.platform || 0;
           resultKey = found.key; resultType = found.type; matchedGoal = found.matchedGoal;
           dailyResultsArr.push(Math.round(found.value));
         } else { dailyResultsArr.push(0); }
         var salesVal = resultType ? valueForType(row.action_values, resultType) : null;
         dailySales.push(salesVal != null ? r2(salesVal) : 0);
+        platSales += (resultType ? valueForType(row.action_values, resultType, true) : 0) || 0;
       } else {
         dailyResultsArr.push(0); dailySales.push(0);
       }
@@ -715,12 +766,15 @@
     if (periodRow) {
       // نفس القاعدة: رقم Meta لو موجود في الفترة أو في الأسبوع، وإلا طريقتنا
       var pMeta = metaResults(periodRow);
-      var pFound = pMeta || (firstMeta ? { value: 0, key: firstMeta.key, type: firstMeta.type } : resultForGoal(periodRow.actions, goal));
+      var pFound = pMeta || (firstMeta ? { value: 0, platform: 0, key: firstMeta.key, type: firstMeta.type } : resultForGoal(periodRow.actions, goal));
       var pType = (pFound && pFound.type) || resultType;
       var pResults = pFound ? Math.round(pFound.value) : (goal ? 0 : null);
       if (pMeta && !firstMeta) { resultKey = pMeta.key; resultType = pMeta.type; }
       var pSales = pType ? valueForType(periodRow.action_values, pType) : null;
       periodData = buildPeriod(num(periodRow.spend), pResults, pSales || 0);
+      if (rowHasWindows(periodRow)) {
+        periodData.plat = { results: pFound ? Math.round(pFound.platform || 0) : pResults, sales: r2((pType ? valueForType(periodRow.action_values, pType, true) : 0) || 0) };
+      }
     }
 
     var dest = destinationInfo(creative);
@@ -765,6 +819,8 @@
       deliveryReason: delivery.reason || null,
       platformStatus: ad.effective_status || null,
       period: periodData,
+      // رقم المنصة للأسبوع، جنب «الأقرب للمتجر» (results وdailySales). null = Meta مرجّعتش نوافذ، فمفيش مقارنة
+      plat: compared ? { results: results == null ? null : Math.round(platResults), sales: r2(platSales) } : null,
       fail: false
     };
   }

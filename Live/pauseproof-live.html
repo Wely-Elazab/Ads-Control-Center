@@ -170,6 +170,26 @@
   .metric-box { background: var(--paper); border-radius: 10px; padding: 10px 12px; }
   .metric-label { font-size: 10.5px; color: var(--ink-faint); margin-bottom: 3px; }
   .metric-value { font-size: 15px; font-weight: 700; }
+  /* أرقام المنصة مقابل «الأقرب للمتجر» (ui.js compareMarkup) — عمود «الأقرب للمتجر» هو الأساس فمتعلّم */
+  .attr-compare { grid-column: 1 / -1; background: var(--paper); border-radius: 10px; padding: 10px 12px; }
+  .attr-compare + .metric-box:last-child { grid-column: 1 / -1; }
+  .attr-title { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+  .attr-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .attr-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .attr-table th, .attr-table td { padding: 7px 6px; text-align: center; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  .attr-table tbody tr:last-child th, .attr-table tbody tr:last-child td { border-bottom: none; }
+  .attr-table thead th { color: var(--ink-faint); font-weight: 500; font-size: 10.5px; }
+  .attr-table tbody th { text-align: start; color: var(--ink-soft); font-weight: 600; font-size: 11.5px; white-space: normal; }
+  .attr-table td { color: var(--ink-soft); }
+  .attr-table .cmp-store { color: var(--ink); font-weight: 700; background: var(--card); }
+  .attr-table thead .cmp-store { color: var(--verified); font-weight: 700; }
+  .attr-table td.cmp-store.mv-critical { color: var(--alert); }
+  .attr-table td.cmp-store.mv-warning { color: var(--pending); }
+  .attr-table td.cmp-store.mv-opportunity { color: var(--verified); }
+  .attr-table .cmp-diff { font-weight: 700; }
+  .attr-table .cmp-worse { color: var(--alert); }
+  .attr-table .cmp-better { color: var(--verified); }
+  .attr-note { margin: 8px 0 0; font-size: 12px; line-height: 1.65; color: var(--ink-soft); }
   .chart-section-label { font-size: 11.5px; color: var(--ink-faint); margin-bottom: 8px; }
   .chart-legend { display: flex; gap: 16px; margin-bottom: 10px; }
   .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-soft); }
@@ -282,6 +302,7 @@
   .issue-advice { font-size: 12.5px; line-height: 1.65; color: var(--ink-soft); margin-top: 4px; }
   /* حجم المشكلة في الميزانية (alerts.js → impactText) */
   .issue-impact { font-size: 12.5px; line-height: 1.6; color: var(--ink); font-weight: 600; margin-top: 4px; }
+  .issue-compare { font-size: 12.5px; line-height: 1.6; color: var(--ink-soft); margin-top: 4px; }
   .issue-none { font-size: 12.5px; color: var(--verified); background: var(--verified-bg); border-radius: 10px; padding: 10px 12px; }
   .metric-box.mv-critical { background: var(--alert-bg); box-shadow: inset 0 0 0 1.5px var(--alert); }
   .metric-box.mv-critical .metric-value { color: var(--alert); }
@@ -316,6 +337,7 @@
   .alert-detail { margin: 0 0 6px; font-size: 13.5px; line-height: 1.7; overflow-wrap: anywhere; }
   .alert-advice { margin: 0; font-size: 13px; line-height: 1.7; color: var(--ink-soft); }
   .alert-impact { margin: 0 0 4px; font-size: 13px; line-height: 1.6; color: var(--ink); font-weight: 600; }
+  .alert-compare { margin: 0 0 4px; font-size: 13px; line-height: 1.6; color: var(--ink-soft); }
 
   /* ---------- إعدادات التنبيهات ---------- */
   .settings-card { max-width: 580px; }

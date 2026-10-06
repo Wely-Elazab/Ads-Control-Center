@@ -577,12 +577,32 @@
       var concAd = a.adId ? ads.filter(function (c) { return c.id === a.adId; })[0] : null;
       var own = concAd ? concAd.spend : a.impactSpend;
       setImpact(a, own != null ? own : acc.total7, acc.total7, cur, fmt, own == null);
+      addCompare(a, concAd, fmt);
     });
     return alerts;
   }
 
   // حجم المشكلة في ميزانية صاحب النشاط: إنفاق الإعلان (أو الحساب) خلال آخر ٧ أيام ونسبته من إنفاق الحساب —
   // رقم واحد بنفس المعنى في كل التنبيهات، وبيه بنرتّب التنبيهات جوه كل مستوى (الأكبر في الميزانية الأول)
+  // المقارنة في التنبيه (قرار صاحب المنتج ٦ أكتوبر ٢٠٢٦): كل التنبيهات مبنية على «الأقرب للمتجر» (نقرة خلال ٧ أيام —
+  // meta.js)، وتنبيهات النتائج والتكلفة والعائد بتعرض جنبه رقم المنصة لنفس الإعلان في آخر ٧ أيام (c.plat)، عشان
+  // العميل يشوف قد إيه الأداة فرقت في القرار. مفيش سطر لو الرقمين زي بعض أو مفيش مقارنة (منصة غير Meta)
+  var CMP_METRICS = { results: 1, cpr: 1, roas: 1 };
+  function compareText(c, fmt) {
+    var pl = c && c.plat;
+    if (!pl || pl.results == null || c.results == null) return null;
+    var sales = (c.dailySales || []).reduce(function (a, b) { return a + b; }, 0);
+    var platSales = pl.sales || 0;
+    if (pl.results === c.results && Math.abs(platSales - sales) <= Math.max(0.01 * platSales, 0.01)) return null;
+    var roas = function (s) { return c.spend > 0 && s > 0 ? t('al.cmpRoas', { r: fmt.num(s / c.spend) }) : ''; };
+    return t('al.compare', { p: countText(pl.results, c.resultKey, fmt), pr: roas(platSales), s: countText(c.results, c.resultKey, fmt), sr: roas(sales) });
+  }
+  function addCompare(i, c, fmt) {
+    if (!c || !(i.metrics || []).some(function (m) { return CMP_METRICS[m]; })) return;
+    var cmp = compareText(c, fmt);
+    if (cmp) i.compare = cmp;
+  }
+
   function setImpact(i, spend, total, cur, fmt, wholeAccount) {
     spend = spend || 0;
     i.impact = { spend: spend, share: total > 0 ? spend / total : null, account: !!wholeAccount };
@@ -610,6 +630,7 @@
         byAd[c.id] = r;
         r.issues.forEach(function (i) {
           setImpact(i, c.spend, acc.total7, c.currency, fmt, false);
+          addCompare(i, c, fmt);
           alerts.push(Object.assign({ adId: c.id, source: source, platform: c.platform, adName: c.offer || c.headline || c.id, currency: c.currency }, i));
         });
       });
