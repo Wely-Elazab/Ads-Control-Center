@@ -19,7 +19,7 @@ import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
 import { joinReminders } from './join.ts';
 
-const ENGINE_COMMIT = 'ac7516298229c62692ecb337e2eec0a6d15aca69';
+const ENGINE_COMMIT = '2370958bbbba4251d1b5943d624795fd94104819';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
@@ -344,6 +344,8 @@ function alertBox(a: any, note: string | null): string {
     '<p style="margin:0 0 6px;font-weight:700;line-height:1.7">' + esc(a.title) + '</p>' +
     '<p style="margin:0 0 6px;line-height:1.8">' + esc(a.detail) + '</p>' +
     (a.impactText ? '<p style="' + muted + '">' + esc(a.impactText) + '</p>' : '') +
+    // رقم المنصة جنب «الأقرب للمتجر» اللي اتبنى عليه التنبيه (alerts.js compareText — قرار ٦ أكتوبر ٢٠٢٦)
+    (a.compare ? '<p style="' + muted + '">' + esc(a.compare) + '</p>' : '') +
     (note ? '<p style="' + muted + '">' + esc(note) + '</p>' : '') +
     '<p style="margin:0;line-height:1.8">' + esc(a.advice) + '</p></div>';
 }
