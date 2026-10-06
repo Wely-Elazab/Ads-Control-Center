@@ -60,3 +60,31 @@ export function dxDaily(rows) {
   });
   return Object.keys(map).sort().map(function (k) { return map[k]; });
 }
+
+// أعداد صحيحة (Google بيوزّع الطلب الواحد على أكتر من يوم وحملة، فبيرجّع كسور زي ٠٫٤ طلب — قرار ٦ أكتوبر ٢٠٢٦):
+// الأيام بالتقريب التراكمي (مجموع أي فترة بيفضل في حدود طلب واحد من الحقيقي)، وأجزاء كل تقسيم في كل فترة
+// بطريقة «الباقي الأكبر» (مجموع الأجزاء = إجمالي الفترة المقرّب بالظبط). بيعدّل daily وdims مكانهم
+export function wholeShares(raw, total) {
+  const whole = function (v) { return Math.floor(Math.max(0, v || 0) + 1e-9); };
+  const out = raw.map(whole);
+  let left = total - out.reduce(function (a, b) { return a + b; }, 0);
+  const frac = function (i) { return Math.max(0, raw[i] || 0) - whole(raw[i]); };
+  raw.map(function (_v, i) { return i; })
+    .sort(function (a, b) { return frac(b) - frac(a) || (raw[b] || 0) - (raw[a] || 0) || a - b; })
+    .forEach(function (i) { if (left > 0) { out[i]++; left--; } });
+  return out;
+}
+export function wholeCounts(daily, dims, fields) {
+  fields.forEach(function (f) {
+    let cum = 0, prev = 0;
+    (daily || []).forEach(function (d) { cum += Math.max(0, Number(d[f]) || 0); const r = Math.round(cum); d[f] = r - prev; prev = r; });
+    (dims || []).forEach(function (dim) {
+      const segs = dim.segs || [], n = segs.length ? segs[0].w.length : 0;
+      for (let i = 0; i < n; i++) {
+        const raw = segs.map(function (s) { return (s.w[i] && s.w[i][f]) || 0; });
+        const ints = wholeShares(raw, Math.round(raw.reduce(function (a, b) { return a + b; }, 0)));
+        segs.forEach(function (s, j) { if (s.w[i]) s.w[i][f] = ints[j]; });
+      }
+    });
+  });
+}

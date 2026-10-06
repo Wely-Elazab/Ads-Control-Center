@@ -16,7 +16,7 @@ import { gaql, STORE_SEGMENTS, STORE_FILTER, storeRow } from './_google.js';
 import { guardRequest } from './_cors.js';
 import { verifyGoogleToken, sendVerifyFailure } from './_verify.js';
 import { text, shaped, TOKEN_MAX, badRequest } from './_input.js';
-import { dxRanges, windowsSpan, dxSegments, dxDaily } from './_dx.js';
+import { dxRanges, windowsSpan, dxSegments, dxDaily, wholeCounts } from './_dx.js';
 
 const CUSTOMER_ID = /^[\d-]{1,32}$/;
 // الدولة في Google رقم «معيار جغرافي» = ٢٠٠٠ + الرقم الدولي للدولة (ISO 3166). بنحوّل الشائع منها لرمز الدولة،
@@ -131,8 +131,11 @@ export default async function handler(req, res) {
       if (!Array.isArray(r)) return;
       dims.push({ id: d.id, segs: dxSegments(toRows(r[0], r[1], d.key, d.name, d.goal), ranges.windows) });
     });
+    // الطلبات والسلة وبدء الدفع أعداد صحيحة — Google بيرجّعها كسور (_dx.js wholeCounts)
+    const daily = dxDaily(toRows(dailyRes[0], dailyRes[1]));
+    wholeCounts(daily, dims, ['pur', 'atc', 'ic']);
     res.status(200).json({
-      daily: dxDaily(toRows(dailyRes[0], dailyRes[1])),
+      daily: daily,
       dims: dims,
       purchases: usePrimary ? 'primary' : (all > 0 ? 'all' : 'none'),
       numbers: store ? 'store' : 'platform',

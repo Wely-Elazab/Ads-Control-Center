@@ -199,8 +199,8 @@
         render();
         return;
       }
-      var googleCandidates = transformGoogleRows(payload.ads || [], payload.metrics || [], days, info.currency, payload.periodMetrics,
-        payload.storeMetrics, payload.storePeriodMetrics).concat(pmaxCandidates);
+      var googleCandidates = googleWholeOrders(transformGoogleRows(payload.ads || [], payload.metrics || [], days, info.currency, payload.periodMetrics,
+        payload.storeMetrics, payload.storePeriodMetrics).concat(pmaxCandidates));
       mergeCandidates(googleCandidates, 'google:' + customerId);
       cacheSource('google:' + customerId, googleCandidates);
       setPlatformState('google', null);
@@ -313,11 +313,59 @@
     });
     return out;
   }
+  // ---------- عدد الطلبات صحيح دايماً ----------
+  // Google بيوزّع الطلب الواحد على أكتر من إعلان ويوم (٠٫٤ طلب مثلاً) — وده مش منطقي لصاحب المتجر (قرار ٦ أكتوبر ٢٠٢٦).
+  // التقريب لكل إعلان لوحده كان بيضيّع طلبات: ٣٠ إعلان كل واحد ٠٫٤ = صفر طلبات في الأداة و١٢ في Google.
+  // فبنقسم إجمالي مقرّب على الأجزاء بطريقة «الباقي الأكبر»: كل جزء ياخد الجزء الصحيح من رقمه، والباقي بيتوزّع
+  // واحد واحد على أكبر الكسور، فالمجموع بيفضل مساوي للإجمالي بالظبط. caps (اختياري) = حد أقصى لكل جزء
+  // (عشان «الأقرب للمتجر» ميطلعش أكبر من رقم المنصة)
+  function wholeShares(raw, total, caps) {
+    var whole = function (v) { return Math.floor(Math.max(0, v || 0) + 1e-9); };
+    var out = raw.map(function (v, i) { var w = whole(v); return caps ? Math.min(w, caps[i]) : w; });
+    var left = total - out.reduce(function (a, b) { return a + b; }, 0);
+    var frac = function (i) { return Math.max(0, raw[i] || 0) - whole(raw[i]); };
+    raw.map(function (_v, i) { return i; })
+      .sort(function (a, b) { return frac(b) - frac(a) || (raw[b] || 0) - (raw[a] || 0) || a - b; })
+      .forEach(function (i) { if (left > 0 && (!caps || out[i] < caps[i])) { out[i]++; left--; } });
+    return out;
+  }
+  var sumOf = function (a) { return a.reduce(function (x, y) { return x + (y || 0); }, 0); };
+  // الحساب كله (الإعلانات وحملات PMax مع بعض): الإجمالي المقرّب بيتقسم على الإعلانات، ونصيب كل إعلان على أيامه.
+  // رقم المنصة الأول، و«الأقرب للمتجر» بعده بحد أقصى رقم المنصة لنفس الإعلان. نفس الكلام للفترة المختارة
+  function googleWholeOrders(list) {
+    var rows = list.filter(function (c) { return c._raw; });
+    var split = function (pick, caps) {
+      var idx = [], raw = [];
+      rows.forEach(function (c, i) { var v = pick(c); if (v != null) { idx.push(i); raw.push(v); } });
+      var ints = wholeShares(raw, Math.round(sumOf(raw)), caps ? idx.map(function (i) { return caps[i]; }) : null);
+      var out = rows.map(function () { return null; });
+      idx.forEach(function (i, j) { out[i] = ints[j]; });
+      return out;
+    };
+    var inf = function (v) { return v == null ? Infinity : v; };
+    var plat = split(function (c) { return c._raw.plat; });
+    var res = split(function (c) { return c._raw.total; }, plat.map(inf));
+    var pPlat = split(function (c) { return c._raw.periodPlat; });
+    var pRes = split(function (c) { return c._raw.period; }, pPlat.map(inf));
+    rows.forEach(function (c, i) {
+      c.results = res[i];
+      c.dailyResults = wholeShares(c._raw.days, res[i]);
+      c.cpr = (c.results && c.spend > 0) ? c.spend / c.results : null;
+      if (c.plat && plat[i] != null) c.plat.results = plat[i];
+      if (c.period && pRes[i] != null) {
+        var keep = c.period.plat;
+        c.period = buildPeriod(c.period.spend, pRes[i], c.period.sales);
+        if (keep) { keep.results = pPlat[i] != null ? pPlat[i] : keep.results; c.period.plat = keep; }
+      }
+      delete c._raw;
+    });
+    return list;
+  }
+
   // يوم بيوم: الصرف، والنتائج والمبيعات = «الأقرب للمتجر» لو موجود (ومش أكبر من رقم المنصة في أي يوم)، وإلا رقم المنصة.
-  // تحويلات Google ممكن تكون كسور (٠٫٥ تحويلة مثلاً) — بنجمع القيم الأصلية ونقرّب الإجمالي بس،
-  // عشان أيام فيها كسور صغيرة ماتتحسبش صفر
+  // الأيام بالأرقام الأصلية (rawDays)، والأعداد الصحيحة بتتوزّع منها (wholeShares) — مجموع الأيام = إجمالي الإعلان
   function googleDays(days, perDay, storeDay) {
-    var o = { daily: [], dailyResults: [], dailySales: [], raw: 0, platRaw: 0, platSales: 0 };
+    var o = { daily: [], dailyResults: [], dailySales: [], rawDays: [], raw: 0, platRaw: 0, platSales: 0 };
     days.forEach(function (day) {
       var r = perDay[day.key], res = r ? r.results : 0, sales = r ? r.sales : 0;
       o.platRaw += res; o.platSales += sales;
@@ -328,10 +376,19 @@
       }
       o.daily.push(r ? r.spend : 0);
       o.raw += res;
-      o.dailyResults.push(Math.round(res));
+      o.rawDays.push(res);
       o.dailySales.push(sales);
     });
+    o.dailyResults = wholeShares(o.rawDays, Math.round(o.raw));
     return o;
+  }
+  // الأرقام الأصلية (بالكسور) اللي googleWholeOrders بتقسم منها على مستوى الحساب — بتتشال بعدها
+  function googleRaw(g, compared, pRow, ps) {
+    return {
+      days: g.rawDays, total: g.raw, plat: compared ? g.platRaw : null,
+      period: pRow ? (ps ? Math.min(ps.results, pRow.results) : pRow.results) : null,
+      periodPlat: pRow && ps ? pRow.results : null
+    };
   }
   // الفترة المختارة: «الأقرب للمتجر» ورقم المنصة جنبه (core.js platOf)، ولو طلبه فشل رقم المنصة من غير مقارنة
   function googlePeriod(pRow, ps) {
@@ -410,6 +467,7 @@
         platformStatus: camp.primaryStatus || camp.status || null,
         period: googlePeriod(pRow, storeTotals && (storeTotals[campId] || { results: 0, sales: 0 })),
         plat: storeByDate ? { results: Math.round(g.platRaw), sales: r2(g.platSales) } : null,
+        _raw: googleRaw(g, !!storeByDate, pRow, storeTotals && (storeTotals[campId] || { results: 0, sales: 0 })),
         fail: false
       };
     });
@@ -494,6 +552,7 @@
         platformStatus: ggPick(row, 'adGroupAd.primaryStatus') || adStatus || null,
         period: googlePeriod(pRow, storeTotals && (storeTotals[key] || { results: 0, sales: 0 })),
         plat: storeByDate ? { results: Math.round(g.platRaw), sales: r2(g.platSales) } : null,
+        _raw: googleRaw(g, !!storeByDate, pRow, storeTotals && (storeTotals[key] || { results: 0, sales: 0 })),
         _resourceName: row.adGroupAd && row.adGroupAd.resourceName,
         fail: false
       };

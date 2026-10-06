@@ -443,6 +443,42 @@
       eq(transformGooglePmax(rows, null, DAYS, 'SAR', null, null)[0].plat, null);
     });
 
+    // عدد الطلبات صحيح دايماً (قرار ٦ أكتوبر ٢٠٢٦): Google بيرجّع كسور، والأداة بتقسم الإجمالي المقرّب على الإعلانات والأيام
+    var adN = function (i) { return { adGroup: { id: 'g' + i, name: 'AG', status: 'ENABLED' }, adGroupAd: { ad: { id: String(i), name: 'Ad ' + i }, status: 'ENABLED' }, campaign: { id: '3', name: 'S', status: 'ENABLED' } }; };
+    var rowN = function (i, d, conv) { return { adGroup: { id: 'g' + i }, adGroupAd: { ad: { id: String(i) } }, segments: { date: KEYS[d] }, metrics: { costMicros: String(10 * M), conversions: conv, conversionsValue: conv * 100 } }; };
+    test('الطلبات أعداد صحيحة: الكسور مبتضيعش من إجمالي الحساب', function () {
+      eq(wholeShares([0.4, 0.4, 0.4], 1), [1, 0, 0]);
+      eq(wholeShares([0.45, 0.55], 1, [0, 1]), [0, 1], 'the cap is respected');
+      var ids = []; for (var i = 0; i < 30; i++) ids.push(i);
+      var list = googleWholeOrders(transformGoogleRows(ids.map(adN), ids.map(function (i) { return rowN(i, 5, 0.4); }), DAYS, 'SAR', null, null, null));
+      var total = list.reduce(function (s, c) { return s + c.results; }, 0);
+      eq(total, 12, '30 × 0.4 = 12 orders, not 0');
+      ok(list.every(function (c) { return c.results === Math.floor(c.results) && c._raw === undefined; }), 'whole numbers, raw values removed');
+      ok(list.every(function (c) { return c.dailyResults.reduce(function (a, b) { return a + b; }, 0) === c.results; }), 'days add up to the ad');
+    });
+    test('أيام الإعلان مجموعها = إجمالي الإعلان، و«الأقرب للمتجر» مبيعدّيش رقم المنصة بعد التقريب', function () {
+      var days7 = [0, 1, 2, 3, 4, 5, 6].map(function (d) { return rowN(1, d, 0.4); });
+      var one = googleWholeOrders(transformGoogleRows([adN(1)], days7, DAYS, 'SAR', null, null, null))[0];
+      eq([one.results, one.dailyResults.reduce(function (a, b) { return a + b; }, 0)], [3, 3], '7 × 0.4 → 3, not 0 per day');
+      var pl = [rowN(1, 5, 0.45), rowN(2, 5, 0.55)];
+      var st = [rowN(1, 5, 0.45), rowN(2, 5, 0.3)];
+      var two = googleWholeOrders(transformGoogleRows([adN(1), adN(2)], pl, DAYS, 'SAR', null, st, null));
+      eq(two.map(function (c) { return [c.plat.results, c.results]; }), [[0, 0], [1, 1]]);
+      ok(two.every(function (c) { return c.results <= c.plat.results; }), 'ours never above the platform');
+      eq(two[1].cpr, 10, 'cost per order from the whole number');
+    });
+    testAsync('ملخص المتجر (السيرفر): الطلبات أعداد صحيحة في الأيام والتقسيمات', function () {
+      return import('/api/_dx.js').then(function (m) {
+        var daily = [{ date: '2026-09-21', pur: 0.4 }, { date: '2026-09-22', pur: 0.4 }, { date: '2026-09-23', pur: 0.4 }];
+        var dims = [{ id: 'campaign', segs: [{ key: 'a', w: [{ pur: 2.6 }, { pur: 0.3 }, null] }, { key: 'b', w: [{ pur: 1.6 }, { pur: 0.3 }, null] }] }];
+        m.wholeCounts(daily, dims, ['pur']);
+        eq(daily.map(function (d) { return d.pur; }), [0, 1, 0], 'running total 0.4 / 0.8 / 1.2 → 0 / 1 / 1');
+        eq(dims[0].segs.map(function (s) { return s.w[0].pur; }), [3, 1], '2.6 + 1.6 = 4.2 → 4');
+        eq(dims[0].segs.map(function (s) { return s.w[1].pur; }), [1, 0], '0.6 → 1');
+        eq(dims[0].segs[0].w[2], null);
+      });
+    });
+
     testAsync('السيرفر: استعلامات «الأقرب للمتجر» بالنقرة وخلال ٧ أيام، وأي صف بنوع تاني بيتشال، وفشلها مبيوقفش الإعلانات', function () {
       var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process, queries = [], failStore = false;
       window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
