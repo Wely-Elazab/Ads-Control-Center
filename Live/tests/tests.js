@@ -252,6 +252,154 @@
     test('الإعلان نفسه متوقف', function () { eq(level({ status: 'PAUSED', ad_squad_id: 'sq' }), 'ad'); });
   });
 
+  // «الأقرب للمتجر» في Snapchat (قرار ٦ أكتوبر ٢٠٢٦): ٧ أيام من السوايب ومن غير المشاهدة، بطلب منفصل جنب رقم المنصة
+  describe('أرقام Snapchat — الأقرب للمتجر', function () {
+    var days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07'].map(function (k) { return { key: k }; });
+    var M = 1000000;
+    var series = function (rows) {
+      return [{ timeseries_stat: { breakdown_stats: { ad: Object.keys(rows).map(function (id) {
+        return { id: id, timeseries: rows[id].map(function (r) { return { start_time: days[r[0]].key + 'T00:00:00.000+03:00', stats: r[1] }; }) };
+      }) } } }];
+    };
+    var totals = function (rows) {
+      return { total_stats: [{ total_stat: { breakdown_stats: { ad: Object.keys(rows).map(function (id) { return { id: id, stats: rows[id] }; }) } } }] };
+    };
+    var ads = [{ ad: { id: 'a1', name: 'Snap ad 1', status: 'ACTIVE' } }];
+    var plat = series({ a1: [[5, { spend: 100 * M, swipes: 40, conversion_purchases: 10, conversion_purchases_value: 1000 * M }],
+      [6, { spend: 50 * M, swipes: 20, conversion_purchases: 4, conversion_purchases_value: 400 * M }]] });
+    var store = series({ a1: [[5, { conversion_purchases: 6, conversion_purchases_value: 600 * M }], [6, { conversion_purchases: 3, conversion_purchases_value: 300 * M }]] });
+    var json = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
+
+    test('الأرقام الأساسية = «الأقرب للمتجر»، ورقم المنصة جنبها', function () {
+      var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], null, store, null)[0];
+      eq([c.results, c.dailySales[5] + c.dailySales[6], c.spend, c.resultKey], [9, 900, 150, 'purchase']);
+      eq(c.plat, { results: 14, sales: 1400 });
+      var pp = platOf(c);
+      eq([pp.results, pp.sales, pp.spend], [14, 1400, 150]);
+    });
+    test('«الأقرب للمتجر» مبيطلعش أكبر من رقم المنصة في أي يوم', function () {
+      var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], null, series({ a1: [[5, { conversion_purchases: 12, conversion_purchases_value: 1200 * M }]] }), null)[0];
+      eq([c.dailyResults[5], c.dailySales[5], c.dailyResults[6]], [10, 1000, 0]);
+    });
+    test('طلب «الأقرب للمتجر» فشل = أرقام المنصة زي الأول ومن غير مقارنة', function () {
+      var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], null, null, null)[0];
+      eq([c.results, c.plat, platOf(c)], [14, null, null]);
+    });
+    test('حساب مش بيسجّل مشتريات (النتيجة سوايب): مفيش مقارنة', function () {
+      var c = transformSnapchatAds(ads, series({ a1: [[5, { spend: 100 * M, swipes: 40 }]] }), days, 'SAR', [], [], null, series({ a1: [] }), null)[0];
+      eq([c.resultKey, c.results, c.plat], ['swipe', 40, null]);
+    });
+    test('الفترة المختارة: «الأقرب للمتجر» ورقم المنصة جنبه، ولو طلبها فشل رقم المنصة من غير مقارنة', function () {
+      var pPlat = totals({ a1: { spend: 300 * M, swipes: 90, conversion_purchases: 20, conversion_purchases_value: 2000 * M } });
+      var pStore = totals({ a1: { conversion_purchases: 15, conversion_purchases_value: 1500 * M } });
+      var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], pPlat, store, pStore)[0];
+      eq([c.period.results, c.period.sales, c.period.spend], [15, 1500, 300]);
+      var pp = platOf(c);
+      eq([pp.results, pp.sales, pp.spend], [20, 2000, 300]);
+      var c2 = transformSnapchatAds(ads, plat, days, 'SAR', [], [], pPlat, store, null)[0];
+      eq([c2.period.results, c2.period.plat, platOf(c2)], [20, undefined, null]);
+    });
+    test('تفاصيل إعلان Snapchat: جدول المقارنة، والكارت برا بـ«الأقرب للمتجر» بس', function () {
+      var prev = candidates;
+      var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], null, store, null)[0];
+      try {
+        candidates = [c];
+        render();
+        var card = document.getElementById('card-' + c.id);
+        ok(card && card.textContent.indexOf(fmtNum(9)) > -1 && card.textContent.indexOf(fmtNum(14)) === -1, 'card shows our number only');
+        openExpand(c);
+        var box = document.querySelector('#expandMetrics .attr-compare');
+        ok(box, 'comparison table');
+        eq(box.querySelector('.attr-note').textContent, t('cmp.note', { n: I18N.countPhrase(5, 'purchase', ar), v: t('cmp.noteValue', { m: money(500, 'SAR') }) }));
+      } finally {
+        expandOverlay.classList.add('hidden');
+        candidates = prev;
+        render();
+      }
+    });
+    test('شرح المقارنة من غير أي كلام تقني', function () {
+      ['ar', 'en'].forEach(function (lang) {
+        var all = withLang(lang, function () { return ['cmp.note', 'cmp.noteSame', 'al.compare', 'diff.source'].map(function (k) { return t(k); }).join(' '); });
+        ok(!/نقر|سوايب|مشاهدة|نسب الإحالة|\b(click|clicks|swipe|swipes|view|views|attribution)\b/i.test(all), lang + ': ' + all);
+      });
+    });
+
+    testAsync('السيرفر: طلب «الأقرب للمتجر» بنوافذ ٧ أيام سوايب ومن غير مشاهدة، ولو رجع بنوافذ تانية بيتجاهل', function () {
+      var realFetch = window.fetch, urls = [], echo = '7_DAY';
+      window.fetch = function (url) {
+        var u = String(url); urls.push(u);
+        if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'UTC', currency: 'USD' } }] });
+        if (/\/ads\?/.test(u)) return json({ ads: [{ ad: { id: 'a1' } }] });
+        if (/\/stats/.test(u) && /swipe_up_attribution_window/.test(u)) {
+          return json({ timeseries_stats: [{ timeseries_stat: { swipe_up_attribution_window: echo, view_attribution_window: 'none', breakdown_stats: { ad: [] } } }] });
+        }
+        if (/\/stats/.test(u)) return json({ timeseries_stats: [{ timeseries_stat: { breakdown_stats: { ad: [] } } }] });
+        return json({});
+      };
+      var run = function () {
+        var out = null;
+        var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+        return import('/api/snapchat-ads-fetch.js').then(function (m) {
+          return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1' } }, res);
+        }).then(function () { return out; });
+      };
+      return run().then(function (out) {
+        var windowed = urls.filter(function (u) { return /swipe_up_attribution_window/.test(u); });
+        eq(windowed.length, 1, 'one store request for the last 7 days');
+        ok(/swipe_up_attribution_window=7_DAY&view_attribution_window=none&action_report_time=conversion/.test(windowed[0]), windowed[0]);
+        ok(/fields=conversion_purchases,conversion_purchases_value&/.test(windowed[0]), 'store fields only');
+        ok(out.storeStats && out.storeStats.timeseries_stats, 'store stats returned');
+        echo = '28_DAY';
+        return run();
+      }).then(function (out) {
+        window.fetch = realFetch;
+        eq(out.storeStats, null, 'windows other than what we asked = ignored');
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+
+    testAsync('السيرفر: ملخص المتجر على «الأقرب للمتجر»، ولو Snapchat رفض النوافذ بيكمّل كله بنوافذ المنصة', function () {
+      var realFetch = window.fetch, urls = [], reject = false;
+      var st = { spend: 50000000, impressions: 1000, swipes: 30, conversion_purchases: 3, conversion_purchases_value: 300000000 };
+      window.fetch = function (url) {
+        var u = String(url);
+        if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'Asia/Riyadh', currency: 'SAR' } }] });
+        if (/\/campaigns\?/.test(u)) return json({ campaigns: [] });
+        if (/\/stats/.test(u)) {
+          urls.push(u);
+          if (reject && /swipe_up_attribution_window/.test(u)) {
+            return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ request_status: 'ERROR', debug_message: 'bad param' }); } });
+          }
+          var from = decodeURIComponent((u.match(/start_time=([^&]+)/) || [])[1] || '').slice(0, 10);
+          var to = decodeURIComponent((u.match(/end_time=([^&]+)/) || [])[1] || '').slice(0, 10);
+          var inRange = /granularity=DAY/.test(u) && '2026-09-25' >= from && '2026-09-25' < to;
+          return json({ timeseries_stats: [{ timeseries_stat: { timeseries: inRange ? [{ start_time: '2026-09-25T00:00:00.000+03:00', stats: st }] : [] } }], total_stats: [] });
+        }
+        return json({});
+      };
+      var ws = DX.windows('2026-09-21', '2026-09-27');
+      var run = function () {
+        var out = null;
+        urls = [];
+        var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+        return import('/api/snapchat-ads-fetch.js').then(function (m) {
+          return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'diagnosis', adAccountId: 'acc1',
+            daily: { since: ws[ws.length - 1].since, until: '2026-09-27' }, windows: ws.slice(0, 3).map(function (w) { return { since: w.since, until: w.until }; }) } }, res);
+        }).then(function () { return out; });
+      };
+      var windowed = function () { return urls.filter(function (u) { return /swipe_up_attribution_window=7_DAY&view_attribution_window=none/.test(u); }).length; };
+      return run().then(function (out) {
+        eq(windowed(), urls.length, 'every summary request uses the store windows');
+        eq(out.daily.filter(function (d) { return d.date === '2026-09-25'; })[0].pur, 3);
+        reject = true;
+        return run();
+      }).then(function (out) {
+        window.fetch = realFetch;
+        eq(windowed(), 1, 'one rejected try, then the platform windows for everything');
+        eq(out.daily.filter(function (d) { return d.date === '2026-09-25'; })[0].pur, 3, 'the summary still works');
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+  });
+
   describe('حالة الإعلان — Google Ads', function () {
     function level(row, a, g, c, appr) { var d = googleDelivery(row, a || 'ENABLED', g || 'ENABLED', c || 'ENABLED', appr || 'APPROVED'); return d.active ? 'active' : d.level; }
     test('مؤهل = شغّال', function () { eq(level({ adGroupAd: { primaryStatus: 'ELIGIBLE' } }), 'active'); });

@@ -413,8 +413,8 @@
       roas: (sales > 0 && spend > 0) ? sales / spend : null
     };
   }
-  // رقم المنصة للفترة المختارة (نفس الإنفاق) — جنب «الأقرب للمتجر» اللي في periodOf. Meta بس دلوقتي (c.plat
-  // من meta.js)؛ null = مفيش مقارنة للإعلان ده (منصة تانية، أو Meta مرجّعتش النوافذ)
+  // رقم المنصة للفترة المختارة (نفس الإنفاق) — جنب «الأقرب للمتجر» اللي في periodOf. Meta وSnapchat دلوقتي (c.plat
+  // من meta.js وsnapchat.js)؛ null = مفيش مقارنة للإعلان ده (منصة تانية، أو المنصة مرجّعتش النوافذ)
   function platOf(c) {
     var pl = c.period ? c.period.plat : c.plat;
     if (!pl) return null;

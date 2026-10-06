@@ -111,7 +111,8 @@
         render();
         return;
       }
-      var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns, payload.periodStats);
+      var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns, payload.periodStats,
+        payload.storeStats ? payload.storeStats.timeseries_stats || [] : null, payload.periodStoreStats);
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
       cacheSource('snapchat:' + adAccountId, snapCandidates);
       setPlatformState('snapchat', null);
@@ -165,53 +166,77 @@
     return { active: true, level: null };
   }
 
-  function transformSnapchatAds(adsList, statsList, days, currency, squads, campaigns, periodStats) {
+  // storeList/periodStore = «الأقرب للمتجر» (٧ أيام من السوايب، من غير المشاهدة — api/snapchat-ads-fetch.js) بنفس شكل
+  // statsList/periodStats. null = مفيش مقارنة، والأرقام هي أرقام المنصة زي الأول
+  function transformSnapchatAds(adsList, statsList, days, currency, squads, campaigns, periodStats, storeList, periodStore) {
     var squadsById = {}, campaignsById = {};
     (squads || []).forEach(function (s) { squadsById[s.id] = s; });
     (campaigns || []).forEach(function (c) { campaignsById[c.id] = c; });
     // مع breakdown=ad الإحصائيات بتيجي جوه breakdown_stats.ad[] تحت الحساب —
     // الـ id اللي في المستوى الأعلى هو id الحساب مش الإعلان
-    var statsByAd = {};
-    statsList.forEach(function (entry) {
-      var ts = entry.timeseries_stat || entry;
-      var perAd = ts.breakdown_stats && ts.breakdown_stats.ad;
-      if (perAd) { perAd.forEach(function (b) { statsByAd[b.id] = b.timeseries || []; }); }
-      else if (ts.id) { statsByAd[ts.id] = ts.timeseries || []; }
-    });
+    var seriesByAd = function (list) {
+      var out = {};
+      list.forEach(function (entry) {
+        var ts = entry.timeseries_stat || entry;
+        var perAd = ts.breakdown_stats && ts.breakdown_stats.ad;
+        if (perAd) { perAd.forEach(function (b) { out[b.id] = b.timeseries || []; }); }
+        else if (ts.id) { out[ts.id] = ts.timeseries || []; }
+      });
+      return out;
+    };
+    var statsByAd = seriesByAd(statsList), storeByAd = storeList ? seriesByAd(storeList) : null;
+    var dayMap = function (series) {
+      var byDay = {};
+      (series || []).forEach(function (r) { byDay[(r.start_time || '').slice(0, 10)] = r.stats || r; });
+      return byDay;
+    };
     // القيم المالية في Snapchat بالمايكرو (÷ 1,000,000)
     var parsed = adsList.map(function (item) {
       var ad = item.ad || item;
-      var byDay = {};
-      (statsByAd[ad.id] || []).forEach(function (r) { byDay[(r.start_time || '').slice(0, 10)] = r.stats || r; });
-      var p = { ad: ad, daily: [], swipes: [], purchases: [], sales: [] };
+      var byDay = dayMap(statsByAd[ad.id]), storeDay = storeByAd ? dayMap(storeByAd[ad.id]) : null;
+      var p = { ad: ad, daily: [], swipes: [], purchases: [], sales: [], storePurchases: [], storeSales: [] };
       days.forEach(function (day) {
         var st = byDay[day.key];
         p.daily.push(st ? r2(parseFloat(st.spend || 0) / 1000000) : 0);
         p.swipes.push(st ? Math.round(parseFloat(st.swipes || 0)) : 0);
-        p.purchases.push(st ? Math.round(parseFloat(st.conversion_purchases || 0)) : 0);
-        p.sales.push(st ? r2(parseFloat(st.conversion_purchases_value || 0) / 1000000) : 0);
+        var pur = st ? Math.round(parseFloat(st.conversion_purchases || 0)) : 0;
+        var sales = st ? r2(parseFloat(st.conversion_purchases_value || 0) / 1000000) : 0;
+        p.purchases.push(pur);
+        p.sales.push(sales);
+        if (storeDay) {
+          // النافذة الأضيق جزء من نافذة المنصة، فمش منطقي تطلع أكبر منها — لو حصل (اختلاف تقريب مثلاً) بناخد رقم المنصة
+          var sd = storeDay[day.key];
+          p.storePurchases.push(Math.min(sd ? Math.round(parseFloat(sd.conversion_purchases || 0)) : 0, pur));
+          p.storeSales.push(Math.min(sd ? r2(parseFloat(sd.conversion_purchases_value || 0) / 1000000) : 0, sales));
+        }
       });
       return p;
     });
     // لو الحساب بيسجّل مشتريات (Snap Pixel) نعتبرها النتيجة لكل إعلاناته، وإلا نرجع للسوايب —
     // قرار واحد على مستوى الحساب عشان المقارنة بين الإعلانات تفضل عادلة
     var tracksPurchases = parsed.some(function (p) { return p.purchases.some(function (v) { return v > 0; }); });
+    // المقارنة للمشتريات بس — السوايب مفيهاش نسب للإعلان من الأساس
+    var compared = tracksPurchases && !!storeByAd;
     // مجاميع الفترة المختارة (granularity=TOTAL) — رقم واحد لكل إعلان جوه breakdown_stats.ad
-    var periodByAd = null;
-    if (periodStats) {
-      periodByAd = {};
-      (periodStats.total_stats || periodStats.timeseries_stats || []).forEach(function (entry) {
+    var totalsByAd = function (data, fn) {
+      var out = {};
+      (data.total_stats || data.timeseries_stats || []).forEach(function (entry) {
         var ts = entry.total_stat || entry.timeseries_stat || entry;
-        ((ts.breakdown_stats && ts.breakdown_stats.ad) || []).forEach(function (b) {
-          var st = b.stats || {};
-          periodByAd[b.id] = {
-            spend: parseFloat(st.spend || 0) / 1000000,
-            results: tracksPurchases ? parseFloat(st.conversion_purchases || 0) : parseFloat(st.swipes || 0),
-            sales: tracksPurchases ? parseFloat(st.conversion_purchases_value || 0) / 1000000 : 0
-          };
-        });
+        ((ts.breakdown_stats && ts.breakdown_stats.ad) || []).forEach(function (b) { out[b.id] = fn(b.stats || {}); });
       });
-    }
+      return out;
+    };
+    var periodByAd = periodStats ? totalsByAd(periodStats, function (st) {
+      return {
+        spend: parseFloat(st.spend || 0) / 1000000,
+        results: tracksPurchases ? parseFloat(st.conversion_purchases || 0) : parseFloat(st.swipes || 0),
+        sales: tracksPurchases ? parseFloat(st.conversion_purchases_value || 0) / 1000000 : 0
+      };
+    }) : null;
+    var periodStoreByAd = compared && periodByAd && periodStore ? totalsByAd(periodStore, function (st) {
+      return { results: parseFloat(st.conversion_purchases || 0), sales: parseFloat(st.conversion_purchases_value || 0) / 1000000 };
+    }) : null;
+    var sum = function (a) { return a.reduce(function (x, y) { return x + y; }, 0); };
     return parsed.map(function (p) {
       var ad = p.ad;
       var delivery = snapchatDelivery(ad, squadsById, campaignsById);
@@ -219,11 +244,19 @@
       var id = 's-' + ad.id;
       var squad = squadsById[ad.ad_squad_id] || null;
       var campaign = squad ? (campaignsById[squad.campaign_id] || null) : null;
-      var dailyResults = tracksPurchases ? p.purchases : p.swipes;
-      var dailySales = tracksPurchases ? p.sales : p.daily.map(function () { return 0; });
-      var spend = r2(p.daily.reduce(function (a, b) { return a + b; }, 0));
-      var results = dailyResults.reduce(function (a, b) { return a + b; }, 0);
-      var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
+      var dailyResults = compared ? p.storePurchases : (tracksPurchases ? p.purchases : p.swipes);
+      var dailySales = compared ? p.storeSales : (tracksPurchases ? p.sales : p.daily.map(function () { return 0; }));
+      var spend = r2(sum(p.daily));
+      var results = sum(dailyResults);
+      var totalSales = sum(dailySales);
+      // الفترة المختارة: «الأقرب للمتجر» لو طلبه رجع، وإلا رقم المنصة من غير مقارنة (زي قبل الميزة)
+      var period = null;
+      if (pRow) {
+        var ps = periodStoreByAd && (periodStoreByAd[ad.id] || { results: 0, sales: 0 });
+        period = ps ? buildPeriod(pRow.spend, Math.round(Math.min(ps.results, pRow.results)), Math.min(ps.sales, pRow.sales))
+          : buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales);
+        if (ps) period.plat = { results: Math.round(pRow.results), sales: r2(pRow.sales) };
+      }
       return {
         id: id, platform: 'Snapchat', currency: currency || null,
         placement: (campaign && campaign.name) || (squad && squad.name) || '—',
@@ -247,7 +280,9 @@
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active, pausedLevel: delivery.level,
         deliveryReason: null, platformStatus: ad.status || null,
-        period: pRow ? buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales) : null,
+        period: period,
+        // رقم المنصة جنب «الأقرب للمتجر» (core.js platOf) — زي Meta
+        plat: compared ? { results: sum(p.purchases), sales: r2(sum(p.sales)) } : null,
         fail: false
       };
     });

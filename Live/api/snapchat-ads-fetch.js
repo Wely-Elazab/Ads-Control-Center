@@ -9,6 +9,21 @@ import { dxRanges, dxSegments, dxDaily } from './_dx.js';
 const SNAP_API = 'https://adsapi.snapchat.com/v1';
 const MAX_PAGES = 20; // حد أمان للتصفّح (1000 إعلان في الصفحة)
 
+// «الأقرب للمتجر» (قرار ٦ أكتوبر ٢٠٢٦): المشتريات اللي حصلت خلال ٧ أيام من سوايب على الإعلان، من غير المشاهدة،
+// ومحسوبة بيوم الشراء نفسه. طلب منفصل جنب طلب المنصة (الافتراضي ٢٨ يوم سوايب + يوم مشاهدة) — إعداد واحد لكل طلب.
+// Snapchat بيرجّع النوافذ اللي استخدمها جوه كل timeseries_stat/total_stat، فلو مش اللي طلبناها بنتجاهل الرد.
+// لم يُختبر على حساب Snapchat حقيقي بعد
+const STORE_WINDOWS = '&swipe_up_attribution_window=7_DAY&view_attribution_window=none&action_report_time=conversion';
+const STORE_FIELDS = 'conversion_purchases,conversion_purchases_value';
+export function storeWindowsOk(data) {
+  const list = (data && (data.timeseries_stats || data.total_stats)) || [];
+  return list.every(function (e) {
+    const ts = (e && (e.timeseries_stat || e.total_stat)) || e || {};
+    const swipe = ts.swipe_up_attribution_window, view = ts.view_attribution_window;
+    return (swipe == null || String(swipe).toUpperCase() === '7_DAY') && (view == null || String(view).toLowerCase() === 'none');
+  });
+}
+
 // روابط الصفحة الجاية بنتبعها بس لو على نفس API بتاع Snapchat — التوكن بيتبعت معاها
 function nextLink(u) { return typeof u === 'string' && u.indexOf(SNAP_API + '/') === 0 ? u : null; }
 
@@ -120,10 +135,10 @@ export default async function handler(req, res) {
       const endKey = shiftDateKey(range.until, 1);
       const startTime = range.since + 'T00:00:00.000' + tzOffsetString(range.since, tz);
       const endTime = endKey + 'T00:00:00.000' + tzOffsetString(endKey, tz);
-      const fetchStats = async function (fields, granularity, from, to) {
+      const fetchStats = async function (fields, granularity, from, to, extra) {
         const statsUrl = accountPath + '/stats' +
           '?granularity=' + granularity + '&breakdown=ad&fields=' + fields +
-          '&start_time=' + encodeURIComponent(from) + '&end_time=' + encodeURIComponent(to);
+          '&start_time=' + encodeURIComponent(from) + '&end_time=' + encodeURIComponent(to) + (extra || '');
         const r = await fetch(statsUrl, { headers: headers });
         const data = await r.json().catch(function () { return null; });
         const error = (!r.ok || (data && data.request_status === 'ERROR')) ? snapError(data, r.status) : null;
@@ -138,18 +153,26 @@ export default async function handler(req, res) {
         return first.error ? fetchStats(FIELDS_BASIC, granularity, from, to) : first;
       };
       const statsP = statsSafe('DAY', startTime, endTime).catch(function (e) { return { data: null, error: errOf(e) }; });
+      // «الأقرب للمتجر»: فشله أو نوافذ غير اللي طلبناها = null، والأداة بتعرض رقم المنصة زي الأول من غير مقارنة
+      const storeOf = function (granularity, from, to) {
+        return fetchStats(STORE_FIELDS, granularity, from, to, STORE_WINDOWS)
+          .then(function (p) { return !p.error && p.data && storeWindowsOk(p.data) ? p.data : null; })
+          .catch(function () { return null; });
+      };
+      const storeP = storeOf('DAY', startTime, endTime);
 
       // مجاميع الفترة المختارة (TOTAL = رقم واحد لكل إعلان). آخر ٧ أيام مش محتاجة طلب إضافي
       const periodRange = resolvePeriod(period, tz);
-      let periodP = Promise.resolve(null);
+      let periodP = Promise.resolve(null), periodStoreP = Promise.resolve(null);
       if (!periodRange.isDefault) {
         const pEnd = shiftDateKey(periodRange.until, 1);
         const pFrom = periodRange.since + 'T00:00:00.000' + tzOffsetString(periodRange.since, tz);
         const pTo = pEnd + 'T00:00:00.000' + tzOffsetString(pEnd, tz);
         periodP = statsSafe('TOTAL', pFrom, pTo).then(function (p) { return p.error ? null : p.data; }).catch(function () { return null; });
+        periodStoreP = storeOf('TOTAL', pFrom, pTo);
       }
 
-      const results = await Promise.all([adsP, squadsP, campaignsP, statsP, periodP]);
+      const results = await Promise.all([adsP, squadsP, campaignsP, statsP, periodP, storeP, periodStoreP]);
       const adsResult = results[0], squadList = results[1], campaignList = results[2], stats = results[3];
       if (adsResult.error) {
         res.status(adsResult.status || 502).json({ error: adsResult.error });
@@ -169,6 +192,8 @@ export default async function handler(req, res) {
         stats: stats.error ? null : stats.data,
         statsError: stats.error,
         periodStats: results[4],
+        storeStats: stats.error ? null : results[5],
+        periodStoreStats: results[4] ? results[6] : null,
         period: periodRange,
         range: range,
         account: acc ? { timezone: acc.timezone || null, currency: acc.currency || null } : null
@@ -199,8 +224,18 @@ export default async function handler(req, res) {
         if (!r.ok || !d || d.request_status === 'ERROR') { const e = new Error(snapError(d, r.status)); e.status = r.ok ? 502 : r.status; throw e; }
         return d;
       };
+      // الملخص على «الأقرب للمتجر» زي الإعلانات (STORE_WINDOWS). لو Snapchat رفض النوافذ أو رجّع غيرها بنكمّل الملخص كله
+      // بنوافذ المنصة — قرار واحد لكل الطلبات عشان الأيام والتقسيمات تفضل من نفس المصدر
+      let windows = STORE_WINDOWS;
+      const getWindowed = function (query) {
+        if (!windows) return get(query);
+        return get(query + windows).then(function (d) {
+          if (storeWindowsOk(d)) return d;
+          throw new Error('windows');
+        }).catch(function () { windows = ''; return get(query); });
+      };
       // حساب مش بيدعم التحويلات بيرفض الطلب كله — بنرجع للإنفاق والظهور والسوايب (والمحرك هيقول «لا تُسجَّل مشتريات»)
-      const getStats = function (query) { return get(query + '&fields=' + FULL).catch(function () { return get(query + '&fields=' + BASIC); }); };
+      const getStats = function (query) { return getWindowed(query + '&fields=' + FULL).catch(function () { return get(query + '&fields=' + BASIC); }); };
       const row = function (st, extra) {
         st = st || {};
         return Object.assign({
