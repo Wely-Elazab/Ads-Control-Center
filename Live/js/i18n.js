@@ -229,9 +229,25 @@
       'cmp.pct': '{n}٪',
       'cmp.cpr': 'تكلفة {r}',
       'cmp.roas': 'العائد (ROAS)',
-      'cmp.note': 'راجعنا ما تنسبه المنصة لهذا الإعلان، واستبعدنا منه {n}{v} لا يوجد دليل كافٍ على أن الإعلان هو من جلبها، لتبقى أمامك الأرقام الأقرب لطلبات متجرك الحقيقية. وعلى هذه الأرقام نبني تقييم الإعلان وتنبيهاته.',
+      // صيغة صاحب المنتج (٦ أكتوبر ٢٠٢٦): الرقم اللي بنعتمده الأول، وبعده اللي استبعدناه. {kept} مرفوع (خبر) و{gone} منصوب (مفعول)
+      // «مما تنسبه له المنصة» بدل «تنسبها له المنصة» — بتصح مع أي عدد ومذكر/مؤنث («تحويلاً واحداً» / «١٠ طلبات»)
+      'cmp.note': '{head} التي يثبت أنها جاءت من هذا الإعلان {kept} فقط{kv}، لذلك استبعدنا {gone}{other}{gv} مما تنسبه له المنصة، لتكون أرقامك أدق وأقرب لطلبات متجرك.',
+      'cmp.other': ' أخرى',
       'cmp.noteValue': ' بقيمة {m}',
-      'cmp.noteSame': 'راجعنا ما تنسبه المنصة لهذا الإعلان في هذه الفترة، ولم نجد فيه ما يستدعي الاستبعاد، فأرقامه هنا قريبة من طلبات متجرك.',
+      'cmp.noteZero': 'لا يثبت أن هذا الإعلان جلب أي {res} في هذه الفترة، لذلك استبعدنا {gone}{gv} مما تنسبه له المنصة، لتكون أرقامك أدق وأقرب لطلبات متجرك.',
+      'cmp.noteSame': 'كل ما تنسبه المنصة لهذا الإعلان ({kept}{kv}) يثبت أنه جاء منه، فلم نستبعد شيئاً.',
+      'cmp.noteNone': 'لم تنسب المنصة لهذا الإعلان أي نتيجة في هذه الفترة.',
+      'cmp.head.purchase': 'الطلبات', 'cmp.head.conversion': 'التحويلات', 'cmp.head.message': 'المحادثات', 'cmp.head.generic': 'النتائج',
+      // «طلب» بدل «عملية شراء» في جملة الشرح (كلمة صاحب المتجر — ui.js compareNote): «٤٠ طلباً»، «١٠ طلبات»، «طلبين»
+      'res.order': 'طلبات', 'res1.order': 'طلب', 'resA.order': 'طلباً', 'resOne.order': 'طلباً واحداً', 'res2.order': 'طلبين',
+      // العدد مرفوعاً (خبر): «طلبان» و«تحويل واحد» — resOne/res2 منصوبة («استبعدنا طلبين»)
+      'resN1.order': 'طلب واحد', 'resN2.order': 'طلبان',
+      'resN1.purchase': 'عملية شراء واحدة', 'resN2.purchase': 'عمليتا شراء',
+      'resN1.conversion': 'تحويل واحد', 'resN2.conversion': 'تحويلان',
+      'resN1.message': 'محادثة واحدة', 'resN2.message': 'محادثتان',
+      'resN1.lead': 'عميل محتمل واحد', 'resN2.lead': 'عميلان محتملان',
+      'resN1.swipe': 'تمريرة واحدة', 'resN2.swipe': 'تمريرتان',
+      'resN1.generic': 'نتيجة واحدة', 'resN2.generic': 'نتيجتان',
       'x.salesRow': 'المبيعات ({cur})',
       'x.spendRow': 'الإنفاق ({cur})',
       'x.salesLegend': 'المبيعات',
@@ -1211,6 +1227,7 @@
       'st.campaign-issue': 'Not showing — campaign problem',
 
       'res.purchase': 'purchases', 'res1.purchase': 'purchase',
+      'res.order': 'orders', 'res1.order': 'order',
       'res.lead': 'leads', 'res1.lead': 'lead',
       'res.message': 'conversations', 'res1.message': 'conversation',
       'res.click': 'link clicks', 'res1.click': 'click',
@@ -1274,9 +1291,13 @@
       'cmp.pct': '{n}%',
       'cmp.cpr': 'Cost per {r}',
       'cmp.roas': 'ROAS',
-      'cmp.note': 'We reviewed what the platform credits to this ad and removed {n}{v} with no solid evidence that the ad brought them in, so you see the numbers closest to your store\'s real orders. These are the numbers we base the ad\'s rating and alerts on.',
+      'cmp.note': 'Only {kept}{kv} can be confirmed as coming from this ad, so we removed the other {gone}{gv} the platform credits to it, to keep your numbers more accurate and closer to your store\'s orders.',
+      'cmp.other': '',
       'cmp.noteValue': ' worth {m}',
-      'cmp.noteSame': 'We reviewed what the platform credits to this ad in this period and found nothing that needed removing, so its numbers here are close to your store\'s orders.',
+      'cmp.noteZero': 'None of the {res} the platform credits to this ad in this period can be confirmed as coming from it, so we removed those {gone}{gv}, to keep your numbers more accurate and closer to your store\'s orders.',
+      'cmp.noteSame': 'Everything the platform credits to this ad ({kept}{kv}) can be confirmed as coming from it, so we removed nothing.',
+      'cmp.noteNone': 'The platform credits no results to this ad in this period.',
+      'cmp.head.purchase': 'Orders', 'cmp.head.conversion': 'Conversions', 'cmp.head.message': 'Conversations', 'cmp.head.generic': 'Results',
       'x.salesRow': 'Sales ({cur})',
       'x.spendRow': 'Spend ({cur})',
       'x.salesLegend': 'Sales',
@@ -2240,8 +2261,8 @@
     months: function () { return t('months').split(','); },
     // للاختبارات: المفاتيح الموجودة في لغة ومش موجودة في التانية (المفروض دايماً فاضية)
     missingKeys: function () {
-      // مفاتيح الإعراب (.acc و resA. و resG.) قواعد عربية بس ومالهاش مقابل إنجليزي
-      var diff = function (a, b) { return Object.keys(DICT[a]).filter(function (k) { return !(k in DICT[b]) && !/\.acc$|^res(A|G|One|2)\./.test(k); }); };
+      // مفاتيح الإعراب (.acc و resA. و resG. و resN1/resN2 للرفع) قواعد عربية بس ومالهاش مقابل إنجليزي
+      var diff = function (a, b) { return Object.keys(DICT[a]).filter(function (k) { return !(k in DICT[b]) && !/\.acc$|^res(A|G|One|2|N1|N2)\./.test(k); }); };
       return { missingInEn: diff('ar', 'en'), missingInAr: diff('en', 'ar') };
     }
   };

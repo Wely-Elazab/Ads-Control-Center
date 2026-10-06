@@ -310,7 +310,8 @@
         openExpand(c);
         var box = document.querySelector('#expandMetrics .attr-compare');
         ok(box, 'comparison table');
-        eq(box.querySelector('.attr-note').textContent, t('cmp.note', { n: I18N.countPhrase(5, 'purchase', ar), v: t('cmp.noteValue', { m: money(500, 'SAR') }) }));
+        eq(box.querySelector('.attr-note').textContent, t('cmp.note', { head: t('cmp.head.purchase'), kept: I18N.countPhrase(9, 'order', ar),
+          kv: t('cmp.noteValue', { m: money(900, 'SAR') }), gone: I18N.countPhrase(5, 'order', ar), other: t('cmp.other'), gv: t('cmp.noteValue', { m: money(500, 'SAR') }) }));
       } finally {
         expandOverlay.classList.add('hidden');
         candidates = prev;
@@ -319,8 +320,25 @@
     });
     test('شرح المقارنة من غير أي كلام تقني', function () {
       ['ar', 'en'].forEach(function (lang) {
-        var all = withLang(lang, function () { return ['cmp.note', 'cmp.noteSame', 'al.compare', 'diff.source'].map(function (k) { return t(k); }).join(' '); });
+        var all = withLang(lang, function () { return ['cmp.note', 'cmp.noteSame', 'cmp.noteZero', 'cmp.noteNone', 'al.compare', 'diff.source'].map(function (k) { return t(k); }).join(' '); });
         ok(!/نقر|سوايب|مشاهدة|نسب الإحالة|\b(click|clicks|swipe|swipes|view|views|attribution)\b/i.test(all), lang + ': ' + all);
+      });
+    });
+    // صيغة صاحب المنتج: المعتمد الأول (مرفوع) وبعده المستبعد (منصوب)، و«أخرى» من ٣ وطالع بس
+    test('جملة الشرح: الأعداد مضبوطة نحوياً، والحالات الأربع', function () {
+      withLang('ar', function () {
+        var c = { resultKey: 'purchase', currency: null };
+        eq(compareNote(c, { results: 1, sales: 0 }, { results: 3, sales: 0 }),
+          'الطلبات التي يثبت أنها جاءت من هذا الإعلان طلب واحد فقط، لذلك استبعدنا طلبين مما تنسبه له المنصة، لتكون أرقامك أدق وأقرب لطلبات متجرك.');
+        eq(compareNote(c, { results: 40, sales: 0 }, { results: 50, sales: 0 }),
+          'الطلبات التي يثبت أنها جاءت من هذا الإعلان ٤٠ طلباً فقط، لذلك استبعدنا ١٠ طلبات أخرى مما تنسبه له المنصة، لتكون أرقامك أدق وأقرب لطلبات متجرك.');
+        eq(compareNote({ resultKey: 'conversion', currency: null }, { results: 2, sales: 0 }, { results: 3, sales: 0 }),
+          'التحويلات التي يثبت أنها جاءت من هذا الإعلان تحويلان فقط، لذلك استبعدنا تحويلاً واحداً مما تنسبه له المنصة، لتكون أرقامك أدق وأقرب لطلبات متجرك.');
+        eq(compareNote(c, { results: 0, sales: 0 }, { results: 4, sales: 0 }),
+          'لا يثبت أن هذا الإعلان جلب أي طلبات في هذه الفترة، لذلك استبعدنا ٤ طلبات مما تنسبه له المنصة، لتكون أرقامك أدق وأقرب لطلبات متجرك.');
+        eq(compareNote(c, { results: 40, sales: 0 }, { results: 40, sales: 0 }),
+          'كل ما تنسبه المنصة لهذا الإعلان (٤٠ طلباً) يثبت أنه جاء منه، فلم نستبعد شيئاً.');
+        eq(compareNote(c, { results: 0, sales: 0 }, { results: 0, sales: 0 }), t('cmp.noteNone'));
       });
     });
 
@@ -1334,7 +1352,8 @@
       eq(rowText(1), [resultLabelOf(c), fmtNum(100), fmtNum(82), '−' + t('cmp.pct', { n: ar(18) })], 'orders: platform, ours, difference');
       eq(rowText(2)[3], '+' + t('cmp.pct', { n: ar(22) }), 'cost per order went up');
       ok(box.querySelectorAll('tbody tr')[2].querySelector('.cmp-worse'), 'higher cost is marked as worse');
-      eq(box.querySelector('.attr-note').textContent, t('cmp.note', { n: I18N.countPhrase(18, 'purchase', ar), v: t('cmp.noteValue', { m: money(1750, 'SAR') }) }));
+      eq(box.querySelector('.attr-note').textContent, t('cmp.note', { head: t('cmp.head.purchase'), kept: I18N.countPhrase(82, 'order', ar),
+        kv: t('cmp.noteValue', { m: money(7000, 'SAR') }), gone: I18N.countPhrase(18, 'order', ar), other: t('cmp.other'), gv: t('cmp.noteValue', { m: money(1750, 'SAR') }) }));
       expandOverlay.classList.add('hidden');
       delete c.plat;
       openExpand(c);

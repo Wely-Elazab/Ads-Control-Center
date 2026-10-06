@@ -1496,18 +1496,33 @@
       rows += row(t('x.sales'), money(pp.sales, cur), money(p.sales, cur), cmpDiff(p.sales, pp.sales)) +
         row(t('cmp.roas'), roasStr(pp.roas), roasStr(p.roas), cmpDiff(p.roas, pp.roas), hl('roas'));
     }
-    var gone = Math.max(0, (pp.results || 0) - (p.results || 0));
-    var goneSales = Math.max(0, (pp.sales || 0) - (p.sales || 0));
-    var note = gone > 0
-      ? t('cmp.note', { n: I18N.countPhrase(gone, c.resultKey, ar), v: goneSales > 0 ? t('cmp.noteValue', { m: money(goneSales, cur) }) : '' })
-      : t('cmp.noteSame');
     return '<div class="attr-compare">' +
       '<div class="attr-title">' + t('cmp.title') + pl + '</div>' +
       '<div class="attr-table-wrap"><table class="attr-table"><thead><tr><th></th><th scope="col">' + t('cmp.platform') + '</th>' +
       '<th scope="col" class="cmp-store">' + t('cmp.store') + '</th><th scope="col">' + t('cmp.diff') + '</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>' +
-      '<p class="attr-note">' + esc(note) + '</p>' +
+      '<p class="attr-note">' + esc(compareNote(c, p, pp)) + '</p>' +
     '</div>';
+  }
+  // جملة الشرح تحت الجدول (صيغة صاحب المنتج — i18n cmp.note): اللي يثبت إنه جه من الإعلان الأول، وبعده اللي استبعدناه
+  var CMP_HEADS = { purchase: 1, conversion: 1, message: 1 };
+  function compareNote(c, p, pp) {
+    // المشتريات بتتعدّ بكلمة «طلب» في الجملة دي (عنوانها «الطلبات») — باقي الأنواع باسمها
+    var head = c.resultKey || 'generic', key = head === 'purchase' ? 'order' : head, cur = c.currency;
+    var gone = Math.max(0, (pp.results || 0) - (p.results || 0));
+    var goneSales = Math.max(0, (pp.sales || 0) - (p.sales || 0));
+    var val = function (m) { return m > 0 ? t('cmp.noteValue', { m: money(m, cur) }) : ''; };
+    // العدد مرفوعاً: «عمليتا شراء» و«تحويل واحد» (countPhrase بيرجّع المنصوب للواحد والاتنين)
+    var nom = function (n) {
+      var k = (I18N.lang === 'ar' && (n === 1 || n === 2)) ? 'resN' + n + '.' + key : null;
+      return k && t(k) !== k ? t(k) : I18N.countPhrase(n, key, ar);
+    };
+    var gonePhrase = I18N.countPhrase(gone, key, ar);
+    if (!(pp.results > 0)) return t('cmp.noteNone');
+    if (!gone) return t('cmp.noteSame', { kept: nom(p.results || 0), kv: val(p.sales) });
+    if (!(p.results > 0)) return t('cmp.noteZero', { res: I18N.resultAny(key), gone: gonePhrase, gv: val(goneSales) });
+    return t('cmp.note', { head: t('cmp.head.' + (CMP_HEADS[head] ? head : 'generic')), kept: nom(p.results), kv: val(p.sales),
+      gone: gonePhrase, other: gone >= 3 ? t('cmp.other') : '', gv: val(goneSales) });
   }
 
   var DEST_LABELS = i18nMap({ whatsapp: 'dest.whatsapp', messenger: 'dest.messenger', website: 'dest.website' });
