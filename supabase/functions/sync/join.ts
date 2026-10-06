@@ -42,10 +42,13 @@ type Req = {
 const COLUMNS = 'id,email,role,name,business,store_url,country,platforms,fb_profile,google_email,whatsapp,lang,status,submissions,activated_at,created_at,updated_at';
 
 // ---------- تنظيف المدخلات ----------
-// سطر واحد: من غير رموز تحكم ولا علامات اتجاه (بتلخبط العرض في الإشعار)، والمسافات الزيادة بتتشال
+// سطر واحد: من غير رموز تحكم ولا علامات اتجاه (بتلخبط العرض في الإشعار)، والمسافات الزيادة بتتشال.
+// الحروف دي بأرقامها مش مكتوبة في الكود: مبتظهرش، وبتضيع لو الملف اتنسخ — والقائمة من غيرها بتبوظ
+const HIDDEN = new RegExp('[' + [[0x00, 0x1f], [0x7f, 0x7f], [0x200e, 0x200f], [0x202a, 0x202e], [0x2066, 0x2069]]
+  .map((r) => String.fromCharCode(r[0]) + '-' + String.fromCharCode(r[1])).join('') + ']', 'g');
 function line(v: unknown, max: number, min = 1): string | null {
   if (typeof v !== 'string') return null;
-  const s = v.replace(/[\u0000-\u001f\u007f‎‏‪-‮⁦-⁩]/g, ' ').replace(/\s+/g, ' ').trim();
+  const s = v.replace(HIDDEN, ' ').replace(/\s+/g, ' ').trim();
   return s.length >= min && s.length <= max ? s : null;
 }
 // رابط المتجر: نطاق فيه نقطة، ولو من غير https:// بنضيفها
@@ -224,8 +227,8 @@ function activationMail(r: Req) {
       : 'بعد ربط حساب Meta وظهور «ملخص المتجر»، اضغط <strong>«الملخص التلقائي»</strong>، واختر الأيام والساعة، ثم اضغط «تفعيل الملخص التلقائي». بعدها يصلك بريد فوري إذا توقف ما يجلب لك المبيعات أو صرف إعلان دون طلبات، وملخص لما صرفته وما عاد عليك في الأيام التي تختارها، دون أن تفتح الأداة.');
   }
   lines.push('<div style="margin:22px 0 14px;line-height:1.8">' + (en
-    ? 'Every step is explained in the ' + link(SITE + '/help', 'getting-started guide') + '. We will never ask you for a password or a verification code, by email or by phone.'
-    : 'الخطوات مشروحة بالتفصيل في ' + link(SITE + '/help', 'دليل البدء') + '. ولن نطلب منك أبداً كلمة مرور أو رمز تحقق، لا بالبريد ولا بالهاتف.') + '</div>');
+    ? 'Every step is explained in the ' + link(SITE + '/help', 'getting-started guide') + '. Your password and sign-in code are typed only on the sign-in page at adscenter.online/login — we will never ask you for them by email or by phone.'
+    : 'الخطوات مشروحة بالتفصيل في ' + link(SITE + '/help', 'دليل البدء') + '. وكلمة المرور ورمز الدخول تكتبهما في صفحة الدخول على adscenter.online/login فقط؛ ولن نطلبهما منك أبداً، لا بالبريد ولا بالهاتف.') + '</div>');
   lines.push(en ? 'If you get stuck at any step, just reply to this email and we\'ll help.' : 'إن توقفت عند أي خطوة، فرُدّ على هذه الرسالة وسنساعدك.');
   return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: text(subject, lines) };
 }
