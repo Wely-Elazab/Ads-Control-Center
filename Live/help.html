@@ -43,7 +43,7 @@
 <main class="legal">
 <article class="doc">
   <h1><span class="only-ar">دليل البدء</span><span class="only-en">Getting started</span></h1>
-  <p class="updated"><span class="only-ar">آخر تحديث: ٣ أكتوبر ٢٠٢٦</span><span class="only-en">Last updated: October 3, 2026</span></p>
+  <p class="updated"><span class="only-ar">آخر تحديث: ٦ أكتوبر ٢٠٢٦</span><span class="only-en">Last updated: October 6, 2026</span></p>
   <p class="only-ar">بعد تفعيل حسابك، يستغرق ربط حسابات متجرك الإعلانية دقائق قليلة، ليظهر لك بعدها «ملخص المتجر»: ما الذي تغيّر في طلبات متجرك من الإعلانات ولماذا، ومن أين تبدأ، إلى جانب جميع إعلاناتك وتنبيهاتها في لوحة واحدة. وإن توقفت عند أي خطوة، فراسلنا على البريد الموضّح في <a href="#contact">نهاية الصفحة</a>، وسنساعدك مباشرة.</p>
   <p class="only-en">Once your access is activated, connecting your store's ad accounts takes just a few minutes. You then get your store summary: what changed in your store's orders from ads, why, and where to start, alongside all your ads and their alerts in one dashboard. If you get stuck at any step, email us at the address at the <a href="#contact">end of this page</a> and we'll help you directly.</p>
 
@@ -80,6 +80,23 @@
     </div>
     <p class="note only-ar">بإرسالك الطلب، فإنك توافق على الانضمام بصفة مختبِر للأداة وفق بند <a href="/terms#pilot">«برنامج التجربة»</a> في شروط الاستخدام. وإن واجهت مشكلة في النموذج، فراسلنا على <a href="mailto:support@adscenter.online">support@adscenter.online</a>.</p>
     <p class="note only-en">By sending the request, you agree to join as a tester of the tool under the <a href="/terms#pilot-en">"Pilot program"</a> section of the terms of use. If you have trouble with the form, email us at <a href="mailto:support@adscenter.online">support@adscenter.online</a>.</p>
+
+    <!-- الدخول للأداة (قرار ٦ أكتوبر ٢٠٢٦): كلمة المرور + رمز على البريد — login.html / sync auth.ts -->
+    <h3 id="signin"><span class="only-ar">بعد التفعيل: الدخول إلى الأداة</span><span class="only-en">After activation: signing in to the tool</span></h3>
+    <ol class="only-ar">
+      <li>افتح <a href="/login?first=1">adscenter.online/login</a>، واضغط «أول دخول؟ أنشئ كلمة المرور»، واكتب البريد الذي أرسلت به طلب الانضمام.</li>
+      <li>افتح الرابط الذي يصلك على بريدك، واختر كلمة مرور من ٨ أحرف على الأقل. الرابط صالح لمدة ساعة.</li>
+      <li>سجّل الدخول بالبريد وكلمة المرور، ثم اكتب الرمز المكوّن من ٦ أرقام الذي يصل إلى بريدك، وهو صالح لمدة ١٠ دقائق.</li>
+      <li>تبقى مسجّلاً على جهازك حتى تضغط «خروج» أعلى الأداة، ويُطلب منك الرمز من جديد كل ٣٠ يوماً أو عند الدخول من جهاز آخر.</li>
+    </ol>
+    <ol class="only-en">
+      <li>Open <a href="/login?first=1">adscenter.online/login</a>, press "First time? Set your password", and enter the email you used for your join request.</li>
+      <li>Open the link we email you and choose a password of at least 8 characters. The link is valid for one hour.</li>
+      <li>Sign in with your email and password, then enter the 6-digit code we email you. It's valid for 10 minutes.</li>
+      <li>You stay signed in on your device until you press "Sign out" at the top of the tool; you'll be asked for a code again every 30 days or when you sign in on another device.</li>
+    </ol>
+    <p class="note only-ar">نسيت كلمة المرور؟ اضغط «نسيت كلمة المرور؟» في صفحة الدخول. ولن نطلب منك أبداً كلمة المرور أو الرمز، لا بالبريد ولا بالهاتف.</p>
+    <p class="note only-en">Forgot your password? Press "Forgot your password?" on the sign-in page. We will never ask you for your password or code, by email or by phone.</p>
   </section>
 
   <!-- ================= ٢. Meta ================= -->
@@ -226,8 +243,8 @@
     </ul>
 
     <h3 id="relogin"><span class="only-ar">لماذا يُطلب مني تسجيل الدخول مرة أخرى؟</span><span class="only-en">Why do I have to log in again?</span></h3>
-    <p class="only-ar">حفاظاً على أمانك، لا تحفظ الأداة مفاتيح الدخول على خوادمنا. جلسة Google تنتهي بعد نحو ساعة وجلسة Snapchat بعد نحو نصف ساعة، لكن الأداة تجددهما تلقائياً بنسخة مشفّرة من الربط محفوظة على جهازك أنت، فلا تحتاج إلى تسجيل الدخول من جديد ولو أغلقت الصفحة وعدت إليها لاحقاً. تُحذف هذه النسخة عند ضغطك «فصل»، وتبطل إذا لم تستخدم الأداة ٦٠ يوماً. ولن يُطلب منك تسجيل الدخول إلا إذا ألغيت صلاحية الأداة من إعدادات المنصة، أو استخدمت جهازاً أو متصفحاً آخر. ملاحظة خلال التجربة: تطلب Google تسجيل الدخول مرة كل ٧ أيام تقريباً، لأن تطبيقنا لديها ما زال في وضع الاختبار. وإذا ظهرت رسالة «انتهت الجلسة» فاضغط «إعادة الربط» لتعود إلى الحساب نفسه الذي كنت تتابعه. أما Meta فتحتفظ بجلستك بنفسها. وإذا فعّلت الملخص التلقائي لحساب Meta، نحتفظ بصلاحية قراءة مشفّرة لإرسال الملخص فقط، ولا يغيّر ذلك تسجيل دخولك داخل الأداة.</p>
-    <p class="only-en">For your security, the tool doesn't keep access keys on our servers. A Google session ends after about an hour and a Snapchat session after about half an hour, but the tool renews them automatically using an encrypted copy of the connection kept on your own device — so you don't need to log in again, even if you close the page and come back later. That copy is deleted when you press "Disconnect", and stops working if you don't use the tool for 60 days. You'll only be asked to log in again if you revoke the tool's access in the platform's settings, or use another device or browser. Note during the pilot: Google asks you to log in about once every 7 days, because our app is still in testing mode with Google. If you see "session expired", press "Reconnect" to get back to the same account. Meta keeps your session by itself. If you turn on the automatic summary for a Meta account, we keep encrypted read access only to send the summary; it doesn't change how you sign in inside the tool.</p>
+    <p class="only-ar">حفاظاً على أمانك، لا تحفظ الأداة مفاتيح الدخول على خوادمنا. جلسة Google تنتهي بعد نحو ساعة وجلسة Snapchat بعد نحو نصف ساعة، لكن الأداة تجددهما تلقائياً بنسخة مشفّرة من الربط محفوظة على جهازك أنت، فلا تحتاج إلى تسجيل الدخول من جديد ولو أغلقت الصفحة وعدت إليها لاحقاً. تُحذف هذه النسخة عند ضغطك «فصل»، وتبطل إذا لم تستخدم الأداة ٦٠ يوماً. ولن يُطلب منك تسجيل الدخول إلا إذا ألغيت صلاحية الأداة من إعدادات المنصة، أو استخدمت جهازاً أو متصفحاً آخر. ملاحظة خلال التجربة: تطلب Google تسجيل الدخول مرة كل ٧ أيام تقريباً، لأن تطبيقنا لديها ما زال في وضع الاختبار. وإذا ظهرت رسالة «انتهت الجلسة» فاضغط «إعادة الربط» لتعود إلى الحساب نفسه الذي كنت تتابعه. أما Meta فتحتفظ بجلستك بنفسها. وإذا فعّلت الملخص التلقائي لحساب Meta، نحتفظ بصلاحية قراءة مشفّرة لإرسال الملخص فقط، ولا يغيّر ذلك تسجيل دخولك داخل الأداة. أما الدخول إلى الأداة نفسها (البريد وكلمة المرور ثم الرمز)، فيبقى على جهازك حتى تضغط «خروج»، ويُطلب منك الرمز من جديد كل ٣٠ يوماً أو على جهاز آخر (<a href="#signin">التفاصيل</a>).</p>
+    <p class="only-en">For your security, the tool doesn't keep access keys on our servers. A Google session ends after about an hour and a Snapchat session after about half an hour, but the tool renews them automatically using an encrypted copy of the connection kept on your own device — so you don't need to log in again, even if you close the page and come back later. That copy is deleted when you press "Disconnect", and stops working if you don't use the tool for 60 days. You'll only be asked to log in again if you revoke the tool's access in the platform's settings, or use another device or browser. Note during the pilot: Google asks you to log in about once every 7 days, because our app is still in testing mode with Google. If you see "session expired", press "Reconnect" to get back to the same account. Meta keeps your session by itself. If you turn on the automatic summary for a Meta account, we keep encrypted read access only to send the summary; it doesn't change how you sign in inside the tool. Signing in to the tool itself (email and password, then a code) stays on your device until you press "Sign out"; you'll be asked for a code again every 30 days or on another device (<a href="#signin">details</a>).</p>
 
     <h3 id="readonly"><span class="only-ar">هل يمكن للأداة تعديل إعلاناتي أو إيقافها؟</span><span class="only-en">Can the tool edit or pause my ads?</span></h3>
     <p class="only-ar">لا. الأداة للقراءة فقط، ولا تحتوي على أي زر أو طلب يغيّر شيئاً في حساباتك. وإن لاحظت أن شاشة الموافقة في Google أو Snapchat تذكر صلاحية أوسع، فذلك لأن هاتين المنصتين لا توفّران صلاحية «قراءة فقط» للإعلانات؛ لذا نطلب الصلاحية الوحيدة المتاحة ونستخدمها للقراءة فقط.</p>

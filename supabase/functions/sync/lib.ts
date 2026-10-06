@@ -22,7 +22,8 @@ export function corsHeaders(origin: string | null): Record<string, string> {
   if (origin && ORIGINS.indexOf(origin) > -1) {
     h['Access-Control-Allow-Origin'] = origin;
     h['Access-Control-Allow-Methods'] = 'POST, OPTIONS';
-    h['Access-Control-Allow-Headers'] = 'content-type';
+    // authorization = مفتاح دخول الأداة (auth.ts) — من ٦ أكتوبر ٢٠٢٦
+    h['Access-Control-Allow-Headers'] = 'content-type, authorization';
     h['Access-Control-Max-Age'] = '86400';
   }
   return h;
@@ -44,6 +45,16 @@ export async function db(path: string, init: RequestInit): Promise<Response> {
   const r = await fetch(Deno.env.get('SUPABASE_URL') + '/rest/v1/' + path, { ...init, headers });
   if (!r.ok) throw new Error('db ' + r.status + ' ' + (await r.text()).slice(0, 120));
   return r;
+}
+// أوامر إدارة الدخول في Supabase (عمل حساب، رابط كلمة المرور) بنفس المفتاح السري. الخطأ بيرجع بحالته من غير محتوى
+export async function authAdmin(path: string, init: RequestInit): Promise<any> {
+  const key = secretKey();
+  const headers: Record<string, string> = { 'apikey': key, 'content-type': 'application/json' };
+  if (key.indexOf('eyJ') === 0) headers['authorization'] = 'Bearer ' + key;
+  const r = await fetch(Deno.env.get('SUPABASE_URL') + '/auth/v1/' + path, { ...init, headers });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) { const e = new Error('auth ' + r.status); (e as any).status = r.status; throw e; }
+  return j;
 }
 export async function rpc(name: string, args: Record<string, unknown>): Promise<any> {
   const r = await db('rpc/' + name, { method: 'POST', body: JSON.stringify(args) });

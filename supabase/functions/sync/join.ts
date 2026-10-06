@@ -3,7 +3,8 @@
 //                    role = «أنت:» في النموذج (من ٥ أكتوبر ٢٠٢٦): media_buyer / agency / owner_self / owner_managed
 //                    عام (من غير دخول): بيتحفظ في pilot_requests، ويوصلنا إشعار على support@ فيه البيانات وزرار «أرسلت الدعوة»
 //   join.peek     ← { id, sig }  صفحة /invited (الرابط الموقّع اللي في إشعارنا): بيانات الطلب عشان نراجعها قبل الإرسال
-//   join.activate ← { id, sig }  بيبعت للعميل رسالة التفعيل (قبول دعوة فيسبوك من الموبايل أو الكمبيوتر + الربط) ويعلّم الطلب
+//   join.activate ← { id, sig }  بيضيف البريد لقائمة الدخول (app_access)، ويبعت للعميل رسالة التفعيل (كلمة مرور الدخول،
+//                    وقبول دعوة فيسبوك من الموبايل أو الكمبيوتر + الربط) ويعلّم الطلب
 //   joinReminders ← المُشغّل كل ١٠ دقايق (runner.ts): طلب لسه new عدّى عليه ١٨ ساعة = تذكير واحد على support@،
 //                    لأننا واعدين العميل بالتفعيل خلال ٢٤ ساعة (أي يوم)
 //
@@ -170,9 +171,15 @@ function activationMail(r: Req) {
   const box = (s: string) => '<div style="' + BOX + '">' + s + '</div>';
   const lines: string[] = [
     en ? 'Hello ' + esc(r.name) + ',' : 'مرحباً ' + esc(r.name) + '،',
-    en ? 'We\'ve activated your access to the Ads Center pilot for <strong>' + esc(r.business) + '</strong>. Here\'s how to connect your ad accounts:'
-      : 'فعّلنا وصولك إلى تجربة Ads Center لنشاط <strong>' + esc(r.business) + '</strong>. إليك خطوات ربط حساباتك الإعلانية:'
+    en ? 'We\'ve activated your access to the Ads Center pilot for <strong>' + esc(r.business) + '</strong>. Here\'s how to sign in and connect your ad accounts:'
+      : 'فعّلنا وصولك إلى تجربة Ads Center لنشاط <strong>' + esc(r.business) + '</strong>. إليك خطوات الدخول وربط حساباتك الإعلانية:'
   ];
+  // الأول: كلمة مرور الدخول للأداة (auth.ts login.forgot) — البريد ده نفسه بقى في app_access مع التفعيل
+  const login = link(SITE + '/login?first=1', 'adscenter.online/login');
+  lines.push(h(en ? 'First: set your password' : 'أولاً: أنشئ كلمة مرور الدخول'));
+  lines.push(en
+    ? 'Open ' + login + ', press <strong>"First time? Set your password"</strong>, and enter this same email (<span dir="ltr">' + esc(r.email) + '</span>). You\'ll get a link to choose your password. From then on, each sign-in asks for your password and then a code we email you.'
+    : 'افتح ' + login + '، واضغط <strong>«أول دخول؟ أنشئ كلمة المرور»</strong>، واكتب بريدك هذا نفسه (<span dir="ltr">' + esc(r.email) + '</span>). سيصلك رابط لاختيار كلمة المرور، وبعدها يطلب منك كل دخول جديد كلمة المرور ثم رمزاً نرسله إلى بريدك.');
   if (has('meta')) {
     lines.push(h(en ? 'Meta (Facebook &amp; Instagram)' : 'Meta (فيسبوك وإنستغرام)'));
     lines.push(en ? 'We\'ve added your Facebook account as a "Tester" of the Ads Center app. Facebook doesn\'t send a notification for this — the invitation waits for you in your settings, so accept it first:'
@@ -233,6 +240,9 @@ export async function handleJoin(action: string, body: any, origin: string | nul
   if (!r) return reply(404, { error: 'gone' }, origin);
   if (action === 'join.peek') return reply(200, { request: publicView(r) }, origin);
   if (action === 'join.activate') {
+    // التفعيل = البريد بقى مسموح له يدخل الأداة (auth.ts) — قبل الرسالة، عشان أول ما توصله يقدر يدخل
+    await db('app_access?on_conflict=email', { method: 'POST', headers: { 'prefer': 'resolution=ignore-duplicates,return=minimal' },
+      body: JSON.stringify({ email: r.email.toLowerCase(), role: 'pilot' }) });
     const mail = activationMail(r);
     try { await sendEmail(r.email, mail.subject, mail.html, mail.text); } catch (e) {
       console.error('join activation mail failed', String((e as Error).message || e).slice(0, 160));

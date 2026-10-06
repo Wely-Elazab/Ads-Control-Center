@@ -34,7 +34,9 @@
       'tab.ads': 'الإعلانات',
       'tab.alerts': 'التنبيهات',
       'tabs.aria': 'أقسام الصفحة',
-      'btn.login': 'تسجيل الدخول',
+      'btn.login': 'ربط حساب إعلاني',
+      // تسجيل الخروج من الأداة نفسها (auth.js) — غير ربط المنصات
+      'auth.logout': 'خروج', 'auth.logoutTitle': 'تسجيل الخروج من {email}',
       'btn.refresh': 'تحديث البيانات',
       'btn.close': 'إغلاق',
       'account.aria': 'الحساب الإعلاني',
@@ -195,7 +197,7 @@
       'legend.aria': 'دليل الألوان',
 
       // المعرض والأرقام
-      'gallery.login': 'سجّل الدخول لعرض إعلاناتك',
+      'gallery.login': 'اربط حساباً إعلانياً لعرض إعلاناتك',
       'gallery.loading': 'جارٍ التحميل…',
       'gallery.noMatch': 'لا توجد إعلانات تطابق الفلاتر الحالية',
       'gallery.count': 'عرض {n} من {total} {ads}',
@@ -300,7 +302,7 @@
       'alerts.title': 'التنبيهات المهمة',
       'alerts.sub': 'تستند إلى أداء آخر ٧ أيام، ويُقصد بـ«أمس» آخر يوم مكتمل. اضغط أي تنبيه لعرض تفاصيل الإعلان.',
       'alerts.settingsBtn': '⚙ إعدادات التنبيهات',
-      'alerts.loginFirst': 'سجّل الدخول وحمّل حساباً إعلانياً لتظهر التنبيهات هنا.',
+      'alerts.loginFirst': 'اربط حساباً إعلانياً لتظهر التنبيهات هنا.',
       'alerts.riskShowing': 'المعروض: التنبيهات المرتبطة بالميزانية المعرّضة للهدر ({amount})',
       'alerts.showAll': 'عرض العاجل والمهم',
       'top.title': 'أهم التنبيهات',
@@ -443,7 +445,7 @@
       'al.scale.noteNoCur': ' كما بلغ العائد خلال آخر ٣ أيام ×{roas}.',
 
       // رسائل الاتصال والتحميل
-      's.notConnected': 'غير متصل — اضغط «تسجيل الدخول» للبدء',
+      's.notConnected': 'غير متصل — اضغط «ربط حساب إعلاني» للبدء',
       's.connected': 'متصل — تم تحميل {n} {ads} من جميع المنصات المتصلة.',
       's.metaSdkLoading': 'ما زالت مكتبة Meta قيد التحميل، حاول مرة أخرى بعد ثانية.',
       's.metaOpening': 'جارٍ فتح نافذة تسجيل الدخول بحساب Meta…',
@@ -1131,7 +1133,8 @@
       'tab.ads': 'Ads',
       'tab.alerts': 'Alerts',
       'tabs.aria': 'Page sections',
-      'btn.login': 'Log in',
+      'btn.login': 'Connect an ad account',
+      'auth.logout': 'Sign out', 'auth.logoutTitle': 'Sign out of {email}',
       'btn.refresh': 'Refresh data',
       'btn.close': 'Close',
       'account.aria': 'Ad account',
@@ -1259,7 +1262,7 @@
       'chip.weakDelivery': 'Weak delivery',
       'legend.aria': 'Color legend',
 
-      'gallery.login': 'Log in to see your ads',
+      'gallery.login': 'Connect an ad account to see your ads',
       'gallery.loading': 'Loading…',
       'gallery.noMatch': 'No ads match the current filters',
       'gallery.count': 'Showing {n} of {total} {ads}',
@@ -1347,7 +1350,7 @@
       'alerts.title': 'Important alerts',
       'alerts.sub': 'Based on the last 7 days; "yesterday" means the last full day. Click any alert to see the ad\'s details.',
       'alerts.settingsBtn': '⚙ Alert settings',
-      'alerts.loginFirst': 'Log in and load an ad account to see alerts here.',
+      'alerts.loginFirst': 'Connect an ad account to see alerts here.',
       'alerts.riskShowing': 'Showing: the alerts behind the budget at risk of waste ({amount})',
       'alerts.showAll': 'Show urgent & important',
       'top.title': 'Top alerts',
@@ -1482,7 +1485,7 @@
       'al.roasTextNoCur': 'return ×{roas}',
       'al.scale.noteNoCur': ' Also, the return over the last 3 days was ×{roas}.',
 
-      's.notConnected': 'Not connected — press Log in to start',
+      's.notConnected': 'Not connected — press Connect an ad account to start',
       's.connected': 'Connected — {n} {ads} loaded across all connected platforms.',
       's.metaSdkLoading': 'The SDK is still loading — try again in a second.',
       's.metaOpening': 'Opening the Meta login window…',
@@ -1531,7 +1534,7 @@
       's.tiktokNoAdvertisers': 'Logged in with TikTok ✓ — but no ad accounts (Advertiser IDs) are visible to this app yet.',
       's.tiktokPick': 'Logged in with TikTok ✓ — pick an account from the list.',
       's.sessionExpired': 'Your {list} session expired — log in again to see its ads.',
-      'title.metaConnected': 'Connected to Meta — press Log in to add another platform',
+      'title.metaConnected': 'Connected to Meta — press Accounts to add another platform',
       'note.periodFailed': 'Couldn\'t load figures for the selected period — showing the last 7 days',
       'note.adsCapped': 'This account has many stopped ads — all running ads and ads with spend are shown, plus only the first {n} stopped {ads}',
       'note.dailyFailed': 'Couldn\'t load daily spend: {msg}',

@@ -11,10 +11,12 @@
 //   digest.preview ← { token, accountId, lang } لمدير التطبيق بس: الرسالة العاجلة اللي كانت هتتبعت دلوقتي، من غير إرسال
 //   digest.previewSummary ← { token, accountId, lang, since?, until? } لمدير التطبيق بس: رسالة الملخص، من غير إرسال
 //   join و join.peek و join.activate ← طلبات الانضمام للتجربة من نموذج /join، وزرار «أرسلت الدعوة» في إشعارنا (join.ts)
+//   login.* ← تسجيل الدخول للأداة: كلمة المرور + رمز على البريد (auth.ts)
 //
-// الأمان: الدالة عامة (verify_jwt = false) لأن الأداة مفيهاش حسابات دخول خاصة بيها. بدل كده كل طلب فيه
-// مفتاح Meta بتاع صاحب المتجر، والدالة بتسأل Meta نفسها إن المفتاح ده عنده صلاحية على الحساب الإعلاني
-// قبل ما تقرا أو تكتب أي حاجة. المفتاح بيتستخدم في الطلب ده بس — مبيتحفظش (إلا لو العميل فعّل الملخص
+// الأمان: الدالة عامة (verify_jwt = false) لأن فيها عمليات من غير دخول (النبض، رابط الإيقاف، طلب الانضمام، login.*).
+// من ٦ أكتوبر ٢٠٢٦ كل العمليات التانية محتاجة دخول مكتمل للأداة (هيدر authorization: كلمة المرور + الرمز — requireLogin)،
+// وفوقه كل طلب فيه مفتاح Meta بتاع صاحب المتجر، والدالة بتسأل Meta نفسها إن المفتاح ده عنده صلاحية على الحساب
+// الإعلاني قبل ما تقرا أو تكتب أي حاجة. مفتاح Meta بيتستخدم في الطلب ده بس — مبيتحفظش (إلا لو العميل فعّل الملخص
 // التلقائي، وساعتها مشفّر — digest.ts) ومبيتكتبش في السجلات.
 // viewKey = «meta:act_123» بس: عرض «كل المنصات» فيه بيانات Google (أسماء حملات وأرقام حسابات)، وسياسة
 // الخصوصية بتقول إننا مش بنحفظ أي بيانات Google — فهو وعروض Google وSnapchat بيفضلوا على جهاز العميل.
@@ -23,6 +25,7 @@ import { META_ID, TOKEN, corsHeaders, reply, db, rpc, metaAccount, isAppAdmin, s
 import { handleDigest } from './digest.ts';
 import { handleJoin } from './join.ts';
 import { runAll, preview, previewSummary } from './runner.ts';
+import { handleLogin, requireLogin } from './auth.ts';
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
@@ -126,6 +129,10 @@ Deno.serve(async (req: Request) => {
       await job;
       return reply(200, { ok: true }, origin);
     }
+
+    // تسجيل الدخول للأداة، وبعده كل العمليات محتاجة دخول مكتمل (كلمة المرور + الرمز) — فوق صلاحية Meta
+    if (typeof action === 'string' && action.indexOf('login.') === 0) return await handleLogin(action, body, req, origin);
+    if (!(await requireLogin(req))) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
 
     if (typeof body.token !== 'string' || !TOKEN.test(body.token)) return reply(400, { error: 'token' }, origin);
 

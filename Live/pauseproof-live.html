@@ -28,10 +28,14 @@
 <!-- اللغة والاتجاه والوضع الداكن بيتحددوا قبل ما الصفحة ترسم — عشان مفيش وميض بلغة أو لون غلط -->
 <script src="js/theme.js"></script>
 <script src="js/i18n.js"></script>
+<!-- دخول الأداة (بريد وكلمة مرور + رمز على البريد): من غيره /app بيروح لـ /login، والأداة مخفية لحد ما نتأكد -->
+<script src="js/auth.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+  /* لحد ما js/auth.js يتأكد إن الدخول مكتمل — بعدها بتظهر (أو بيروح لصفحة الدخول) */
+  html.auth-pending body { visibility: hidden; }
   :root {
     --paper: #F5F6F2; --card: #FFFFFF; --ink: #161A1F; --ink-soft: #5B6470; --ink-faint: #636B78; --line: #E3E5DF;
     --verified: #0E7A63; --verified-bg: #E4F3EF; --pending: #9A6200; --pending-bg: #FBF0DD;
@@ -753,13 +757,15 @@
     <div class="appbar-actions">
       <select id="accountSelect" class="sort-select account-select hidden" aria-label="الحساب الإعلاني" data-i18n-aria="account.aria"></select>
       <button type="button" class="icon-toggle" id="resetAllBtn" title="تحديث البيانات" aria-label="تحديث البيانات" data-i18n-title="btn.refresh" data-i18n-aria="btn.refresh">↻</button>
-      <button type="button" class="stop-btn" id="loginMenuBtn" data-i18n="btn.login">تسجيل الدخول</button>
+      <button type="button" class="stop-btn" id="loginMenuBtn" data-i18n="btn.login">ربط حساب إعلاني</button>
     </div>
     <div class="appbar-icons">
       <!-- بيظهر على الموبايل بس، ولو الأداة مش مثبّتة — installBtn في ui.js -->
       <button type="button" class="lang-toggle install-btn" id="installBtn" title="أضف Ads Center إلى الشاشة الرئيسية لهاتفك لتفتحه بلمسة واحدة" data-i18n="install.btn" data-i18n-title="install.btnTitle" hidden>ثبّت الأداة</button>
       <button type="button" class="icon-toggle" id="themeToggle" aria-label="المظهر" data-i18n-aria="theme.aria">☀️</button>
       <button type="button" class="lang-toggle" id="langToggle" data-i18n="lang.toggle">EN</button>
+      <!-- خروج من الأداة نفسها (js/auth.js بيظهّره بعد ما يتأكد من الدخول، وعنوانه فيه البريد) -->
+      <button type="button" class="lang-toggle" id="logoutBtn" data-i18n="auth.logout" hidden>خروج</button>
     </div>
   </div>
 </header>
@@ -767,7 +773,7 @@
 <div class="status-strip">
   <span class="spinner" aria-hidden="true"></span>
   <span id="tConnectTitle" class="sr-only" data-i18n="status.title">حالة الاتصال</span>
-  <span id="connectStatus" role="status" aria-live="polite" data-i18n="s.notConnected">غير متصل — اضغط «تسجيل الدخول» للبدء</span>
+  <span id="connectStatus" role="status" aria-live="polite" data-i18n="s.notConnected">غير متصل — اضغط «ربط حساب إعلاني» للبدء</span>
   <!-- بيظهر بس مع رسايل فشل دخول Meta/Google (غالباً العميل لسه مش مضاف للتجربة) — setStatus(..., { help }) في core.js -->
   <span class="status-help" id="statusHelp" hidden>
     <a href="/help" id="statusHelpLink" data-i18n="help.steps">خطوات الربط</a>

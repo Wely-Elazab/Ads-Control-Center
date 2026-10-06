@@ -246,10 +246,23 @@
   // قبل كده انقطاع النت كان بيطلع خطأ تقني زي "Failed to fetch"، وطلب معلّق كان بيسيب مؤشر التحميل
   // يلف على طول — دلوقتي بعد دقيقة بيتلغي برسالة واضحة والعميل يقدر يضغط «حاول مرة أخرى»
   var API_TIMEOUT_MS = 60000;
+  // هيدر دخول الأداة (js/auth.js) — من غيره /api بيرد ٤٠١ code: LOGIN (api/_login.js)
+  function loginHeaders() {
+    return typeof window !== 'undefined' && window.AuthLogin ? window.AuthLogin.headers().catch(function () { return {}; }) : Promise.resolve({});
+  }
   function apiPost(path, body) {
+    return loginHeaders().then(function (auth) { return apiSend(path, body, auth); }).then(function (res) {
+      // الدخول للأداة خلص أو مكتملش — صفحة الدخول، مش «ربط المنصة خلص»
+      if (window.AuthLogin && AuthLogin.isLoginFailure(res)) AuthLogin.toLogin();
+      return res;
+    });
+  }
+  function apiSend(path, body, auth) {
     var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, API_TIMEOUT_MS) : null;
-    return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctrl ? ctrl.signal : undefined })
+    var headers = { 'Content-Type': 'application/json' };
+    Object.keys(auth || {}).forEach(function (k) { headers[k] = auth[k]; });
+    return fetch(path, { method: 'POST', headers: headers, body: JSON.stringify(body), signal: ctrl ? ctrl.signal : undefined })
       .then(function (r) {
         return r.text().then(function (txt) {
           var data = null;
@@ -266,7 +279,10 @@
       .then(function (res) { clearTimeout(timer); return res; });
   }
   // الربط انتهى أو اتلغى (توكن منتهي) — ده مش عطل، العميل محتاج يربط تاني بس
-  function isAuthFailure(res) { return !!res && (res.status === 401 || (res.data && res.data.code === 'AUTH')); }
+  function isAuthFailure(res) {
+    if (!res || (res.data && res.data.code === 'LOGIN')) return false;   // دخول الأداة نفسها (apiPost بيحوّل لصفحة الدخول)
+    return res.status === 401 || !!(res.data && res.data.code === 'AUTH');
+  }
   // سبب الخطأ بلغة الواجهة: الأخطاء المعروفة (حد الطلبات، الصلاحيات، إعداد السيرفر...) بتتترجم، والباقي بنص
   // المنصة نفسه. بترجع دالة — عشان لو العميل غيّر اللغة، نفس الرسالة تتكتب باللغة الجديدة.
   // قبل كده رسايل السيرفر كانت بالعربي بس، فالعميل اللي مختار إنجليزي كان بيشوفها بالعربي

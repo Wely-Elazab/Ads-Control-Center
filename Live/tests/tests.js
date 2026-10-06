@@ -2208,6 +2208,141 @@
     });
   });
 
+  // ---------- دخول الأداة في الاختبارات (api/_login.js) ----------
+  // مفتاح توقيع وهمي (ES256) بيتعمل هنا، ومفتاح دخول موقّع بيه. api/_login.js بيحفظ مفاتيح التوقيع وإجابة «الجلسة
+  // مأكَّدة» — فبعد التجهيز ده (setupLogin) كل طلبات /api في الاختبارات بتعدّي بالهيدر من غير أي شبكة
+  var TEST_LOGIN = { token: null, key: null, jwk: null };
+  var LOGIN_ISSUER = 'https://rhrrnxsgodiideqeollo.supabase.co/auth/v1';
+  function b64urlOf(bytes) { var s = ''; new Uint8Array(bytes).forEach(function (b) { s += String.fromCharCode(b); }); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+  function b64urlText(t) { return b64urlOf(new TextEncoder().encode(t)); }
+  function signJwt(key, header, payload) {
+    var head = b64urlText(JSON.stringify(header)) + '.' + b64urlText(JSON.stringify(payload));
+    return crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(head)).then(function (sig) { return head + '.' + b64urlOf(sig); });
+  }
+  function loginClaims(extra) {
+    return Object.assign({ iss: LOGIN_ISSUER, aud: 'authenticated', exp: Math.floor(Date.now() / 1000) + 6 * 3600, sub: 'u-test', session_id: 's-test', email: 'tester@example.com' }, extra || {});
+  }
+  // بيرد على مفاتيح Supabase العامة وسؤال session_ok — والباقي للـ fetch الأصلي
+  function loginFetch(realFetch, sessionOk) {
+    return function (url, opts) {
+      var u = String(url);
+      var json = function (o) { return Promise.resolve(new Response(JSON.stringify(o), { status: 200, headers: { 'Content-Type': 'application/json' } })); };
+      if (u.indexOf('/.well-known/jwks.json') > -1) return json({ keys: [Object.assign({ kid: 'test-kid', alg: 'ES256', use: 'sig' }, TEST_LOGIN.jwk)] });
+      if (u.indexOf('/rest/v1/rpc/session_ok') > -1) return json(sessionOk ? sessionOk(JSON.parse(opts.body)) : true);
+      return realFetch.apply(window, arguments);
+    };
+  }
+  function setupLogin() {
+    var keys = TEST_LOGIN.key ? Promise.resolve() : crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']).then(function (kp) {
+      TEST_LOGIN.key = kp.privateKey;
+      return crypto.subtle.exportKey('jwk', kp.publicKey).then(function (jwk) { TEST_LOGIN.jwk = { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }; });
+    });
+    var m;
+    return keys.then(function () { return signJwt(TEST_LOGIN.key, { alg: 'ES256', kid: 'test-kid', typ: 'JWT' }, loginClaims()); })
+      .then(function (tok) { TEST_LOGIN.token = tok; return import('/api/_login.js'); })
+      .then(function (mod) {
+        m = mod; m.resetLoginCache();
+        var realFetch = window.fetch;
+        window.fetch = loginFetch(realFetch);
+        return m.checkLogin(new Request(location.origin + '/api/x', { headers: { authorization: 'Bearer ' + TEST_LOGIN.token } }))
+          .then(function (okd) { window.fetch = realFetch; if (!okd) throw new Error('test login setup failed'); }, function (e) { window.fetch = realFetch; throw e; });
+      });
+  }
+  // طلب لـ /api بهيدر الدخول (لو مش موجود)
+  function withLogin(req) {
+    var h = new Headers(req.headers);
+    if (!h.has('authorization') && TEST_LOGIN.token && new URL(req.url).pathname.indexOf('/api/') === 0) h.set('authorization', 'Bearer ' + TEST_LOGIN.token);
+    return new Request(req, { headers: h });
+  }
+
+  // ---------- دخول الأداة (قرار ٦ أكتوبر ٢٠٢٦): كلمة المرور + رمز على البريد ----------
+  describe('دخول الأداة', function () {
+    function loadWorker() { return import('/cloudflare/worker.js'); }
+    function env() { return { ASSETS: { fetch: function (req) { return fetch(new URL(req.url).pathname); } } }; }
+    function api(w, token) {
+      var headers = { 'Content-Type': 'application/json' };
+      if (token) headers.authorization = 'Bearer ' + token;
+      return w.default.fetch(new Request(location.origin + '/api/google-ads-fetch', { method: 'POST', headers: headers, body: '{}' }), env())
+        .then(function (r) { return r.json().then(function (j) { return { status: r.status, code: j.code }; }); });
+    }
+    function tokenWith(claims) { return signJwt(TEST_LOGIN.key, { alg: 'ES256', kid: 'test-kid', typ: 'JWT' }, loginClaims(claims)); }
+
+    testAsync('/api: من غير دخول مكتمل = ٤٠١ LOGIN، وبالدخول الطلب بيوصل للدالة', function () {
+      var w, realFetch = window.fetch;
+      var restore = function () { window.fetch = realFetch; };
+      return setupLogin().then(loadWorker).then(function (m) { w = m; return api(w, null); }).then(function (r) {
+        eq([r.status, r.code], [401, 'LOGIN'], 'no token');
+        return api(w, TEST_LOGIN.token);
+      }).then(function (r) {
+        eq(r.status, 400, 'logged in: the handler itself answers (bad request)');
+        return api(w, 'not.a.token');
+      }).then(function (r) {
+        eq(r.status, 401, 'garbage');
+        return crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
+          .then(function (kp) { return signJwt(kp.privateKey, { alg: 'ES256', kid: 'test-kid' }, loginClaims({ session_id: 's-forged' })); });
+      }).then(function (forged) {
+        window.fetch = loginFetch(realFetch);
+        return api(w, forged);
+      }).then(function (r) {
+        eq(r.status, 401, 'signed with another key');
+        return tokenWith({ session_id: 's-old', exp: Math.floor(Date.now() / 1000) - 10 }).then(function (t) { return api(w, t); });
+      }).then(function (r) {
+        eq(r.status, 401, 'expired');
+        return tokenWith({ session_id: 's-iss', iss: 'https://evil.example/auth/v1' }).then(function (t) { return api(w, t); });
+      }).then(function (r) {
+        eq(r.status, 401, 'another issuer');
+        // كلمة المرور بس ولسه مأكّدش الرمز (أو الجلسة اتقفلت): session_ok = لأ
+        window.fetch = loginFetch(realFetch, function (b) { return b.p_session !== 's-pending'; });
+        return tokenWith({ session_id: 's-pending' }).then(function (t) { return api(w, t); });
+      }).then(function (r) {
+        restore();
+        eq(r.status, 401, 'code not confirmed');
+      }, function (e) { restore(); throw e; });
+    });
+
+    test('الرجوع بعد الدخول للأداة بس (مش أي رابط برّه الموقع)', function () {
+      eq(['/app', '/app?code=1&state=snapchat', 'https://evil.example/app', '//evil.example', '/appx', null].map(AuthLogin.safeNext),
+        ['/app', '/app?code=1&state=snapchat', '/app', '/app', '/app', '/app']);
+    });
+
+    testAsync('الجلسة على الجهاز: الهيدر، والتجديد قبل ما تخلص، ولو اتلغت بتتشال', function () {
+      var key = 'ac.login', prev = localStorage.getItem(key), realFetch = window.fetch, calls = [];
+      var restore = function () { window.fetch = realFetch; if (prev == null) localStorage.removeItem(key); else localStorage.setItem(key, prev); };
+      localStorage.setItem(key, JSON.stringify({ access_token: 'a1', refresh_token: 'r1', expires_at: Date.now() + 3600000, email: 'x@example.com' }));
+      return AuthLogin.headers().then(function (h) {
+        eq(h, { Authorization: 'Bearer a1' });
+        localStorage.setItem(key, JSON.stringify({ access_token: 'a1', refresh_token: 'r1', expires_at: Date.now() + 10000, email: 'x@example.com' }));
+        window.fetch = function (url) {
+          calls.push(String(url));
+          return Promise.resolve(new Response(JSON.stringify({ access_token: 'a2', refresh_token: 'r2', expires_in: 3600, user: { email: 'x@example.com' } }), { status: 200 }));
+        };
+        return AuthLogin.headers();
+      }).then(function (h) {
+        eq(h, { Authorization: 'Bearer a2' }, 'refreshed a minute before it ends');
+        ok(/grant_type=refresh_token/.test(calls[0]), calls[0]);
+        eq(JSON.parse(localStorage.getItem(key)).refresh_token, 'r2');
+        localStorage.setItem(key, JSON.stringify({ access_token: 'a2', refresh_token: 'r2', expires_at: Date.now() - 1000 }));
+        window.fetch = function () { return Promise.resolve(new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })); };
+        return AuthLogin.headers();
+      }).then(function (h) {
+        eq([h, localStorage.getItem(key)], [{}, null], 'signed out elsewhere');
+        restore();
+      }, function (e) { restore(); throw e; });
+    });
+
+    testAsync('ردّ «الدخول مش مكتمل» = صفحة الدخول، مش «ربط المنصة خلص»', function () {
+      var realFetch = window.fetch, realTo = AuthLogin.toLogin, went = 0;
+      var restore = function () { window.fetch = realFetch; AuthLogin.toLogin = realTo; };
+      AuthLogin.toLogin = function () { went++; };
+      window.fetch = function () { return Promise.resolve(new Response(JSON.stringify({ error: 'x', code: 'LOGIN' }), { status: 401 })); };
+      return apiPost('/api/google-ads-fetch', {}).then(function (res) {
+        restore();
+        eq([res.status, went, isAuthFailure(res)], [401, 1, false]);
+        ok(isAuthFailure({ status: 401, data: { code: 'AUTH' } }) && isAuthFailure({ status: 401, data: {} }), 'platform sign-in expiry still counts');
+      }, function (e) { restore(); throw e; });
+    });
+  });
+
   describe('Cloudflare', function () {
     // الـ Worker نفسه (cloudflare/worker.js) بيتحمّل هنا كـ module، وبنديله ASSETS وهمي بيقرا الملفات من
     // السيرفر المحلي (ملف مش موجود = 404 زي Cloudflare) — فبنختبر الـ routes والرؤوس وطبقة التحويل
@@ -2218,7 +2353,9 @@
         ASSETS: { fetch: function (req) { return fetch(new URL(req.url).pathname + '?t=' + Date.now()); } }
       }, extra || {});
     }
-    function call(w, path, init, env) { return w.default.fetch(new Request(location.origin + path, init || {}), env || fakeEnv()); }
+    function call(w, path, init, env) { return w.default.fetch(withLogin(new Request(location.origin + path, init || {})), env || fakeEnv()); }
+
+    testAsync('تجهيز دخول الاختبارات (مفتاح توقيع وهمي)', setupLogin);
     // الـ Worker بيحط الأسرار في process.env — بنرجّع الصفحة لحالتها بعد الاختبار
     var hadProcess = typeof globalThis.process !== 'undefined';
     function cleanProcess() { if (!hadProcess) delete globalThis.process; else ['SNAPCHAT_CLIENT_ID', 'SNAPCHAT_CLIENT_SECRET'].forEach(function (k) { delete globalThis.process.env[k]; }); }
@@ -2227,7 +2364,7 @@
     testAsync('الروابط الرسمية ورؤوس الأمان ثابتة، وكل صفحة ليها ملف موجود', function () {
       return loadWorker().then(function (w) {
         eq(w.REWRITES, {
-          '/': '/home.html', '/index.html': '/home.html', '/app': '/pauseproof-live.html',
+          '/': '/home.html', '/index.html': '/home.html', '/app': '/pauseproof-live.html', '/login': '/login.html',
           '/help': '/help.html', '/privacy': '/privacy.html', '/terms': '/terms.html', '/data-deletion': '/data-deletion.html',
           '/stop': '/stop.html', '/join': '/join.html', '/invited': '/invited.html', '/favicon.ico': '/favicon.svg'
         }, 'rewrites');
@@ -2346,7 +2483,7 @@
   describe('الربط المحفوظ على الجهاز (Google وSnapchat)', function () {
     function worker() { return import('/cloudflare/worker.js'); }
     function post(w, path, body, env) {
-      return w.default.fetch(new Request(location.origin + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+      return w.default.fetch(withLogin(new Request(location.origin + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })),
         Object.assign({ ASSETS: { fetch: function (req) { return fetch(new URL(req.url).pathname); } } }, env || {}));
     }
     function cleanEnv() {
@@ -2580,9 +2717,9 @@
     function worker() { return import('/cloudflare/worker.js'); }
     function assets() { return { ASSETS: { fetch: function (req) { return fetch(new URL(req.url).pathname + '?t=' + Date.now()); } } }; }
     function post(w, path, body, env) {
-      return w.default.fetch(new Request(location.origin + path, {
+      return w.default.fetch(withLogin(new Request(location.origin + path, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body)
-      }), Object.assign(assets(), env || {}));
+      })), Object.assign(assets(), env || {}));
     }
     function cleanEnv() { if (globalThis.process && globalThis.process.env) ['SNAPCHAT_CLIENT_ID', 'SNAPCHAT_CLIENT_SECRET', 'GOOGLE_CLIENT_ID'].forEach(function (k) { delete globalThis.process.env[k]; }); }
 

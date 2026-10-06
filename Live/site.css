@@ -331,6 +331,22 @@ html[dir="rtl"] .join-form input[dir="ltr"] { text-align: right; }
 .join-alt-contact { text-align: center; font-size: 13.5px; color: var(--ink-faint); margin: 18px 0 0; }
 .join-alt-contact a { color: var(--verified); }
 
+/* ---------- الدخول للأداة (login.html + js/login.js) — نفس خانات نموذج الانضمام ---------- */
+.login-doc { max-width: 480px; margin-inline: auto; }
+.join-form input[type="password"] { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); font-family: inherit; font-size: 16px; transition: border-color .2s ease; }
+.join-form input.code-input { font-family: 'IBM Plex Mono', Consolas, monospace; font-size: 26px; font-weight: 700; letter-spacing: 8px; text-align: center; }
+html[dir="rtl"] .join-form input.code-input { text-align: center; }
+.login-links { display: grid; gap: 10px; justify-items: start; font-size: 14.5px; }
+.login-links a { color: var(--verified); }
+.link-btn { background: none; border: 0; padding: 0; color: var(--verified); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.link-btn:disabled { color: var(--ink-faint); cursor: default; text-decoration: none; }
+.link-btn:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; border-radius: 4px; }
+.form-note { margin: 0 0 4px; padding: 10px 14px; border-radius: 10px; background: var(--verified-bg); color: var(--ink); font-weight: 600; font-size: 14.5px; line-height: 1.6; }
+.login-doc .btn .when-busy, .login-doc .btn.is-busy .when-idle { display: none; }
+.login-doc .btn.is-busy .when-busy { display: inline; }
+.login-doc .btn:disabled { opacity: .75; cursor: progress; }
+#sentBox:focus { outline: none; }
+
 /* ---------- الفوتر ---------- */
 .site-foot { border-top: 1px solid var(--line); margin-top: 24px; }
 .site-foot-inner { max-width: 1080px; margin: 0 auto; padding: 22px 16px 36px; display: flex; flex-wrap: wrap; gap: 10px 18px; justify-content: space-between; align-items: center; font-size: 13.5px; color: var(--ink-faint); }

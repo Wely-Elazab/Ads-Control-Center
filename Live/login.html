@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-title-ar="تسجيل الدخول — Ads Center" data-title-en="Sign in — Ads Center">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171C" media="(prefers-color-scheme: dark)">
+<title>تسجيل الدخول — Ads Center</title>
+<meta name="description" content="الدخول إلى أداة Ads Center لمشتركي التجربة: البريد وكلمة المرور، ثم رمز يصل إلى بريدك.">
+<!-- الدخول للأداة (قرار صاحب المنتج ٦ أكتوبر ٢٠٢٦): بريد وكلمة مرور، وبعدهم رمز من ٦ أرقام على البريد في كل دخول جديد.
+     js/auth.js (الجلسة) + js/login.js (الخطوات) → Supabase Auth ودالة sync (auth.ts). مفيش تسجيل مفتوح:
+     الحساب بيتفتح بالتفعيل من «أرسلت الدعوة»، وأول دخول = «أنشئ كلمة المرور» برابط على البريد -->
+<script src="/js/theme.js"></script>
+<script src="/js/legal.js"></script>
+<script src="/js/auth.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/legal.css">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+
+<header class="legal-bar">
+  <a class="legal-brand" href="/">Ads Center</a>
+  <div class="legal-bar-end">
+    <button type="button" class="legal-lang theme-btn" data-theme-toggle aria-pressed="false"><span data-theme-icon aria-hidden="true">☀️</span><span class="sr-only"><span class="only-ar">الوضع الداكن</span><span class="only-en">Dark mode</span></span></button>
+    <button type="button" class="legal-lang" id="legalLang">English</button>
+  </div>
+</header>
+
+<main class="legal">
+<article class="doc join-doc login-doc">
+
+  <!-- ١) البريد وكلمة المرور -->
+  <section data-login-state="signin">
+    <h1><span class="only-ar">الدخول إلى Ads Center</span><span class="only-en">Sign in to Ads Center</span></h1>
+    <p class="form-note" id="signinNote" hidden></p>
+    <form id="signinForm" class="join-form" novalidate>
+      <div class="field">
+        <label for="lEmail"><span class="only-ar">البريد الإلكتروني</span><span class="only-en">Email</span></label>
+        <input id="lEmail" name="email" type="email" autocomplete="username" maxlength="254" dir="ltr" required>
+      </div>
+      <div class="field">
+        <label for="lPassword"><span class="only-ar">كلمة المرور</span><span class="only-en">Password</span></label>
+        <input id="lPassword" name="password" type="password" autocomplete="current-password" maxlength="200" dir="ltr" required>
+      </div>
+      <p class="form-error" id="signinError" role="alert" hidden></p>
+      <div class="cta-row">
+        <button type="submit" class="btn btn-primary" id="signinSubmit">
+          <span class="when-idle"><span class="only-ar">دخول</span><span class="only-en">Sign in</span></span>
+          <span class="when-busy"><span class="only-ar">جارٍ الدخول…</span><span class="only-en">Signing in…</span></span>
+        </button>
+      </div>
+      <div class="login-links">
+        <button type="button" class="link-btn" data-go="forgot"><span class="only-ar">نسيت كلمة المرور؟</span><span class="only-en">Forgot your password?</span></button>
+        <button type="button" class="link-btn" data-go="first"><span class="only-ar">أول دخول؟ أنشئ كلمة المرور</span><span class="only-en">First time? Set your password</span></button>
+        <span><span class="only-ar">ليس لديك حساب؟ <a href="/join">اطلب الانضمام إلى التجربة</a></span><span class="only-en">No account yet? <a href="/join">Request to join the pilot</a></span></span>
+      </div>
+    </form>
+  </section>
+
+  <!-- ٢) الرمز على البريد -->
+  <section data-login-state="code" hidden>
+    <h1><span class="only-ar">أدخل رمز الدخول</span><span class="only-en">Enter your sign-in code</span></h1>
+    <p><span class="only-ar">أرسلنا رمزاً من ٦ أرقام إلى <strong dir="ltr" data-login-email></strong>، وهو صالح لمدة ١٠ دقائق. وإن لم تجده، فراجع الرسائل غير المرغوب فيها.</span><span class="only-en">We sent a 6-digit code to <strong data-login-email></strong>. It's valid for 10 minutes. If you can't find it, check your spam folder.</span></p>
+    <form id="codeForm" class="join-form" novalidate>
+      <div class="field">
+        <label for="lCode"><span class="only-ar">الرمز</span><span class="only-en">Code</span></label>
+        <input id="lCode" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" dir="ltr" class="code-input" required>
+      </div>
+      <p class="form-error" id="codeError" role="alert" hidden></p>
+      <div class="cta-row">
+        <button type="submit" class="btn btn-primary" id="codeSubmit">
+          <span class="when-idle"><span class="only-ar">تأكيد</span><span class="only-en">Confirm</span></span>
+          <span class="when-busy"><span class="only-ar">جارٍ التأكيد…</span><span class="only-en">Confirming…</span></span>
+        </button>
+      </div>
+      <div class="login-links">
+        <button type="button" class="link-btn" id="resendCode"><span class="only-ar">أعد إرسال الرمز</span><span class="only-en">Send a new code</span></button>
+        <span class="hint" id="resendWait" hidden></span>
+        <button type="button" class="link-btn" id="otherAccount"><span class="only-ar">الدخول بحساب آخر</span><span class="only-en">Use another account</span></button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ٣) رابط كلمة المرور (أول دخول أو نسيتها — نفس الخطوة) -->
+  <section data-login-state="forgot" hidden>
+    <h1>
+      <span data-forgot-title="first"><span class="only-ar">أنشئ كلمة مرور الدخول</span><span class="only-en">Set your password</span></span>
+      <span data-forgot-title="forgot"><span class="only-ar">نسيت كلمة المرور</span><span class="only-en">Forgot your password</span></span>
+    </h1>
+    <p><span class="only-ar">اكتب بريدك المسجّل لدينا، وسنرسل إليك رابطاً لاختيار كلمة المرور.</span><span class="only-en">Enter the email we have on file, and we'll send you a link to choose your password.</span></p>
+    <form id="forgotForm" class="join-form" novalidate>
+      <div class="field">
+        <label for="fEmail"><span class="only-ar">البريد الإلكتروني</span><span class="only-en">Email</span></label>
+        <input id="fEmail" name="email" type="email" autocomplete="email" maxlength="254" dir="ltr" required>
+      </div>
+      <p class="form-error" id="forgotError" role="alert" hidden></p>
+      <div class="cta-row">
+        <button type="submit" class="btn btn-primary" id="forgotSubmit">
+          <span class="when-idle"><span class="only-ar">أرسل الرابط</span><span class="only-en">Send the link</span></span>
+          <span class="when-busy"><span class="only-ar">جارٍ الإرسال…</span><span class="only-en">Sending…</span></span>
+        </button>
+      </div>
+      <div class="login-links">
+        <button type="button" class="link-btn" data-go="signin"><span class="only-ar">العودة إلى الدخول</span><span class="only-en">Back to sign in</span></button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ٤) أرسلنا الرابط -->
+  <section data-login-state="sent" hidden tabindex="-1" id="sentBox">
+    <h1><span class="only-ar">تحقق من بريدك</span><span class="only-en">Check your email</span></h1>
+    <p><span class="only-ar">إن كان هذا البريد مسجّلاً لدينا، فستصلك خلال دقائق رسالة من <strong dir="ltr">support@adscenter.online</strong> فيها رابط اختيار كلمة المرور. الرابط صالح لمدة ساعة. وإن لم تجدها، فراجع الرسائل غير المرغوب فيها.</span><span class="only-en">If this email is registered with us, you'll get a message from <strong>support@adscenter.online</strong> within minutes with a link to choose your password. The link is valid for one hour. If you can't find it, check your spam folder.</span></p>
+    <p><span class="only-ar">لم يُفعَّل حسابك بعد؟ <a href="/join">اطلب الانضمام إلى التجربة</a>، وسنفعّله خلال ٢٤ ساعة.</span><span class="only-en">Not activated yet? <a href="/join">Request to join the pilot</a>, and we'll activate your access within 24 hours.</span></p>
+    <div class="cta-row">
+      <button type="button" class="btn btn-ghost" data-go="signin"><span class="only-ar">العودة إلى الدخول</span><span class="only-en">Back to sign in</span></button>
+    </div>
+  </section>
+
+  <!-- ٥) كلمة مرور جديدة (من رابط البريد: /login?reset=…) -->
+  <section data-login-state="reset" hidden>
+    <h1><span class="only-ar">اختر كلمة المرور</span><span class="only-en">Choose your password</span></h1>
+    <form id="resetForm" class="join-form" novalidate>
+      <div class="field">
+        <label for="rPassword"><span class="only-ar">كلمة المرور</span><span class="only-en">Password</span></label>
+        <input id="rPassword" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="200" dir="ltr" required aria-describedby="rPasswordHint">
+        <p class="hint" id="rPasswordHint"><span class="only-ar">٨ أحرف على الأقل. ولا تستخدم كلمة مرور تستخدمها في موقع آخر.</span><span class="only-en">At least 8 characters. Don't reuse a password from another site.</span></p>
+      </div>
+      <div class="field">
+        <label for="rConfirm"><span class="only-ar">أعد كتابة كلمة المرور</span><span class="only-en">Type the password again</span></label>
+        <input id="rConfirm" name="confirm" type="password" autocomplete="new-password" maxlength="200" dir="ltr" required>
+      </div>
+      <p class="form-error" id="resetError" role="alert" hidden></p>
+      <div class="cta-row">
+        <button type="submit" class="btn btn-primary" id="resetSubmit">
+          <span class="when-idle"><span class="only-ar">احفظ كلمة المرور</span><span class="only-en">Save the password</span></span>
+          <span class="when-busy"><span class="only-ar">جارٍ الحفظ…</span><span class="only-en">Saving…</span></span>
+        </button>
+      </div>
+    </form>
+  </section>
+
+</article>
+<p class="join-alt-contact"><span class="only-ar">تواجه مشكلة في الدخول؟ راسلنا على <a href="mailto:support@adscenter.online">support@adscenter.online</a>. ولن نطلب منك أبداً كلمة المرور أو الرمز.</span><span class="only-en">Trouble signing in? Email us at <a href="mailto:support@adscenter.online">support@adscenter.online</a>. We will never ask you for your password or code.</span></p>
+</main>
+
+<footer class="legal-foot">
+  <a href="/"><span class="only-ar">عن الأداة</span><span class="only-en">About</span></a>
+  <a href="/help"><span class="only-ar">دليل البدء</span><span class="only-en">Getting started</span></a>
+  <a href="/privacy"><span class="only-ar">سياسة الخصوصية</span><span class="only-en">Privacy policy</span></a>
+  <a href="/terms"><span class="only-ar">شروط الاستخدام</span><span class="only-en">Terms of use</span></a>
+</footer>
+
+<script src="/js/login.js"></script>
+<script src="/js/site.js"></script>
+</body>
+</html>

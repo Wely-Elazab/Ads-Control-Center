@@ -19,6 +19,7 @@ import snapchatToken from '../api/snapchat-token.js';
 import snapchatAdsFetch from '../api/snapchat-ads-fetch.js';
 import tiktokToken from '../api/tiktok-token.js';
 import tiktokAdsFetch from '../api/tiktok-ads-fetch.js';
+import { checkLogin } from '../api/_login.js';
 
 // الـ endpoints المنشورة — discount متشال عن قصد مع صفحة الأسعار المخفية،
 // والملفات اللي بتبدأ بـ "_" مش endpoints أصلاً
@@ -47,6 +48,8 @@ export const REWRITES = {
   '/': '/home.html',
   '/index.html': '/home.html',
   '/app': '/pauseproof-live.html',
+  // تسجيل الدخول للأداة (login.html — كلمة المرور + الرمز على البريد)
+  '/login': '/login.html',
   '/help': '/help.html',
   '/privacy': '/privacy.html',
   '/terms': '/terms.html',
@@ -200,6 +203,9 @@ export default {
     if (path.indexOf('/api/') === 0) {
       const name = path.slice(5).replace(/\/+$/, '');
       if (Object.prototype.hasOwnProperty.call(HANDLERS, name)) {
+        // دخول مكتمل للأداة (كلمة المرور + الرمز — api/_login.js) قبل أي طلب. code: LOGIN = الواجهة بتروح لصفحة الدخول.
+        // OPTIONS (فحص المتصفح المسبق) مبيبقاش فيه دخول أصلاً — بيكمّل للدالة وguardRequest بترفض أي موقع تاني
+        if (request.method !== 'OPTIONS' && !(await checkLogin(request))) return withSecurityHeaders(jsonError(401, 'سجّل الدخول إلى الأداة أولاً.', 'LOGIN'));
         return withSecurityHeaders(await runVercelHandler(HANDLERS[name], request, env));
       }
       // مسار API مش موجود: رد JSON (مش صفحة 404 بتاعة الزوار) — عشان أي كود بيستدعيه يفهم الرد

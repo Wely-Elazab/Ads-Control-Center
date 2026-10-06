@@ -713,14 +713,22 @@
   // العرض ده بيتزامن؟ عرض حساب Meta لوحده بس («meta:act_1»)
   function syncableView(viewKey) { return typeof viewKey === 'string' && /^meta:act_\d{1,30}$/.test(viewKey); }
   // الخطأ بيرجع بحالته ورمزه من السيرفر (e.code = 'email' / 'days' / 'not verified' …) عشان الرسالة تبقى دقيقة
+  // دالة sync محتاجة دخول الأداة كمان (js/auth.js) — ٤٠١ code: LOGIN = صفحة الدخول
   function syncCall(body) {
-    return fetch(SYNC_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      .then(function (r) {
-        return r.json().catch(function () { return {}; }).then(function (j) {
-          if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; e.code = j && j.error; throw e; }
-          return j;
-        });
+    var send = function (auth) {
+      var headers = { 'Content-Type': 'application/json' };
+      Object.keys(auth || {}).forEach(function (k) { headers[k] = auth[k]; });
+      return fetch(SYNC_URL, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+    };
+    // الطلب بيتبعت فوراً لو مفتاح الدخول لسه صالح، وبيستنى التجديد بس لو محتاجه
+    var now = window.AuthLogin ? AuthLogin.headersNow() : {};
+    return (now ? send(now) : loginHeaders().then(send)).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (window.AuthLogin && AuthLogin.isLoginFailure({ status: r.status, data: j })) AuthLogin.toLogin();
+        if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; e.code = j && j.error; throw e; }
+        return j;
       });
+    });
   }
   // حساب Meta فتح الأداة (سجل عملاء التجربة) — مرة واحدة لكل حساب في الجلسة
   function syncSeen(accountId) {
