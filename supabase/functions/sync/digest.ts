@@ -1,9 +1,10 @@
 // الملخص والتنبيهات التلقائية بالبريد (اختيارية، لحسابات Meta بس) — التفعيل والإيقاف وحفظ الصلاحية
 //   digest.get     ← { token, accountId }  حالة الملخص للحساب
-//   digest.enable  ← { token, accountId, email, days, hour, lang, consent: true }
-//   digest.update  ← { token, accountId, email?, days?, hour?, lang? }
+//   digest.enable  ← { token, accountId, email, days, hour, lang, consent: true, target?, be? }
+//   digest.update  ← { token, accountId, email?, days?, hour?, lang?, target?, be? }
 //   digest.disable ← { token, accountId }  (والأداة بتبعته كمان عند «فصل» Meta)
-//   digest.refresh ← { token, accountId }  الأداة بتبعته لما تتفتح والملخص مفعّل — بيمد صلاحية المفتاح
+//   digest.refresh ← { token, accountId, target?, be? }  الأداة بتبعته لما تتفتح والملخص مفعّل — بيمد صلاحية المفتاح
+//   target / be = العائد المستهدف وحد الخسارة من إعدادات التنبيهات في الأداة (cleanTarget تحت)
 //   digest.disconnect ← { token }          «فصل» Meta: كل الحسابات اللي صاحب الجلسة فعّل لها الملخص
 //   stop           ← { account, sig }      رابط الإيقاف في آخر كل رسالة (من غير دخول Meta)
 //
@@ -115,6 +116,16 @@ function cleanDays(v: unknown): number[] | null {
 function cleanHour(v: unknown): number | null {
   const h = Number(v);
   return v !== null && v !== '' && Number.isInteger(h) && h >= 0 && h <= 23 ? h : null;
+}
+// العائد المستهدف وحد الخسارة من إعدادات التنبيهات في الأداة (قرار ٧ أكتوبر ٢٠٢٦): عشان سطر «العائد أقل من المستهدف…»
+// في رسالة الملخص، وحد الخسارة في التنبيهات العاجلة، يطابقوا اللي العميل شايفه في الأداة. نفس حدود الأداة (alerts.js):
+// من ٠٫١ لـ ٥٠، وحد الخسارة مش أكبر من المستهدف. أي حاجة تانية = منحدّثش (undefined) — والقيم القديمة بتفضل
+export function cleanTarget(b: any): { roas_target: number; roas_break_even: number } | undefined {
+  if (!b || b.target == null || b.be == null || b.target === '' || b.be === '') return undefined;
+  const r = Number(b.target), e = Number(b.be);
+  const ok = (x: number) => isFinite(x) && x >= 0.1 && x <= 50;
+  if (!ok(r) || !ok(e) || e > r) return undefined;
+  return { roas_target: Math.round(r * 100) / 100, roas_break_even: Math.round(e * 100) / 100 };
 }
 async function getSettings(account: string): Promise<any | null> {
   const r = await db('digest_settings?select=email,enabled,summary_days,summary_hour,timezone,lang&account_id=eq.' + account, { method: 'GET' });
@@ -275,7 +286,8 @@ export async function handleDigest(action: string, body: any, origin: string | n
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
     const row = { account_id: account, email, enabled: true, summary_days: days, summary_hour: hour,
       timezone: acc.timezone_name || 'Asia/Riyadh', lang: body.lang === 'en' ? 'en' : 'ar',
-      consent_at: now, consent_version: CONSENT_VERSION, updated_at: now, last_summary_until: yesterdayIn(acc.timezone_name || 'Asia/Riyadh') };
+      consent_at: now, consent_version: CONSENT_VERSION, updated_at: now, last_summary_until: yesterdayIn(acc.timezone_name || 'Asia/Riyadh'),
+      ...(cleanTarget(body) || {}) };
     await db('digest_settings?on_conflict=account_id', { method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(row) });
     await mailEnabled(account, acc.name, row);
     return reply(200, { ok: true, settings: publicSettings(row), tokenExpiresAt: expiresAt }, origin);
@@ -289,6 +301,7 @@ export async function handleDigest(action: string, body: any, origin: string | n
     if (body.days !== undefined) { const d = cleanDays(body.days); if (!d) return reply(400, { error: 'days' }, origin); patch.summary_days = d; }
     if (body.hour !== undefined) { const h = cleanHour(body.hour); if (h === null) return reply(400, { error: 'hour' }, origin); patch.summary_hour = h; }
     if (body.lang === 'ar' || body.lang === 'en') patch.lang = body.lang;
+    Object.assign(patch, cleanTarget(body) || {});
     await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify(patch) });
     const next = { ...s, ...patch };
     if (patch.email && patch.email !== s.email) await mailEnabled(account, acc.name, next);   // تأكيد للعنوان الجديد
@@ -307,6 +320,9 @@ export async function handleDigest(action: string, body: any, origin: string | n
     if (!s || !s.enabled) return reply(200, { ok: true, enabled: false }, origin);
     const expiresAt = await storeToken(body.token, account);
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
+    // فتح الحساب بيبعت المستهدف وحد الخسارة اللي في الأداة دلوقتي — لو اتغيّروا على جهاز تاني بيتحدّثوا هنا
+    const tg = cleanTarget(body);
+    if (tg) await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify(tg) });
     return reply(200, { ok: true, enabled: true, tokenExpiresAt: expiresAt }, origin);
   }
 

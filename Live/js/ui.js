@@ -653,9 +653,8 @@
     });
     renderHealthCounts();
     renderFilterState();
-    renderKpis();
-    renderTopAlerts();
     renderAlerts();
+    // ملخص المتجر كله: الحكم والأرقام وسطر النهارده و«يحتاج انتباهك الآن» (renderKpis وrenderTopAlerts جواه)
     renderDiagnosis();
     maybeShowWelcome();
   }
@@ -673,11 +672,12 @@
       '<div class="dx-kpi-value">' + esc(k.value) + ' ' + pct + '</div>' +
       '<div class="dx-kpi-sub">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</div></div>';
   }
-  function dxBlockHtml(b, i) {
+  // bare = جوه بند قابل للفتح (القائمة أو المطويات) — النوع والعنوان ظاهرين فوقه أصلاً
+  function dxBlockHtml(b, i, bare) {
     var p = function (cls, s) { return '<p' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(s) + '</p>'; };
     var html = '<article class="dx-block dx-' + b.kind + '">';
-    if (DX_KIND_LABEL[b.kind]) html += '<span class="dx-kind">' + esc(t(DX_KIND_LABEL[b.kind])) + '</span>';
-    html += '<h3>' + esc(b.title) + '</h3>';
+    if (!bare && DX_KIND_LABEL[b.kind]) html += '<span class="dx-kind">' + esc(t(DX_KIND_LABEL[b.kind])) + '</span>';
+    if (!bare) html += '<h3>' + esc(b.title) + '</h3>';
     (b.lines || []).forEach(function (l) { html += p('', l); });
     if (b.bullets && b.bullets.length) html += '<ul>' + b.bullets.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
     (b.after || []).forEach(function (l) { html += p('', l); });
@@ -828,6 +828,21 @@
     } catch (e) { /* التلميح هيرجع في الجلسة الجاية — مش مشكلة */ }
   }
   function digestAccount() { var m = /^meta:(act_\d{1,30})$/.exec(dxState.accountId || ''); return m ? m[1] : null; }
+  // المستهدف وحد الخسارة من إعدادات التنبيهات (قرار ٧ أكتوبر ٢٠٢٦): بيتبعتوا مع الملخص التلقائي عشان رسالة الملخص فيها نفس
+  // سطر «العائد أقل من المستهدف…» اللي هنا، والتنبيهات العاجلة بالبريد بنفس حد الخسارة (digest.ts cleanTarget)
+  function digestTarget() {
+    var s = PauseProofAlerts.mergeSettings(alertSettings);
+    return { target: s.roasTarget, be: s.roasBreakEven };
+  }
+  // العميل غيّر إعدادات التنبيهات: الحسابات اللي الملخص مفعّل لها في الجلسة دي بتاخد المستهدف وحد الخسارة الجداد
+  function digestPushTarget() {
+    var token = metaAccessToken();
+    if (!DIGEST_ON || !token) return;
+    Object.keys(digestKnown).forEach(function (account) {
+      if (digestKnown[account] !== true) return;
+      syncCall(Object.assign({ action: 'digest.update', token: token, accountId: account }, digestTarget())).catch(function () { /* فتح الحساب الجاي بيبعتهم تاني */ });
+    });
+  }
   function digestCall(action, extra) {
     var token = metaAccessToken(), account = digestAccount();
     if (!token || !account) { var e = new Error('no session'); e.code = 'session'; return Promise.reject(e); }
@@ -953,7 +968,7 @@
     digestUi.busy = true;
     digestUi.msg = null;
     renderDigestPanel();
-    var extra = { email: email, days: days, hour: hour, lang: isAr() ? 'ar' : 'en' };
+    var extra = Object.assign({ email: email, days: days, hour: hour, lang: isAr() ? 'ar' : 'en' }, digestTarget());
     if (!editing) extra.consent = true;
     var account = digestUi.account;
     digestCall(editing ? 'digest.update' : 'digest.enable', extra).then(function (res) {
@@ -1000,7 +1015,7 @@
     if (!token) return;
     digestRefreshed[accountId] = true;
     // الرد بيقول كمان الملخص مفعّل ولا لأ — ده اللي بيقرر تلميح التفعيل يظهر ولا لأ (من غير طلب زيادة)
-    syncCall({ action: 'digest.refresh', token: token, accountId: accountId }).then(function (res) {
+    syncCall(Object.assign({ action: 'digest.refresh', token: token, accountId: accountId }, digestTarget())).then(function (res) {
       if (res && typeof res.enabled === 'boolean') { digestKnown[accountId] = res.enabled; renderDigest(); }
     }, function () { digestRefreshed[accountId] = false; });
   }
@@ -1177,26 +1192,41 @@
     dxState.accountId = cur ? cur.accountId : null;
     renderDiagnosis();
   }
+  // ---------- ملخص المتجر: قسم واحد (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦) ----------
+  // قبل كده «ملخص الأداء» (أرقام شاملة النهارده) و«ملخص المتجر» (أيام مكتملة) كانوا قسمين بأرقام مختلفة لنفس الفترة،
+  // ونفس المشكلة كانت بتظهر فيهم الاتنين. دلوقتي بالترتيب: الحكم والأرقام من الملخص، وسطر «اليوم حتى الآن» لوحده
+  // (مبيدخلش المقارنة)، و«يحتاج انتباهك الآن» قائمة واحدة (DX.attention)، والشرح والفرص مطويين.
+  // الملخص مش متاح (الحساب مفيهوش مشتريات، فشل، ?dx=0): شريط الإنفاق والنتائج القديم مكان الأرقام، والقائمة زي ما هي.
+  // وهو بيتحمّل: الأرقام بتستنى (عشان متظهرش أرقام وتتبدّل قدام العميل)، والتنبيهات بتظهر على طول
   function renderDiagnosis() {
     var sec = document.getElementById('storeSec');
     if (!sec) return;
     renderDigest();
-    var show = DX_ON && PLATFORMS.some(isConnected) && dxState.status !== 'idle';
-    sec.hidden = !show;
-    if (!show) return;
+    var dxOn = DX_ON && PLATFORMS.some(isConnected) && dxState.status !== 'idle';
+    sec.hidden = !dxOn && !candidates.length;
     var body = document.getElementById('dxBody'), period = document.getElementById('dxPeriod'), copy = document.getElementById('dxCopy');
-    copy.hidden = dxState.status !== 'ready';
-    if (dxState.status !== 'ready') {
-      period.textContent = '';
-      body.innerHTML = '<p class="dx-wait">' + esc(t(dxState.status === 'loading' ? 'dx.loading' : 'dx.failed')) + '</p>';
-      body.setAttribute('aria-busy', dxState.status === 'loading' ? 'true' : 'false');
+    var loading = dxOn && dxState.status === 'loading', o = null;
+    if (dxOn && dxState.status === 'ready') {
+      // الهدف وحد الخسارة من إعدادات التنبيهات (نفس اللي بيتحكم بيهم على الإعلانات) — الربح أولاً في الملخص كمان
+      var s = PauseProofAlerts.mergeSettings(alertSettings);
+      o = DX.compose(dxState.report, { target: { roas: s.roasTarget, be: s.roasBreakEven } });
+    }
+    dxState.composed = o;
+    copy.hidden = !o;
+    // أرقام الملخص (طلبات، مبيعات، عائد…) — مفيش مشتريات = شريط الإنفاق والنتائج مكانها
+    var nums = !!(o && o.kpis && o.kpis.length);
+    renderKpis(!nums && !loading);
+    var lines = nums ? storeLines(dxViewPlatforms()) : [];
+    document.getElementById('dxToday').innerHTML = lines.map(function (l) { return '<p>' + esc(l.text) + '</p>'; }).join('');
+    // بين قوسين مش «·» — النقطة جنب الأرقام العربية بتتقري «٠»
+    period.textContent = nums ? o.period + (lines.some(function (l) { return l.today; }) ? ' (' + t('dx.fullDays') + ')' : '') : '';
+    if (!o) {
+      body.innerHTML = dxOn ? '<p class="dx-wait">' + esc(t(loading ? 'dx.loading' : 'dx.failed')) + '</p>' : '';
+      body.setAttribute('aria-busy', loading ? 'true' : 'false');
+      renderDxMore(null, renderTopAlerts(null));
       return;
     }
     body.setAttribute('aria-busy', 'false');
-    // الهدف وحد الخسارة من إعدادات التنبيهات (نفس اللي بيتحكم بيهم على الإعلانات) — الربح أولاً في الملخص كمان
-    var s = PauseProofAlerts.mergeSettings(alertSettings);
-    var o = dxState.composed = DX.compose(dxState.report, { target: { roas: s.roasTarget, be: s.roasBreakEven } });
-    period.textContent = o.period;
     // أكتر من عرض: أزرار «كل المنصات / Meta / Google Ads / Snapchat»
     var views = dxState.views || [], tabs = '';
     if (views.length > 1) {
@@ -1211,9 +1241,73 @@
     var more = pending.length ? '<p class="dx-notes">' + esc(t('dx.loadingMore', { platforms: DX.listText(pending.map(function (p) { return t('dx.plat.' + p); })) })) + '</p>' : '';
     body.innerHTML = tabs + more + '<div class="dx-head ' + esc(o.tone) + '"><p class="dx-headline">' + esc(o.title) + '</p>' +
       (o.basis ? '<p class="dx-basis">' + esc(o.basis) + '</p>' : '') +
-      '<div class="dx-kpis">' + (o.kpis || []).map(dxKpiHtml).join('') + '</div></div>' +
-      '<div class="dx-blocks">' + o.blocks.map(dxBlockHtml).join('') + '</div>' +
-      (o.notes || []).map(function (n) { return '<p class="dx-notes">' + esc(n) + '</p>'; }).join('');
+      (nums ? '<div class="dx-kpis">' + o.kpis.map(dxKpiHtml).join('') + '</div>' : '') + '</div>';
+    renderDxMore(o, renderTopAlerts(o));
+  }
+  // منصات العرض الظاهر في الملخص («كل المنصات» = المنصات اللي ملخصها جاهز) — null = مفيش عروض، كل الإعلانات
+  function dxViewPlatforms() {
+    var views = dxState.views || [];
+    if (!views.length) return null;
+    if (dxState.view === 'all') return views.filter(function (v) { return v.id !== 'all'; }).map(function (v) { return v.id; });
+    return [dxState.view];
+  }
+  function onPlatforms(c, platforms) {
+    return !platforms || platforms.some(function (p) { return String(c.source || '').indexOf(p + ':') === 0; });
+  }
+  // «٦ طلبات، و٤٠ محادثة» — كل نوع لوحده، الأكبر الأول (زي شريط النتائج). الشراء «طلبات» بنفس كلمة أرقام الملخص فوق
+  function resultTexts(map) {
+    return Object.keys(map).sort(function (a, b) { return map[b] - map[a]; }).map(function (k) {
+      return k === 'purchase' ? DX.ordersText(map[k]) : fmtNum(map[k]) + ' ' + I18N.resultNoun(map[k], k);
+    });
+  }
+  // مجموع لكل عملة على حدة — جمع ريال مع دولار يطلع رقم بلا معنى. صفر بعملة الحساب المعروض
+  function moneyByCur(map) {
+    var keys = Object.keys(map).filter(function (k) { return map[k] > 0; });
+    return keys.length ? keys.map(function (k) { return money(map[k], k || null); }).join(' + ') : money(0, defaultCurrency());
+  }
+  // سطور تحت أرقام الملخص: النهارده لوحده (الأرقام فوق أيام مكتملة — لو الفترة المختارة فيها النهارده)، والنتائج اللي
+  // مش مشتريات (محادثات، عملاء محتملين…) اللي الملخص مبيحسبهاش — عشان متختفيش من الصفحة بعد ما شريط «ملخص الأداء» اتشال
+  function storeLines(platforms) {
+    var mine = candidates.filter(function (c) { return onPlatforms(c, platforms); }), out = [];
+    if (!mine.length) return out;
+    if (resolvePeriodFor(BROWSER_TZ).until === todayKeyInTz(BROWSER_TZ)) {
+      var spend = {}, res = {};
+      mine.forEach(function (c) {
+        var d = c.daily || [], n = d.length - 1;   // آخر يوم في أرقام الإعلان = النهارده بتوقيت حسابه
+        if (n < 0) return;
+        spend[c.currency || ''] = (spend[c.currency || ''] || 0) + (d[n] || 0);
+        var r = (c.dailyResults || [])[n] || 0, k = c.resultKey || 'generic';
+        if (r > 0) res[k] = (res[k] || 0) + r;
+      });
+      out.push({ today: true, text: t('dx.today', { parts: DX.listText([t('dx.todaySpend', { v: moneyByCur(spend) })].concat(resultTexts(res))) }) });
+    }
+    var other = {};
+    mine.forEach(function (c) {
+      var p = periodOf(c), k = c.resultKey || 'generic';
+      if (k !== 'purchase' && p.results > 0) other[k] = (other[k] || 0) + p.results;
+    });
+    var ot = resultTexts(other);
+    if (ot.length) out.push({ text: t('dx.otherResults', { p: periodLabel(), list: DX.listText(ot) }) });
+    return out;
+  }
+  // البلوكات المفتوحة (في القائمة والشرح) بتفضل مفتوحة بعد إعادة الرسم — أي render بيبني القسم من الأول
+  var foldOpen = {};
+  function foldKey(b) { return b.fbKey || b.kind + ':' + b.title; }
+  document.addEventListener('toggle', function (e) {
+    var d = e.target;
+    if (d && d.hasAttribute && d.hasAttribute('data-fold')) foldOpen[d.getAttribute('data-fold')] = d.open;
+  }, true);
+  // الشرح والفرص (لماذا، فرصة، متابعة، تفاصيل الحكم…): كل بلوك مش ظاهر في «يحتاج انتباهك الآن»، مطوي بعنوانه
+  function renderDxMore(o, shown) {
+    var el = document.getElementById('dxMore');
+    if (!o) { el.innerHTML = ''; return; }
+    el.innerHTML = o.blocks.map(function (b, i) {
+      if (shown[i]) return '';
+      var key = foldKey(b);
+      var kind = DX_KIND_LABEL[b.kind] ? '<span class="dx-kind">' + esc(t(DX_KIND_LABEL[b.kind])) + '</span>' : '';
+      return '<details class="dx-fold dx-' + b.kind + '" data-fold="' + esc(key) + '"' + (foldOpen[key] ? ' open' : '') + '><summary>' + kind +
+        '<span>' + esc(b.title === o.title ? t('dx.more.verdict') : b.title) + '</span></summary>' + dxBlockHtml(b, i, true) + '</details>';
+    }).join('') + (o.notes || []).map(function (n) { return '<p class="dx-notes">' + esc(n) + '</p>'; }).join('');
   }
   document.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('[data-dx-view]');
@@ -1359,10 +1453,12 @@
     render();
   });
 
-  // ---------- ملخص الأرقام فوق الإعلانات ----------
-  function renderKpis() {
+  // ---------- شريط الإنفاق والنتائج (جوه ملخص المتجر) ----------
+  // بيظهر بس لما أرقام الملخص مش متاحة (الحساب مفيهوش مشتريات، الملخص فشل، ?dx=0) — ساعتها هو أرقام الفترة
+  // (شاملة النهارده، زي كروت الإعلانات). «معرّض للهدر» و«تحتاج مراجعة» بقوا شارات في «يحتاج انتباهك الآن»
+  function renderKpis(show) {
     var strip = document.getElementById('kpiStrip');
-    if (!candidates.length) { strip.innerHTML = ''; return; }
+    if (!show || !candidates.length) { strip.innerHTML = ''; return; }
     // المجاميع بتتحسب لكل عملة على حدة — جمع ريال مع دولار يطلع رقم بلا معنى
     // والنتائج لكل نوع على حدة: مشتريات + محادثات + سوايب في رقم واحد كان بيطلع رقم ملوش معنى
     var spendByCur = {}, byType = {};
@@ -1390,70 +1486,105 @@
       resultsValue = types.slice(0, 2).map(function (k) { return '<span class="kpi-line">' + esc(typeText(k)) + '</span>'; }).join('') +
         (types.length > 2 ? '<span class="kpi-more">' + t('kpi.moreTypes', { n: ar(types.length - 2) }) + '</span>' : '');
     }
-    var joinMoney = function (map) {
-      var keys = Object.keys(map).filter(function (k) { return map[k] > 0; });
-      // صفر بعملة الحساب المعروض (قبل كده كان "٠ ر.س" حتى لو الحساب بالجنيه)
-      return keys.length ? keys.map(function (k) { return money(map[k], k || null); }).join(' + ') : money(0, defaultCurrency());
-    };
-    var atRisk = analysis.summary.atRisk;
-    var review = analysis.summary.health.review;
-    var hasRisk = Object.keys(atRisk).some(function (k) { return atRisk[k] > 0; });
-    // action: الرقم بيبقى زرار — "معرّض للهدر" بيفتح التنبيهات اللي وراه، و"تحتاج مراجعة" بيفلتر الإعلانات دي
-    var box = function (label, value, cls, action, title) {
-      var inner = '<div class="kpi-label">' + label + '</div><div class="kpi-value">' + value + '</div>';
-      var tip = title ? ' title="' + esc(title) + '"' : '';
-      return action
-        ? '<button type="button" class="kpi kpi-link' + (cls || '') + '" data-kpi="' + action + '"' + tip + '>' + inner + '</button>'
-        : '<div class="kpi' + (cls || '') + '"' + tip + '>' + inner + '</div>';
+    var box = function (label, value, cls, title) {
+      return '<div class="kpi' + (cls || '') + '"' + (title ? ' title="' + esc(title) + '"' : '') + '><div class="kpi-label">' + label + '</div><div class="kpi-value">' + value + '</div></div>';
     };
     var wasEmpty = !strip.children.length;
     strip.innerHTML =
-      box(t('kpi.spend', { p: periodLabel() }), joinMoney(spendByCur)) +
-      box(t('kpi.results', { p: periodLabel() }), resultsValue, types.length > 1 ? ' kpi-multi' : '', null, types.length > 1 ? resultsTitle : '') +
-      box(t('kpi.atRisk'), joinMoney(atRisk), ' kpi-risk', hasRisk ? 'risk' : null) +
-      box(t('kpi.review'), ar(review), review ? ' kpi-review' : '', review ? 'review' : null);
+      box(t('kpi.spend', { p: periodLabel() }), moneyByCur(spendByCur)) +
+      box(t('kpi.results', { p: periodLabel() }), resultsValue, types.length > 1 ? ' kpi-multi' : '', types.length > 1 ? resultsTitle : '');
     if (wasEmpty) Array.prototype.forEach.call(strip.children, function (el, i) { el.style.setProperty('--i', i); el.classList.add('kpi-in'); });
   }
   document.getElementById('kpiStrip').addEventListener('animationend', function (e) { e.target.classList.remove('kpi-in'); });
-  document.getElementById('kpiStrip').addEventListener('click', function (e) {
-    var b = e.target.closest('[data-kpi]'); if (!b) return;
-    if (b.dataset.kpi === 'risk') { openAlertsView('risk'); return; }
+
+  // ---------- «يحتاج انتباهك الآن» (جوه ملخص المتجر) ----------
+  // بلوكات الملخص اللي محتاجة إجراء + تنبيهات الإعلانات (عاجل ومهم) في قائمة واحدة من غير تكرار (DX.attention) —
+  // قبل كده «أهم التنبيهات» كانت قائمة لوحدها، ونفس الحملة كانت بتظهر فيها وفي الملخص. أول ٥، والباقي من البلوكات
+  // في الشرح المطوي (renderDxMore) ومن التنبيهات في «جميع التنبيهات». البلوك بيتفتح على تفاصيله والاقتراح، والتنبيهات
+  // المرتبطة بيه (إعلانات جوه نفس الحملة)، وزرار يعرض إعلانات الحملة. لو العميل اختار منصة من أزرار العرض، القائمة بتاعتها بس
+  var ATTN_MAX = 5;
+  var lastTopAlerts = '';
+  function renderTopAlerts(o) {
+    var el = document.getElementById('topAlerts');
+    var shown = fillTopAlerts(el, o);
+    if (el.textContent !== lastTopAlerts) {
+      lastTopAlerts = el.textContent;
+      Array.prototype.forEach.call(el.querySelectorAll(':scope > .top-alert, :scope > .attn-block > .top-alert, .top-alerts-ok'), function (item, i) {
+        item.style.setProperty('--i', i); item.classList.add('ta-in');
+      });
+    }
+    return shown;
+  }
+  // «تنبيه واحد / تنبيهان / ٣ تنبيهات / ١١ تنبيهاً»
+  function alertsText(n) {
+    if (n === 1) return t('attn.alerts1');
+    if (n === 2) return t('attn.alerts2');
+    return t(n <= 10 ? 'attn.alertsFew' : 'attn.alertsMany', { n: ar(n) });
+  }
+  function attnAlertHtml(a) {
+    var target = a.adId && findCandidate(a.adId) ? ' data-ad-id="' + esc(a.adId) + '"' : ' data-go-alerts';
+    var src = a.adName ? (a.platform || '') + ' · ' + a.adName : (a.accountName || a.platform || '');
+    return '<button type="button" class="top-alert ' + LEVELS[a.level].cls + '"' + target + '>' +
+      '<span class="top-alert-level">' + LEVELS[a.level].label + '</span>' +
+      '<span class="top-alert-text"><span class="top-alert-title">' + esc(a.title) + '</span>' +
+      '<span class="top-alert-src" dir="auto">' + esc(src) + '</span></span></button>';
+  }
+  function attnBlockHtml(it) {
+    var b = it.block, key = foldKey(b), rel = it.related, onAd = b.seg && b.seg.dim === 'ad';
+    // اللون بأعلى أولوية في البند: «للمتابعة» عليه تنبيه عاجل على إعلان جواه = أحمر
+    var lv = LEVELS[it.rank <= 3 ? 'critical' : 'warning'];
+    var sub = rel.length ? t(onAd ? 'attn.relatedAd' : 'attn.relatedCamp', { alerts: alertsText(rel.length) }) : t('attn.open');
+    var camp = b.seg && b.seg.dim === 'campaign' ? candidates.filter(function (c) { return DX.segHas(b.seg, c); })[0] : null;
+    var html = '<details class="attn-block" data-fold="' + esc(key) + '"' + (foldOpen[key] ? ' open' : '') + '>' +
+      '<summary class="top-alert ' + lv.cls + '"><span class="top-alert-level">' + esc(t(DX_KIND_LABEL[b.kind])) + '</span>' +
+      '<span class="top-alert-text"><span class="top-alert-title">' + esc(b.title) + '</span>' +
+      '<span class="top-alert-src">' + esc(sub) + '</span></span></summary>' +
+      '<div class="attn-body">' + dxBlockHtml(b, it.index, true);
+    if (rel.length) html += '<div class="attn-rel"><p>' + esc(t(onAd ? 'attn.relTitleAd' : 'attn.relTitleCamp')) + '</p>' + rel.map(attnAlertHtml).join('') + '</div>';
+    if (camp) html += '<div class="attn-camp"><button type="button" class="ghost-btn" data-campaign="' + esc(campaignKey(camp)) + '">' + esc(t('attn.showCamp')) + '</button></div>';
+    return html + '</div></details>';
+  }
+  // بيرجّع أرقام البلوكات اللي ظهرت في القائمة (عشان متتكررش في الشرح المطوي تحتها)
+  function fillTopAlerts(el, o) {
+    var shown = {};
+    if (!candidates.length && !o) { el.innerHTML = ''; return shown; }
+    var views = dxState.views || [], pick = views.length > 1 && dxState.view !== 'all' ? dxState.view : null;
+    var alerts = analysis.alerts.filter(function (a) { return !pick || String(a.source || '').indexOf(pick + ':') === 0; });
+    var items = DX.attention(o ? o.blocks : [], alerts, candidates);
+    // «معرّض للهدر» و«تحتاج مراجعة» (كانوا مربعين في شريط «ملخص الأداء»): شارات بتفتح اللي وراها
+    var sum = analysis.summary, risk = sum.atRisk, review = sum.health.review;
+    var chips = (Object.keys(risk).some(function (k) { return risk[k] > 0; }) ? '<button type="button" class="attn-chip" data-kpi="risk">' + esc(t('attn.risk', { v: moneyByCur(risk) })) + '</button>' : '') +
+      (review ? '<button type="button" class="attn-chip" data-kpi="review">' + esc(t('attn.review', { n: ar(review) })) + '</button>' : '');
+    var head = '<div class="top-alerts-head"><h3 class="top-alerts-title">' + esc(t('sec.attn')) + '</h3>' + (chips ? '<span class="attn-chips">' + chips + '</span>' : '') + '</div>';
+    if (!items.length) {
+      // الحكم فوق مش كويس ومفيش حاجة بعينها وراه: منقولش «كله تمام»
+      var bad = o && (o.tone === 'bad' || o.tone === 'mixed');
+      el.innerHTML = head + '<div class="top-alerts-ok' + (bad ? ' neutral' : '') + '">' + (bad ? '' : '✓ ') + esc(t(bad ? 'attn.noneBad' : 'attn.none')) + '</div>';
+      return shown;
+    }
+    var list = items.slice(0, ATTN_MAX);
+    list.forEach(function (it) { if (it.type === 'block') shown[it.index] = true; });
+    var all = analysis.alerts.filter(function (a) { return a.level === 'critical' || a.level === 'warning'; }).length;
+    el.innerHTML = head + list.map(function (it) { return it.type === 'block' ? attnBlockHtml(it) : attnAlertHtml(it.alert); }).join('') +
+      (all ? '<button type="button" class="top-alerts-all" data-go-alerts>' + t('top.all', { n: ar(all) }) + '</button>' : '');
+    return shown;
+  }
+  // «تحتاج مراجعة» بيفلتر الإعلانات دي وينزل لها، و«معرّض للهدر» بيفتح التنبيهات اللي وراه
+  function kpiAction(kind) {
+    if (kind === 'risk') { openAlertsView('risk'); return; }
     var group = document.querySelector('.filter-group[data-filter="health"]');
     if (group) setFilterChip(group, 'review');
     // بنعرض الإعلانات من غير ما نغيّر طريقة العرض المحفوظة
     viewMode = 'ads';
     render();
-  });
-
-  // ---------- أهم التنبيهات فوق الإعلانات ----------
-  // أهم ٣ تنبيهات (عاجل ثم مهم) بتظهر في صفحة الإعلانات نفسها — عشان متعتمدش على إن حد يفتح تبويب التنبيهات
-  var lastTopAlerts = '';
-  function renderTopAlerts() {
-    var el = document.getElementById('topAlerts');
-    fillTopAlerts(el);
-    if (el.textContent === lastTopAlerts) return;
-    lastTopAlerts = el.textContent;
-    Array.prototype.forEach.call(el.querySelectorAll('.top-alert, .top-alerts-ok'), function (item, i) { item.style.setProperty('--i', i); item.classList.add('ta-in'); });
-  }
-  function fillTopAlerts(el) {
-    if (!candidates.length) { el.innerHTML = ''; return; }
-    var list = analysis.alerts.filter(function (a) { return a.level === 'critical' || a.level === 'warning'; });
-    if (!list.length) { el.innerHTML = '<div class="top-alerts-ok">✓ ' + t('top.none') + '</div>'; return; }
-    el.innerHTML =
-      '<div class="top-alerts-head"><span class="top-alerts-title">' + t('top.title') + '</span>' +
-        '<button type="button" class="top-alerts-all" data-go-alerts>' + t('top.all', { n: ar(list.length) }) + '</button></div>' +
-      list.slice(0, 3).map(function (a) {
-        var target = a.adId && findCandidate(a.adId) ? ' data-ad-id="' + esc(a.adId) + '"' : ' data-go-alerts';
-        var src = a.adName ? (a.platform || '') + ' · ' + a.adName : (a.accountName || a.platform || '');
-        return '<button type="button" class="top-alert ' + LEVELS[a.level].cls + '"' + target + '>' +
-          '<span class="top-alert-level">' + LEVELS[a.level].label + '</span>' +
-          '<span class="top-alert-text"><span class="top-alert-title">' + esc(a.title) + '</span>' +
-          '<span class="top-alert-src" dir="auto">' + esc(src) + '</span></span></button>';
-      }).join('');
+    var ads = document.getElementById('adsContent');
+    if (ads) window.scrollTo({ top: ads.offsetTop - 70, behavior: 'smooth' });
   }
   document.getElementById('topAlerts').addEventListener('click', function (e) {
-    var ad = e.target.closest('[data-ad-id]');
-    if (ad) { var c = findCandidate(ad.getAttribute('data-ad-id')); if (c) openExpand(c); return; }
+    var el;
+    if ((el = e.target.closest('[data-kpi]'))) { kpiAction(el.dataset.kpi); return; }
+    if ((el = e.target.closest('[data-campaign]'))) { openCampaign(el); return; }
+    if ((el = e.target.closest('[data-ad-id]'))) { var c = findCandidate(el.getAttribute('data-ad-id')); if (c) openExpand(c); return; }
     if (e.target.closest('[data-go-alerts]')) openAlertsView('urgent');
   });
 
@@ -2039,6 +2170,7 @@
     var saved = storeAlertSettings(alertSettings);
     settingsOverlay.classList.add('hidden');
     render();
+    digestPushTarget();
     if (!saved) setStatus(msg('settings.notSaved'));
   });
 
@@ -2046,7 +2178,8 @@
   // أول ما العميل يربط حساب (أي منصة) وهو لسه مسجّلش إعدادات، بتظهر مرة واحدة: الحساسية + السؤالين عن الفلوس،
   // مع توضيح إنها بتتعدّل في أي وقت من «التنبيهات» ← «إعدادات التنبيهات». بتظهر وهو الحساب بيتحمّل، فوقت الانتظار
   // بيتستغل ومش بتغطي النتيجة بعد ما تظهر. «استخدم القيم المقترحة» أو ✕ أو Esc = الافتراضي، ومش بتظهر تاني.
-  // ملحوظة: الإعدادات دي محفوظة في المتصفح وبتأثر على التنبيهات جوه الأداة؛ تنبيهات البريد لسه بالقيم الافتراضية (runner.ts)
+  // ملحوظة: الإعدادات دي محفوظة في المتصفح وبتأثر على التنبيهات جوه الأداة. البريد (runner.ts) بياخد منها المستهدف وحد الخسارة
+  // بس (digestTarget — من ٧ أكتوبر ٢٠٢٦)، وباقي الحساسية بالقيم الافتراضية
   var welcomeOverlay = document.getElementById('welcomeOverlay');
   var welcomeForm = document.getElementById('welcomeForm');
   var welcomeErrorEl = document.getElementById('welcomeError');
@@ -2072,6 +2205,7 @@
     var saved = storeAlertSettings(alertSettings);
     closeWelcome();
     render();
+    digestPushTarget();
     if (!saved) setStatus(msg('settings.notSaved'));
   });
   document.getElementById('welcomeSkip').addEventListener('click', closeWelcome);

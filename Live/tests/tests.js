@@ -1140,11 +1140,13 @@
       render();
     });
     test('صفحة الإعلانات مقسّمة بعناوين أقسام، وزرار «لأعلى» مترجم', function () {
-      ok(document.querySelector('#secSummary[data-i18n="sec.summary"]') && document.querySelector('#secAds[data-i18n="sec.ads"]'), 'section headings');
-      ok(document.getElementById('kpiStrip').closest('.app-sec-summary') && cardGrid.closest('.app-sec-ads'), 'numbers and cards sit in their own sections');
+      ok(document.querySelector('#secStore[data-i18n="dx.title"]') && document.querySelector('#secAds[data-i18n="sec.ads"]'), 'section headings');
+      ok(!document.getElementById('secSummary'), 'no separate «ملخص الأداء» section any more');
+      ['kpiStrip', 'dxToday', 'topAlerts', 'dxMore'].forEach(function (id) { ok(document.getElementById(id).closest('#storeSec'), id + ' inside the store summary'); });
+      ok(cardGrid.closest('.app-sec-ads'), 'cards in their own section');
       var btn = document.getElementById('toTopBtn');
       ok(btn && btn.getAttribute('data-i18n-aria') === 'btn.toTop' && btn.tabIndex === -1, 'to-top button, out of the Tab order while hidden');
-      ['sec.summary', 'sec.ads', 'btn.toTop'].forEach(function (k) { ok(t(k) && t(k) !== k, k + ' translated'); });
+      ['dx.title', 'sec.attn', 'sec.ads', 'btn.toTop'].forEach(function (k) { ok(t(k) && t(k) !== k, k + ' translated'); });
     });
     test('روابط فتح الإعلان في المنصة', function () {
       eq(platformLink({ platform: 'Meta', source: 'meta:act_123', nativeId: '456', id: '456' }).url,
@@ -1419,11 +1421,11 @@
   });
 
   describe('تحسينات الواجهة', function () {
-    test('«معرّض للهدر: ٠» بعملة الحساب المعروض', function () {
-      candidates = [ad('e1', { daily: steady(10), res: steady(1) })];
+    test('إنفاق صفر بعملة الحساب المعروض', function () {
+      candidates = [ad('e1', { active: false })];
       candidates[0].currency = 'EGP';
       render();
-      eq(document.querySelectorAll('#kpiStrip .kpi-value')[2].textContent, '٠ ج.م');
+      eq(document.querySelectorAll('#kpiStrip .kpi-value')[0].textContent, '٠ ج.م');
     });
     test('جدول الأيام: فاصل الآلاف، والصرف الصغير مش بيبان صفر', function () {
       var c = ad('t1', { daily: [0.4, 12500, 0, 0, 0, 0, 0] });
@@ -3903,17 +3905,17 @@
         DX_ON = true; activeSources.meta = 'act_1';
         dxState = { status: 'ready', key: 'k', report: r, account: 'Store', accountId: 'meta:act_1' };
         renderDiagnosis();
-        var no = document.querySelector('#dxBody [data-dx-fb="no"]');
+        var no = document.querySelector('#storeSec [data-dx-fb="no"]');
         ok(no, 'question shown');
         no.click();
-        ok(document.querySelector('#dxBody .dx-fb-form'), 'details form opened');
-        document.querySelector('#dxBody [data-dx-reason="stock"]').click();
-        document.querySelector('#dxBody .dx-fb-note').value = 'نفد المقاس الأكثر طلباً';
-        document.querySelector('#dxBody [data-dx-fb-save]').click();
+        ok(document.querySelector('#storeSec .dx-fb-form'), 'details form opened');
+        document.querySelector('#storeSec [data-dx-reason="stock"]').click();
+        document.querySelector('#storeSec .dx-fb-note').value = 'نفد المقاس الأكثر طلباً';
+        document.querySelector('#storeSec [data-dx-fb-save]').click();
         var list = JSON.parse(localStorage.getItem('acc.dx.fb.v1'))['meta:act_1'];
         eq([list.length, list[0].verdict, list[0].reasons[0], list[0].note], [1, 'no', 'stock', 'نفد المقاس الأكثر طلباً']);
-        ok(document.querySelector('#dxBody .dx-fb-done'), 'thanks shown');
-        ok(!document.querySelector('#dxBody .dx-fb-form'), 'form closed');
+        ok(document.querySelector('#storeSec .dx-fb-done'), 'thanks shown');
+        ok(!document.querySelector('#storeSec .dx-fb-form'), 'form closed');
       } finally {
         if (saved == null) localStorage.removeItem('acc.dx.fb.v1'); else localStorage.setItem('acc.dx.fb.v1', saved);
         DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
@@ -3973,6 +3975,35 @@
         dxRecompute();
         eq(dxState.views.map(function (v) { return v.id; }), ['meta', 'google']);
       } finally { DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true; }
+    });
+  });
+
+  describe('ملخص المتجر — قسم واحد مع «يحتاج انتباهك الآن»', function () {
+    var blk = function (kind, seg) { return { kind: kind, title: kind, lines: [], seg: seg || null }; };
+    var al = function (level, adId) { return { level: level, adId: adId || null, title: level + (adId || '') }; };
+    test('تنبيه إعلان جوه حملة عليها «يحتاج قرارك» بيتحسب عليها بدل ما يتكرر، والبند بياخد أولويته', function () {
+      var ads = [ad('a1', { cid: 'c1' }), ad('a2', { cid: 'c2' })];
+      var items = DX.attention([blk('decision', { dim: 'campaign', key: 'c1' })], [al('critical', 'a1'), al('warning', 'a2')], ads);
+      eq(items.map(function (x) { return x.type; }), ['block', 'alert']);
+      eq([items[0].related.length, items[0].rank, items[1].alert.adId], [1, 2, 'a2']);
+    });
+    test('الترتيب: الحساب العاجل، عاجل الملخص، عاجل الإعلانات، يحتاج قرارك، مهم، للمتابعة', function () {
+      var ads = [ad('a1', { cid: 'c9' })];
+      var items = DX.attention([blk('watch', { dim: 'country', key: 'SA' }), blk('decision'), blk('urgent'), blk('why')],
+        [al('warning', 'a1'), al('critical', 'a1'), al('critical')], ads);
+      eq(items.map(function (x) { return x.type === 'block' ? x.block.kind : x.alert.level + (x.alert.adId ? ':ad' : ':acct'); }),
+        ['critical:acct', 'urgent', 'critical:ad', 'decision', 'warning:ad', 'watch']);
+    });
+    test('في «كل المنصات» الحملة بمنصتها: حملة Google متطابقش إعلان Meta بنفس الرقم', function () {
+      var c = ad('m1', { cid: 'c1' });
+      eq([DX.segHas({ dim: 'campaign', key: 'google:c1' }, c), DX.segHas({ dim: 'campaign', key: 'meta:c1' }, c)], [false, true]);
+    });
+    test('من غير ملخص: شريط الإنفاق والنتائج + القائمة جوه نفس القسم', function () {
+      candidates = [ad('k1', { daily: steady(10), res: steady(1) })];
+      render();
+      ok(!document.getElementById('storeSec').hidden, 'section shown');
+      eq(document.querySelectorAll('#kpiStrip .kpi').length, 2, 'spend and results only');
+      ok(document.querySelector('#topAlerts .top-alerts-title').textContent === t('sec.attn'), 'attention heading');
     });
   });
 

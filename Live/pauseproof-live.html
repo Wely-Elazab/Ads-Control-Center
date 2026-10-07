@@ -607,9 +607,40 @@
   .sec-title::before, .top-alerts-title::before, .alerts-heading::before { content: ""; flex-shrink: 0; width: 4px; height: 1em; border-radius: 3px; background: var(--verified); }
   .alerts-heading { display: flex; align-items: center; gap: 8px; }
   .top-alerts-head .top-alerts-title { margin: 0; }
-  .app-sec-summary:has(> .kpi-strip:empty) { display: none; }
-  .app-sec-summary .kpi-strip { margin: 0; }
-  .top-alerts { margin: 22px 0 0; }
+  /* جوه ملخص المتجر: شريط الإنفاق والنتائج (بديل أرقام الملخص)، وسطر النهارده، و«يحتاج انتباهك الآن» */
+  .app-sec-store .kpi-strip { margin: 12px 0 0; }
+  .app-sec-store .kpi-strip:empty, .dx-today:empty, .dx-more:empty { display: none; }
+  .dx-today { margin: 10px 2px 0; font-size: 12.5px; line-height: 1.7; color: var(--ink-soft); }
+  .dx-today p { margin: 0; }
+  .top-alerts { margin: 18px 0 0; }
+  .top-alerts-head { flex-wrap: wrap; }
+  .top-alerts-ok.neutral { color: var(--ink-soft); background: var(--paper); border: 1px solid var(--line); }
+  .attn-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-inline-start: auto; }
+  .attn-chip { font-family: inherit; font-size: 12px; font-weight: 600; border: none; border-radius: 999px; padding: 3px 10px; cursor: pointer; color: var(--alert); background: var(--alert-bg); }
+  .attn-chip:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  /* بلوك من الملخص جوه القائمة: نفس شكل التنبيه، وبيتفتح على التفاصيل والاقتراح */
+  .attn-block { margin-bottom: 6px; }
+  .attn-block > summary { list-style: none; margin-bottom: 0; }
+  .attn-block > summary::-webkit-details-marker { display: none; }
+  .attn-block > summary::after { content: '▾'; margin-inline-start: auto; flex-shrink: 0; color: var(--ink-faint); font-size: 12px; }
+  .attn-block[open] > summary::after { content: '▴'; }
+  .attn-block[open] > summary { border-end-start-radius: 0; border-end-end-radius: 0; }
+  .attn-body { border: 1px solid var(--line); border-top: none; border-radius: 0 0 10px 10px; padding: 2px 4px 4px; background: var(--card); }
+  .top-alerts .attn-body .dx-block { border: none; background: none; padding: 10px 12px; }
+  .attn-rel { padding: 0 12px 10px; }
+  .attn-rel p { margin: 4px 0 6px; font-size: 12.5px; color: var(--ink-soft); }
+  .attn-rel .top-alert { padding: 7px 10px; }
+  .attn-camp { margin: 0 12px 10px; }
+  /* الشرح والفرص (لماذا، فرصة، متابعة…) مطويين تحت القائمة */
+  .dx-more { display: grid; gap: 8px; margin-top: 16px; }
+  .dx-fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; font-size: 13.5px; font-weight: 600; }
+  .dx-fold > summary::-webkit-details-marker { display: none; }
+  .dx-fold > summary::after { content: '▾'; margin-inline-start: auto; color: var(--ink-faint); font-size: 12px; }
+  .dx-fold[open] > summary::after { content: '▴'; }
+  .dx-fold[open] > summary { border-radius: 10px 10px 0 0; }
+  .dx-fold > .dx-block { border-top: none; border-radius: 0 0 var(--radius) var(--radius); }
+  .dx-fold .dx-kind { margin-bottom: 0; }
+  .dx-head > :last-child { margin-bottom: 0; }
   .app-sec-ads { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
 
   /* ملخص المتجر: العنوان والأرقام فوق، وبعدين بلوك لكل حاجة (لماذا، يحتاج قرارك، فرصة...) بلون حسب نوعها */
@@ -644,7 +675,7 @@
   .dx-headline { margin: 0 0 12px; font-size: 16px; font-weight: 700; line-height: 1.5; }
   /* العائد مقارنةً بالمستهدف وحد الخسارة (الربح أولاً) — تحت العنوان مباشرةً */
   .dx-basis { margin: -6px 0 12px; font-size: 13px; line-height: 1.7; color: var(--ink-soft); }
-  .dx-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .dx-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; }
   .dx-kpi { background: var(--paper); border-radius: 10px; padding: 10px 12px; min-width: 0; }
   .dx-kpi-label { font-size: 12px; color: var(--ink-soft); }
   .dx-kpi-value { font-size: 17px; font-weight: 700; margin-top: 2px; overflow-wrap: anywhere; }
@@ -860,9 +891,11 @@
         </ul>
       </details>
 
-      <!-- ملخص المتجر: إيه اللي اتغيّر في النتايج، وفين، وليه على الأرجح (js/diagnosis.js).
-           ظاهر للكل من ٢٩ سبتمبر ٢٠٢٦ — hidden هنا بس لحد ما يبقى فيه حساب متصل (renderDiagnosis في ui.js)،
-           و?dx=0 بيخفيه على الجهاز ده (DX_ON في core.js) -->
+      <!-- ملخص المتجر: قسم واحد من ٧ أكتوبر ٢٠٢٦ (قبلها «ملخص الأداء» و«ملخص المتجر» كانوا قسمين بأرقام مختلفة لنفس الفترة،
+           ونفس المشكلة كانت بتظهر فيهم الاتنين): الحكم والأرقام (أيام مكتملة — js/diagnosis.js)، وسطر «اليوم حتى الآن»،
+           و«يحتاج انتباهك الآن» (الملخص + تنبيهات الإعلانات من غير تكرار — DX.attention)، والشرح والفرص مطويين.
+           hidden لحد ما يبقى فيه حساب متصل (renderDiagnosis في ui.js). ?dx=0 بيخفي التحليل على الجهاز ده (DX_ON في core.js)
+           ويفضل شريط الإنفاق والنتائج (kpiStrip) والقائمة — وده نفسه اللي بيظهر لو الحساب مفيهوش مشتريات -->
       <section class="app-sec app-sec-store" id="storeSec" aria-labelledby="secStore" hidden>
         <div class="dx-top">
           <h2 class="sec-title" id="secStore" data-i18n="dx.title">ملخص المتجر</h2>
@@ -875,15 +908,13 @@
         <div class="dx-auto" id="dxAuto" hidden></div>
         <p class="dx-period" id="dxPeriod"></p>
         <div id="dxBody" aria-live="polite"></div>
-      </section>
-
-      <!-- كل قسم في الصفحة ليه عنوان بعلامة خضرا (.sec-title) — عشان العين تفرّق بين الملخص والتنبيهات والإعلانات -->
-      <section class="app-sec app-sec-summary" aria-labelledby="secSummary">
-        <h2 class="sec-title" id="secSummary" data-i18n="sec.summary">ملخص الأداء</h2>
         <div class="kpi-strip" id="kpiStrip"></div>
+        <div class="dx-today" id="dxToday"></div>
+        <div class="top-alerts" id="topAlerts"></div>
+        <div class="dx-more" id="dxMore"></div>
       </section>
 
-      <div class="top-alerts" id="topAlerts"></div>
+      <!-- كل قسم في الصفحة ليه عنوان بعلامة خضرا (.sec-title) — عشان العين تفرّق بين الملخص والإعلانات -->
 
       <section class="app-sec app-sec-ads" aria-labelledby="secAds">
       <h2 class="sec-title" id="secAds" data-i18n="sec.ads">الإعلانات والحملات</h2>

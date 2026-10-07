@@ -1404,15 +1404,16 @@ var DX = (function () {
     var ch = function (x, y) { return x > 0 ? y / x - 1 : null; };
     var cpaA = cpaOf(a), cpaB = cpaOf(b);
     var roasA = a.spend > 0 && a.rev > 0 ? a.rev / a.spend : null, roasB = b.spend > 0 && b.rev > 0 ? b.rev / b.spend : null;
-    // sig = اتجاه التغيّر لو حقيقي بس (١ / −١)، وإلا صفر — الألوان (أخضر/أحمر) مبتظهرش على تذبذب عادي
+    // sig = اتجاه التغيّر لو حقيقي بس (١ / −١)، وإلا صفر — الألوان (أخضر/أحمر) مبتظهرش على تذبذب عادي.
+    // الترتيب بلغة الفلوس (قرار ٧ أكتوبر ٢٠٢٦): صرفت كام ← جالك كام طلب ← بمبيعات كام ← العائد ← تكلفة الطلب
     return [
+      { id: 'spend', label: t('dx.kpi.spend'), value: M(b.spend), prev: M(a.spend), pct: ch(a.spend, b.spend), sig: 0, goodUp: null },
       { id: 'orders', label: t('dx.kpi.orders'), value: fmtNum(b.pur), prev: fmtNum(a.pur), pct: ch(a.pur, b.pur), sig: h.dOrd || 0, goodUp: true },
       { id: 'revenue', label: t('dx.kpi.revenue'), value: money(b.rev, r.currency), prev: money(a.rev, r.currency), pct: ch(a.rev, b.rev),
         sig: (h.dOrd || (h.aov && h.aov.real) || (h.roas && h.roas.dir)) ? sign(b.rev - a.rev) : 0, goodUp: true },
-      { id: 'cpa', label: t('dx.kpi.cpa'), value: cpaB ? M(cpaB) : '—', prev: cpaA ? M(cpaA) : '—', pct: cpaA && cpaB ? cpaB / cpaA - 1 : null, sig: h.dEff ? -h.dEff : 0, goodUp: false },
       // لون العائد من اختبار العائد نفسه (مش من تكلفة الطلب): عائد نزل ٦٠٪ كان بيفضل رمادي لأن تكلفة الطلب في حدود التذبذب
       { id: 'roas', label: t('dx.kpi.roas'), value: roasB ? roasStr(roasB) : '—', prev: roasA ? roasStr(roasA) : '—', pct: roasA && roasB ? roasB / roasA - 1 : null, sig: (h.roas && h.roas.dir) || 0, goodUp: true },
-      { id: 'spend', label: t('dx.kpi.spend'), value: M(b.spend), prev: M(a.spend), pct: ch(a.spend, b.spend), sig: 0, goodUp: null }
+      { id: 'cpa', label: t('dx.kpi.cpa'), value: cpaB ? M(cpaB) : '—', prev: cpaA ? M(cpaA) : '—', pct: cpaA && cpaB ? cpaB / cpaA - 1 : null, sig: h.dEff ? -h.dEff : 0, goodUp: false }
     ];
   }
   // جدول الأدلة (للمسوّق): الفترتين جنب بعض، مرحلة مرحلة
@@ -1533,7 +1534,7 @@ var DX = (function () {
     lines.push(t(s.persistent ? 'dx.seg.persist' : 'dx.seg.new'));
     if (s.alsoAs && s.alsoAs.length) lines.push(t('dx.seg.alsoAs', { list: listText(s.alsoAs.map(function (x) { return segName(x.dim, x.key, x.name); })) }));
     var blk = { kind: 'decision', title: onPlat(s.platform, title), lines: lines, after: [t('dx.seg.decide', { seg: name })], conf: s.conf,
-      fbKey: (s.platform ? s.platform + ':' : '') + 'seg:' + s.dim + ':' + s.key };
+      fbKey: (s.platform ? s.platform + ':' : '') + 'seg:' + s.dim + ':' + s.key, seg: { dim: s.dim, key: s.key, platform: s.platform || null } };
     ctx.stage = s.stage ? s.stage.id : 'any';
     applyPlaybook(blk, ctx.stage, s.dimKind, 'worse', ctx);
     // حملة هدفها «الزيارات»: المنصة بتدوّر على اللي بيضغط مش اللي بيشتري — ده أول سبب يتقال
@@ -1559,7 +1560,8 @@ var DX = (function () {
     }
     var after = [];
     if (r.head && (r.head.type === 'stable' || r.head.type === 'withinNoise')) after.push(t('dx.chg.hidden'));
-    var blk = { kind: 'watch', title: capFirst(title), lines: lines, bullets: bullets, after: after, conf: c.conf, fbKey: 'chg:' + c.dim + ':' + c.key };
+    var blk = { kind: 'watch', title: capFirst(title), lines: lines, bullets: bullets, after: after, conf: c.conf, fbKey: 'chg:' + c.dim + ':' + c.key,
+      seg: { dim: c.dim, key: c.key, platform: null } };
     ctx.stage = stage;
     applyPlaybook(blk, stage, c.dimKind, 'worse', ctx);
     return blk;
@@ -1729,6 +1731,42 @@ var DX = (function () {
     return o;
   }
 
+  // ---------- «يحتاج انتباهك الآن»: الملخص وتنبيهات الإعلانات في قائمة واحدة (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦) ----------
+  // بلوكات الملخص اللي محتاجة إجراء (عاجل، يحتاج قرارك، للمراقبة) + تنبيهات الإعلانات (عاجل ومهم) في ترتيب واحد.
+  // التنبيه على إعلان جوه حملة (أو على نفس الإعلان) عليها بلوك من الملخص بيتحسب على البلوك بدل ما يتكرر
+  // («ويرتبط بها تنبيهان على إعلاناتها»)، والبلوك بياخد أعلى أولوية فيهم — فالعاجل ميتدفنش تحت «للمراقبة».
+  // الترتيب: مشاكل الحساب العاجلة، عاجل الملخص، عاجل الإعلانات، يحتاج قرارك، مهم، للمراقبة. ads = الإعلانات (حملة كل إعلان ومنصته)
+  var ATTN_RANK = { urgent: 1, decision: 3, watch: 5 };
+  function alertRank(a) { return a.level === 'critical' ? (a.adId ? 2 : 0) : 4; }
+  // الإعلان جوه الجزء ده؟ (حملة أو إعلان — المجموعات مالهاش رقم على الإعلان). في «كل المنصات» المفتاح فيه المنصة («meta:123»)
+  function segHas(seg, c) {
+    var m = String(seg.key).match(/^(meta|google|snapchat):(.*)$/), key = m ? m[2] : String(seg.key);
+    var plat = (m && m[1]) || seg.platform;
+    if (plat && String(c.source || '').indexOf(plat + ':') !== 0) return false;
+    if (seg.dim === 'campaign') return c.campaignId != null && String(c.campaignId) === key;
+    if (seg.dim === 'ad') return String(c.nativeId || c.id) === key;
+    return false;
+  }
+  function attention(blocks, alerts, ads) {
+    var byId = {}, items = [], owners = [];
+    (ads || []).forEach(function (c) { byId[c.id] = c; });
+    (blocks || []).forEach(function (b, i) {
+      if (!ATTN_RANK[b.kind]) return;
+      var it = { type: 'block', block: b, index: i, rank: ATTN_RANK[b.kind], related: [] };
+      if (b.seg && (b.seg.dim === 'campaign' || b.seg.dim === 'ad')) owners.push(it);
+      items.push(it);
+    });
+    (alerts || []).forEach(function (a) {
+      if (a.level !== 'critical' && a.level !== 'warning') return;
+      var c = a.adId ? byId[a.adId] : null;
+      var owner = c ? owners.filter(function (o) { return segHas(o.block.seg, c); })[0] : null;
+      if (owner) { owner.related.push(a); owner.rank = Math.min(owner.rank, alertRank(a)); return; }
+      items.push({ type: 'alert', alert: a, rank: alertRank(a) });
+    });
+    items.forEach(function (x, k) { x.order = k; });
+    return items.sort(function (x, y) { return (x.rank - y.rank) || (x.order - y.order); });
+  }
+
   // نسخة نصية (للواتساب): *نص* = عريض في واتساب
   var TONE_ICON = { good: '🟢', bad: '🔴', mixed: '🟠', neutral: '⚪' };
   var KIND_ICON = { urgent: '🚨', why: '💡', decision: '🔴', watch: '🟠', opportunity: '🟢', follow: '✅', note: 'ℹ️' };
@@ -1835,6 +1873,9 @@ var DX = (function () {
     combine: combine,
     attachPlatforms: attachPlatforms,
     compose: compose,
+    attention: attention,
+    segHas: segHas,
+    ordersText: ordersText,
     toText: toText,
     blockText: blockText,
     segName: segName,
