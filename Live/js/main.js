@@ -20,7 +20,8 @@
     var expired = [];
     Object.keys(savedTokens).forEach(function (p) {
       if (validToken(savedTokens[p])) sessionTokens[p] = savedTokens[p];
-      else if (!pending[p] && !sealedFor(p)) expired.push(p);
+      // Meta مش هنا: مكتبة فيسبوك أو الربط المحفوظ هما اللي بيقرروا (metaResume تحت)
+      else if (p !== 'meta' && !pending[p] && !sealedFor(p)) expired.push(p);
     });
     googleAccessToken = googleAccessToken || validToken(sessionTokens.google);
     snapchatAccessToken = snapchatAccessToken || validToken(sessionTokens.snapchat);
@@ -44,15 +45,12 @@
       activeSources.meta = active.meta;
       // المكتبة اتمنعت قبل ما نوصل هنا — كارت خطأ واضح بدل جلسة معلّقة
       if (fbSdkFailed) { onFbSdkFailed(); return; }
-      whenFbReady(function () {
-        FB.getLoginStatus(function (resp) {
-          // بنعيد قراءة بيانات الحساب (الحالة وحد الصرف) بدل ما نعتمد على المحفوظ من جلسة قديمة —
-          // حساب اتحل عنده مشكلة الدفع كان هيفضل ظاهر إن إعلاناته كلها متوقفة
-          if (resp && resp.status === 'connected') { loadAdAccounts(active.meta); return; }
-          delete activeSources.meta;
-          setPlatformOptions('meta', []);
-          markExpired('meta');
-        });
+      // بنعيد قراءة بيانات الحساب (الحالة وحد الصرف) بدل ما نعتمد على المحفوظ من جلسة قديمة —
+      // حساب اتحل عنده مشكلة الدفع كان هيفضل ظاهر إن إعلاناته كلها متوقفة
+      metaResume(function () { loadAdAccounts(active.meta); }, function () {
+        delete activeSources.meta;
+        setPlatformOptions('meta', []);
+        markExpired('meta');
       });
     });
     saveSession();
@@ -75,20 +73,44 @@
   ['google', 'snapchat'].forEach(function (p) {
     if (!pendingRedirects[p] && !isConnected(p) && sealedFor(p)) markExpired(p);
   });
-  // وMeta في تاب جديد: لو العميل كان رابطها ومعملش «فصل» (آخر حساب لسه محفوظ — «فصل» بيمسحه)، بنسأل مكتبة فيسبوك
-  // بهدوء: الجلسة لسه شغّالة = نفس الحساب على طول. غير كده بتفضل شاشة «اربط حسابك» زي الأول، من غير أي رسالة خطأ
-  // (Safari غالباً بيمنع السؤال ده، فالربط هناك بيفضل بضغطة واحدة)
+  // وMeta في تاب جديد: لو العميل كان رابطها ومعملش «فصل» (آخر حساب لسه محفوظ — «فصل» بيمسحه): الربط المحفوظ على
+  // الجهاز الأول، وبعده مكتبة فيسبوك. نجح = نفس الحساب على طول. غير كده بتفضل شاشة «اربط حسابك» زي الأول، من غير رسالة خطأ
   autoReconnectMeta();
   function autoReconnectMeta() {
     var last = lastAccounts.meta;
     if (!last || isConnected('meta') || fbSdkFailed) return;
-    whenFbReady(function () {
-      FB.getLoginStatus(function (resp) {
-        if (!resp || resp.status !== 'connected' || isConnected('meta')) return;
-        activeSources.meta = last;
-        loadAdAccounts(last);
-      });
+    // التجديد بياخد ثانية: «جارٍ تجديد الجلسة» بدل شاشة «اربط حسابك» اللي كانت بتوحي إن الحساب اتفصل
+    var hadLink = !!sealedFor('meta');
+    if (hadLink) { setLoading('meta', true, msg('s.renewing', { platform: PLATFORM_NAMES.meta })); render(); }
+    metaResume(function () {
+      if (isConnected('meta')) return;
+      activeSources.meta = last;
+      loadAdAccounts(last);
+    }, function () {
+      if (!hadLink) return;
+      // كان محفوظ ومبقاش ينفع (انتهت الـ ٦٠ يوم، أو اتلغى من فيسبوك): «انتهت الجلسة» بزرار «ربط تاني» —
+      // أصدق من شاشة «اربط حسابك» الفاضية
+      setLoading('meta', false);
+      expireNow('meta');
     });
+  }
+  // Meta بعد فتح الأداة من جديد: الربط المحفوظ على الجهاز (بيشتغل على الهاتف)، وبعده جلسة مكتبة فيسبوك (اللابتوب —
+  // ولو اشتغلت والربط مش محفوظ، بنحفظه دلوقتي). onOk = فيه مفتاح شغّال، onFail = لازم ربط
+  function metaResume(onOk, onFail) {
+    var tryFb = function () {
+      if (fbSdkFailed) { onFail(); return; }
+      whenFbReady(function () {
+        FB.getLoginStatus(function (resp) {
+          if (!resp || resp.status !== 'connected') { onFail(); return; }
+          if (!sealedFor('meta') && resp.authResponse) keepMetaLink(resp.authResponse.accessToken);
+          onOk();
+        });
+      });
+    };
+    // reload لنفس التاب: المفتاح لسه في جلسة التاب
+    if (validToken(sessionTokens.meta)) { onOk(); return; }
+    if (sealedFor('meta')) renewSession('meta').then(function (ok) { if (ok) onOk(); else tryFb(); });
+    else tryFb();
   }
   probeGoogleCodeFlow();
 

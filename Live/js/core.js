@@ -306,12 +306,14 @@
   }
   function validToken(entry) { return entry && entry.token && (!entry.expiresAt || entry.expiresAt > Date.now()) ? entry.token : null; }
 
-  // ---------- الربط المحفوظ على الجهاز (Google وSnapchat) ----------
+  // ---------- الربط المحفوظ على الجهاز (Google وSnapchat وMeta) ----------
   // النسخة المقفولة من مفتاح التجديد (api/_seal.js) — في localStorage عشان تعيش بعد قفل التاب: العميل ميسجّلش
   // دخول Google كل ساعة ولا Snapchat كل نص ساعة، ولا كل ما يفتح الأداة من جديد (أو من اختصار على الهاتف).
-  // مفيش أي نسخة منها عندنا، ومتتفتحش من غير خادمنا. «فصل» بيمسحها (وGoogle بتلغي الصلاحية عندها كمان)
+  // مفيش أي نسخة منها عندنا، ومتتفتحش من غير خادمنا. «فصل» بيمسحها (وGoogle بتلغي الصلاحية عندها كمان).
+  // Meta من ٧ أكتوبر ٢٠٢٦: مفتاحها الطويل (نحو ٦٠ يوم) مقفول ومربوط بحساب الدخول للأداة، وبيتفتح عن طريق دالة sync
+  // (supabase/functions/sync/metalink.ts) — على الهاتف مكتبة فيسبوك مبتعرفش إن العميل لسه رابط، فكانت بتفصله كل مرة
   var RENEW_KEY = 'acc.renew.v1';
-  var RENEW_ENDPOINT = { google: '/api/google-token', snapchat: '/api/snapchat-token' };
+  var RENEW_ENDPOINT = { google: '/api/google-token', snapchat: '/api/snapchat-token', meta: 'sync:meta.renew' };
   function renewStore() {
     try { var v = JSON.parse(localStorage.getItem(RENEW_KEY) || 'null'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch (e) { return {}; }
   }
@@ -333,7 +335,7 @@
     var sealed = sealedFor(platform);
     if (!sealed) return Promise.resolve(false);
     if (renewing[platform]) return renewing[platform];
-    renewing[platform] = apiPost(RENEW_ENDPOINT[platform], { sealed: sealed }).then(function (res) {
+    renewing[platform] = (platform === 'meta' ? renewMeta(sealed) : apiPost(RENEW_ENDPOINT[platform], { sealed: sealed }).then(function (res) {
       var data = res.data || {};
       if (res.ok && data.access_token) {
         if (data.sealed) keepSealed(platform, data.sealed);
@@ -343,8 +345,30 @@
       }
       if (isAuthFailure(res)) keepSealed(platform, null);
       return false;
-    }).then(function (ok) { delete renewing[platform]; return ok; });
+    })).then(function (ok) { delete renewing[platform]; return ok; });
     return renewing[platform];
+  }
+  // Meta: الفتح عن طريق sync (محتاج دخول الأداة). ٤١٠ = النسخة مبقتش تنفع (انتهت، اتلغت عند فيسبوك، أو لحساب دخول تاني)
+  // فبتتمسح؛ أي فشل تاني (شبكة، Meta واقعة) بيسيبها للمرة الجاية
+  function renewMeta(sealed) {
+    return syncCall({ action: 'meta.renew', sealed: sealed }).then(function (data) {
+      if (!data || !data.access_token) return false;
+      rememberToken('meta', data.access_token, data.expires_in);
+      return true;
+    }, function (e) {
+      if (e && e.status === 410) keepSealed('meta', null);
+      return false;
+    });
+  }
+  // بعد دخول فيسبوك (FB.login أو جلسة المكتبة على اللابتوب): نسخة مقفولة على الجهاز + المفتاح الطويل للتاب ده.
+  // في الخلفية — لو فشلت، الأداة بتكمل بجلسة المكتبة زي الأول
+  function keepMetaLink(shortToken) {
+    if (!shortToken || typeof syncCall !== 'function') return;
+    syncCall({ action: 'meta.seal', token: shortToken }).then(function (data) {
+      if (!data || !data.sealed || !data.access_token) return;
+      keepSealed('meta', data.sealed);
+      rememberToken('meta', data.access_token, data.expires_in);
+    }, function () { /* المرة الجاية */ });
   }
 
   // لو المستخدم بدّل الحساب بسرعة، رد الحساب القديم ممكن يوصل بعد الجديد ويكتب فوقه.

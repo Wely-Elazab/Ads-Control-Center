@@ -3978,6 +3978,65 @@
     });
   });
 
+  describe('ربط Meta المحفوظ على الجهاز (الهاتف كان بيفصل الحسابات كل مرة)', function () {
+    var withFb = function (fn) {
+      var prevFb = window.FB, calls = [];
+      window.FB = { api: function () { calls.push(Array.prototype.slice.call(arguments)); } };
+      try { fn(calls); } finally { window.FB = prevFb; }
+    };
+    test('من غير مفتاح محفوظ: الطلب بجلسة مكتبة فيسبوك زي الأول', function () {
+      withFb(function (calls) {
+        metaApi('/me/adaccounts', { limit: 5 }, function () {});
+        eq(calls[0][1], { limit: 5 });
+      });
+    });
+    test('بالمفتاح المحفوظ: بيتبعت صريح مع الطلب (GET وPOST)، ومن غير ما يغيّر params الأصلية', function () {
+      rememberToken('meta', 'LONG_TOKEN_X', 3600);
+      withFb(function (calls) {
+        var p = { fields: 'id' };
+        metaApi('/act_1/ads', p, function () {});
+        metaApi('/', 'POST', { batch: '[]' }, function () {});
+        eq([calls[0][1].access_token, calls[0][1].fields, p.access_token], ['LONG_TOKEN_X', 'id', undefined]);
+        eq([calls[1][1], calls[1][2].access_token, calls[1][2].batch], ['POST', 'LONG_TOKEN_X', '[]']);
+      });
+    });
+    testAsync('كل طلبات Meta في meta.js وui.js بتعدّي من metaApi', function () {
+      return Promise.all(['/js/meta.js', '/js/ui.js'].map(function (u) {
+        return fetch(u + '?t=' + Date.now()).then(function (r) { return r.text(); });
+      })).then(function (srcs) {
+        var direct = srcs.join('\n').split('\n').filter(function (l) { return /FB\.api\(/.test(l) && !/return FB\.api\(/.test(l); });
+        eq(direct, [], 'direct FB.api calls');
+      });
+    });
+    testAsync('التجديد: المفتاح بيرجع للجلسة، و٤١٠ بيمسح النسخة، والعطل المؤقت بيسيبها', function () {
+      var prev = window.syncCall, step = 0;
+      var answers = [
+        Promise.resolve({ access_token: 'RENEWED', expires_in: 5000 }),
+        Promise.reject(Object.assign(new Error('HTTP 410'), { status: 410 })),
+        Promise.reject(Object.assign(new Error('HTTP 502'), { status: 502 }))
+      ];
+      window.syncCall = function (body) { eq(body.action, 'meta.renew'); return answers[step++]; };
+      keepSealed('meta', 'm1.sealedcopy');
+      return renewSession('meta').then(function (ok) {
+        eq([ok, validToken(sessionTokens.meta), sealedFor('meta')], [true, 'RENEWED', 'm1.sealedcopy']);
+        delete sessionTokens.meta;
+        return renewSession('meta');
+      }).then(function (ok) {
+        eq([ok, sealedFor('meta')], [false, null], '410 clears the copy');
+        keepSealed('meta', 'm1.sealedcopy');
+        return renewSession('meta');
+      }).then(function (ok) {
+        eq([ok, sealedFor('meta')], [false, 'm1.sealedcopy'], 'a temporary failure keeps it');
+      }).then(function () { window.syncCall = prev; keepSealed('meta', null); }, function (e) { window.syncCall = prev; keepSealed('meta', null); throw e; });
+    });
+    testAsync('«خروج» بيمسح الربط المحفوظ وآخر حساب من الجهاز', function () {
+      return fetch('/js/auth.js?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (src) {
+        ok(/DEVICE_KEYS = \['acc\.renew\.v1', 'acc\.lastAccount\.v1'\]/.test(src) && /function signOut\(\) \{\s*try \{ DEVICE_KEYS\.forEach/.test(src), 'signOut clears device keys');
+        eq([RENEW_KEY, LAST_ACCOUNT_KEY], ['acc.renew.v1', 'acc.lastAccount.v1'], 'same keys as core.js');
+      });
+    });
+  });
+
   describe('ملخص المتجر — قسم واحد مع «يحتاج انتباهك الآن»', function () {
     var blk = function (kind, seg) { return { kind: kind, title: kind, lines: [], seg: seg || null }; };
     var al = function (level, adId) { return { level: level, adId: adId || null, title: level + (adId || '') }; };

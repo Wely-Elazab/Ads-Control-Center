@@ -108,7 +108,12 @@
     write(null);
     return s ? authCall('POST', '/logout?scope=local', null, s.access_token) : Promise.resolve(null);
   }
+  // «خروج» = مفيش حاجة من الحساب تفضل على الجهاز: الربط المحفوظ (Meta وGoogle وSnapchat — core.js acc.renew.v1)،
+  // وآخر حساب إعلاني، وجلسة التاب. قبل كده اللي يدخل بعدك على نفس الجهاز كان بيلاقي حسابات Google وSnapchat
+  // بتاعتك مربوطة. الملخص التلقائي بالبريد مبيتأثرش (ده «فصل» Meta بس اللي بيوقفه)
+  var DEVICE_KEYS = ['acc.renew.v1', 'acc.lastAccount.v1'];
   function signOut() {
+    try { DEVICE_KEYS.forEach(function (k) { localStorage.removeItem(k); }); sessionStorage.clear(); } catch (e) { /* التخزين مقفول */ }
     var done = function () { location.replace('/login'); };
     forget().then(done, done);
   }

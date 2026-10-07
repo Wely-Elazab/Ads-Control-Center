@@ -713,9 +713,11 @@
   var SYNC_URL = 'https://rhrrnxsgodiideqeollo.supabase.co/functions/v1/sync';
   var syncPulled = {};     // العروض اللي جبنا إجاباتها من السيرفر في الجلسة دي
   var syncSeenDone = {};   // الحسابات اللي سجّلنا فتحها في الجلسة دي
+  // جلسة مكتبة فيسبوك، أو مفتاح الربط المحفوظ على الجهاز (الهاتف — core.js renewMeta)
   function metaAccessToken() {
-    try { var a = window.FB && FB.getAuthResponse ? FB.getAuthResponse() : null; return a && a.accessToken ? a.accessToken : null; }
-    catch (e) { return null; }
+    try { var a = window.FB && FB.getAuthResponse ? FB.getAuthResponse() : null; if (a && a.accessToken) return a.accessToken; }
+    catch (e) { /* المكتبة مش جاهزة */ }
+    return validToken(sessionTokens.meta);
   }
   // العرض ده بيتزامن؟ عرض حساب Meta لوحده بس («meta:act_1»)
   function syncableView(viewKey) { return typeof viewKey === 'string' && /^meta:act_\d{1,30}$/.test(viewKey); }
@@ -1827,7 +1829,7 @@
     if (!c.videoId || c.platform !== 'Meta' || typeof FB === 'undefined') return;
 
     // المحاولة الأولى: Ad Previews API — أداة Meta الرسمية لمعاينة الإعلان كما يظهر فعلياً
-    FB.api('/' + c.id + '/previews', { ad_format: 'MOBILE_FEED_STANDARD' }, function (prevResp) {
+    metaApi('/' + c.id + '/previews', { ad_format: 'MOBILE_FEED_STANDARD' }, function (prevResp) {
       if (openSeq !== expandSeq) return;
       var previewFrame = prevResp && prevResp.data && prevResp.data[0] && metaIframeHtml(prevResp.data[0].body);
       if (previewFrame) {
@@ -1836,7 +1838,7 @@
         return;
       }
       // المحاولة الثانية للفيديو: بيانات الفيديو مباشرة (تضمين رسمي، ثم ملف مباشر، ثم رابط خارجي)
-      FB.api('/' + c.videoId, { fields: 'embed_html,source,permalink_url,picture' }, function (vidResp) {
+      metaApi('/' + c.videoId, { fields: 'embed_html,source,permalink_url,picture' }, function (vidResp) {
         if (openSeq !== expandSeq) return;
         var mediaHtml = '';
         var embedFrame = vidResp && metaIframeHtml(vidResp.embed_html);

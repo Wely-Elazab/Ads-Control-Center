@@ -12,6 +12,7 @@
 //   digest.previewSummary ← { token, accountId, lang, since?, until? } لمدير التطبيق بس: رسالة الملخص، من غير إرسال
 //   join و join.peek و join.activate ← طلبات الانضمام للتجربة من نموذج /join، وزرار «أرسلت الدعوة» في إشعارنا (join.ts)
 //   login.* ← تسجيل الدخول للأداة: كلمة المرور + رمز على البريد (auth.ts)
+//   meta.seal و meta.renew ← ربط Meta المحفوظ على الجهاز، عشان الهاتف ميفصلش الحسابات كل مرة (metalink.ts)
 //
 // الأمان: الدالة عامة (verify_jwt = false) لأن فيها عمليات من غير دخول (النبض، رابط الإيقاف، طلب الانضمام، login.*).
 // من ٦ أكتوبر ٢٠٢٦ كل العمليات التانية محتاجة دخول مكتمل للأداة (هيدر authorization: كلمة المرور + الرمز — requireLogin)،
@@ -26,6 +27,7 @@ import { handleDigest } from './digest.ts';
 import { handleJoin } from './join.ts';
 import { runAll, preview, previewSummary } from './runner.ts';
 import { handleLogin, requireLogin } from './auth.ts';
+import { handleMetaLink } from './metalink.ts';
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
@@ -132,7 +134,10 @@ Deno.serve(async (req: Request) => {
 
     // تسجيل الدخول للأداة، وبعده كل العمليات محتاجة دخول مكتمل (كلمة المرور + الرمز) — فوق صلاحية Meta
     if (typeof action === 'string' && action.indexOf('login.') === 0) return await handleLogin(action, body, req, origin);
-    if (!(await requireLogin(req))) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
+    const user = await requireLogin(req);
+    if (!user) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
+    // ربط Meta المحفوظ على الجهاز — مربوط بحساب الدخول ده (metalink.ts)
+    if (action === 'meta.seal' || action === 'meta.renew') return await handleMetaLink(action, body, user.id, origin);
 
     if (typeof body.token !== 'string' || !TOKEN.test(body.token)) return reply(400, { error: 'token' }, origin);
 

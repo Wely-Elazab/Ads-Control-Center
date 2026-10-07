@@ -75,8 +75,8 @@ export function sameString(a: string, b: string): boolean {
 }
 
 // ---------- Meta ----------
-// المفتاح القصير → مفتاح طويل. لازم يحصل هنا: سر التطبيق عمره ما يطلع للمتصفح
-async function longLived(token: string): Promise<{ token: string; expiresAt: string } | null> {
+// المفتاح القصير → مفتاح طويل. لازم يحصل هنا: سر التطبيق عمره ما يطلع للمتصفح. وربط Meta المحفوظ على الجهاز بيستخدمه (metalink.ts)
+export async function longLived(token: string): Promise<{ token: string; expiresAt: string } | null> {
   const secret = Deno.env.get('META_APP_SECRET');
   if (!secret) return null;
   const url = GRAPH + '/oauth/access_token?grant_type=fb_exchange_token&client_id=' + META_APP_ID +

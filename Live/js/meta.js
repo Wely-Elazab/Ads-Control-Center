@@ -53,7 +53,9 @@
     // ads_read بس: الأداة للقراءة فقط. business_management اتشالت لأنها فيها صلاحية كتابة على أصول البزنس
     // ومش مستخدمة في أي طلب. لو حساب إعلاني تابع لـ Business Manager مظهرش بعد الشيل، ده السبب
     FB.login(function (response) {
-      if (response.authResponse) { loadAdAccounts(); }
+      // الربط بيتحفظ على الجهاز (core.js keepMetaLink) — المرة الجاية على الهاتف مش هيحتاج يربط تاني
+      // (المفتاح المحفوظ القديم بيتشال الأول — ممكن يكون لحساب فيسبوك تاني — والطلبات بجلسة المكتبة لحد ما الجديد يوصل)
+      if (response.authResponse) { delete sessionTokens.meta; keepMetaLink(response.authResponse.accessToken); loadAdAccounts(); }
       // من غير authResponse = النافذة اتقفلت من غير دخول. في التجربة المغلقة ده غالباً بعد رسالة «App not active»
       // (الحساب مش Tester لسه)، فبنقول السبب وبنظهر رابط الخطوات وطلب الانضمام
       else { setStatus(msg('s.metaCancelled'), { help: 'meta' }); }
@@ -122,9 +124,20 @@
   var FULL_SCAN_CAP = 20000;    // حد أمان أعلى بكتير للبيانات المساعدة (المجموعات والإنفاق اليومي)
                                 // اللي لو اتقطعت بتطلع أرقام وحالات غلط من غير ما حد يلاحظ
 
+  // كل طلبات Meta من هنا: لو معانا مفتاح الربط المحفوظ على الجهاز (sessionTokens.meta — core.js renewMeta) بيتبعت
+  // صريح مع الطلب، لأن على الهاتف مكتبة فيسبوك مبتعرفش إن العميل رابط. غير كده المكتبة بتستخدم جلستها زي الأول.
+  // نفس شكل FB.api: (path, params, cb) أو (path, method, params, cb)
+  function metaApi(path, a, b, c) {
+    var tok = validToken(sessionTokens.meta);
+    if (!tok) return FB.api(path, a, b, c);
+    var withTok = function (p) { var q = {}; for (var k in (p || {})) q[k] = p[k]; q.access_token = tok; return q; };
+    if (typeof a === 'string') return FB.api(path, a, withTok(b), c);
+    return FB.api(path, withTok(a), b);
+  }
+
   function fetchAllPages(path, params, cap, onDone, acc) {
     acc = acc || [];
-    FB.api(path, params, function (response) {
+    metaApi(path, params, function (response) {
       if (!response || response.error) { onDone(response ? response.error : { message: 'no response' }, acc); return; }
       acc = acc.concat(response.data || []);
       var cursor = response.paging && response.paging.cursors && response.paging.cursors.after;
@@ -215,7 +228,7 @@
     (function next(i) {
       if (i >= chunks.length) { onDone(out); return; }
       var batch = chunks[i].map(function (id) { return { method: 'GET', relative_url: encodeURIComponent(id) + '?' + query }; });
-      FB.api('/', 'POST', { batch: JSON.stringify(batch), include_headers: false }, function (resp) {
+      metaApi('/', 'POST', { batch: JSON.stringify(batch), include_headers: false }, function (resp) {
         if (Array.isArray(resp)) {
           resp.forEach(function (r) {
             if (!r || r.code !== 200) return;
@@ -664,7 +677,7 @@
     var jobs = [];
     chunks(Object.keys(byHash), 50).forEach(function (hashes) {
       jobs.push(function (next) {
-        FB.api('/' + accountId + '/adimages', { hashes: JSON.stringify(hashes), fields: 'hash,url,width,height', limit: 50 }, function (resp) {
+        metaApi('/' + accountId + '/adimages', { hashes: JSON.stringify(hashes), fields: 'hash,url,width,height', limit: 50 }, function (resp) {
           ((resp && resp.data) || []).forEach(function (img) {
             if (img && img.url && byHash[img.hash]) byHash[img.hash].forEach(function (ad) { ad._fullImage = img.url; });
           });
