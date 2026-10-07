@@ -267,7 +267,9 @@
     review: { get label() { return t('health.review'); }, cls: 'h-review', order: 0 },
     improve: { get label() { return t('health.improve'); }, cls: 'h-improve', order: 1 },
     good: { get label() { return t('health.good'); }, cls: 'h-good', order: 2 },
-    inactive: { get label() { return t('health.inactive'); }, cls: 'h-inactive', order: 3 }
+    // «لم يُحكم بعد»: البيانات متكفيش للحكم (جديد، إنفاق صغير، مبيصرفش، مفيش حاجة نقارن بيها) — alerts.js pend
+    pending: { get label() { return t('health.pending'); }, cls: 'h-pending', order: 3 },
+    inactive: { get label() { return t('health.inactive'); }, cls: 'h-inactive', order: 4 }
   };
   // مستويات التنبيه: عاجل (محتاج تدخّل) / مهم (تابعه) / فرصة — مستوى "للعلم" اتشال لأنه ضوضاء
   var LEVELS = {
@@ -306,7 +308,7 @@
     return meta;
   }
   function runAnalysis() { analysis = PauseProofAlerts.analyze(candidates, accountsMeta(), alertSettings, ALERT_FMT); }
-  function adAnalysis(c) { return analysis.byAd[c.id] || { health: c.active ? 'good' : 'inactive', issues: [], metricLevels: {} }; }
+  function adAnalysis(c) { return analysis.byAd[c.id] || { health: c.active ? 'pending' : 'inactive', issues: [], metricLevels: {}, pending: null, basis: null }; }
   // كلاس اللون لمقياس معيّن لو عليه ملاحظة (أحمر/أصفر/أخضر)
   function mv(c, metric) { var lv = adAnalysis(c).metricLevels[metric]; return lv ? ' mv-' + lv : ''; }
 
@@ -376,13 +378,16 @@
     var eid = esc(c.id);
     var a = adAnalysis(c);
     var h = HEALTH[a.health];
-    var dot = '<span class="health-dot ' + h.cls + '" title="' + h.label + '"><span class="sr-only">' + h.label + '</span></span>';
+    // التقييم دايماً على آخر ٧ أيام — لو الكارت بيعرض فترة تانية بنقول ده في التلميح
+    var dotTitle = h.label + (period.preset !== 'last7' ? ' — ' + t('x.basisPeriod') : '');
+    var dot = '<span class="health-dot ' + h.cls + '" title="' + esc(dotTitle) + '"><span class="sr-only">' + h.label + '</span></span>';
     // ملاحظات "للعلم" (إعلان صغير بالنسبة لحسابه) مبتظهرش على الكارت — بتظهر في التفاصيل بس
     var shown = a.issues.filter(function (i) { return i.level !== 'info'; });
     var top = shown[0];
     var issueLine = top
       ? '<div class="card-issue ' + LEVELS[top.level].cls + '">' + esc(top.title) + (shown.length > 1 ? ' <span class="card-issue-more">+' + ar(shown.length - 1) + '</span>' : '') + '</div>'
-      : '';
+      // «لم يُحكم بعد»: السبب باختصار مكان الملاحظة (جديد، إنفاق صغير، مبيصرفش...)
+      : (a.health === 'pending' && a.pending ? '<div class="card-issue lv-pending">' + esc(t('pend.' + a.pending + '.t')) + '</div>' : '');
     var line1 = '<div class="card-line1">' + esc(c.platform) + ' <span style="color:var(--ink-faint);font-weight:400;">·</span> ' + esc(c.placement) + '</div>';
     var name = '<div class="card-name" dir="auto" title="' + esc(c.offer) + '">' + esc(c.offer) + '</div>';
     var info = '<div class="card-info">' + line1 + name + issueLine + '<div class="card-metrics">' + cardChips(c) + '</div>';
@@ -483,6 +488,8 @@
       if (!g.active && !g.health.review) g.status = 'inactive';
       else if (spend7 > 0 ? share(reviewSpend) >= 0.3 : g.health.review) g.status = 'review';
       else if (spend7 > 0 ? share(reviewSpend + improveSpend) >= 0.3 : g.health.improve) g.status = 'improve';
+      // كل إعلاناتها الشغّالة «لم يُحكم بعد» = الحملة نفسها لسه مفيش حكم عليها
+      else if (!g.health.good && !g.health.improve && !g.health.review && g.health.pending) g.status = 'pending';
       else g.status = 'good';
       g.newest = Math.min.apply(null, g.ads.map(function (c) { return c.daysAgo == null ? Number.MAX_SAFE_INTEGER : c.daysAgo; }));
       g.updated = Math.min.apply(null, g.ads.map(function (c) { return c.updatedDaysAgo == null ? Number.MAX_SAFE_INTEGER : c.updatedDaysAgo; }));
@@ -1316,7 +1323,7 @@
 
   // وصف كل فلتر شغّال — بيظهر كشرائح فوق الإعلانات، والضغط على أي واحدة بيلغيها
   var FILTER_LABELS = {
-    health: i18nMap({ review: 'health.review', improve: 'health.improve', good: 'health.good', stopped: 'health.inactive' }),
+    health: i18nMap({ review: 'health.review', improve: 'health.improve', good: 'health.good', pending: 'health.pending', stopped: 'health.inactive' }),
     format: i18nMap({ video: 'format.video', image: 'format.image', text: 'format.text' })
   };
   function activeFilterList() {
@@ -1541,7 +1548,7 @@
       '<div class="issue-detail">' + esc(i.detail) + '</div>' +
       (i.impactText ? '<div class="issue-impact">📊 ' + esc(i.impactText) + '</div>' : '') +
       (i.compare ? '<div class="issue-compare">🔍 ' + esc(i.compare) + '</div>' : '') +
-      '<div class="issue-advice">💡 ' + esc(i.advice) + '</div>' +
+      '<div class="issue-advice">💡 <strong>' + esc(t('x.suggest')) + '</strong> ' + esc(i.advice) + '</div>' +
     '</div>';
   }
 
@@ -1590,7 +1597,10 @@
       ? '<a class="open-platform" href="' + esc(link.url) + '" target="_blank" rel="noopener noreferrer">' + esc(link.label) + ' ↗</a>' +
         (link.note ? '<div class="open-platform-note">' + esc(link.note) + '</div>' : '')
       : '';
-    document.getElementById('expandHealth').innerHTML = '<span class="health-badge ' + h.cls + '"><span class="health-dot-inline"></span>' + h.label + '</span>';
+    // الحكم + أساسه («عائده ×٤ والمستهدف ×٣…» أو سبب «لم يُحكم بعد») + الفترة اللي اتبنى عليها
+    document.getElementById('expandHealth').innerHTML = '<span class="health-badge ' + h.cls + '"><span class="health-dot-inline"></span>' + h.label + '</span>' +
+      (a.basis ? '<p class="health-basis">' + esc(a.basis) + '</p>' : '') +
+      (c.active ? '<p class="health-period">' + esc(t('x.basisPeriod')) + '</p>' : '');
     // سطر "حالة الظهور": التقييم بتاعنا + سبب المنصة نفسه لو موجود + الحالة الخام —
     // ده اللي بيخلّيك تقارن بسطر واحد مع عمود Delivery في لوحة المنصة
     var statusBits = [statusLabelOf(c)];
@@ -1817,7 +1827,7 @@
       '<p class="alert-detail">' + esc(a.detail) + '</p>' +
       (a.impactText ? '<p class="alert-impact">📊 ' + esc(a.impactText) + '</p>' : '') +
       (a.compare ? '<p class="alert-compare">🔍 ' + esc(a.compare) + '</p>' : '') +
-      '<p class="alert-advice">💡 ' + esc(a.advice) + '</p>' +
+      '<p class="alert-advice">💡 <strong>' + esc(t('x.suggest')) + '</strong> ' + esc(a.advice) + '</p>' +
     '</article>';
   }
 

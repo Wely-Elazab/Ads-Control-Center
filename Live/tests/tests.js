@@ -736,8 +736,12 @@
       var base = [ad('g1', { daily: steady(100), res: steady(5), key: 'lead' }), ad('g2', { daily: steady(100), res: steady(5), key: 'lead' })];
       var drop = details(engine(base.concat([ad('d1', { daily: steady(100), res: [5, 5, 5, 5, 5, 0, 4], key: 'lead' })])), 'd1');
       ok(drop.indexOf('لم يحقق') > -1 && drop.indexOf('أي عملاء محتملين') > -1 && drop.indexOf('٠') === -1, drop);
+      // ولا نتيجة طول الأسبوع = الحكم على الأسبوع كله (٦٠٠ ÷ ٣٠ = ٢٠ — المنصوب مع ١١–٩٩)
       var waste = details(engine(base.concat([ad('w1', { daily: steady(100), res: steady(0), key: 'lead' })])), 'w1');
-      ok(waste.indexOf('دون أي عملاء محتملين') > -1 && waste.indexOf('نحو ٧ عملاء محتملين') > -1, waste);
+      ok(waste.indexOf('دون أي عملاء محتملين') > -1 && waste.indexOf('لنحو ٢٠ عميلاً محتملاً') > -1, waste);
+      // نتائج قبل كده في الأسبوع ويومين من غير = قاعدة آخر يومين (٢٠٠ ÷ ~٢٣ ≈ ٩ — المجرور بعد ٣–١٠)
+      var dry2 = details(engine(base.concat([ad('w2', { daily: steady(100), res: [5, 5, 5, 5, 0, 0, 0], key: 'lead' })])), 'w2');
+      ok(dry2.indexOf('خلال آخر يومين') > -1 && dry2.indexOf('نحو ٩ عملاء محتملين') > -1, dry2);
       var fat = details(engine(base.concat([ad('f1', { daily: steady(100), res: steady(5), key: 'lead', freq: 7, age: 120 })])), 'f1');
       ok(fat.indexOf('نحو ٧ مرات') > -1 && fat.indexOf('منذ ١٢٠ يوماً') > -1, fat);
     });
@@ -771,9 +775,9 @@
       ok(!list.some(function (i) { return i.level === 'critical' || i.level === 'warning'; }),
         list.map(function (i) { return i.level + ': ' + i.title; }).join(' | '));
     });
-    test('مبيعات صفر في ٣ أيام بصرف ميكفيش لـ٣ نتائج بمعدل الإعلان = مفيش حكم على العائد', function () {
+    test('مبيعات صفر في ٣ أيام بصرف ميكفيش لـ٣ نتائج بمعدل الإعلان = مفيش حكم بخسارة (والأسبوع نفسه عائده ×٥)', function () {
       var small = ad('small', { daily: [10, 10, 10, 10, 10, 10, 2], res: [1, 1, 1, 0, 0, 0, 0], sales: [100, 100, 100, 0, 0, 0, 0] });
-      ok(!issuesOf(engine(baseAccount().concat([small])), 'small').some(function (i) { return /loss|roas/.test(i.code || '') || i.title === t('al.loss.t') || i.title === t('al.lowRoas.t'); }));
+      ok(!issuesOf(engine(baseAccount().concat([small])), 'small').some(function (i) { return i.code === 'loss' || i.code === 'low-roas' || i.code === 'roas-drop'; }));
     });
     test('انخفاض النتائج: إعلان ثابت وقع لصفر فجأة = مهم، وإعلان بيتذبذب طبيعي = لا', function () {
       var steadyDrop = ad('sd', { daily: steady(100), res: [5, 5, 5, 5, 5, 0, 4] });
@@ -820,7 +824,8 @@
       var list = issuesOf(r, 'tiny');
       ok(list.length > 0, 'has a note');
       ok(list.every(function (i) { return i.level === 'info' && i.minor && !i.atRisk; }), 'all notes are FYI');
-      eq(r.byAd.tiny.health, 'good');
+      // صغير وعليه ملاحظة = «لم يُحكم بعد» (مش «جيد» — كان أخضر وهو مجابش ولا طلب)
+      eq([r.byAd.tiny.health, r.byAd.tiny.pending], ['pending', 'small']);
     });
     test('الإعلان الصغير بيبقى مهم لو صرفه عدّى متوسط تكلفة النتيجة', function () {
       var ads = baseAccount().concat([ad('mid', { daily: [30, 30, 30, 30, 30, 0, 0], res: [0, 0, 0, 0, 0, 0, 0] })]);
@@ -927,6 +932,99 @@
         var i = engine(ads).byAd.waste.issues[0];
         eq(i.title, 'Spend with no results in 2 days');
         ok(/SAR/.test(i.detail) && !/[؀-ۿ]/.test(i.detail), 'english detail');
+      });
+    });
+  });
+
+  // مراجعة التقييم (٧ أكتوبر ٢٠٢٦): كل حالة هنا كانت بتطلع «جيد» أو حكم غلط قبل المراجعة
+  describe('تقييم الإعلان — الحكم بدليل', function () {
+    function health(r, id) { return r.byAd[id].health; }
+    function has(r, id, code, level) { return r.byAd[id].issues.some(function (i) { return i.code === code && (!level || i.level === level); }); }
+    function list(r, id) { return r.byAd[id].issues.map(function (i) { return i.code + ':' + i.level; }).join(' '); }
+    // إعلانين عائدهم ×٤ (المستهدف ×٣) — أساس حساب بيسجّل المبيعات
+    function salesBase() {
+      return [ad('a', { daily: steady(100), res: [2, 2, 2, 2, 2, 2, 1], sales: steady(400), cid: 'ka' }),
+        ad('b', { daily: steady(100), res: [2, 2, 2, 2, 2, 2, 1], sales: steady(400), cid: 'kb' })];
+    }
+    test('رابح واحد في الحساب: الإعلانات اللي صرفت الأسبوع كله من غير ولا طلب = «يحتاج إلى مراجعة»', function () {
+      var r = engine([ad('win', { daily: steady(100), res: [3, 3, 3, 3, 3, 3, 2], sales: steady(1050), cid: 'k1' }),
+        ad('l1', { daily: steady(100), cid: 'k2' }), ad('l2', { daily: steady(80), cid: 'k3' })]);
+      eq([health(r, 'l1'), health(r, 'l2'), health(r, 'win')], ['review', 'review', 'good']);
+      ok(has(r, 'l1', 'waste-week', 'critical') && /آخر ٦ أيام/.test(r.byAd.l1.issues[0].detail), list(r, 'l1'));
+    });
+    test('ولا طلب طول الأسبوع بإنفاق يومي صغير (آخر يومين لوحدهم مكانوش كفاية) = عاجل', function () {
+      var r = engine(baseAccount().concat([ad('dry', { daily: steady(8) })]));
+      ok(has(r, 'dry', 'waste-week', 'critical'), list(r, 'dry'));
+      eq(health(r, 'dry'), 'review');
+    });
+    test('نتيجة واحدة بإنفاق يكفي لعشرة = تكلفة مرتفعة «عاجل» (القاعدة كانت محتاجة نتيجتين)', function () {
+      var r = engine(baseAccount().concat([ad('one', { daily: steady(30), res: [0, 0, 0, 0, 0, 1, 0] })]));
+      ok(has(r, 'one', 'cpr', 'critical'), list(r, 'one'));
+    });
+    test('إعلان جديد = «لم يُحكم بعد» بسببه، وإنفاق كبير من غير نتائج وهو جديد = «مهم»', function () {
+      var r = engine(baseAccount().concat([ad('n1', { daily: [0, 0, 0, 0, 0, 10, 5], age: 1 }), ad('n2', { daily: [0, 0, 0, 0, 0, 200, 100], age: 1 })]));
+      eq([health(r, 'n1'), r.byAd.n1.pending], ['pending', 'learning']);
+      ok(/فترة/.test(r.byAd.n1.basis) || /توزيعه/.test(r.byAd.n1.basis), r.byAd.n1.basis);
+      ok(has(r, 'n2', 'waste-new', 'warning') && health(r, 'n2') === 'improve', list(r, 'n2'));
+    });
+    test('نشط ومصرفش = «لم يُحكم بعد» مش «جيد»', function () {
+      var r = engine(baseAccount().concat([ad('idle', { daily: steady(0) })]));
+      eq([health(r, 'idle'), r.byAd.idle.pending], ['pending', 'noSpend']);
+    });
+    test('الربح أولاً: عائد ×٤ والمستهدف ×٣ = «جيد» حتى لو فيه إعلان أرخص، وأفضل إعلان بتكرار عالي = «جيد» والتكرار للعلم', function () {
+      var r = engine(salesBase().concat([ad('best', { daily: steady(100), res: [5, 5, 5, 5, 5, 5, 3], sales: steady(2000), freq: 7, cid: 'kc' })]));
+      eq([health(r, 'a'), health(r, 'b'), health(r, 'best')], ['good', 'good', 'good']);
+      ok(!has(r, 'a', 'cpr'), 'profit ads are judged by profit, not by the cheapest ad: ' + list(r, 'a'));
+      ok(has(r, 'best', 'fatigue', 'info'), list(r, 'best'));
+      // السبب مكتوب: عائده ومستهدفه، ومتوسط عائد الحساب في الفترة نفسها
+      ok(/×٤/.test(r.byAd.a.basis) && /متوسط عائد إعلانات حسابك/.test(r.byAd.a.basis), r.byAd.a.basis);
+    });
+    test('خسارة طول الأسبوع (عائد ×٠٫٧) = عاجل «عائد أقل من التكلفة»، ومعاه عائد الحساب في الفترة نفسها', function () {
+      var r = engine(salesBase().concat([ad('lose', { daily: steady(100), res: [1, 0, 1, 0, 1, 0, 0], sales: [140, 0, 140, 0, 140, 0, 0], cid: 'kd' })]));
+      var i = r.byAd.lose.issues.filter(function (x) { return x.code === 'loss'; })[0];
+      ok(i && i.level === 'critical' && /آخر ٦ أيام/.test(i.detail) && /في الفترة نفسها/.test(i.detail), i ? i.detail : list(r, 'lose'));
+    });
+    test('عائد أقل من المستهدف لكنه أحسن من متوسط الحساب = بيقول إن السبب ممكن يكون الفترة', function () {
+      var weak = [ad('w1', { daily: steady(100), res: steady(2), sales: steady(120), cid: 'k1' }), ad('w2', { daily: steady(100), res: steady(2), sales: steady(120), cid: 'k2' }),
+        ad('mid', { daily: steady(100), res: steady(2), sales: steady(200), cid: 'k3' })];
+      var i = engine(weak).byAd.mid.issues.filter(function (x) { return x.code === 'low-roas'; })[0];
+      ok(i && i.detail.indexOf(t('al.vsAccBetter').trim().slice(0, 20)) > -1, i ? i.detail : 'no low-roas');
+    });
+    test('المنصة نقلت إنفاقه لإعلان تاني في نفس الحملة = «للعلم»، والإعلان المربح بيفضل «جيد»', function () {
+      var r = engine([ad('x', { daily: [100, 100, 100, 100, 100, 0, 0], res: [2, 2, 2, 2, 2, 0, 0], sales: [400, 400, 400, 400, 400, 0, 0], cid: 'k' }),
+        ad('y', { daily: [100, 100, 100, 100, 100, 200, 150], res: [2, 2, 2, 2, 2, 4, 3], sales: [400, 400, 400, 400, 400, 800, 600], cid: 'k' }),
+        ad('z', { daily: steady(100), res: [2, 2, 2, 2, 2, 2, 1], sales: steady(400), cid: 'k2' })]);
+      ok(has(r, 'x', 'shift', 'info') && !has(r, 'x', 'no-spend-y'), list(r, 'x'));
+      eq(health(r, 'x'), 'good');
+    });
+    test('أسبوع قوي وآخر ٣ أيام بخسارة = «تراجع العائد» (مهم) مش «عاجل»', function () {
+      var r = engine(salesBase().concat([ad('dip', { daily: steady(100), res: [6, 6, 6, 1, 0, 1, 0], sales: [2400, 2400, 2400, 80, 0, 80, 0], cid: 'ke' })]));
+      ok(has(r, 'dip', 'roas-drop', 'warning') && !has(r, 'dip', 'loss'), list(r, 'dip'));
+    });
+    test('الواجهة: «لم يُحكم بعد» على الكارت بسببه، والتفاصيل فيها أساس الحكم وفترته، والنصيحة «اقتراح للمراجعة»', function () {
+      var fresh = ad('fresh', { daily: [0, 0, 0, 0, 0, 10, 5], age: 1 });
+      var w = ad('w', { daily: steady(100), res: [5, 5, 5, 5, 0, 0, 0] });
+      candidates = baseAccount().concat([fresh, w]);
+      render();
+      var card = document.getElementById('card-fresh');
+      ok(card && card.querySelector('.health-dot.h-pending') && card.textContent.indexOf(t('pend.learning.t')) > -1, card ? card.textContent : 'no card');
+      openExpand(fresh);
+      ok(document.querySelector('#expandHealth .health-basis') && document.getElementById('expandHealth').textContent.indexOf(t('x.basisPeriod')) > -1, document.getElementById('expandHealth').textContent);
+      openExpand(w);
+      ok(document.querySelector('#expandIssues .issue-advice').textContent.indexOf(t('x.suggest')) > -1, 'suggestion label');
+      expandOverlay.classList.add('hidden');
+      filters.health = 'pending';
+      eq(visibleCandidates().map(function (c) { return c.id; }), ['fresh'], 'filter by «لم يُحكم بعد»');
+      filters.health = 'all';
+    });
+    testAsync('النصائح لمسؤول الإعلانات نفسه بصيغة اقتراح: مفيش «اسأل/استفسر من مسؤول الإعلانات»', function () {
+      return fetch('/js/i18n.js?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (src) {
+        var keys = {};
+        (src.match(/'al\.[A-Za-z]+\.(a|okA)'/g) || []).forEach(function (k) { keys[k.slice(1, -1)] = true; });
+        keys = Object.keys(keys);
+        ok(keys.length >= 30, 'advice keys found: ' + keys.length);
+        eq(keys.filter(function (k) { return /مسؤول الإعلانات/.test(t(k)); }), []);
+        withLang('en', function () { eq(keys.filter(function (k) { return /ads manager/i.test(t(k)); }), []); });
       });
     });
   });

@@ -235,6 +235,13 @@
   .h-improve { --h: var(--pending); }
   .h-good { --h: var(--verified); }
   .h-inactive { --h: var(--ink-faint); }
+  /* «لم يُحكم بعد»: دائرة مفرّغة رمادية — مفيش حكم، مش «متوقف» */
+  .h-pending { --h: var(--ink-soft); }
+  .health-dot.h-pending { background: var(--card); box-shadow: inset 0 0 0 3px var(--ink-soft), 0 0 0 3px var(--card), 0 1px 5px rgba(0,0,0,0.3); }
+  .chip-dot.h-pending, .h-pending .health-dot-inline { background: transparent; box-shadow: inset 0 0 0 2px var(--ink-soft); }
+  .lv-pending { --lv: var(--ink-soft); --lv-bg: var(--paper); }
+  .health-basis { margin: 8px 0 0; font-size: 13px; line-height: 1.7; color: var(--ink); }
+  .health-period { margin: 4px 0 0; font-size: 11.5px; color: var(--ink-faint); }
   .lv-critical { --lv: var(--alert); --lv-bg: var(--alert-bg); }
   .lv-warning { --lv: var(--pending); --lv-bg: var(--pending-bg); }
   .lv-opportunity { --lv: var(--verified); --lv-bg: var(--verified-bg); }
@@ -902,6 +909,7 @@
         <span><span class="chip-dot h-review"></span><span data-i18n="health.review">يحتاج إلى مراجعة</span></span>
         <span><span class="chip-dot h-improve"></span><span data-i18n="health.improve">يحتاج إلى تحسين</span></span>
         <span><span class="chip-dot h-good"></span><span data-i18n="health.good">جيد</span></span>
+        <span><span class="chip-dot h-pending"></span><span data-i18n="health.pending">لم يُحكم بعد</span></span>
         <span><span class="chip-dot h-inactive"></span><span data-i18n="health.inactive">متوقف</span></span>
       </div>
 
@@ -955,6 +963,7 @@
           <button class="chip" data-value="review"><span class="chip-dot h-review"></span><span data-i18n="health.review">يحتاج إلى مراجعة</span> <span class="chip-count" data-health-count="review"></span></button>
           <button class="chip" data-value="improve"><span class="chip-dot h-improve"></span><span data-i18n="health.improve">يحتاج إلى تحسين</span> <span class="chip-count" data-health-count="improve"></span></button>
           <button class="chip" data-value="good"><span class="chip-dot h-good"></span><span data-i18n="health.good">جيد</span> <span class="chip-count" data-health-count="good"></span></button>
+          <button class="chip" data-value="pending"><span class="chip-dot h-pending"></span><span data-i18n="health.pending">لم يُحكم بعد</span> <span class="chip-count" data-health-count="pending"></span></button>
           <button class="chip" data-value="stopped"><span class="chip-dot h-inactive"></span><span data-i18n="health.inactive">متوقف</span> <span class="chip-count" data-health-count="stopped"></span></button>
         </div>
       </div>
