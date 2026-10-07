@@ -2402,6 +2402,10 @@
           return call(w, '/help.html');
         }).then(function (res) {
           eq(res.status, 200, '/help.html still works (html_handling: none)');
+          // ملف الأداة بعنوانه المباشر كان بيتخطّى حارس الدخول (js/auth.js بيحرس /app بس) → /app
+          return Promise.all(['/pauseproof-live.html?x=1', '/PauseProof-Live.html', '/pauseproof-live.html/'].map(function (p) { return call(w, p); }));
+        }).then(function (list) {
+          eq(list.map(function (r) { return r.status + ' ' + r.headers.get('Location'); }), ['308 /app?x=1', '308 /app', '308 /app'], 'the tool file redirects to /app');
           return call(w, '/pricing?x=1');
         }).then(function (res) {
           eq([res.status, res.headers.get('Location')], [307, '/?x=1'], 'hidden pricing page redirects');

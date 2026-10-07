@@ -63,6 +63,13 @@ export const REWRITES = {
   '/favicon.ico': '/favicon.svg'
 };
 
+// ملف صفحة الأداة (/app بيتقري منه). فتحه بعنوانه المباشر كان بيتخطّى حارس الدخول (js/auth.js بيحرس /app بس)،
+// واسم الملف ظاهر في الريبو العام — فبيتحوّل لـ /app بأي شكل (حروف كبيرة أو شرطة في الآخر). اتقفل ٧ أكتوبر ٢٠٢٦
+export const TOOL_FILE = '/pauseproof-live.html';
+export function isToolFile(path) {
+  return path.replace(/\/+$/, '').toLowerCase() === TOOL_FILE;
+}
+
 // رابط بشرطة في الآخر أو بحروف كبيرة (/app/ أو /Help) — شائع في الروابط المنسوخة والمكتوبة باليد.
 // لو بيطابق صفحة من صفحاتنا بيتحوّل للرابط الرسمي بدل ما يطلع «الصفحة غير موجودة»
 export function canonicalPath(path) {
@@ -210,6 +217,10 @@ export default {
       }
       // مسار API مش موجود: رد JSON (مش صفحة 404 بتاعة الزوار) — عشان أي كود بيستدعيه يفهم الرد
       return withSecurityHeaders(jsonError(404, 'Not found', 'NOT_FOUND'));
+    }
+
+    if (isToolFile(path)) {
+      return withSecurityHeaders(new Response(null, { status: 308, headers: { Location: '/app' + url.search } }));
     }
 
     const canonical = canonicalPath(path);
