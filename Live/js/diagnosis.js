@@ -292,6 +292,14 @@ var DX = (function () {
       var z = lnR / Math.sqrt(PHI_SAMPLING * 0.64 * (1 / a.pur + 1 / b.pur));
       aov = { from: aovA, to: aovB, pct: aovB / aovA - 1, z: z, real: Math.abs(z) >= Z_WHERE && Math.abs(aovB / aovA - 1) >= MIN_PCT };
     }
+    // العائد على الإنفاق (قيمة المبيعات ÷ الإنفاق) — الربح أولاً (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦): العنوان كان بيحكم
+    // بعدد الطلبات وتكلفتها بس، فإنفاق اتضاعف ومبيعات نزلت ٢٠٪ طلع «طلبات أكثر» بلون أخضر. المبيعات = عدد الطلبات ×
+    // قيمتها، فتذبذبها = تذبذب العدّ (phiD) × (١ + تفاوت قيمة الطلب²) — نفس افتراض متوسط قيمة الطلب فوق (معامل اختلاف ٠٫٨)
+    var roas = null;
+    if (a.pur >= 5 && b.pur >= 5 && a.rev > 0 && b.rev > 0 && a.spend > 0 && b.spend > 0) {
+      var roA = a.rev / a.spend, roB = b.rev / b.spend, zR = Math.log(roB / roA) / Math.sqrt(phiD * 1.64 * (1 / a.pur + 1 / b.pur));
+      roas = { from: roA, to: roB, pct: roB / roA - 1, z: zR, dir: Math.abs(zR) >= Z_REAL && Math.abs(roB / roA - 1) >= MIN_PCT ? sign(zR) : 0 };
+    }
     // تقسيم تغيّر الطلبات بين «الإنفاق اتغيّر» و«تكلفة الطلب اتغيّرت»: ln(الطلبات) = ln(الإنفاق) − ln(تكلفة الطلب)
     var split = null;
     if (a.pur > 0 && b.pur > 0 && a.spend > 0 && b.spend > 0 && b.pur !== a.pur && (dOrd !== 0 || type === 'scaled' || type === 'budgetDown')) {
@@ -302,7 +310,7 @@ var DX = (function () {
       type: type, tone: tone, dOrd: dOrd, dEff: dEff, dSpend: dSpend, flatEff: flatEff, effUncertain: effUncertain, phiDaily: phiD,
       ordersZ: orders.z, effZ: eff.z, spendPct: spendPct, ordPct: ordPct, cpaPct: cpaPct,
       unusual: Math.abs(effHist.z) >= Z_UNUSUAL, histZ: effHist.z, phiHist: phiH,
-      rank: rank, marginal: marginal, aov: aov, split: split
+      rank: rank, marginal: marginal, aov: aov, split: split, roas: roas
     };
   }
 
@@ -1400,9 +1408,10 @@ var DX = (function () {
     return [
       { id: 'orders', label: t('dx.kpi.orders'), value: fmtNum(b.pur), prev: fmtNum(a.pur), pct: ch(a.pur, b.pur), sig: h.dOrd || 0, goodUp: true },
       { id: 'revenue', label: t('dx.kpi.revenue'), value: money(b.rev, r.currency), prev: money(a.rev, r.currency), pct: ch(a.rev, b.rev),
-        sig: (h.dOrd || (h.aov && h.aov.real)) ? sign(b.rev - a.rev) : 0, goodUp: true },
+        sig: (h.dOrd || (h.aov && h.aov.real) || (h.roas && h.roas.dir)) ? sign(b.rev - a.rev) : 0, goodUp: true },
       { id: 'cpa', label: t('dx.kpi.cpa'), value: cpaB ? M(cpaB) : '—', prev: cpaA ? M(cpaA) : '—', pct: cpaA && cpaB ? cpaB / cpaA - 1 : null, sig: h.dEff ? -h.dEff : 0, goodUp: false },
-      { id: 'roas', label: t('dx.kpi.roas'), value: roasB ? roasStr(roasB) : '—', prev: roasA ? roasStr(roasA) : '—', pct: roasA && roasB ? roasB / roasA - 1 : null, sig: h.dEff || 0, goodUp: true },
+      // لون العائد من اختبار العائد نفسه (مش من تكلفة الطلب): عائد نزل ٦٠٪ كان بيفضل رمادي لأن تكلفة الطلب في حدود التذبذب
+      { id: 'roas', label: t('dx.kpi.roas'), value: roasB ? roasStr(roasB) : '—', prev: roasA ? roasStr(roasA) : '—', pct: roasA && roasB ? roasB / roasA - 1 : null, sig: (h.roas && h.roas.dir) || 0, goodUp: true },
       { id: 'spend', label: t('dx.kpi.spend'), value: M(b.spend), prev: M(a.spend), pct: ch(a.spend, b.spend), sig: 0, goodUp: null }
     ];
   }
@@ -1608,19 +1617,53 @@ var DX = (function () {
   // الطلبات وتكلفتها في حدود التذبذب بس المبيعات اتغيّرت ٢٥٪ أو أكتر: سطر صريح بالرقم، عشان العنوان «ضمن التذبذب»
   // ميبانش متجاهل إن المبيعات نصّت (حساب حقيقي: ٢٧٬٥٣٧ ← ١٣٬٢٤٨). «تكرر قبل كده» بس لو فعلاً حصل تغيّر بالحجم ده
   // بين فترتين متتاليتين في تاريخ الحساب — غير كده بنقول إنه أكبر من المعتاد. متوسط قيمة الطلب حقيقة حسابية مش تخمين
-  function revenueLine(r, M) {
+  // تغيّر المبيعات ٢٥٪ أو أكتر: seen = حصل تغيّر بالحجم ده قبل كده بين فترتين متتاليتين في تاريخ الحساب
+  function revShift(r) {
     var a = r.prev, b = r.cur;
     if (!a || !b || !(a.rev > 0)) return null;
     var pct = b.rev / a.rev - 1;
     if (Math.abs(pct) < 0.25) return null;
-    var dir = pct < 0 ? 'Down' : 'Up', h = r.head;
-    var aov = h && h.aov && sign(h.aov.pct) === sign(pct) && Math.abs(h.aov.pct) >= 0.15 ? h.aov : null;
     var size = Math.abs(Math.log(Math.max(b.rev, 1) / a.rev)), seen = false, W = r.windows || [];
     for (var i = 1; i + 1 < W.length; i++) {
       if (W[i + 1].rev > 0 && Math.abs(Math.log(Math.max(W[i].rev, 1) / W[i + 1].rev)) >= size) seen = true;
     }
-    return t('dx.noise.rev' + dir + (seen ? '' : 'Rare'),
+    return { pct: pct, seen: seen };
+  }
+  function revenueLine(r, M) {
+    var rv = revShift(r);
+    if (!rv) return null;
+    var pct = rv.pct, dir = pct < 0 ? 'Down' : 'Up', h = r.head;
+    var aov = h && h.aov && sign(h.aov.pct) === sign(pct) && Math.abs(h.aov.pct) >= 0.15 ? h.aov : null;
+    return t('dx.noise.rev' + dir + (rv.seen ? '' : 'Rare'),
       { pct: pctText(pct), aov: aov ? t('dx.noise.aov' + dir, { from: M(aov.from), to: M(aov.to) }) : '' });
+  }
+
+  // الحكم النهائي (العنوان واللون) — الربح أولاً: العائد على الإنفاق والمبيعات قبل عدد الطلبات وتكلفتها.
+  // actionable = تحت فيه حاجة محتاجة قرار (عاجل، يحتاج قرارك، تغيّر حاد) — فالعنوان ميقولش «لا شيء يستدعي تدخّلك»
+  // (محاكاة: ٢١ من ٣٠ حساب فيهم دولة ضعيفة كان عنوانهم «لا تغيّر يستدعي تدخّلك» وتحته «يحتاج قرارك»)
+  function finalHead(r, h, actionable) {
+    var dir = h.roas ? h.roas.dir : 0, calm = h.type === 'stable' || h.type === 'withinNoise';
+    if (dir < 0 && h.type !== 'worse') return r.cur.rev < r.prev.rev ? { key: 'roasDown', tone: 'bad' } : { key: 'roasDownSalesUp', tone: 'mixed' };
+    if (dir < 0) return { key: h.type, tone: 'bad' };
+    if (dir > 0 && (calm || h.tone === 'bad' || h.tone === 'mixed')) {
+      return { key: h.type === 'worse' || h.type === 'moreCostly' ? 'roasUpCostlier' : 'roasUp', tone: 'good' };
+    }
+    if (calm) {
+      var rv = revShift(r);
+      if (rv && rv.pct < 0 && !rv.seen) return { key: 'salesDown', tone: 'mixed', vars: { pct: pctText(rv.pct) } };
+      if (actionable) return { key: h.type + 'Act', tone: 'mixed' };
+    }
+    return { key: h.type, tone: h.tone };
+  }
+  // العائد مقارنةً بالمستهدف وحد الخسارة (إعدادات التنبيهات — opts.target). الملخص بالبريد مبيعرفهمش (محفوظين على جهاز
+  // العميل) فمبيتبعتش فيه السطر ده
+  function targetLine(r, target) {
+    var b = r.cur;
+    if (!target || !(target.roas > 0) || !(b.spend > 0) || !(b.rev > 0) || b.pur < 5) return null;
+    var ro = b.rev / b.spend, v = { roas: roasStr(ro), target: roasStr(target.roas), be: roasStr(target.be) };
+    if (target.be > 0 && ro < target.be) return { level: 'loss', text: t('dx.target.belowBE', v) };
+    if (ro < target.roas) return { level: 'below', text: t('dx.target.below', v) };
+    return { level: 'above', text: t('dx.target.above', v) };
   }
 
   // التقرير كله جاهز للعرض — بالترتيب: العاجل، ثم «لماذا»، ثم اللي يحتاج قرار، ثم المتابعة والفرص
@@ -1645,15 +1688,21 @@ var DX = (function () {
     o.tone = h.tone; o.title = t('dx.head.' + h.type);
     r.zeroRuns.filter(function (z) { return z.now; }).forEach(function (z) { o.blocks.push(zeroBlock(z)); });
     var calm = h.type === 'stable' || h.type === 'withinNoise';
-    var why = calm ? null : whyBlock(r, M);
+    var why = calm ? null : whyBlock(r, M), calmBlock = null;
     if (why) o.blocks.push(why);
     else if (calm) {
       var rev = revenueLine(r, M);
-      o.blocks.push({ kind: 'note', title: t('dx.head.' + h.type),
+      calmBlock = { kind: 'note', title: t('dx.head.' + h.type),
         lines: [h.dSpend !== 0 ? t('dx.stable.spend', { pct: pctText(h.spendPct) }) : t('dx.stable')]
           .concat(rev ? [rev] : [])
           .concat(h.dSpend !== 0 && r.other && r.other.spendShift ? [t(r.other.spendShift.dir > 0 ? 'dx.vol.otherUp' : 'dx.vol.otherDown', { pct: pctText(r.other.spendShift.share) })] : [])
-          .concat(ownerLines(r)) });
+          .concat(ownerLines(r)) };
+      o.blocks.push(calmBlock);
+    }
+    // العائد على الإنفاق اتغيّر فعلاً: أول سطر في الشرح (الربح أولاً)
+    var mainBlock = why || calmBlock;
+    if (mainBlock && h.roas && h.roas.dir) {
+      mainBlock.lines.unshift(t(h.roas.dir > 0 ? 'dx.roas.up' : 'dx.roas.down', { from: roasStr(h.roas.from), to: roasStr(h.roas.to), pct: pctText(h.roas.pct) }));
     }
     var oth = otherBlock(r, M);
     if (oth) o.blocks.push(oth);
@@ -1665,6 +1714,17 @@ var DX = (function () {
     r.segments.filter(function (s) { return s.kind === 'over'; }).slice(0, 2).forEach(function (s) { o.blocks.push(overBlock(s, M)); });
     var fu = followBlock(r);
     if (fu) o.blocks.push(fu);
+    // العنوان واللون النهائيين بعد ما البلوكات اتبنت (عشان نعرف لو تحت فيه حاجة محتاجة قرار)
+    var act = o.blocks.some(function (b) { return b.kind === 'urgent' || b.kind === 'decision' || b.kind === 'watch'; });
+    var fh = finalHead(r, h, act);
+    o.title = t('dx.head.' + fh.key, fh.vars); o.tone = fh.tone;
+    var tl = targetLine(r, opts && opts.target);
+    if (tl) {
+      o.basis = tl.text;
+      if (tl.level === 'loss') { if (o.tone === 'good' || o.tone === 'neutral') o.title = t('dx.head.belowBE'); o.tone = 'bad'; }
+      else if (tl.level === 'below' && (o.tone === 'good' || o.tone === 'neutral')) o.tone = 'mixed';
+    }
+    if (calmBlock) calmBlock.title = o.title;
     o.notes.push(t('dx.note.attribution'));
     return o;
   }
@@ -1763,6 +1823,7 @@ var DX = (function () {
 
   function toText(o, accountName) {
     var L = ['📊 ' + t('dx.title') + (accountName ? ' — ' + accountName : ''), o.period, '', (TONE_ICON[o.tone] || '') + ' *' + o.title + '*'];
+    if (o.basis) L.push(o.basis);
     (o.kpis || []).forEach(function (k) { L.push('• ' + k.label + ': ' + k.value + ' (' + t('dx.kpi.prev', { v: k.prev }) + ')'); });
     (o.blocks || []).forEach(function (b) { L.push(''); L.push(blockText(b)); });
     (o.notes || []).forEach(function (n) { L.push(''); L.push('ℹ️ ' + n); });

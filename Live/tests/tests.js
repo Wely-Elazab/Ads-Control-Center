@@ -3648,6 +3648,71 @@
     });
   });
 
+  // مراجعة ٧ أكتوبر ٢٠٢٦: العنوان كان بيحكم بعدد الطلبات بس — إنفاق اتضاعف والعائد نزل من ×٦ لـ×٢٫٤ طلع «طلبات أكثر» بالأخضر،
+  // ومبيعات نزلت ٤٥٪ طلعت «أداء مستقر: لا تغيّر يستدعي تدخّلك»، وتحت عنوان «لا شيء يستدعي تدخّلك» كان فيه «يحتاج قرارك»
+  describe('ملخص المتجر — الربح أولاً', function () {
+    var mkDays = function (cur) {
+      var base = { spend: 1000, imp: 50000, clicks: 1000, atc: 120, ic: 60, pur: 20, rev: 6000 }, d = [];
+      for (var k = '2026-07-01'; k <= '2026-10-06'; k = shiftKey(k, 1)) d.push(Object.assign({ date: k }, base, k >= '2026-09-30' ? cur : {}));
+      return d;
+    };
+    var head = function (cur, target) {
+      return withLang('ar', function () {
+        return DX.compose(DX.analyze({ since: '2026-09-30', until: '2026-10-06', currency: 'SAR', daily: mkDays(cur), dims: [] }), target ? { target: target } : undefined);
+      });
+    };
+    test('الإنفاق اتضاعف والطلبات زادت لكن العائد نزل من ×٦ لـ×٢٫٤: «العائد انخفض» بالأحمر مش «طلبات أكثر» بالأخضر', function () {
+      var o = head({ spend: 2000, imp: 100000, clicks: 2000, atc: 230, ic: 110, pur: 32, rev: 4800 });
+      eq([o.tone, o.title], ['bad', withLang('ar', function () { return t('dx.head.roasDown'); })]);
+      eq(o.kpis.filter(function (k) { return k.id === 'roas'; })[0].sig, -1, 'the return KPI is colored by the return itself');
+      ok(/انخفض العائد على الإنفاق/.test(o.blocks[0].lines[0]), o.blocks[0].lines[0]);
+    });
+    test('نفس الطلبات والمبيعات −٤٥٪: مش «أداء مستقر»', function () {
+      var o = head({ rev: 3300 });
+      ok(o.tone === 'bad' && !/مستقر/.test(o.title), o.title);
+    });
+    test('طلبات أكثر والمبيعات −٣٥٪ (في حدود تذبذب العائد): العنوان بيقول إن المبيعات نزلت، مش «لا شيء يستدعي تدخّلك»', function () {
+      var o = head({ pur: 26, rev: 3900 });
+      ok(o.tone === 'mixed' && /المبيعات انخفضت ٣٥٪/.test(o.title) && !/لا شيء يستدعي/.test(o.title), o.title);
+    });
+    test('العائد مقارنةً بالمستهدف وحد الخسارة (إعدادات التنبيهات): سطر تحت العنوان، وتحت حد الخسارة = أحمر', function () {
+      var ok3 = head({}, { roas: 3, be: 1 });
+      ok(/أعلى من المستهدف \(×٣\)/.test(ok3.basis), ok3.basis);
+      var loss = head({}, { roas: 10, be: 8 });
+      ok(loss.tone === 'bad' && /أقل من حد الخسارة/.test(loss.basis), loss.basis);
+      ok(!head({}).basis, 'no target (email summary) = no line');
+    });
+    test('دولة ضعيفة في حساب مستقر: العنوان «مع أمور تحتاج قرارك أدناه» مش «لا تغيّر يستدعي تدخّلك» (٣٠ حساب بالمحاكاة)', function () {
+      var KW = [{ key: 'c1', name: 'A', country: 'SA', share: 0.35, mult: {} }, { key: 'c2', name: 'B', country: 'SA', share: 0.3, mult: {} },
+        { key: 'c3', name: 'C', country: 'SA', share: 0.2, mult: {} }, { key: 'c4', name: 'KW', country: 'KW', share: 0.15, mult: { cart: 0.2 } }];
+      var bad = 0;
+      withLang('ar', function () {
+        for (var s = 1; s <= 30; s++) {
+          var r = DX.analyze(DX_SIM.simulate({ seed: s * 104729, spend: 400, campaigns: KW }));
+          if (r.status !== 'ok') continue;
+          var o = DX.compose(r);
+          if (o.blocks.some(function (b) { return b.kind === 'decision'; }) && /لا شيء يستدعي|لا تغيّر يستدعي/.test(o.title)) bad++;
+        }
+      });
+      eq(bad, 0);
+    });
+    test('اختبار العائد مبيطلعش على تذبذب عادي (٦٠ حساب مستقر)', function () {
+      var hits = 0;
+      for (var s = 1; s <= 60; s++) { var r = DX.analyze(DX_SIM.simulate({ seed: s * 7919, spend: 400 })); if (r.head && r.head.roas && r.head.roas.dir) hits++; }
+      ok(hits <= 2, 'false return changes: ' + hits);
+    });
+    testAsync('اقتراحات ملخص المتجر لمسؤول الإعلانات نفسه: مفيش «اسأل/ناقش مع مسؤول الإعلانات»', function () {
+      return fetch('/js/i18n.js?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (src) {
+        var keys = {};
+        (src.match(/'dx\.[A-Za-z0-9.]+'/g) || []).forEach(function (k) { keys[k.slice(1, -1)] = true; });
+        keys = Object.keys(keys);
+        ok(keys.length > 100, 'dx keys: ' + keys.length);
+        withLang('ar', function () { eq(keys.filter(function (k) { return /مسؤول الإعلانات/.test(t(k)); }), []); });
+        withLang('en', function () { eq(keys.filter(function (k) { return /ads manager/i.test(t(k)); }), []); });
+      });
+    });
+  });
+
   // حملات الوعي والتفاعل والرسائل مش هدفها الطلبات — اتقاس على حساب حقيقي: حملة وعي كلها على إنستغرام
   // خلّت «إنستغرام أضعف من فيسبوك» وهو في الحقيقة أقوى، وحملة الوعي نفسها طلعت في «يحتاج قرارك»
   describe('ملخص المتجر — هدف الحملة', function () {

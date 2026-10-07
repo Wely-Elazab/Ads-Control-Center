@@ -1193,7 +1193,9 @@
       return;
     }
     body.setAttribute('aria-busy', 'false');
-    var o = dxState.composed = DX.compose(dxState.report);
+    // الهدف وحد الخسارة من إعدادات التنبيهات (نفس اللي بيتحكم بيهم على الإعلانات) — الربح أولاً في الملخص كمان
+    var s = PauseProofAlerts.mergeSettings(alertSettings);
+    var o = dxState.composed = DX.compose(dxState.report, { target: { roas: s.roasTarget, be: s.roasBreakEven } });
     period.textContent = o.period;
     // أكتر من عرض: أزرار «كل المنصات / Meta / Google Ads / Snapchat»
     var views = dxState.views || [], tabs = '';
@@ -1208,6 +1210,7 @@
     var pending = DX_PLATFORM_ORDER.filter(function (p) { return dxState.sources && dxState.sources[p] && dxState.sources[p].status === 'loading'; });
     var more = pending.length ? '<p class="dx-notes">' + esc(t('dx.loadingMore', { platforms: DX.listText(pending.map(function (p) { return t('dx.plat.' + p); })) })) + '</p>' : '';
     body.innerHTML = tabs + more + '<div class="dx-head ' + esc(o.tone) + '"><p class="dx-headline">' + esc(o.title) + '</p>' +
+      (o.basis ? '<p class="dx-basis">' + esc(o.basis) + '</p>' : '') +
       '<div class="dx-kpis">' + (o.kpis || []).map(dxKpiHtml).join('') + '</div></div>' +
       '<div class="dx-blocks">' + o.blocks.map(dxBlockHtml).join('') + '</div>' +
       (o.notes || []).map(function (n) { return '<p class="dx-notes">' + esc(n) + '</p>'; }).join('');
