@@ -19,7 +19,7 @@ import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
 import { joinReminders } from './join.ts';
 
-const ENGINE_COMMIT = '714336f4e629105ff39bd907bcd0df8a45d69e20';
+const ENGINE_COMMIT = '558d632cf4b7e9d4cb9366025893700e91b75fbd';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
@@ -496,7 +496,7 @@ function blockHtml(b: any): string {
   return h + '</div>';
 }
 const KIND_TITLE: Record<string, string> = {
-  waste: 'al.waste.t', 'waste-early': 'al.wasteEarly.t', loss: 'al.loss.t', stopped: 'al.stopped.t', cpr: 'al.cpr.t', fatigue: 'al.fatigue.t',
+  waste: 'al.waste.t', 'waste-week': 'al.wasteWeek.t', 'waste-early': 'al.wasteEarly.t', loss: 'al.loss.t', stopped: 'al.stopped.t', cpr: 'al.cpr.t', fatigue: 'al.fatigue.t',
   'acct-status': 'al.acct.t', 'spend-cap': 'al.cap.t', 'acct-stopped': 'al.acctStopped.t', 'acct-zero': 'al.acctZero.t',
   'top-stopped': 'al.topStopped.t', 'spend-cap-near': 'al.capNear.t', 'tracking-off': 'al.trackOff.t', 'lpv-drop': 'al.lpvDrop.t',
   'checkout-off': 'al.buyOff.t', 'link-broken': 'al.link.t'
