@@ -573,7 +573,7 @@
 
       // التنبيهات (محرك التنبيهات)
       'al.name': '«{name}»',
-      'al.minorNote': ' — مبلغ صغير مقارنةً بإنفاق حسابك، لذا لا يُحتسب تنبيهاً.',
+      'al.minorNote': ' والمبلغ صغير مقارنةً بإنفاق حسابك، لذلك لا يُحتسب تنبيهاً.',
       // حجم المشكلة في كل تنبيه (نفس المعنى في كل الأنواع): إنفاق آخر ٧ أيام ونسبته من الحساب
       'al.impact': 'الحجم في ميزانيتك: {spend} خلال آخر ٧ أيام — {pct} من إنفاق الحساب',
       'al.impactPct': '{pct}٪',
@@ -729,7 +729,7 @@
       'edit.when.n': 'منذ {days}',
       'pend.edited.t': 'عُدّل مؤخراً — ننتظر نتيجة التعديل',
       'pend.edited.d': 'جرى {when} تعديل يخصّ هذا الإعلان ({what})، ونحتاج إلى ٣ أيام كاملة بعده للحكم على نتيجته، لذلك تظهر ملاحظات ما قبله للعلم فقط.',
-      'al.afterEditNote': ' — قبل مرور ٣ أيام كاملة على آخر تعديل، لذا تظهر للعلم.',
+      'al.afterEditNote': ' ولم تمر ٣ أيام كاملة على آخر تعديل، لذلك تظهر للعلم فقط.',
       'basis.edit.window': ' والحكم هنا على الأيام التي تلت {what} ({when}) فقط.',
       'basis.edit.roas': ' العائد بعده ×{after} مقابل ×{before} قبله.',
       'basis.edit.cpr': ' تكلفة كل {one} بعده {after} مقابل {before} قبله.',
@@ -1835,7 +1835,7 @@
 
 
       'al.name': '"{name}"',
-      'al.minorNote': ' — A small amount relative to your account\'s spend, so it isn\'t counted as an alert.',
+      'al.minorNote': ' The amount is small relative to your account\'s spend, so it isn\'t counted as an alert.',
       'al.impact': 'Size in your budget: {spend} in the last 7 days — {pct} of account spend',
       'al.impactPct': '{pct}%',
       'al.impactPctLow': 'under 1%',
@@ -1981,7 +1981,7 @@
       'edit.when.n': '{days} ago',
       'pend.edited.t': 'Recently changed — waiting for the result',
       'pend.edited.d': 'There was a change affecting this ad {when} ({what}); we need 3 full days after it to judge its result, so notes from before it are shown FYI only.',
-      'al.afterEditNote': ' — fewer than 3 full days since the last change, so it\'s shown FYI.',
+      'al.afterEditNote': ' Fewer than 3 full days have passed since the last change, so it\'s shown for information only.',
       'basis.edit.window': ' This verdict covers only the days after {what} ({when}).',
       'basis.edit.roas': ' Return after it ×{after} vs ×{before} before.',
       'basis.edit.cpr': ' Cost per {one} after it {after} vs {before} before.',
