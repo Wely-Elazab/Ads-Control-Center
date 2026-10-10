@@ -176,17 +176,18 @@
       var r = resolvePeriodFor('UTC');
       eq([r.since, r.until, r.isDefault], [shiftKey(today, -1), shiftKey(today, -1), false]);
     });
-    test('آخر ٣٠ يوم = ٣٠ يوماً مكتملة + اليوم', function () {
+    // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦ (المرة التانية): «آخر ٧ أيام» = الـ٧ أيام اللي فاتت بس، والنهارده منفصل
+    test('آخر ٣٠ يوم = ٣٠ يوماً مكتملة من غير النهارده', function () {
       period = { preset: 'last30' };
       var r = resolvePeriodFor('UTC');
-      eq([keyDiffDays(r.since, r.until), r.until], [30, today]);
+      eq([keyDiffDays(r.since, r.until) + 1, r.until], [30, shiftKey(today, -1)]);
     });
-    test('آخر ٧ أيام = ٧ أيام مكتملة + اليوم (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦)', function () {
+    test('آخر ٧ أيام = ٧ أيام مكتملة من غير النهارده، ونافذة الإعلانات فيها النهارده لوحده', function () {
       period = { preset: 'last7' };
       var r = resolvePeriodFor('UTC');
-      eq([keyDiffDays(r.since, r.until), r.until, r.isDefault], [7, today, true]);
+      eq([keyDiffDays(r.since, r.until) + 1, r.until, r.isDefault], [7, shiftKey(today, -1), false]);
       var w = last7Days(today);
-      eq([w.length, w[0].key, w[7].key], [8, r.since, today], 'ad window = same 8 days');
+      eq([w.length, w[0].key, w[6].key, w[7].key], [8, r.since, r.until, today], 'ad window = the 7 days + today');
     });
     test('الشهر ده والشهر اللي فات', function () {
       period = { preset: 'thisMonth' };
@@ -213,7 +214,7 @@
     test('فترة مخصصة ناقصة بترجع لآخر ٧ أيام', function () {
       period = { preset: 'custom' };
       var r = resolvePeriodFor('UTC');
-      eq([r.preset, r.isDefault], ['last7', true]);
+      eq([r.preset, r.isDefault, r.until], ['last7', false, shiftKey(today, -1)]);
     });
   });
 
@@ -372,7 +373,8 @@
       };
       return run().then(function (out) {
         var windowed = urls.filter(function (u) { return /swipe_up_attribution_window/.test(u); });
-        eq(windowed.length, 1, 'one store request for the last 7 days');
+        // اتنين: النافذة اليومية + مجموع الفترة (آخر ٧ أيام بقت أيام مكتملة بس وبتتجاب لوحدها — ١٠ أكتوبر ٢٠٢٦)
+        eq(windowed.length, 2, 'store requests: the daily window and the period total');
         ok(/swipe_up_attribution_window=7_DAY&view_attribution_window=none&action_report_time=conversion/.test(windowed[0]), windowed[0]);
         ok(/fields=conversion_purchases,conversion_purchases_value&/.test(windowed[0]), 'store fields only');
         ok(out.storeStats && out.storeStats.timeseries_stats, 'store stats returned');
@@ -537,7 +539,8 @@
       };
       return run().then(function (out) {
         var storeQ = queries.filter(function (x) { return x.indexOf('conversion_attribution_event_type') > -1; });
-        eq(storeQ.length, 2, 'ads + PMax for the last 7 days');
+        // أربعة: الإعلانات وPMax للنافذة اليومية، ونفسهم لمجموع الفترة (آخر ٧ أيام بتتجاب لوحدها من ١٠ أكتوبر ٢٠٢٦)
+        eq(storeQ.length, 4, 'ads + PMax for the daily window and for the period');
         ok(storeQ.every(function (x) {
           return x.indexOf("segments.conversion_attribution_event_type = 'INTERACTION'") > -1 && x.indexOf("'SIX_TO_SEVEN_DAYS')") > -1 &&
             x.indexOf('SEVEN_TO_EIGHT') < 0 && x.indexOf('metrics.cost_micros') < 0;
@@ -2960,7 +2963,7 @@
     testAsync('تاريخ مخصص مش حقيقي (٣١ فبراير) بيرجع لآخر ٧ أيام بدل ما يتبعت للمنصة', function () {
       return import('/api/_dates.js').then(function (d) {
         var r = d.resolvePeriod({ preset: 'custom', since: '2026-02-31', until: '2026-03-05' }, 'UTC');
-        eq([r.preset, r.isDefault], ['last7', true]);
+        eq([r.preset, r.isDefault, r.until], ['last7', false, shiftKey(todayKeyInTz('UTC'), -1)]);
         var ok2 = d.resolvePeriod({ preset: 'custom', since: '2026-02-01', until: '2026-02-28' }, 'UTC');
         eq([ok2.since, ok2.until], ['2026-02-01', '2026-02-28'], 'a real custom range still works');
       });
@@ -3376,7 +3379,8 @@
         eq([asked.since, asked.until], [today.slice(0, 8) + '01', shiftKey(today, -1)]);
         eq([w.spend, w.ads, w.total], [200, 2, 1000]);
         activeSources.meta = 'act_12';
-        withLang('ar', function () { ok(/دون طلبات منذ ١ .*: ٢٠٠ ر\.س على إعلانين/.test(monthWasteChip(null)), monthWasteChip(null)); });
+        eq(w.ids, ['M2', 'M3']);
+        withLang('ar', function () { var h = wastePanelHtml(wasteData(null, [])); ok(/منذ ١ /.test(h) && /٢٠٠ ر\.س/.test(h) && /عددها ٢/.test(h), h); });
         delete activeSources.meta;
       }, function (e) { restore(); throw e; });
     });
@@ -3494,7 +3498,8 @@
       eq([r.prevSince, r.prevUntil], ['2026-09-24', '2026-09-26']);
       withLang('ar', function () { ok(/اكتفينا بعرض الأرقام/.test(t('dx.insufficient.mail')) && !/اختر فترة/.test(t('dx.insufficient.mail'))); });
     });
-    test('«ضمن التذبذب» والمبيعات اتغيّرت كتير: سطر صريح بالرقم ومتوسط قيمة الطلب، و«تكررت» بس لو حصلت فعلاً (حالة حقيقية)', function () {
+    // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «تكررت في حسابك من قبل» كانت بتقلّل من انخفاض مقلق — اتشالت، والفرق الكبير «يستحق المراجعة»
+    test('المبيعات اتغيّرت كتير والطلبات وتكلفتها مش متغيّرة: سطر بالفلوس ومتوسط قيمة الطلب، و«يستحق المراجعة» (حالة حقيقية)', function () {
       var mk = function (revFor) {
         var d = [];
         for (var k = '2026-08-20'; k <= '2026-09-29'; k = shiftKey(k, 1)) d.push({ date: k, spend: 100, imp: 5000, clicks: 100, atc: 20, ic: 10, pur: 5, rev: revFor(k) });
@@ -3502,12 +3507,13 @@
       };
       var lines = function (o) { return o.blocks.map(function (b) { return (b.lines || []).join(' '); }).join(' '); };
       withLang('ar', function () {
-        var rare = lines(DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
-          daily: mk(function (k) { return k >= '2026-09-27' ? 200 : 500; }), dims: [] }), { mail: true }));
-        ok(/انخفضت ٦٠٪/.test(rare) && /متوسط قيمة الطلب/.test(rare) && /أكبر مما شهده حسابك/.test(rare), rare);
+        var o1 = DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
+          daily: mk(function (k) { return k >= '2026-09-27' ? 200 : 500; }), dims: [] }), { mail: true }), rare = lines(o1);
+        ok(/أقل بـ٦٠٪/.test(rare) && /متوسط قيمة الطلب/.test(rare) && /يستحق المراجعة/.test(rare), rare);
+        ok(/يستحق المراجعة/.test(o1.title) && o1.tone === 'mixed', o1.title);
         var seen = lines(DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
           daily: mk(function (k) { return k >= '2026-09-27' || (k >= '2026-09-21' && k <= '2026-09-23') ? 200 : 500; }), dims: [] }), { mail: true }));
-        ok(/تكررت في حسابك من قبل/.test(seen), seen);
+        ok(!/تكررت/.test(seen) && /يستحق المراجعة/.test(seen), seen);
         var flat = lines(DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
           daily: mk(function () { return 500; }), dims: [] }), { mail: true }));
         ok(!/المبيعات/.test(flat), 'no line when sales barely moved: ' + flat);
@@ -3803,7 +3809,7 @@
     });
     test('طلبات أكثر والمبيعات −٣٥٪ (في حدود تذبذب العائد): العنوان بيقول إن المبيعات نزلت، مش «لا شيء يستدعي تدخّلك»', function () {
       var o = head({ pur: 26, rev: 3900 });
-      ok(o.tone === 'mixed' && /المبيعات انخفضت ٣٥٪/.test(o.title) && !/لا شيء يستدعي/.test(o.title), o.title);
+      ok(o.tone === 'mixed' && /المبيعات أقل بـ٣٥٪/.test(o.title) && /يستحق المراجعة/.test(o.title) && !/لا شيء يستدعي/.test(o.title), o.title);
     });
     test('العائد مقارنةً بالمستهدف وحد الخسارة (إعدادات التنبيهات): سطر تحت العنوان، وتحت حد الخسارة = أحمر', function () {
       var ok3 = head({}, { roas: 3, be: 1 });
@@ -4053,24 +4059,22 @@
       var calm = scenarios()[0];
       ok(DX.compose(calm).kpis.every(function (k) { return !k.sig; }), 'no colours on a steady account');
     });
-    // حساب حقيقي (١٠ أكتوبر ٢٠٢٦): العائد −٤٢٪ وتكلفة الطلب +٥٨٪ (احتمال الصدفة ٩–١٠٪) والعنوان «ضمن التذبذب المعتاد، ولا شيء يستدعي تدخّلك»
-    test('فرق ٢٠٪ أو أكتر في درجة «ملحوظ»: العنوان بيسمّيه بأرقامه (رمادي) مش «ضمن التذبذب المعتاد»', function () {
+    // حساب حقيقي (١٠ أكتوبر ٢٠٢٦): العائد −٤٢٪ وتكلفة الطلب +٥٨٪ والعنوان «ضمن التذبذب المعتاد، ولا شيء يستدعي تدخّلك»،
+    // وصاحب المنتج: «الفرق كبير ومع ذلك يقول ضمن التذبذب» — حجم الفرق بيحدد الانتباه
+    test('فرق ٢٠٪ أو أكتر للأسوأ ومش مؤكد: العنوان «يستحق المراجعة» بالكهرماني، ومفيش «ضمن التذبذب» ولا «صدفة» في أي نص', function () {
       var seen = 0, bad = [];
       withLang('ar', function () {
         for (var s = 1; s <= 60; s++) {
           var o = DX.compose(DX.analyze(DX_SIM.simulate({ seed: s * 104729 + 7, spend: 400 })));
-          if (o.main == null || o.main < 0) continue;
-          var big = (o.blocks[o.main].lines || []).some(function (l) {
-            var m = l.match(/(?:أعلى|أقل|أكثر) بـ([٠-٩]+)٪\)/);
-            return m && Number(m[1].replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); })) >= 20 && /ملحوظ/.test(l);
-          });
-          if (!big) continue;
+          var all = o.title + ' ' + o.blocks.map(function (b) { return (b.lines || []).join(' '); }).join(' ');
+          if (/صدفة|ضمن التذبذب/.test(all)) bad.push('wording: ' + all.slice(0, 160));
+          if (o.main == null || o.main < 0 || o.blocks[o.main].kind !== 'note') continue;
+          if (!(o.blocks[o.main].lines || []).some(function (l) { return /يستحق المراجعة الآن/.test(l); })) continue;
           seen++;
-          if (/ضمن التذبذب المعتاد/.test(o.title)) bad.push(o.title);
-          if (/لم يتأكد بعد/.test(o.title) && !/أدناه/.test(o.title) && o.tone !== 'neutral') bad.push('tone ' + o.tone + ': ' + o.title);
+          if (!/يستحق المراجعة/.test(o.title) || o.tone !== 'mixed') bad.push(o.tone + ': ' + o.title);
         }
       });
-      ok(seen >= 3, 'notable cases: ' + seen);
+      ok(seen >= 3, 'big unconfirmed declines: ' + seen);
       eq(bad, []);
     });
     test('ألوان الأرقام بتلات درجات: مؤكد بخلفية، مرجّح من غير خلفية، والباقي رمادي — والمرجّح عمره ما يبقى مؤكد', function () {
@@ -4085,30 +4089,25 @@
       ok(/dx-kpi-pct good soft/.test(html) && !/strong/.test(html), html);
       ok(/good strong/.test(dxKpiHtml({ label: 'x', value: '1', prev: '1', pct: 0.3, sig: 1, soft: 0, goodUp: true })), 'confirmed = filled');
     });
-    // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «ضمن التذبذب» من غير أرقام، والشرح مطوي ومكانه مش واضح
+    // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «سبب الحكم يتحدث عن الصدفة وده غير مناسب» — الثقة بكلام تجاري من غير نسب احتمالات
     var arNum = function (s) { return Number(String(s).replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); }).replace('٫', '.')); };
-    test('«ضمن التذبذب» بالأرقام: احتمال الصدفة ودرجته متسقين (عادي ٢٠٪+، ملحوظ ٥–٢٠٪، مرجّح تحت ٥٪) — ٤٠ حساب مستقر', function () {
-      var seen = 0, bad = [], tiers = {};
+    test('درجة التأكد بكلام تجاري: «الاتجاه واضح» / «إشارة أولية» / «يتغيّر عادةً بهذا القدر» من غير نسب احتمالات — ٤٠ حساب', function () {
+      var seen = {}, bad = [];
       withLang('ar', function () {
         for (var s = 1; s <= 40; s++) {
           var r = DX.analyze(DX_SIM.simulate({ seed: s * 7919, spend: 400 }));
           if (r.status !== 'ok') continue;
-          var o = DX.compose(r);
-          o.blocks.forEach(function (b) {
+          DX.compose(r).blocks.forEach(function (b) {
             (b.lines || []).forEach(function (l) {
-              var m = l.match(/بالصدفة وحدها (?:إلا )?في نحو ([٠-٩]+)٪/);
-              if (!m) return;
-              seen++;
-              var p = arNum(m[1]), tier = /تذبذب عادي/.test(l) ? 'normal' : (/فالأرجح/.test(l) ? 'likely' : 'notable');
-              tiers[tier] = (tiers[tier] || 0) + 1;
-              if ((tier === 'normal') !== (p >= 20) || (tier === 'likely') !== (p < 5)) bad.push(l);
-              // مرجّح وفي الاتجاه السيئ = العنوان «يستحق المتابعة» مش «ضمن التذبذب المعتاد»
-              if (tier === 'likely' && /^(تكلفة الطلب.*\(أعلى بـ|الطلبات.*\(أقل بـ|كل .*\(أقل بـ)/.test(l) && b.kind === 'note' && !/يستحق المتابعة/.test(o.title) && !/مبيعات|العائد|حد الخسارة/.test(o.title)) bad.push('title: ' + o.title);
+              if (/من الحالات|صدفة/.test(l)) bad.push(l);
+              if (/الاتجاه واضح/.test(l)) seen.likely = (seen.likely || 0) + 1;
+              if (/إشارة أولية/.test(l)) seen.notable = (seen.notable || 0) + 1;
+              if (/يتغيّر هذا الرقم عادةً/.test(l)) seen.normal = (seen.normal || 0) + 1;
             });
           });
         }
       });
-      ok(seen >= 5, 'noise lines seen: ' + seen + ' ' + JSON.stringify(tiers));
+      ok(Object.keys(seen).length >= 2, JSON.stringify(seen));
       eq(bad, []);
     });
     test('سبب الحكم ظاهر بين الأرقام والتنبيهات بلون الحكم، ومبيتكررش في الشرح المطوي', function () {
@@ -4227,13 +4226,15 @@
       var aov = o.kpis[3];
       ok(aov.value && aov.value !== '—' && aov.prev !== '—', 'aov shown with the previous period');
     });
-    test('جدول الأيام في التفاصيل: آخر عمود «اليوم» واللي قبله «أمس» مهما كان عدد الأيام', function () {
+    test('جدول الأيام في التفاصيل: الأيام المكتملة وآخرها «أمس»، وبعدها «الإجمالي» (bold) وبعده «اليوم» منفصل', function () {
       var c = ad8('d1', s8(10), s8(1));
       candidates = [c];
       render();
       openExpand(c);
       var th = Array.prototype.map.call(document.querySelectorAll('#expandChart thead th'), function (x) { return x.textContent; });
-      eq([th.length, th[7], th[8]], [9, t('x.yesterday'), t('x.today')]);
+      eq([th.length, th[7], th[8], th[9]], [10, t('x.yesterday'), t('x.totalDays', { n: ar(7) }), t('x.today')]);
+      var tot = document.querySelector('#expandChart tbody tr td.col-total');
+      eq(tot.textContent, fmtNum(70, true), 'total = the 7 complete days without today');
       expandOverlay.classList.add('hidden');
     });
   });

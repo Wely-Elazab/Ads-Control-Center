@@ -407,13 +407,16 @@
     return Math.round((Date.UTC(pb[0], pb[1] - 1, pb[2]) - Date.UTC(pa[0], pa[1] - 1, pa[2])) / 86400000);
   }
   function resolvePeriodFor(tz) {
-    // الفترات المتحركة = أيام مكتملة + النهارده: «آخر ٧ أيام» = ٧ أيام قبل النهارده + النهارده (نفس نافذة الإعلانات)
-    var today = todayKeyInTz(tz), since = shiftKey(today, -7), until = today, preset = period.preset;
-    if (preset === 'today') since = today;
-    else if (preset === 'yesterday') since = until = shiftKey(today, -1);
+    // الفترات المتحركة = أيام مكتملة بس، والنهارده منفصل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦، المرة التانية: «آخر ٧ أيام
+    // يعني الـ٧ أيام اللي فاتت بس، واليوم منفصل مش مجموع معاهم»). النهارده بيظهر لوحده (سطر «اليوم حتى الآن» وعمود اليوم).
+    // isDefault دايماً false: أرقام الفترة بتتجاب لوحدها من المنصة (النافذة اليومية نفسها فيها النهارده)
+    var today = todayKeyInTz(tz), yesterday = shiftKey(today, -1), since = shiftKey(today, -7), until = yesterday, preset = period.preset;
+    if (preset === 'today') since = until = today;
+    else if (preset === 'yesterday') since = until = yesterday;
     else if (preset === 'last14') since = shiftKey(today, -14);
     else if (preset === 'last30') since = shiftKey(today, -30);
-    else if (preset === 'thisMonth') since = today.slice(0, 8) + '01';
+    // أول يوم في الشهر مفيش أيام مكتملة فيه — بنعرض النهارده
+    else if (preset === 'thisMonth') { since = today.slice(0, 8) + '01'; if (since > until) until = today; }
     else if (preset === 'lastMonth') { until = shiftKey(today.slice(0, 8) + '01', -1); since = until.slice(0, 8) + '01'; }
     else if (preset === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(period.since || '') && /^\d{4}-\d{2}-\d{2}$/.test(period.until || '')) {
       since = period.since; until = period.until;
@@ -422,7 +425,7 @@
       if (since > until) since = until;
     } else preset = 'last7';
     if (keyDiffDays(since, until) > PERIOD_MAX_DAYS - 1) since = shiftKey(until, -(PERIOD_MAX_DAYS - 1));
-    return { preset: preset, since: since, until: until, isDefault: preset === 'last7' };
+    return { preset: preset, since: since, until: until, isDefault: false };
   }
   function periodKey() { return period.preset === 'custom' ? 'custom:' + period.since + ':' + period.until : period.preset; }
   // تاريخ بشكل مقروء: "٣ سبتمبر"

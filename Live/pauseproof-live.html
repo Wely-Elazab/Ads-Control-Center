@@ -330,6 +330,10 @@
   .metric-box.mv-opportunity { background: var(--verified-bg); box-shadow: inset 0 0 0 1.5px var(--verified); }
   .metric-box.mv-opportunity .metric-value { color: var(--verified); }
   .daily-table .col-yesterday { background: var(--paper); }
+  /* إجمالي الأيام المكتملة (bold) والنهارده منفصل بعده */
+  .daily-table .col-total { font-weight: 800 !important; background: var(--paper); border-inline-start: 2px solid var(--line); }
+  .daily-table thead .col-total { color: var(--ink); font-weight: 700; }
+  .daily-table .col-today { border-inline-start: 2px dashed var(--line); }
   .daily-table th.col-yesterday { color: var(--ink); font-weight: 700; }
   .daily-table .col-today { opacity: .6; }
 
@@ -637,6 +641,22 @@
   .attn-chip:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   /* «دون طلبات منذ بداية الشهر»: معلومة مش زرار */
   .attn-chip.attn-chip-info { cursor: default; color: var(--pending); background: var(--pending-bg); }
+  /* لوحة الهدر (renderWastePanel) ومبلغ الأثر على بنود «يحتاج انتباهك الآن» — ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦ */
+  .waste-panel { margin-top: 12px; border-radius: var(--radius); padding: 14px 16px; background: var(--pending-bg); border: 1px solid var(--line); border-inline-start: 4px solid var(--pending); }
+  .waste-panel.has-risk { background: var(--alert-bg); border-inline-start-color: var(--alert); }
+  .waste-title { margin: 0 0 10px; font-size: 15px; font-weight: 800; color: var(--ink); }
+  .waste-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+  .waste-tile { display: flex; flex-direction: column; gap: 3px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .waste-k { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+  .waste-v { font-size: 20px; font-weight: 800; color: var(--pending); }
+  .waste-tile.bad .waste-v { color: var(--alert); }
+  .waste-s { font-size: 12px; line-height: 1.6; color: var(--ink-soft); }
+  .waste-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
+  .waste-cta { font-family: inherit; font-size: 13px; font-weight: 700; color: #fff; background: var(--alert); border: none; border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+  .waste-cta:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .waste-note { flex: 1 1 220px; margin: 0; font-size: 11.5px; color: var(--ink-faint); }
+  .top-alert-money { flex-shrink: 0; margin-inline-start: auto; font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 999px; color: var(--ink-soft); background: var(--sending-bg); white-space: nowrap; }
+  .top-alert-money.bad { color: var(--alert); background: var(--alert-bg); }
   /* بلوك من الملخص جوه القائمة: نفس شكل التنبيه، وبيتفتح على التفاصيل والاقتراح */
   .attn-block { margin-bottom: 6px; }
   .attn-block > summary { list-style: none; margin-bottom: 0; }
@@ -954,6 +974,9 @@
         <div id="dxBody" aria-live="polite"></div>
         <div class="kpi-strip" id="kpiStrip"></div>
         <div class="dx-today" id="dxToday"></div>
+        <!-- لوحة الهدر: اللي اكتشفناه واللي إيقافه بيمنعه وهدر الشهر (renderWastePanel في ui.js) — بارزة فوق سبب الحكم
+             (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: كانت شارات صغيرة جنب عنوان «يحتاج انتباهك الآن») -->
+        <div class="waste-wrap" id="dxWaste"></div>
         <!-- سبب الحكم: ظاهر بين الأرقام والتنبيهات مش مطوي (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) -->
         <div class="dx-verdict-wrap" id="dxVerdict"></div>
         <div class="top-alerts" id="topAlerts"></div>

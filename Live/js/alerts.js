@@ -228,6 +228,10 @@
   function makeIssue(level, metrics, title, detail, advice, amount, code, atRisk) {
     return { level: level, metrics: metrics, title: title, detail: detail, advice: advice, amount: amount || 0, code: code || null, atRisk: !!atRisk };
   }
+  // الأثر بالفلوس (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «يحتاج انتباهك الآن» مبيبيّنش التأثير المالي من برّه): kind = نوع المبلغ
+  // (waste = إنفاق من غير ولا نتيجة، loss = الإنفاق اللي المبيعات مغطّتهوش، extra = تكلفة زيادة عن متوسط الحساب، spike = زيادة
+  // أمس عن المعتاد)، v = المبلغ (= amount)، daily = اللي بيتصرف بنفس الشكل كل يوم دلوقتي (متوسط آخر أيام مكتملة) — «هدر يمكن إيقافه»
+  function withMoney(i, kind, daily) { i.money = { kind: kind, v: i.amount, daily: daily > 0 ? daily : 0 }; return i; }
 
   function evaluateAd(c, acc, s, fmt) {
     var issues = [];
@@ -384,9 +388,9 @@
 
     // إعلان جديد (فترة التعلّم) صرف ٣ أضعاف تكلفة النتيجة في الحساب من غير ولا نتيجة: «مهم» حتى قبل ما يكمّل التعلّم
     if (learning && c.results === 0 && avgCpr && c.spend >= 3 * avgCpr) {
-      issues.push(makeIssue('warning', ['spend', 'results'], t('al.wasteNew.t'),
+      issues.push(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteNew.t'),
         t('al.wasteNew.d', { name: name, spend: money(c.spend), label: label, expPhrase: countText(Math.round(c.spend / avgCpr), c.resultKey, fmt) }),
-        t('al.wasteNew.a'), c.spend, 'waste-new'));
+        t('al.wasteNew.a'), c.spend, 'waste-new'), 'waste', spend3 / 3));
     }
 
     var wasteRaised = false;
@@ -404,10 +408,10 @@
           expPhrase: countText(Math.round(Math.max(1, spendW / avgCpr)), c.resultKey, fmt) };
         if (spendW >= threshold) {
           wasteRaised = true;
-          issues.push(makeIssue('critical', ['spend', 'results'], t('al.wasteWeek.t'), t('al.wasteWeek.d', wVars), t('al.waste.a'), spendW, 'waste-week', true));
+          issues.push(withMoney(makeIssue('critical', ['spend', 'results'], t('al.wasteWeek.t'), t('al.wasteWeek.d', wVars), t('al.waste.a'), spendW, 'waste-week', true), 'waste', spend3 / 3));
         } else if (spendW >= threshold / 2) {
           wasteRaised = true;
-          issues.push(makeIssue('warning', ['spend', 'results'], t('al.wasteWeekEarly.t'), t('al.wasteWeek.d', wVars), t('al.wasteEarly.a'), spendW, 'waste-early'));
+          issues.push(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteWeekEarly.t'), t('al.wasteWeek.d', wVars), t('al.wasteEarly.a'), spendW, 'waste-early'), 'waste', spend3 / 3));
         }
       }
       // 4ب) صرف بدون نتائج في آخر يومين — للإعلان اللي جاب نتائج قبلها في الأسبوع (أو الحساب كله ملوش متوسط)
@@ -421,12 +425,12 @@
           : t('al.waste.dNoAvg', { name: name, spend: money(spend2), label: label });
         if (spend2 >= threshold) {
           wasteRaised = true;
-          issues.push(makeIssue('critical', ['spend', 'results'], t('al.waste.t'), wasteDetail,
-            t('al.waste.a'), spend2, 'waste', true));
+          issues.push(withMoney(makeIssue('critical', ['spend', 'results'], t('al.waste.t'), wasteDetail,
+            t('al.waste.a'), spend2, 'waste', true), 'waste', spend2 / 2));
         } else if (spend2 >= threshold / 2) {
           wasteRaised = true;
-          issues.push(makeIssue('warning', ['spend', 'results'], t('al.wasteEarly.t'), wasteDetail,
-            t('al.wasteEarly.a'), spend2, 'waste-early'));
+          issues.push(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteEarly.t'), wasteDetail,
+            t('al.wasteEarly.a'), spend2, 'waste-early'), 'waste', spend2 / 2));
         }
       }
 
@@ -442,13 +446,13 @@
         var wkVars = { name: name, spend: money(spendW), sales: money(salesW), roasText: roasW != null ? roasLabel(roasW) : '', target: fmt.num(s.roasTarget), cmp: cmp };
         var lossRecent = recentEvidence && roas3 < s.roasBreakEven && !(sales3 === 0 && wasteRaised);
         if (weekEvidence && roasW < s.roasBreakEven) {
-          issues.push(makeIssue('critical', ['roas', 'spend'], t('al.loss.t'), t('al.lossWeek.d', wkVars), t('al.loss.a'), spendW - salesW, 'loss', true));
+          issues.push(withMoney(makeIssue('critical', ['roas', 'spend'], t('al.loss.t'), t('al.lossWeek.d', wkVars), t('al.loss.a'), spendW - salesW, 'loss', true), 'loss', (spend3 - sales3) / 3));
         } else if (lossRecent && (!weekEvidence || roasW < s.roasTarget)) {
           // آخر ٣ أيام بخسارة، والأسبوع نفسه مش قوي: عاجل
-          issues.push(makeIssue('critical', ['roas', 'spend'], t('al.loss.t'),
+          issues.push(withMoney(makeIssue('critical', ['roas', 'spend'], t('al.loss.t'),
             t('al.loss.d', { name: name, spend: money(spend3), sales: money(sales3), roasText: roasLabel(roas3) }) +
               (weekEvidence ? t('al.weekCtx', { roas: fmt.num(roasW) }) : '') + cmp,
-            t('al.loss.a'), spend3 - sales3, 'loss', true));
+            t('al.loss.a'), spend3 - sales3, 'loss', true), 'loss', (spend3 - sales3) / 3));
         } else if (lossRecent) {
           // أسبوع قوي وآخر ٣ أيام بخسارة: تراجع يتابَع («مهم») — ممكن مبيعات اتأخر تسجيلها
           issues.push(makeIssue('warning', ['roas'], t('al.roasDrop.t'),
@@ -471,10 +475,10 @@
         if (ratio >= s.cprWarnMultiple && cprChance < 0.1) {
           var critical = ratio >= s.cprCriticalMultiple && cprChance < 0.01;
           var oldNote = age != null && age >= s.oldAdDays ? t('al.cpr.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '';
-          issues.push(makeIssue(critical ? 'critical' : 'warning', ['cpr'], t('al.cpr.t', { label: label, one1: one }),
+          issues.push(withMoney(makeIssue(critical ? 'critical' : 'warning', ['cpr'], t('al.cpr.t', { label: label, one1: one }),
             t('al.cpr.d', { one: one, name: name, cpr: money(c.cpr), old: oldNote, pct: fmt.int((ratio - 1) * 100), avg: money(avgCpr) }),
             t('al.cpr.a'),
-            c.spend - c.results * avgCpr, 'cpr'));
+            c.spend - c.results * avgCpr, 'cpr'), 'extra', 0));
         }
       }
 
@@ -510,9 +514,9 @@
       var yCpr = resY > 0 ? spendY / resY : null;
       // «النتائج مزادتش معاه» = تكلفة النتيجة أمس أعلى بوضوح (نفس حد «تكلفة مرتفعة») — مش أعلى من المتوسط بسنت
       if (!avgCpr || yCpr == null || yCpr > avgCpr * s.cprWarnMultiple) {
-        issues.push(makeIssue('warning', ['spend'], t('al.spike.t'),
+        issues.push(withMoney(makeIssue('warning', ['spend'], t('al.spike.t'),
           t('al.spike.d', { name: name, spend: money(spendY), times: global.I18N ? global.I18N.timesPhrase(spendY / prevSpendAvg, fmt.num) : fmt.num(spendY / prevSpendAvg) + '×', avg: money(prevSpendAvg) }),
-          t('al.spike.a'), spendY - prevSpendAvg, 'spike'));
+          t('al.spike.a'), spendY - prevSpendAvg, 'spike'), 'spike', 0));
       }
     }
 

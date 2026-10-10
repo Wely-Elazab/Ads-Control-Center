@@ -671,11 +671,12 @@
   var DX_KIND_LABEL = { urgent: 'dx.kind.urgent', decision: 'dx.kind.decision', watch: 'dx.kind.watch', opportunity: 'dx.kind.opportunity' };
   function dxPct(x) { return ar(Math.round(Math.abs(x) * 100)) + (isAr() ? '٪' : '%'); }
   function dxKpiHtml(k) {
-    // تلات درجات (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): تغيّر مؤكد = أخضر/أحمر بخلفية، مرجّح = اللون من غير خلفية،
-    // ضمن التذبذب = رمادي (والتلميح بيقول ده)
-    var dir = k.sig || k.soft || 0, lvl = k.sig ? 'strong' : (k.soft ? 'soft' : '');
+    // كل تحسّن أخضر وكل تراجع أحمر (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦، المرة التانية — الرمادي على تغيّر ٤٢٪ كان مضلل):
+    // مؤكد = بخلفية، غير مؤكد = اللون من غير خلفية. الإنفاق من غير لون (زيادته أو نقصه مش تحسّن ولا تراجع في ذاتها)،
+    // وأقل من ١٪ = مفيش تغيّر
+    var dir = k.sig || (k.pct != null && Math.abs(k.pct) >= 0.01 ? (k.pct > 0 ? 1 : -1) : 0), lvl = k.sig ? 'strong' : 'soft';
     var tone = !dir || k.goodUp == null ? '' : ((dir > 0) === k.goodUp ? ' good ' : ' bad ') + lvl;
-    var tip = tone ? t('dx.kpi.tip.' + lvl) : (k.goodUp != null && k.pct != null && Math.abs(k.pct) >= 0.1 ? t('dx.kpi.tip.noise') : '');
+    var tip = tone ? t('dx.kpi.tip.' + lvl) : '';
     var pct = k.pct == null || Math.abs(k.pct) < 0.005 ? '' :
       '<span class="dx-kpi-pct' + tone + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + '>' + (k.pct > 0 ? '↑ ' : '↓ ') + dxPct(k.pct) + '</span>';
     return '<div class="dx-kpi"><div class="dx-kpi-label">' + esc(k.label) + '</div>' +
@@ -1321,7 +1322,8 @@
   function storeLines(platforms) {
     var mine = candidates.filter(function (c) { return onPlatforms(c, platforms); }), out = [];
     if (!mine.length) return out;
-    if (resolvePeriodFor(BROWSER_TZ).until === todayKeyInTz(BROWSER_TZ)) {
+    // النهارده بيظهر لوحده دايماً (الفترات المتحركة بقت أيام مكتملة بس — ١٠ أكتوبر ٢٠٢٦)، إلا لو الفترة المختارة هي «اليوم»
+    if (period.preset !== 'today') {
       var spend = {}, res = {};
       mine.forEach(function (c) {
         var d = c.daily || [], n = d.length - 1;   // آخر يوم في أرقام الإعلان = النهارده بتوقيت حسابه
@@ -1572,13 +1574,30 @@
     if (n === 2) return t('attn.alerts2');
     return t(n <= 10 ? 'attn.alertsFew' : 'attn.alertsMany', { n: ar(n) });
   }
+  // الأثر بالفلوس على البند من برّه، قبل ما يتفتح (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): المبلغ المرتبط بالمشكلة نفسها
+  // (alerts.js withMoney / diagnosis.js blk.money) بالأحمر، ولو مفيش: مبيعات الإعلان اللي وقف أو إنفاقه في الأسبوع بلون محايد
+  function moneyPill(kind, v, bad) {
+    return '<span class="top-alert-money' + (bad ? ' bad' : '') + '"' + (bad ? ' title="' + esc(t('attn.moneyTip.' + kind)) + '"' : '') + '>' +
+      esc(t('attn.money.' + kind, { v: v })) + '</span>';
+  }
+  function alertMoneyHtml(a) {
+    var c = a.adId ? findCandidate(a.adId) : null, m = a.money;
+    if (m && m.v > 0) return moneyPill(m.kind === 'waste' && c && c.resultKey !== 'purchase' ? 'wasteRes' : m.kind, money(m.v, a.currency || null), true);
+    var sp = a.impact && a.impact.spend;
+    if (!(sp > 0)) return '';
+    if (a.impact.account) return moneyPill('account', money(sp, a.currency || null), false);
+    // وقف إعلان بيبيع: اللي على المحك مبيعاته (أيام مكتملة بس — آخر خانة النهارده)
+    var ds = c && c.dailySales, sales = ds && ds.length ? ds.slice(0, -1).reduce(function (s, x) { return s + (x || 0); }, 0) : 0;
+    if ((a.code === 'stopped' || a.code === 'top-stopped') && sales > 0) return moneyPill('sales', money(sales, a.currency || null), false);
+    return moneyPill('spend', money(sp, a.currency || null), false);
+  }
   function attnAlertHtml(a) {
     var target = a.adId && findCandidate(a.adId) ? ' data-ad-id="' + esc(a.adId) + '"' : ' data-go-alerts';
     var src = a.adName ? (a.platform || '') + ' · ' + a.adName : (a.accountName || a.platform || '');
     return '<button type="button" class="top-alert ' + LEVELS[a.level].cls + '"' + target + '>' +
       '<span class="top-alert-level">' + LEVELS[a.level].label + '</span>' +
       '<span class="top-alert-text"><span class="top-alert-title">' + esc(a.title) + '</span>' +
-      '<span class="top-alert-src" dir="auto">' + esc(src) + '</span></span></button>';
+      '<span class="top-alert-src" dir="auto">' + esc(src) + '</span></span>' + alertMoneyHtml(a) + '</button>';
   }
   function attnBlockHtml(it) {
     var b = it.block, key = foldKey(b), rel = it.related, onAd = b.seg && b.seg.dim === 'ad';
@@ -1589,7 +1608,7 @@
     var html = '<details class="attn-block" data-fold="' + esc(key) + '"' + (foldOpen[key] ? ' open' : '') + '>' +
       '<summary class="top-alert ' + lv.cls + '"><span class="top-alert-level">' + esc(t(DX_KIND_LABEL[b.kind])) + '</span>' +
       '<span class="top-alert-text"><span class="top-alert-title">' + esc(b.title) + '</span>' +
-      '<span class="top-alert-src">' + esc(sub) + '</span></span></summary>' +
+      '<span class="top-alert-src">' + esc(sub) + '</span></span>' + (b.money ? moneyPill(b.money.kind, b.money.text, true) : '') + '</summary>' +
       '<div class="attn-body">' + dxBlockHtml(b, it.index, true);
     if (rel.length) html += '<div class="attn-rel"><p>' + esc(t(onAd ? 'attn.relTitleAd' : 'attn.relTitleCamp')) + '</p>' + rel.map(attnAlertHtml).join('') + '</div>';
     if (camp) html += '<div class="attn-camp"><button type="button" class="ghost-btn" data-campaign="' + esc(campaignKey(camp)) + '">' + esc(t('attn.showCamp')) + '</button></div>';
@@ -1598,15 +1617,14 @@
   // بيرجّع أرقام البلوكات اللي ظهرت في القائمة (عشان متتكررش في الشرح المطوي تحتها)
   function fillTopAlerts(el, o) {
     var shown = {};
-    if (!candidates.length && !o) { el.innerHTML = ''; return shown; }
+    if (!candidates.length && !o) { el.innerHTML = ''; renderWastePanel(null, []); return shown; }
     var views = dxState.views || [], pick = views.length > 1 && dxState.view !== 'all' ? dxState.view : null;
     var alerts = analysis.alerts.filter(function (a) { return !pick || String(a.source || '').indexOf(pick + ':') === 0; });
     var items = DX.attention(o ? o.blocks : [], alerts, candidates);
-    // «معرّض للهدر» و«تحتاج مراجعة» (كانوا مربعين في شريط «ملخص الأداء»): شارات بتفتح اللي وراها
-    var sum = analysis.summary, risk = sum.atRisk, review = sum.health.review;
-    var chips = (Object.keys(risk).some(function (k) { return risk[k] > 0; }) ? '<button type="button" class="attn-chip" data-kpi="risk">' + esc(t('attn.risk', { v: moneyByCur(risk) })) + '</button>' : '') +
-      monthWasteChip(pick) +
-      (review ? '<button type="button" class="attn-chip" data-kpi="review">' + esc(t('attn.review', { n: ar(review) })) + '</button>' : '');
+    renderWastePanel(pick, alerts);
+    // «تحتاج مراجعة»: شارة بتفلتر الإعلانات دي («معرّض للهدر» و«دون طلبات منذ…» بقوا لوحة الهدر فوق — renderWastePanel)
+    var review = analysis.summary.health.review;
+    var chips = review ? '<button type="button" class="attn-chip" data-kpi="review">' + esc(t('attn.review', { n: ar(review) })) + '</button>' : '';
     var head = '<div class="top-alerts-head"><h3 class="top-alerts-title">' + esc(t('sec.attn')) + '</h3>' + (chips ? '<span class="attn-chips">' + chips + '</span>' : '') + '</div>';
     if (!items.length) {
       // لسه بيتحمّل (القفل اتشال بعد ٣٠ ثانية): منقولش «لا شيء عاجل» قبل ما الأرقام تيجي
@@ -1623,15 +1641,61 @@
       (all ? '<button type="button" class="top-alerts-all" data-go-alerts>' + t('top.all', { n: ar(all) }) + '</button>' : '');
     return shown;
   }
-  // «دون طلبات منذ ١ أكتوبر» (Meta — meta.js loadMonthWaste): شارة معلومة مش زرار — فيها إعلانات اتوقفت ومش في القائمة.
-  // pick = المنصة المختارة في الملخص (عرض Google لوحده = مفيش شارة)
-  function monthWasteChip(pick) {
+  // ---------- لوحة الهدر (فوق سبب الحكم) ----------
+  // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: شارتا «معرّض للهدر (آخر يومين)» و«دون طلبات منذ…» مش بارزين ومش بيوضحوا الهدر ولا
+  // قيمة الأداة. دلوقتي لوحة: (١) الهدر اللي اكتشفناه في آخر ٧ أيام على إعلانات لسه شغّالة (التنبيهات العاجلة: إنفاق من غير
+  // نتائج، أو الإنفاق اللي المبيعات مغطّتهوش) — الإعلان اللي عليه تنبيهين بيتحسب مرة بالأكبر، (٢) اللي بيتصرف بنفس الشكل كل يوم
+  // دلوقتي = اللي إيقافها أو تعديلها بيمنعه لو الأداء فضل زي ما هو، (٣) هدر الشهر من Meta (meta.js loadMonthWaste) بما فيه
+  // الإعلانات اللي اتوقفت. «وفّرنا» مبنقولهاش: مش عارفين العميل عمل إيه بعد التنبيه. pick = المنصة المختارة في الملخص
+  function wasteData(pick, alerts) {
+    var byAd = {}, found = {}, daily = {}, n = 0, orders = true;
+    alerts.forEach(function (a) {
+      if (a.level !== 'critical' || !a.atRisk || !(a.amount > 0) || !a.adId) return;
+      var x = byAd[a.adId] || (byAd[a.adId] = { cur: a.currency || '', v: 0, d: 0 });
+      x.v = Math.max(x.v, a.amount); x.d = Math.max(x.d, (a.money && a.money.daily) || 0);
+      var c = findCandidate(a.adId);
+      if (c && c.resultKey !== 'purchase') orders = false;
+    });
+    Object.keys(byAd).forEach(function (id) {
+      var x = byAd[id]; n++;
+      found[x.cur] = (found[x.cur] || 0) + x.v; daily[x.cur] = (daily[x.cur] || 0) + x.d;
+    });
     var w = typeof monthWaste !== 'undefined' && activeSources.meta && (!pick || pick === 'meta') ? monthWaste['meta:' + activeSources.meta] : null;
-    if (!w || !(w.spend > 0)) return '';
-    var plat = PLATFORMS.filter(isConnected).length > 1 ? ' (Meta)' : '';
-    var tip = t('attn.monthTip', { since: fmtKey(w.since), pct: ar(Math.round(w.total > 0 ? w.spend / w.total * 100 : 0)) + (isAr() ? '٪' : '%') });
-    return '<span class="attn-chip attn-chip-info" title="' + esc(tip) + '">' +
-      esc(t('attn.month', { since: fmtKey(w.since), v: money(w.spend, w.currency), ads: w.ads <= 2 ? t('attn.month.ads' + w.ads) : ar(w.ads) + ' ' + noun(w.ads, 'n.ad') }) + plat) + '</span>';
+    var month = null;
+    if (w && w.spend > 0) {
+      var src = 'meta:' + activeSources.meta, ids = {};
+      (w.ids || []).forEach(function (id) { ids[id] = 1; });
+      var live = candidates.filter(function (c) { return c.source === src && c.active && ids[String(c.nativeId || c.id)]; }).length;
+      month = { w: w, live: live };
+    }
+    return { n: n, found: found, daily: daily, orders: orders, month: month };
+  }
+  function weekByCur(map) { var o = {}; Object.keys(map).forEach(function (k) { o[k] = map[k] * 7; }); return o; }
+  function wastePanelHtml(d) {
+    var hasDaily = Object.keys(d.daily).some(function (k) { return d.daily[k] > 0; });
+    if (!d.n && !d.month) return '';
+    var tile = function (cls, k, v, s) {
+      return '<div class="waste-tile' + cls + '"><span class="waste-k">' + esc(k) + '</span><b class="waste-v">' + esc(v) + '</b><span class="waste-s">' + esc(s) + '</span></div>';
+    };
+    var tiles = '';
+    if (d.n) {
+      tiles += tile(' bad', t('waste.found.k'), moneyByCur(d.found), t('waste.found.s', { n: ar(d.n) }));
+      if (hasDaily) tiles += tile(' bad', t('waste.stop.k'), t('waste.stop.v', { v: moneyByCur(d.daily) }), t('waste.stop.s', { week: moneyByCur(weekByCur(d.daily)) }));
+    }
+    if (d.month) {
+      var w = d.month.w, plat = PLATFORMS.filter(isConnected).length > 1 ? ' (Meta)' : '';
+      tiles += tile('', t('waste.month.k', { since: fmtKey(w.since) }) + plat, money(w.spend, w.currency),
+        t('waste.month.s', { n: ar(w.ads), pct: ar(Math.round(w.total > 0 ? w.spend / w.total * 100 : 0)) + (isAr() ? '٪' : '%'),
+          live: d.month.live ? t('waste.month.live', { n: ar(d.month.live) }) : '' }));
+    }
+    return '<div class="waste-panel' + (d.n ? ' has-risk' : '') + '"><p class="waste-title">' + esc(t(d.n ? 'waste.title' : 'waste.titleMonth')) + '</p>' +
+      '<div class="waste-tiles">' + tiles + '</div>' +
+      '<div class="waste-foot">' + (d.n ? '<button type="button" class="waste-cta" data-kpi="risk">' + esc(t('waste.cta')) + '</button>' : '') +
+      '<p class="waste-note">' + esc(t(!d.n ? 'waste.noteMonth' : (d.orders ? 'waste.note' : 'waste.noteRes'))) + '</p></div></div>';
+  }
+  function renderWastePanel(pick, alerts) {
+    var el = document.getElementById('dxWaste');
+    if (el) el.innerHTML = wastePanelHtml(wasteData(pick, alerts));
   }
   // «تحتاج مراجعة» بيفلتر الإعلانات دي وينزل لها، و«معرّض للهدر» بيفتح التنبيهات اللي وراه
   function kpiAction(kind) {
@@ -1644,6 +1708,10 @@
     var ads = document.getElementById('adsContent');
     if (ads) window.scrollTo({ top: ads.offsetTop - 70, behavior: 'smooth' });
   }
+  document.getElementById('dxWaste').addEventListener('click', function (e) {
+    var el = e.target.closest('[data-kpi]');
+    if (el) kpiAction(el.dataset.kpi);
+  });
   document.getElementById('topAlerts').addEventListener('click', function (e) {
     var el;
     if ((el = e.target.closest('[data-kpi]'))) { kpiAction(el.dataset.kpi); return; }
@@ -1859,14 +1927,22 @@
     // آخر عمود = النهارده واللي قبله = أمس (النافذة ٨ أيام من ١٠ أكتوبر ٢٠٢٦ — مش أرقام ثابتة)
     var lastCol = c.dailyDates.length - 1;
     var colCls = function (i) { return i === lastCol - 1 ? ' class="col-yesterday"' : (i === lastCol ? ' class="col-today"' : ''); };
-    var headerCells = c.dailyDates.map(function (dt, i) { return '<th' + colCls(i) + '>' + (i === lastCol - 1 ? t('x.yesterday') : (i === lastCol ? t('x.today') : fmtKey(dt))) + '</th>'; }).join('');
+    // الأيام المكتملة، وبعدها «الإجمالي» (bold)، وبعده النهارده منفصل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: اليوم مش مجموع
+    // مع الأيام، والإجمالي في آخر الجدول)
+    var days = c.dailyDates.slice(0, lastCol);
+    var sumOf = function (arr) { return arr.slice(0, lastCol).reduce(function (a, b) { return a + (b || 0); }, 0); };
+    var headerCells = days.map(function (dt, i) { return '<th' + colCls(i) + '>' + (i === lastCol - 1 ? t('x.yesterday') : fmtKey(dt)) + '</th>'; }).join('') +
+      '<th class="col-total">' + t('x.totalDays', { n: ar(days.length) }) + '</th><th class="col-today">' + t('x.today') + '</th>';
     // الجدول: فاصل الآلاف (١٢٬٥٠٠)، والصرف والمبيعات الصغيرة بخانة عشرية (٠٫٤ مش ٠)
-    var spendCells = c.daily.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + fmtNum(v, true) + '</span></td>'; }).join('');
-    var secondCells = secondSeries.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + fmtNum(v, hasSales) + '</span></td>'; }).join('');
+    var rowCells = function (arr, small) {
+      return arr.slice(0, lastCol).map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + fmtNum(v, small) + '</span></td>'; }).join('') +
+        '<td class="col-total"><span class="mono">' + fmtNum(sumOf(arr), small) + '</span></td>' +
+        '<td class="col-today"><span class="mono">' + fmtNum(arr[lastCol] || 0, small) + '</span></td>';
+    };
     document.getElementById('expandChart').innerHTML =
       '<div class="daily-table-wrap"><table class="daily-table"><thead><tr><th></th>' + headerCells + '</tr></thead>' +
-      '<tbody><tr><td>' + (currencyLabel(cur) ? t('x.spendRow', { cur: currencyLabel(cur) }) : t('x.spend')) + '</td>' + spendCells + '</tr>' +
-      '<tr><td>' + secondRowLabel + '</td>' + secondCells + '</tr></tbody></table></div>';
+      '<tbody><tr><td>' + (currencyLabel(cur) ? t('x.spendRow', { cur: currencyLabel(cur) }) : t('x.spend')) + '</td>' + rowCells(c.daily, true) + '</tr>' +
+      '<tr><td>' + secondRowLabel + '</td>' + rowCells(secondSeries, hasSales) + '</tr></tbody></table></div>';
 
     expandOverlay.classList.remove('hidden');
     expandOverlay.querySelector('.expand-card').scrollTop = 0;

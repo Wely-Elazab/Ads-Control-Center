@@ -640,7 +640,7 @@ var DX = (function () {
         var cpaA = cpaOf(A), cpaB = cpaOf(B);
         if (!(test.z <= -Z_CHANGE && (cpaB == null || cpaB / cpaA >= 1.4))) return;
         out.push({ dim: dim.id, dimKind: dim.kind, key: s.key, name: s.name, goal: s.goal || null, share: B.spend / totB, z: test.z,
-          cpaFrom: cpaA, cpaTo: cpaB, purFrom: A.pur, purTo: B.pur, conf: -test.z >= Z_SEG_STRONG ? 'high' : 'medium',
+          cpaFrom: cpaA, cpaTo: cpaB, purFrom: A.pur, purTo: B.pur, spendTo: B.spend, conf: -test.z >= Z_SEG_STRONG ? 'high' : 'medium',
           why: B.pur > 0 ? explainEfficiency(stages, tr, A, B) : null });
       });
     });
@@ -1542,6 +1542,9 @@ var DX = (function () {
     if (s.alsoAs && s.alsoAs.length) lines.push(t('dx.seg.alsoAs', { list: listText(s.alsoAs.map(function (x) { return segName(x.dim, x.key, x.name); })) }));
     var blk = { kind: 'decision', title: onPlat(s.platform, title), lines: lines, after: [t('dx.seg.decide', { seg: name })], conf: s.conf,
       fbKey: (s.platform ? s.platform + ':' : '') + 'seg:' + s.dim + ':' + s.key, seg: { dim: s.dim, key: s.key, platform: s.platform || null } };
+    // الأثر بالفلوس: من غير طلبات = الإنفاق كله، وطلبات أقل من المتوقع = اللي اتصرف زيادة عن تكلفة الطلب في باقي الحساب
+    var extra = s.pur === 0 ? s.spend : s.spend - s.pur * s.restCpa;
+    if (extra > 0) blk.money = { kind: s.pur === 0 ? 'waste' : 'extra', text: M(extra) };
     ctx.stage = s.stage ? s.stage.id : 'any';
     applyPlaybook(blk, ctx.stage, s.dimKind, 'worse', ctx);
     // حملة هدفها «الزيارات»: المنصة بتدوّر على اللي بيضغط مش اللي بيشتري — ده أول سبب يتقال
@@ -1569,6 +1572,9 @@ var DX = (function () {
     if (r.head && (r.head.type === 'stable' || r.head.type === 'withinNoise')) after.push(t('dx.chg.hidden'));
     var blk = { kind: 'watch', title: capFirst(title), lines: lines, bullets: bullets, after: after, conf: c.conf, fbKey: 'chg:' + c.dim + ':' + c.key,
       seg: { dim: c.dim, key: c.key, platform: null } };
+    // الأثر بالفلوس: اللي اتصرف زيادة عن تكلفة الطلب بتاعته في الفترة السابقة (من غير طلبات = الإنفاق كله)
+    var extra = c.spendTo - (c.purTo || 0) * c.cpaFrom;
+    if (extra > 0) blk.money = { kind: c.purTo ? 'extra' : 'waste', text: M(extra) };
     ctx.stage = stage;
     applyPlaybook(blk, stage, c.dimKind, 'worse', ctx);
     return blk;
@@ -1577,9 +1583,11 @@ var DX = (function () {
   // بالإنجليزي العنوان اللي بيبدأ باسم جزء («campaign “X”: ...») بيبدأ بحرف كبير
   function onPlat(platform, title) { return platform ? t('dx.onPlat', { plat: t('dx.plat.' + platform), text: title }) : capFirst(title); }
   function capFirst(s) { return isAr() || !s ? s : s.charAt(0).toUpperCase() + s.slice(1); }
-  function zeroBlock(z) {
+  function zeroBlock(z, M) {
     var days = z.days === 1 ? fmtKey(z.start) : fmtRange(z.start, z.end);
+    // money = الأثر بالفلوس على البند من برّه في «يحتاج انتباهك الآن» (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦)
     return {
+      money: z.spend > 0 ? { kind: 'unrecorded', text: M(z.spend) } : null,
       kind: z.now ? 'urgent' : 'watch', conf: 'high', owner: 'tracking', fbKey: (z.platform ? z.platform + ':' : '') + 'zero:' + z.start,
       title: onPlat(z.platform, z.now ? t('dx.zero.titleNow', { since: fmtKey(z.start) }) : t('dx.zero.titlePast', { days: days })),
       lines: [t('dx.zero.body.' + z.kind, { expected: ordersText(Math.round(z.expected)) })],
@@ -1623,10 +1631,9 @@ var DX = (function () {
     return lines.length ? { kind: 'follow', title: t('dx.follow.title'), lines: lines } : null;
   }
 
-  // الطلبات وتكلفتها في حدود التذبذب بس المبيعات اتغيّرت ٢٥٪ أو أكتر: سطر صريح بالرقم، عشان العنوان «ضمن التذبذب»
-  // ميبانش متجاهل إن المبيعات نصّت (حساب حقيقي: ٢٧٬٥٣٧ ← ١٣٬٢٤٨). «تكرر قبل كده» بس لو فعلاً حصل تغيّر بالحجم ده
-  // بين فترتين متتاليتين في تاريخ الحساب — غير كده بنقول إنه أكبر من المعتاد. متوسط قيمة الطلب حقيقة حسابية مش تخمين
-  // تغيّر المبيعات ٢٥٪ أو أكتر: seen = حصل تغيّر بالحجم ده قبل كده بين فترتين متتاليتين في تاريخ الحساب
+  // تغيّر المبيعات ٢٥٪ أو أكتر والطلبات وتكلفتها مش متغيّرة تغيّر مؤكد: سطر صريح بالفلوس، عشان الشرح ميتجاهلش إن المبيعات
+  // نزلت (حساب حقيقي: ٢٧٬٥٣٧ ← ١٣٬٢٤٨). seen = حصل تغيّر بالحجم ده قبل كده بين فترتين متتاليتين — مبقاش بيتقال للعميل
+  // (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «تكررت في حسابك من قبل» بتقلّل من فرق مقلق محتاج انتباه)
   function revShift(r) {
     var a = r.prev, b = r.cur;
     if (!a || !b || !(a.rev > 0)) return null;
@@ -1641,44 +1648,43 @@ var DX = (function () {
   function revenueLine(r, M) {
     var rv = revShift(r);
     if (!rv) return null;
-    var pct = rv.pct, dir = pct < 0 ? 'Down' : 'Up', h = r.head;
-    var aov = h && h.aov && sign(h.aov.pct) === sign(pct) && Math.abs(h.aov.pct) >= 0.15 ? h.aov : null;
-    return t('dx.noise.rev' + dir + (rv.seen ? '' : 'Rare'),
-      { pct: pctText(pct), aov: aov ? t('dx.noise.aov' + dir, { from: M(aov.from), to: M(aov.to) }) : '' });
+    var a = r.prev, b = r.cur, down = rv.pct < 0, h = r.head;
+    var aov = h && h.aov && sign(h.aov.pct) === sign(rv.pct) && Math.abs(h.aov.pct) >= 0.15 ? h.aov : null;
+    return t('dx.rev.' + (down ? 'down' : 'up'), { from: M(a.rev), to: M(b.rev), pct: pctText(rv.pct), diff: M(Math.abs(b.rev - a.rev)),
+      aov: aov ? t('dx.noise.aov' + (down ? 'Down' : 'Up'), { from: M(aov.from), to: M(aov.to) }) : '' }) + (down ? t('dx.cert.review') : '');
   }
 
-  // «ضمن التذبذب» بالأرقام (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: الحكم كان بيقول «ضمن التذبذب» من غير ما يقول قد إيه).
-  // بنقول احتمال إن فرق بالحجم ده ييجي بالصدفة لوحدها — من نفس اختبار المحرك (z بتاع rateTest)، فعمره ما يناقض الحكم.
-  // جرّبنا الأول «الصدفة ممكن توصل لحد X٪» بس الرقم كان بيطلع ١٨١٪ في حساب ١٦ طلب في الأسبوع — صحيح بس مش مفيد.
-  // التلات درجات: ٢٠٪ أو أكتر = تذبذب عادي، ٥–٢٠٪ = ملحوظ ومش مؤكد، أقل من ٥٪ = مرجّح (والحكم «مؤكد» بس تحت ١٪ — Z_REAL)
   // z → احتمال من ذيل واحد (عكس zFromP) — تقريب Abramowitz–Stegun ٧٫١٫٢٦ (خطأ أقل من ١٠⁻⁷)
   function pFromZ(z) {
     var x = Math.abs(z || 0) / Math.SQRT2, k = 1 / (1 + 0.3275911 * x);
     return k * (0.254829592 + k * (-0.284496736 + k * (1.421413741 + k * (-1.453152027 + k * 1.061405429)))) * Math.exp(-x * x) / 2;
   }
-  // الدرجة من الرقم المقرّب اللي العميل بيشوفه (٤٫٩٪ بتتعرض «٥٪» فمتبقاش «مرجّح»)
+  // درجة التأكد من نفس اختبار المحرك (z): أقل من ٥٪ = الاتجاه واضح ولم يتأكد، ٥–٢٠٪ = إشارة أولية، ٢٠٪ أو أكتر = رقم
+  // بيتقلّب بالقدر ده عادةً بعدد الطلبات ده. «مؤكد» (Z_REAL) بيتقال في العنوان والألوان مش هنا
   function chanceTier(p) { var n = Math.round(p * 100); return n >= 20 ? 'normal' : (n >= 5 ? 'notable' : 'likely'); }
-  // تحت ٢٪ بخانة عشرية (٠٫٩٪ مش «١٪» — وإلا «نحو ١٪» جنب «حد التأكد أقل من ١٪» بتبان تناقض)
-  function chanceText(p) { p = Math.max(0.001, p); return p < 0.02 ? fmtNum(Math.round(p * 1000) / 10, true) + pctSign() : pctText(p); }
-  // حد «التأكد» نفسه (Z_REAL ≈ ٠٫٦٪) — بيتقال في درجة «مرجّح»
-  function limitText() { return chanceText(pFromZ(Z_REAL)); }
-  // سطر تكلفة الطلب: الفرق، واحتمال إنه صدفة — للأحكام الهادية وللتكلفة «غير المؤكدة» في «لماذا؟»
+  // الثقة بكلام تجاري (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: كلمة «الصدفة» ونِسَبها مش مناسبة للعميل) — من غير أرقام احتمالات
+  function certText(z, na, nb) { return t('dx.cert.' + chanceTier(pFromZ(z)), { na: fmtNum(na), nb: fmtNum(nb) }); }
+  // ٢٠٪ أو أكتر = فرق كبير بمقياس البيزنس: لو للأسوأ بنقول إنه يستحق المراجعة الآن حتى لو لسه متأكدش (ملاحظة ١٠ أكتوبر:
+  // «الفرق كبير ومع ذلك يقول ضمن التذبذب» — حجم الفرق هو اللي بيحدد الانتباه، والتأكد بيحدد صياغة الثقة بس)
+  var BIG_MOVE = 0.2;
+  function reviewText(pct, bad) { return bad && Math.abs(pct) >= BIG_MOVE ? t('dx.cert.review') : ''; }
+  // سطر تكلفة الطلب: الفرق بالفلوس، ودرجة التأكد — للأحكام الهادية وللتكلفة «غير المؤكدة» في «لماذا؟»
   function cpaNoiseLine(r, M) {
     var a = r.prev, b = r.cur, h = r.head, cpaA = cpaOf(a), cpaB = cpaOf(b);
     if (!cpaA || !cpaB || h.cpaPct == null || h.dEff !== 0) return null;
-    var v = { from: M(cpaA), to: M(cpaB), pct: pctText(h.cpaPct), na: fmtNum(a.pur), nb: fmtNum(b.pur), limit: limitText() };
+    var v = { from: M(cpaA), to: M(cpaB), pct: pctText(h.cpaPct) };
     if (Math.abs(h.cpaPct) < MIN_PCT) return t('dx.noise.cpaSmall', v);
-    var p = pFromZ(h.effZ);
-    v.p = chanceText(p);
-    return t('dx.noise.cpa.' + (h.cpaPct > 0 ? 'up' : 'down') + '.' + chanceTier(p), v);
+    var up = h.cpaPct > 0;
+    return t('dx.fact.cpa.' + (up ? 'up' : 'down'), v) + ' ' + certText(h.effZ, a.pur, b.pur) + reviewText(h.cpaPct, up);
   }
   function ordersNoiseLine(r) {
     var a = r.prev, b = r.cur, h = r.head;
     if (h.ordPct == null || Math.abs(h.ordPct) < MIN_PCT || h.dOrd !== 0 || h.dSpend !== 0) return null;
-    var p = pFromZ(h.ordersZ);
-    return t('dx.noise.orders.' + (h.ordPct > 0 ? 'up' : 'down') + '.' + chanceTier(p), { from: fmtNum(a.pur), to: fmtNum(b.pur), pct: pctText(h.ordPct), p: chanceText(p), limit: limitText() });
+    var up = h.ordPct > 0;
+    return t('dx.fact.orders.' + (up ? 'up' : 'down'), { from: fmtNum(a.pur), to: fmtNum(b.pur), pct: pctText(h.ordPct) }) + ' ' +
+      certText(h.ordersZ, a.pur, b.pur) + reviewText(h.ordPct, !up);
   }
-  // تراجع «مرجّح» (احتمال الصدفة أقل من ٥٪) بس مش مؤكد: العنوان بيقول «يستحق المتابعة» بدل «ضمن التذبذب المعتاد»
+  // تراجع «واضح الاتجاه» (احتمال الصدفة أقل من ٥٪) بس مش مؤكد ولسه أقل من ٢٠٪: العنوان بيقول «يستحق المتابعة».
   // الربح أولاً: العائد قبل تكلفة الطلب وعدد الطلبات
   function likelyBad(h) {
     var ro = h.roas;
@@ -1687,36 +1693,36 @@ var DX = (function () {
     if (h.dOrd === 0 && h.dSpend === 0 && h.ordPct != null && h.ordPct <= -MIN_PCT && h.ordersZ < 0 && chanceTier(pFromZ(h.ordersZ)) === 'likely') return 'likelyFewer';
     return null;
   }
-  // تحسّن «مرجّح» ومش مؤكد (العائد أو تكلفة الطلب أو الطلبات): «في مستواه المعتاد» كانت بتناقض «فالأرجح أنها زيادة حقيقية»
   function likelyGood(h) {
     var ro = h.roas, L = function (z) { return chanceTier(pFromZ(z)) === 'likely'; };
     return !!((ro && ro.dir === 0 && ro.pct >= MIN_PCT && ro.z > 0 && L(ro.z)) ||
       (h.dEff === 0 && h.cpaPct != null && h.cpaPct <= -MIN_PCT && h.effZ > 0 && L(h.effZ)) ||
       (h.dOrd === 0 && h.dSpend === 0 && h.ordPct != null && h.ordPct >= MIN_PCT && h.ordersZ > 0 && L(h.ordersZ)));
   }
-  // فروق كبيرة (٢٠٪ أو أكتر) في درجة «ملحوظ» (احتمال الصدفة ٥–٢٠٪): العنوان بيسمّيها بأرقامها بدل «ضمن التذبذب المعتاد،
-  // ولا شيء يستدعي تدخّلك» — حساب حقيقي (١٠ أكتوبر ٢٠٢٦): العائد −٤٢٪ وتكلفة الطلب +٥٨٪ وكان العنوان بيقول كده
-  function notableMoves(h) {
-    var out = [];
-    var add = function (key, pct, z) {
-      if (pct == null || Math.abs(pct) < 0.2 || chanceTier(pFromZ(z)) === 'normal') return;
-      out.push(t('dx.move.' + key + (pct > 0 ? '.up' : '.down'), { pct: pctText(pct) }));
+  // الفروق الكبيرة (٢٠٪ أو أكتر) اللي لسه متأكدتش، للعنوان — بترتيب الربح: المبيعات، العائد، تكلفة الطلب، الطلبات
+  function bigMoves(r, h) {
+    var a = r.prev, b = r.cur, bad = [], good = [];
+    var add = function (key, pct, goodUp) {
+      if (pct == null || !isFinite(pct) || Math.abs(pct) < BIG_MOVE) return;
+      ((pct > 0) === goodUp ? good : bad).push(t('dx.move.' + key + (pct > 0 ? '.up' : '.down'), { pct: pctText(pct) }));
     };
-    if (h.roas && !h.roas.dir) add('roas', h.roas.pct, h.roas.z);
-    if (!h.dEff) add('cpa', h.cpaPct, h.effZ);
-    if (!h.dOrd && !h.dSpend) add('orders', h.ordPct, h.ordersZ);
-    return out.length ? listText(out) : null;
+    if (a.rev > 0 && b.rev >= 0) add('sales', b.rev / a.rev - 1, true);
+    if (h.roas) { if (!h.roas.dir) add('roas', h.roas.pct, true); }
+    else if (a.rev > 0 && b.rev > 0 && a.spend > 0 && b.spend > 0) add('roas', (b.rev / b.spend) / (a.rev / a.spend) - 1, true);
+    if (!h.dEff) add('cpa', h.cpaPct, false);
+    if (!h.dOrd && !h.dSpend) add('orders', h.ordPct, true);
+    return { bad: bad, good: good };
   }
-  // بلغة الفلوس: كل ١٠٠ اتصرفت على الإعلانات رجّعت مبيعات قد إيه، مقابل الفترة السابقة. لو العائد اتحرك ١٠٪ أو أكتر
-  // ومش مؤكد: احتمال الصدفة جنبه (عائد نازل ٢٠٪ من غير تعليق وتحته «في مستواه المعتاد» كان بيلخبط)
+  // بلغة الفلوس: كل ١٠٠ اتصرفت على الإعلانات رجّعت مبيعات قد إيه، مقابل الفترة السابقة — ولو العائد اتحرك ١٠٪ أو أكتر
+  // ومش مؤكد: درجة التأكد جنبه
   function moneyLine(r, M) {
     var a = r.prev, b = r.cur, ro = r.head && r.head.roas;
     if (!(a.spend > 0 && b.spend > 0 && a.rev > 0 && b.rev > 0)) return null;
     var v = { base: M(100), to: M(100 * b.rev / b.spend), from: M(100 * a.rev / a.spend) };
     if (!ro || ro.dir !== 0 || Math.abs(ro.pct) < MIN_PCT) return t('dx.money.back', v);
-    var p = pFromZ(ro.z);
-    v.pct = pctText(ro.pct); v.p = chanceText(p); v.limit = limitText();
-    return t('dx.money.' + (ro.pct > 0 ? 'up' : 'down') + '.' + chanceTier(p), v);
+    var up = ro.pct > 0;
+    v.pct = pctText(ro.pct);
+    return t('dx.fact.money.' + (up ? 'up' : 'down'), v) + ' ' + certText(ro.z, a.pur, b.pur) + reviewText(ro.pct, !up);
   }
 
   // الحكم النهائي (العنوان واللون) — الربح أولاً: العائد على الإنفاق والمبيعات قبل عدد الطلبات وتكلفتها.
@@ -1730,14 +1736,14 @@ var DX = (function () {
       return { key: h.type === 'worse' || h.type === 'moreCostly' ? 'roasUpCostlier' : 'roasUp', tone: 'good' };
     }
     if (calm) {
-      var rv = revShift(r);
-      if (rv && rv.pct < 0 && !rv.seen) return { key: 'salesDown', tone: 'mixed', vars: { pct: pctText(rv.pct) } };
+      var mv = bigMoves(r, h), act = actionable ? 'Act' : '';
+      // فرق كبير للأسوأ (المبيعات أو العائد أو تكلفة الطلب أو الطلبات ٢٠٪ أو أكتر): «يستحق المراجعة» بالكهرماني حتى لو لسه
+      // متأكدش (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦). أقصى فرقين في العنوان
+      if (mv.bad.length) return { key: 'review' + act, tone: 'mixed', vars: { moves: listText(mv.bad.slice(0, 2)) } };
       var lk = likelyBad(h);
-      if (lk) return { key: lk + (actionable ? 'Act' : ''), tone: 'mixed' };
+      if (lk) return { key: lk + act, tone: 'mixed' };
       if (likelyGood(h)) return actionable ? { key: 'likelyBetterAct', tone: 'mixed' } : { key: 'likelyBetter', tone: 'neutral' };
-      var nm = notableMoves(h);
-      // رمادي (زي ألوان الأرقام: غير مؤكد = من غير لون) — بالكهرماني كان بيطلع في ١٥–٢٧٪ من أسابيع حسابات مستقرة بالمحاكاة
-      if (nm) return { key: 'notable' + (actionable ? 'Act' : ''), tone: actionable ? 'mixed' : 'neutral', vars: { moves: nm } };
+      if (mv.good.length) return { key: 'notable' + act, tone: actionable ? 'mixed' : 'neutral', vars: { moves: listText(mv.good.slice(0, 2)) } };
       if (actionable) return { key: h.type + 'Act', tone: 'mixed' };
     }
     return { key: h.type, tone: h.tone };
@@ -1773,7 +1779,7 @@ var DX = (function () {
     }
     var h = r.head;
     o.tone = h.tone; o.title = t('dx.head.' + h.type);
-    r.zeroRuns.filter(function (z) { return z.now; }).forEach(function (z) { o.blocks.push(zeroBlock(z)); });
+    r.zeroRuns.filter(function (z) { return z.now; }).forEach(function (z) { o.blocks.push(zeroBlock(z, M)); });
     var calm = h.type === 'stable' || h.type === 'withinNoise';
     var why = calm ? null : whyBlock(r, M), calmBlock = null;
     if (why) o.blocks.push(why);
@@ -1802,7 +1808,7 @@ var DX = (function () {
     if (oth) o.blocks.push(oth);
     r.segments.filter(function (s) { return s.kind === 'under'; }).slice(0, 3).forEach(function (s) { o.blocks.push(segBlock(s, M)); });
     (r.changes || []).forEach(function (c) { o.blocks.push(changeBlock(c, r, M)); });
-    r.zeroRuns.filter(function (z) { return !z.now; }).forEach(function (z) { o.blocks.push(zeroBlock(z)); });
+    r.zeroRuns.filter(function (z) { return !z.now; }).forEach(function (z) { o.blocks.push(zeroBlock(z, M)); });
     var opp = oppBlock(r, M);
     if (opp) o.blocks.push(opp);
     r.segments.filter(function (s) { return s.kind === 'over'; }).slice(0, 2).forEach(function (s) { o.blocks.push(overBlock(s, M)); });
@@ -1825,13 +1831,14 @@ var DX = (function () {
       var calmOk = !tl || tl.level === 'above';
       if (calmOk && fh.key === h.type) calmBlock.lines.push(t('dx.verdict.calm'));
       else if (calmOk && fh.key === h.type + 'Act') calmBlock.lines.push(t('dx.verdict.calmAct'));
-      else if (/^notable/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.notable'));
+      else if (/^review/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.review'));
+      else if (/^notable/.test(fh.key)) { if (calmOk) calmBlock.lines.push(t('dx.verdict.notableGood')); }
       else if (/^likelyBetter/.test(fh.key)) { if (calmOk) calmBlock.lines.push(t('dx.verdict.likelyBetter')); }
       else if (/^likely/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.watch' + ({ Worse: 'Cpa', Fewer: 'Orders', Roas: 'Roas' })[fh.key.replace(/^likely|Act$/g, '')]));
     }
     // الشرح الأساسي للحكم بيتعرض ظاهر تحت الأرقام مش مطوي (ملاحظة ١٠ أكتوبر) — رقمه في البلوكات
     o.main = mainBlock ? o.blocks.indexOf(mainBlock) : -1;
-    o.notes.push(t('dx.note.attribution'));
+    // جملة «الطلبات والمبيعات هنا كما سجّلتها المنصة…» اتشالت (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: مالهاش أهمية هنا) — الشرح في /help#compare
     return o;
   }
 

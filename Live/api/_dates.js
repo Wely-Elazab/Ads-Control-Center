@@ -35,7 +35,7 @@ export function last7DaysRange(tz) {
 
 // ---------- فترة البيانات اللي المستخدم اختارها ----------
 // بتتحسب بتوقيت الحساب نفسه (نفس منطق الواجهة بالظبط). أقصى مدة ٩٣ يوم عشان الطلبات تفضل سريعة.
-// last7 بيرجّع null — الواجهة بتحسبها من بيانات آخر ٧ أيام اللي بتتجاب أصلاً، من غير طلب إضافي
+// كل الفترات (حتى آخر ٧ أيام) بتتجاب مجاميعها لوحدها: النافذة اليومية فيها النهارده، والفترة أيام مكتملة بس
 const PERIOD_MAX_DAYS = 93;
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 // تاريخ حقيقي بالشكل YYYY-MM-DD — «2026-02-31» أو «2026-13-01» مبتتقبلش (كانت بتتبعت للمنصة وترجع خطأ)
@@ -47,15 +47,16 @@ export function daysBetweenKeys(a, b) {
 }
 
 export function resolvePeriod(period, tz) {
-  const today = todayKeyInTz(tz);
+  const today = todayKeyInTz(tz), yesterday = shiftDateKey(today, -1);
   const preset = (period && period.preset) || 'last7';
-  // الفترات المتحركة = أيام مكتملة + النهارده (نفس resolvePeriodFor في js/core.js)
-  let since = shiftDateKey(today, -7), until = today;
-  if (preset === 'today') { since = today; }
-  else if (preset === 'yesterday') { since = until = shiftDateKey(today, -1); }
+  // الفترات المتحركة = أيام مكتملة بس، والنهارده منفصل (نفس resolvePeriodFor في js/core.js — ١٠ أكتوبر ٢٠٢٦).
+  // isDefault دايماً false: مجاميع الفترة بتتجاب لوحدها (النافذة اليومية فيها النهارده)
+  let since = shiftDateKey(today, -7), until = yesterday;
+  if (preset === 'today') { since = until = today; }
+  else if (preset === 'yesterday') { since = until = yesterday; }
   else if (preset === 'last14') { since = shiftDateKey(today, -14); }
   else if (preset === 'last30') { since = shiftDateKey(today, -30); }
-  else if (preset === 'thisMonth') { since = today.slice(0, 8) + '01'; }
+  else if (preset === 'thisMonth') { since = today.slice(0, 8) + '01'; if (since > until) until = today; }
   else if (preset === 'lastMonth') {
     until = shiftDateKey(today.slice(0, 8) + '01', -1);
     since = until.slice(0, 8) + '01';
@@ -65,10 +66,10 @@ export function resolvePeriod(period, tz) {
     if (until > today) until = today;
     if (since > until) since = until;
   } else if (preset !== 'last7') {
-    return { preset: 'last7', since: shiftDateKey(today, -7), until: today, isDefault: true };
+    return { preset: 'last7', since: shiftDateKey(today, -7), until: yesterday, isDefault: false };
   }
   if (daysBetweenKeys(since, until) > PERIOD_MAX_DAYS - 1) since = shiftDateKey(until, -(PERIOD_MAX_DAYS - 1));
-  return { preset: preset, since: since, until: until, isDefault: preset === 'last7' };
+  return { preset: preset, since: since, until: until, isDefault: false };
 }
 
 function isValidTz(tz) {
