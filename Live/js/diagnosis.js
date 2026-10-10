@@ -1464,7 +1464,7 @@ var DX = (function () {
     if (shift && h.dSpend !== 0) lines.push(t(shift.dir > 0 ? 'dx.vol.otherUp' : 'dx.vol.otherDown', { pct: pctText(shift.share) }));
     // تكلفة الطلب اتحركت كتير بس في حدود تذبذب الحساب: نقول الرقم، ومن غير سبب
     if (!w && h.effUncertain && !byBudget) {
-      lines.push(t('dx.eff.uncertain', { from: M(cpaOf(r.prev)), to: M(cpaOf(r.cur)) }));
+      lines.push(cpaNoiseLine(r, M) || t('dx.eff.uncertain', { from: M(cpaOf(r.prev)), to: M(cpaOf(r.cur)) }));
       // الترتيب بين الفترات حقيقة مش استنتاج — بيتقال حتى لو الفرق نفسه في حدود التذبذب
       if (h.rank) lines.push(t('dx.rank.' + h.rank.kind, { n: periodsText(h.rank.n, r.len) }));
     }
@@ -1644,6 +1644,55 @@ var DX = (function () {
       { pct: pctText(pct), aov: aov ? t('dx.noise.aov' + dir, { from: M(aov.from), to: M(aov.to) }) : '' });
   }
 
+  // «ضمن التذبذب» بالأرقام (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: الحكم كان بيقول «ضمن التذبذب» من غير ما يقول قد إيه).
+  // بنقول احتمال إن فرق بالحجم ده ييجي بالصدفة لوحدها — من نفس اختبار المحرك (z بتاع rateTest)، فعمره ما يناقض الحكم.
+  // جرّبنا الأول «الصدفة ممكن توصل لحد X٪» بس الرقم كان بيطلع ١٨١٪ في حساب ١٦ طلب في الأسبوع — صحيح بس مش مفيد.
+  // التلات درجات: ٢٠٪ أو أكتر = تذبذب عادي، ٥–٢٠٪ = ملحوظ ومش مؤكد، أقل من ٥٪ = مرجّح (والحكم «مؤكد» بس تحت ١٪ — Z_REAL)
+  // z → احتمال من ذيل واحد (عكس zFromP) — تقريب Abramowitz–Stegun ٧٫١٫٢٦ (خطأ أقل من ١٠⁻⁷)
+  function pFromZ(z) {
+    var x = Math.abs(z || 0) / Math.SQRT2, k = 1 / (1 + 0.3275911 * x);
+    return k * (0.254829592 + k * (-0.284496736 + k * (1.421413741 + k * (-1.453152027 + k * 1.061405429)))) * Math.exp(-x * x) / 2;
+  }
+  // الدرجة من الرقم المقرّب اللي العميل بيشوفه (٤٫٩٪ بتتعرض «٥٪» فمتبقاش «مرجّح»)
+  function chanceTier(p) { var n = Math.round(p * 100); return n >= 20 ? 'normal' : (n >= 5 ? 'notable' : 'likely'); }
+  function chanceText(p) { return pctText(Math.max(0.01, p)); }
+  // سطر تكلفة الطلب: الفرق، واحتمال إنه صدفة — للأحكام الهادية وللتكلفة «غير المؤكدة» في «لماذا؟»
+  function cpaNoiseLine(r, M) {
+    var a = r.prev, b = r.cur, h = r.head, cpaA = cpaOf(a), cpaB = cpaOf(b);
+    if (!cpaA || !cpaB || h.cpaPct == null || h.dEff !== 0) return null;
+    var v = { from: M(cpaA), to: M(cpaB), pct: pctText(h.cpaPct), na: fmtNum(a.pur), nb: fmtNum(b.pur) };
+    if (Math.abs(h.cpaPct) < MIN_PCT) return t('dx.noise.cpaSmall', v);
+    var p = pFromZ(h.effZ);
+    v.p = chanceText(p);
+    return t('dx.noise.cpa.' + (h.cpaPct > 0 ? 'up' : 'down') + '.' + chanceTier(p), v);
+  }
+  function ordersNoiseLine(r) {
+    var a = r.prev, b = r.cur, h = r.head;
+    if (h.ordPct == null || Math.abs(h.ordPct) < MIN_PCT || h.dOrd !== 0 || h.dSpend !== 0) return null;
+    var p = pFromZ(h.ordersZ);
+    return t('dx.noise.orders.' + (h.ordPct > 0 ? 'up' : 'down') + '.' + chanceTier(p), { from: fmtNum(a.pur), to: fmtNum(b.pur), pct: pctText(h.ordPct), p: chanceText(p) });
+  }
+  // تراجع «مرجّح» (احتمال الصدفة أقل من ٥٪) بس مش مؤكد: العنوان بيقول «يستحق المتابعة» بدل «ضمن التذبذب المعتاد»
+  // الربح أولاً: العائد قبل تكلفة الطلب وعدد الطلبات
+  function likelyBad(h) {
+    var ro = h.roas;
+    if (ro && ro.dir === 0 && ro.pct <= -MIN_PCT && ro.z < 0 && chanceTier(pFromZ(ro.z)) === 'likely') return 'likelyRoas';
+    if (h.dEff === 0 && h.cpaPct != null && h.cpaPct >= MIN_PCT && h.effZ < 0 && chanceTier(pFromZ(h.effZ)) === 'likely') return 'likelyWorse';
+    if (h.dOrd === 0 && h.dSpend === 0 && h.ordPct != null && h.ordPct <= -MIN_PCT && h.ordersZ < 0 && chanceTier(pFromZ(h.ordersZ)) === 'likely') return 'likelyFewer';
+    return null;
+  }
+  // بلغة الفلوس: كل ١٠٠ اتصرفت على الإعلانات رجّعت مبيعات قد إيه، مقابل الفترة السابقة. لو العائد اتحرك ١٠٪ أو أكتر
+  // ومش مؤكد: احتمال الصدفة جنبه (عائد نازل ٢٠٪ من غير تعليق وتحته «في مستواه المعتاد» كان بيلخبط)
+  function moneyLine(r, M) {
+    var a = r.prev, b = r.cur, ro = r.head && r.head.roas;
+    if (!(a.spend > 0 && b.spend > 0 && a.rev > 0 && b.rev > 0)) return null;
+    var v = { base: M(100), to: M(100 * b.rev / b.spend), from: M(100 * a.rev / a.spend) };
+    if (!ro || ro.dir !== 0 || Math.abs(ro.pct) < MIN_PCT) return t('dx.money.back', v);
+    var p = pFromZ(ro.z);
+    v.pct = pctText(ro.pct); v.p = chanceText(p);
+    return t('dx.money.' + (ro.pct > 0 ? 'up' : 'down') + '.' + chanceTier(p), v);
+  }
+
   // الحكم النهائي (العنوان واللون) — الربح أولاً: العائد على الإنفاق والمبيعات قبل عدد الطلبات وتكلفتها.
   // actionable = تحت فيه حاجة محتاجة قرار (عاجل، يحتاج قرارك، تغيّر حاد) — فالعنوان ميقولش «لا شيء يستدعي تدخّلك»
   // (محاكاة: ٢١ من ٣٠ حساب فيهم دولة ضعيفة كان عنوانهم «لا تغيّر يستدعي تدخّلك» وتحته «يحتاج قرارك»)
@@ -1657,6 +1706,8 @@ var DX = (function () {
     if (calm) {
       var rv = revShift(r);
       if (rv && rv.pct < 0 && !rv.seen) return { key: 'salesDown', tone: 'mixed', vars: { pct: pctText(rv.pct) } };
+      var lk = likelyBad(h);
+      if (lk) return { key: lk + (actionable ? 'Act' : ''), tone: 'mixed' };
       if (actionable) return { key: h.type + 'Act', tone: 'mixed' };
     }
     return { key: h.type, tone: h.tone };
@@ -1698,8 +1749,12 @@ var DX = (function () {
     if (why) o.blocks.push(why);
     else if (calm) {
       var rev = revenueLine(r, M);
+      // الفروق بالأرقام والحد اللي كان لازم تعدّيه (ملاحظة ١٠ أكتوبر) — والجملة العامة بس لو مفيش أرقام نقولها
+      var noise = [cpaNoiseLine(r, M), ordersNoiseLine(r)].filter(Boolean);
+      var first = !noise.length ? [h.dSpend !== 0 ? t('dx.stable.spend', { pct: pctText(h.spendPct) }) : t('dx.stable')]
+        : (h.dSpend !== 0 ? [t(h.spendPct > 0 ? 'dx.vol.spend.up' : 'dx.vol.spend.down', { pct: pctText(h.spendPct) })] : []).concat(noise);
       calmBlock = { kind: 'note', title: t('dx.head.' + h.type),
-        lines: [h.dSpend !== 0 ? t('dx.stable.spend', { pct: pctText(h.spendPct) }) : t('dx.stable')]
+        lines: first
           .concat(rev ? [rev] : [])
           .concat(h.dSpend !== 0 && r.other && r.other.spendShift ? [t(r.other.spendShift.dir > 0 ? 'dx.vol.otherUp' : 'dx.vol.otherDown', { pct: pctText(r.other.spendShift.share) })] : [])
           .concat(ownerLines(r)) };
@@ -1710,6 +1765,9 @@ var DX = (function () {
     if (mainBlock && h.roas && h.roas.dir) {
       mainBlock.lines.unshift(t(h.roas.dir > 0 ? 'dx.roas.up' : 'dx.roas.down', { from: roasStr(h.roas.from), to: roasStr(h.roas.to), pct: pctText(h.roas.pct) }));
     }
+    // كل ١٠٠ اتصرفت رجّعت كام مبيعات — الشرح التجاري (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): أول سطر، أو بعد سطر العائد لو اتغيّر فعلاً
+    var ml = mainBlock && moneyLine(r, M);
+    if (ml) mainBlock.lines.splice(h.roas && h.roas.dir ? 1 : 0, 0, ml);
     var oth = otherBlock(r, M);
     if (oth) o.blocks.push(oth);
     r.segments.filter(function (s) { return s.kind === 'under'; }).slice(0, 3).forEach(function (s) { o.blocks.push(segBlock(s, M)); });
@@ -1730,7 +1788,17 @@ var DX = (function () {
       if (tl.level === 'loss') { if (o.tone === 'good' || o.tone === 'neutral') o.title = t('dx.head.belowBE'); o.tone = 'bad'; }
       else if (tl.level === 'below' && (o.tone === 'good' || o.tone === 'neutral')) o.tone = 'mixed';
     }
-    if (calmBlock) calmBlock.title = o.title;
+    if (calmBlock) {
+      calmBlock.title = o.title;
+      // الخلاصة: الحساب ككل في مستواه — بس لو مفيش حاجة تناقضها (تحت حد الخسارة أو المستهدف، أو المبيعات نزلت)
+      if (!tl || tl.level === 'above') {
+        if (fh.key === h.type) calmBlock.lines.push(t('dx.verdict.calm'));
+        else if (fh.key === h.type + 'Act') calmBlock.lines.push(t('dx.verdict.calmAct'));
+        else if (/^likely/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.watch' + ({ Worse: 'Cpa', Fewer: 'Orders', Roas: 'Roas' })[fh.key.replace(/^likely|Act$/g, '')]));
+      }
+    }
+    // الشرح الأساسي للحكم بيتعرض ظاهر تحت الأرقام مش مطوي (ملاحظة ١٠ أكتوبر) — رقمه في البلوكات
+    o.main = mainBlock ? o.blocks.indexOf(mainBlock) : -1;
     o.notes.push(t('dx.note.attribution'));
     return o;
   }

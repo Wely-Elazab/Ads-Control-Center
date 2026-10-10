@@ -3269,7 +3269,9 @@
       window.FB = fakeFB({ '/act/ads:ACTIVE': { data: [] }, '/act/ads:PAUSED': { data: [metaAd('P9', 'PAUSED')] } });
       accountInfo['meta:act_8'] = { timeZone: 'UTC' };
       loadAdsForAccount('act_8');
-      return sleep(80).then(function () {
+      // بنستنى التحميل يخلص (لحد ٢ ثانية) بدل ٨٠ مللي ثابتة — كانت بتفشل أحياناً لما الجهاز مشغول
+      var settle = function (n) { return sleep(40).then(function () { return loadingPlatforms.meta && n > 0 ? settle(n - 1) : null; }); };
+      return settle(50).then(function () {
         restore();
         eq(candidates.map(function (c) { return c.id; }), ['P9']);
         ok(!platformState.meta, 'not marked empty');
@@ -3933,6 +3935,49 @@
     test('الألوان (أخضر/أحمر) على الأرقام بس لو التغيّر حقيقي', function () {
       var calm = scenarios()[0];
       ok(DX.compose(calm).kpis.every(function (k) { return !k.sig; }), 'no colours on a steady account');
+    });
+    // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «ضمن التذبذب» من غير أرقام، والشرح مطوي ومكانه مش واضح
+    var arNum = function (s) { return Number(String(s).replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); }).replace('٫', '.')); };
+    test('«ضمن التذبذب» بالأرقام: احتمال الصدفة ودرجته متسقين (عادي ٢٠٪+، ملحوظ ٥–٢٠٪، مرجّح تحت ٥٪) — ٤٠ حساب مستقر', function () {
+      var seen = 0, bad = [], tiers = {};
+      withLang('ar', function () {
+        for (var s = 1; s <= 40; s++) {
+          var r = DX.analyze(DX_SIM.simulate({ seed: s * 7919, spend: 400 }));
+          if (r.status !== 'ok') continue;
+          var o = DX.compose(r);
+          o.blocks.forEach(function (b) {
+            (b.lines || []).forEach(function (l) {
+              var m = l.match(/بالصدفة وحدها (?:إلا )?في نحو ([٠-٩]+)٪/);
+              if (!m) return;
+              seen++;
+              var p = arNum(m[1]), tier = /تذبذب عادي/.test(l) ? 'normal' : (/فالأرجح/.test(l) ? 'likely' : 'notable');
+              tiers[tier] = (tiers[tier] || 0) + 1;
+              if ((tier === 'normal') !== (p >= 20) || (tier === 'likely') !== (p < 5)) bad.push(l);
+              // مرجّح وفي الاتجاه السيئ = العنوان «يستحق المتابعة» مش «ضمن التذبذب المعتاد»
+              if (tier === 'likely' && /^(تكلفة الطلب.*\(أعلى بـ|الطلبات.*\(أقل بـ|كل .*\(أقل بـ)/.test(l) && b.kind === 'note' && !/يستحق المتابعة/.test(o.title) && !/مبيعات|العائد|حد الخسارة/.test(o.title)) bad.push('title: ' + o.title);
+            });
+          });
+        }
+      });
+      ok(seen >= 5, 'noise lines seen: ' + seen + ' ' + JSON.stringify(tiers));
+      eq(bad, []);
+    });
+    test('سبب الحكم ظاهر بين الأرقام والتنبيهات بلون الحكم، ومبيتكررش في الشرح المطوي', function () {
+      var r = scenarios()[0];
+      try {
+        DX_ON = true; activeSources.meta = 'act_1';
+        dxState = { status: 'ready', key: 'k', report: r, account: 'Store', accountId: 'meta:act_1' };
+        withLang('ar', function () { renderDiagnosis(); });
+        var o = dxState.composed, box = document.querySelector('#dxVerdict .dx-verdict');
+        ok(o.main >= 0 && box, 'verdict box shown');
+        ok(box.classList.contains(o.tone), 'coloured by the verdict');
+        ok(/كل ١٠٠ /.test(box.textContent), 'money line: ' + box.textContent.slice(0, 120));
+        ok(!document.querySelector('#dxMore').textContent.includes(o.blocks[o.main].lines[0]), 'not repeated in the folds');
+        var ids = ['dxToday', 'dxVerdict', 'topAlerts'].map(function (id) { return document.getElementById(id); });
+        ok(ids[0].compareDocumentPosition(ids[1]) & 4 && ids[1].compareDocumentPosition(ids[2]) & 4, 'between the numbers and the alerts');
+      } finally {
+        DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
+      }
     });
   });
 

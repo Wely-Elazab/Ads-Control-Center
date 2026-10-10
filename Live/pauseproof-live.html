@@ -686,6 +686,14 @@
   .dx-headline { margin: 0 0 12px; font-size: 16px; font-weight: 700; line-height: 1.5; }
   /* العائد مقارنةً بالمستهدف وحد الخسارة (الربح أولاً) — تحت العنوان مباشرةً */
   .dx-basis { margin: -6px 0 12px; font-size: 13px; line-height: 1.7; color: var(--ink-soft); }
+  /* سبب الحكم: خلفية بلون الحكم عشان يبان إنه الكلام المهم */
+  .dx-verdict { margin-top: 12px; border-radius: var(--radius); padding: 14px 18px; background: var(--sending-bg); border-inline-start: 4px solid var(--ink-faint); }
+  .dx-verdict.good { background: var(--verified-bg); border-inline-start-color: var(--verified); }
+  .dx-verdict.bad { background: var(--alert-bg); border-inline-start-color: var(--alert); }
+  .dx-verdict.mixed { background: var(--pending-bg); border-inline-start-color: var(--pending); }
+  .dx-verdict-title { margin: 0 0 6px; font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+  .dx-verdict > .dx-block { background: transparent; border: none; padding: 0; margin: 0; }
+  .dx-verdict > .dx-block p { font-size: 14px; line-height: 1.8; }
   /* ستة أرقام: ٣ في الصف على الكمبيوتر، و٢ على الهاتف */
   .dx-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
   @media (max-width: 560px) { .dx-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -933,6 +941,8 @@
         <div id="dxBody" aria-live="polite"></div>
         <div class="kpi-strip" id="kpiStrip"></div>
         <div class="dx-today" id="dxToday"></div>
+        <!-- سبب الحكم: ظاهر بين الأرقام والتنبيهات مش مطوي (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) -->
+        <div class="dx-verdict-wrap" id="dxVerdict"></div>
         <div class="top-alerts" id="topAlerts"></div>
         <div class="dx-more" id="dxMore"></div>
       </section>

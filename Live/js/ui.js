@@ -1252,6 +1252,7 @@
     if (!o) {
       body.innerHTML = dxOn ? '<p class="dx-wait">' + esc(t(loading ? 'dx.loading' : 'dx.failed')) + '</p>' : '';
       body.setAttribute('aria-busy', loading ? 'true' : 'false');
+      renderVerdict(null);
       renderDxMore(null, renderTopAlerts(null));
       return;
     }
@@ -1271,7 +1272,17 @@
     body.innerHTML = tabs + more + '<div class="dx-head ' + esc(o.tone) + '"><p class="dx-headline">' + esc(o.title) + '</p>' +
       (o.basis ? '<p class="dx-basis">' + esc(o.basis) + '</p>' : '') +
       (nums ? '<div class="dx-kpis">' + o.kpis.map(dxKpiHtml).join('') + '</div>' : '') + '</div>';
+    renderVerdict(o);
     renderDxMore(o, renderTopAlerts(o));
+  }
+  // سبب الحكم ظاهر بلون الحكم بين الأرقام والتنبيهات (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: كان مطوي تحت «تفاصيل الحكم»
+  // ومكانه مش واضح) — والشرح المطوي تحت مبيكررهوش (renderDxMore)
+  function renderVerdict(o) {
+    var el = document.getElementById('dxVerdict');
+    if (!el) return;
+    var b = o && o.main >= 0 ? o.blocks[o.main] : null;
+    el.innerHTML = b ? '<div class="dx-verdict ' + esc(o.tone) + '"><p class="dx-verdict-title">' + esc(t('dx.verdict.title')) + '</p>' +
+      dxBlockHtml(b, o.main, true) + '</div>' : '';
   }
   // منصات العرض الظاهر في الملخص («كل المنصات» = المنصات اللي ملخصها جاهز) — null = مفيش عروض، كل الإعلانات
   function dxViewPlatforms() {
@@ -1331,7 +1342,7 @@
     var el = document.getElementById('dxMore');
     if (!o) { el.innerHTML = ''; return; }
     el.innerHTML = o.blocks.map(function (b, i) {
-      if (shown[i]) return '';
+      if (shown[i] || i === o.main) return '';
       var key = foldKey(b);
       var kind = DX_KIND_LABEL[b.kind] ? '<span class="dx-kind">' + esc(t(DX_KIND_LABEL[b.kind])) + '</span>' : '';
       return '<details class="dx-fold dx-' + b.kind + '" data-fold="' + esc(key) + '"' + (foldOpen[key] ? ' open' : '') + '><summary>' + kind +
