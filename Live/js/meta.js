@@ -237,14 +237,14 @@
       level: 'ad', time_range: JSON.stringify({ since: since, until: until }), fields: 'ad_id,spend,actions,optimization_goal', limit: 500
     }, FULL_SCAN_CAP).then(function (res) {
       if (!live() || !res || res.err || res.truncated) return;
-      var w = { since: since, until: until, spend: 0, total: 0, ads: 0, ids: [], currency: currency };
+      var w = { since: since, until: until, spend: 0, total: 0, ads: 0, ids: [], spendById: {}, currency: currency };
       res.data.forEach(function (row) {
         var sp = num(row.spend), goal = GOAL_TO_ACTION[row.optimization_goal];
         w.total += sp;
         if (!(sp > 0) || !goal || goal[0].key !== 'purchase') return;
         var p = valueForType(row.actions, 'omni_purchase');
         if (p == null) p = valueForType(row.actions, 'purchase');
-        if (!(p > 0)) { w.spend += sp; w.ads++; w.ids.push(String(row.ad_id)); }
+        if (!(p > 0)) { w.spend += sp; w.ads++; w.ids.push(String(row.ad_id)); w.spendById[String(row.ad_id)] = sp; }
       });
       monthWaste[source] = w;
       render();

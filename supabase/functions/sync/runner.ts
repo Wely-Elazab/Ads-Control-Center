@@ -182,7 +182,7 @@ function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Targe
   const source = 'meta:' + accountId;
   const meta = {
     [source]: {
-      label: 'Meta — ' + (acct.name || accountId), currency: acct.currency || null,
+      label: 'Meta — ' + (acct.name || accountId), currency: acct.currency || null, timeZone: acct.timezone_name || null,
       metaAccountStatus: acct.account_status != null ? Number(acct.account_status) : null,
       spendCapReached: Number(acct.spend_cap) > 0 && Number(acct.amount_spent) >= Number(acct.spend_cap),
       spendCap: Number(acct.spend_cap) || 0, amountSpent: Number(acct.amount_spent) || 0

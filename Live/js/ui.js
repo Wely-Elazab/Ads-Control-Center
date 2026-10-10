@@ -296,7 +296,7 @@
       (platformOptions[p] || []).forEach(function (o) {
         var info = accountInfo[p + ':' + o.value] || {};
         meta[p + ':' + o.value] = {
-          label: o.label, currency: info.currency || null,
+          label: o.label, currency: info.currency || null, timeZone: info.timeZone || null,
           metaAccountStatus: p === 'meta' && info.accountStatus != null ? Number(info.accountStatus) : null,
           // حد الصرف على الحساب: لما يتقفل، Meta بتوقف كل الإعلانات — بيظهر كتنبيه على مستوى الحساب
           spendCapReached: !!(p === 'meta' && Number(info.spendCap) > 0 && Number(info.amountSpent) >= Number(info.spendCap)),
@@ -1667,8 +1667,11 @@
     if (w && w.spend > 0) {
       var src = 'meta:' + activeSources.meta, ids = {};
       (w.ids || []).forEach(function (id) { ids[id] = 1; });
-      var live = candidates.filter(function (c) { return c.source === src && c.active && ids[String(c.nativeId || c.id)]; }).length;
-      month = { w: w, live: live };
+      // الشغّالة منها وإنفاقها في الشهر (مراجعة ١١ أكتوبر ٢٠٢٦: «النشط منها ١٤» من غير مبلغ مكانش بيقول قد إيه على المحك — وكانت
+      // كلها «عُدّل مؤخراً» فمش ظاهرة كهدر فوق)
+      var liveAds = candidates.filter(function (c) { return c.source === src && c.active && ids[String(c.nativeId || c.id)]; });
+      var liveSpend = liveAds.reduce(function (s, c) { return s + ((w.spendById || {})[String(c.nativeId || c.id)] || 0); }, 0);
+      month = { w: w, live: liveAds.length, liveSpend: liveSpend };
     }
     return { n: n, found: found, daily: daily, orders: orders, month: month };
   }
@@ -1688,7 +1691,7 @@
       var w = d.month.w, plat = PLATFORMS.filter(isConnected).length > 1 ? ' (Meta)' : '';
       tiles += tile('', t('waste.month.k', { since: fmtKey(w.since) }) + plat, money(w.spend, w.currency),
         t('waste.month.s', { n: ar(w.ads), pct: ar(Math.round(w.total > 0 ? w.spend / w.total * 100 : 0)) + (isAr() ? '٪' : '%'),
-          live: d.month.live ? t('waste.month.live', { n: ar(d.month.live) }) : '' }));
+          live: d.month.live ? t('waste.month.live', { n: ar(d.month.live), v: money(d.month.liveSpend, w.currency) }) : '' }));
     }
     return '<div class="waste-panel' + (d.n ? ' has-risk' : '') + '"><p class="waste-title">' + esc(t(d.n ? 'waste.title' : 'waste.titleMonth')) + '</p>' +
       '<div class="waste-tiles">' + tiles + '</div>' +
@@ -1752,7 +1755,7 @@
   // التكرار: آخر ٣٠ يوماً ومنذ الإطلاق (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «آخر ٧ أيام مش مفيد») — بيوصلوا في الخلفية
   // (meta.js loadLifeFrequency)، ولحد ما ييجوا آخر ٧ أيام باسمه. قاعدة تشبّع الجمهور لسه على ٧ أيام ونص التنبيه بيقول فترته
   function freqBox(c) {
-    var times = function (f) { return numAr(f) + ' ' + I18N.measureNoun(f, 'n.time'); };
+    var times = function (f) { return I18N.timesText(f, numAr); };
     var has30 = c.frequency30 != null;
     var life = c.frequencyLife != null ? '<div class="metric-sub">' + esc(t('x.freqLife', { v: times(c.frequencyLife) })) + '</div>' : '';
     return metricBox(t(has30 ? 'x.freq30' : 'x.freq'), times(has30 ? c.frequency30 : c.frequency) + life, mv(c, 'frequency'));

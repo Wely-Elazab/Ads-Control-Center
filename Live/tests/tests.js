@@ -735,9 +735,38 @@
       eq(I18N.resultAny('lead'), 'عملاء محتملين'); eq(t('res.lead'), 'عملاء محتملون', 'standalone label stays nominative');
       withLang('en', function () { eq(I18N.resultNoun(15, 'lead'), t('res.lead')); eq(I18N.resultAny('lead'), t('res.lead')); });
     });
+    // مراجعة ١١ أكتوبر ٢٠٢٦ (حساب حقيقي): مبلغ مستحق غير مسدّد وصفر إنفاق الساعة ١٠ بالليل، والتنبيه كان بيقول «قد تتوقف»
+    test('مشكلة الحساب والإنفاق وقف النهارده بعد الضهر: «الأرجح أن الإعلانات توقفت بالفعل» — وقبل الضهر أو فيه صرف: لا', function () {
+      // منطقة زمنية الساعة فيها دلوقتي بين ١ و١٠ بالليل، وتانية الساعة فيها الصبح
+      var tzAt = function (target) {
+        var off = target - new Date().getUTCHours();
+        if (off > 14) off -= 24;
+        if (off < -12) off += 24;
+        return 'Etc/GMT' + (off > 0 ? '-' + off : '+' + (-off));
+      };
+      var stopped = ad('S1', { daily: [100, 100, 100, 100, 100, 100, 0], res: [2, 2, 2, 2, 2, 2, 0], sales: [400, 400, 400, 400, 400, 400, 0] });
+      var spending = ad('S2', { daily: [100, 100, 100, 100, 100, 100, 30], res: [2, 2, 2, 2, 2, 2, 1], sales: [400, 400, 400, 400, 400, 400, 200] });
+      var acctAlert = function (c, tz) {
+        var r = engine([c], { 'meta:act_1': { label: 'Shop', currency: 'SAR', metaAccountStatus: 3, timeZone: tz } });
+        return r.alerts.filter(function (a) { return a.code === 'acct-status'; })[0];
+      };
+      withLang('ar', function () {
+        var late = acctAlert(stopped, tzAt(18)), morning = acctAlert(stopped, tzAt(8)), live = acctAlert(spending, tzAt(18)), noTz = acctAlert(stopped, null);
+        ok(/توقفت بالفعل/.test(late.detail) && /مساءً/.test(late.detail) && /١٠٠ ر\.س يومياً/.test(late.detail), late.detail);
+        ok(!/توقفت بالفعل/.test(morning.detail), 'morning: ' + morning.detail);
+        ok(!/توقفت بالفعل/.test(live.detail), 'still spending: ' + live.detail);
+        ok(!/توقفت بالفعل/.test(noTz.detail), 'no time zone');
+      });
+    });
     test('المرات والأيام: «٧ مرات» و«٤٫٥ مرة» و«منذ ١٠٠ يوم»', function () {
       eq(I18N.measureNoun(7, 'n.time'), 'مرات'); eq(I18N.measureNoun(4.5, 'n.time'), 'مرة'); eq(I18N.measureNoun(12, 'n.time'), 'مرة');
       withLang('en', function () { eq(I18N.measureNoun(4.5, 'n.time'), 'times'); eq(I18N.measureNoun(1, 'n.time'), 'time'); });
+      // المراجعة (١١ أكتوبر ٢٠٢٦): «٢ مرة» و«١ مرة» كانوا بيظهروا في التكرار
+      withLang('ar', function () {
+        eq([1, 1.96, 2, 2.04, 2.5, 3, 11].map(function (v) { return I18N.timesText(v, numAr); }), ['مرة واحدة', 'مرتان', 'مرتان', 'مرتان', '٢٫٥ مرة', '٣ مرات', '١١ مرة']);
+        eq(I18N.timesText(2, numAr, true), 'مرتين');
+      });
+      withLang('en', function () { eq([1, 2, 2.5].map(function (v) { return I18N.timesText(v, numAr); }), ['1 time', '2 times', '2.5 times']); });
       eq(sinceLabel(100), 'منذ ١٠٠ يوم'); eq(sinceLabel(115), 'منذ ١١٥ يوماً'); eq(sinceLabel(103), 'منذ ١٠٣ أيام');
     });
     test('الفترة من غير تكرار الشهر ولا شرطتين', function () {
@@ -3360,7 +3389,7 @@
       var hadFB = 'FB' in window, prevFB = window.FB, asked = null;
       var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
       var buy = function (n) { return [{ action_type: 'omni_purchase', value: String(n), '7d_click': String(n) }]; };
-      window.FB = fakeFB({ '/act/ads:ACTIVE': { data: [metaAd('M1', 'ACTIVE')] },
+      window.FB = fakeFB({ '/act/ads:ACTIVE': { data: [metaAd('M1', 'ACTIVE'), metaAd('M2', 'ACTIVE')] },
         '/act/insights': function (p) {
           if (!/optimization_goal/.test(p.fields || '') || p.level !== 'ad' || p.time_increment) return { data: [] };
           asked = JSON.parse(p.time_range);
@@ -3380,8 +3409,9 @@
         eq([asked.since, asked.until], [today.slice(0, 8) + '01', shiftKey(today, -1)]);
         eq([w.spend, w.ads, w.total], [200, 2, 1000]);
         activeSources.meta = 'act_12';
-        eq(w.ids, ['M2', 'M3']);
-        withLang('ar', function () { var h = wastePanelHtml(wasteData(null, [])); ok(/منذ ١ /.test(h) && /٢٠٠ ر\.س/.test(h) && /عددها ٢/.test(h), h); });
+        eq([w.ids, w.spendById], [['M2', 'M3'], { M2: 120, M3: 80 }]);
+        // المراجعة: الشغّالة من غير طلبات بإنفاقها في الشهر
+        withLang('ar', function () { var h = wastePanelHtml(wasteData(null, [])); ok(/منذ ١ /.test(h) && /٢٠٠ ر\.س/.test(h) && /عددها ٢، والنشط منها الآن ١ بإنفاق ١٢٠ ر\.س هذا الشهر/.test(h), h); });
         delete activeSources.meta;
       }, function (e) { restore(); throw e; });
     });
@@ -4199,6 +4229,15 @@
       });
       ok(checked >= 20, 'checked ' + checked);
       eq(bad, []);
+    });
+    // مراجعة ١١ أكتوبر ٢٠٢٦ (حساب حقيقي): تكلفة الطلب +٣٢٪ واتقال «يتغيّر هذا الرقم عادةً بهذا القدر» — نفس شكوى صاحب المنتج
+    test('فرق ٢٠٪ أو أكتر مش مؤكد: مبيتقالش إنه تغيّر معتاد، والفرق الصغير بيتقال', function () {
+      withLang('ar', function () {
+        var big = DX._.certText(0.3, 50, 31, 0.32), small = DX._.certText(0.3, 50, 31, 0.12), neg = DX._.certText(-0.3, 50, 31, -0.46);
+        ok(!/عادةً/.test(big) && /لم يتضح بعد/.test(big) && /٥٠ ثم ٣١/.test(big), big);
+        ok(!/عادةً/.test(neg), neg);
+        ok(/عادةً/.test(small), small);
+      });
     });
     test('ألوان الأرقام بتلات درجات: مؤكد بخلفية، مرجّح من غير خلفية، والباقي رمادي — والمرجّح عمره ما يبقى مؤكد', function () {
       var soft = 0, bad = 0;

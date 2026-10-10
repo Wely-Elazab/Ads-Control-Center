@@ -23,6 +23,10 @@
     TODAY = WINDOW - 1; YESTERDAY = WINDOW - 2; DAY_BEFORE = WINDOW - 3; RECENT3 = WINDOW - 4;
   }
   function zeros(n) { var a = []; for (var i = 0; i < n; i++) a.push(0); return a; }
+  // الساعة دلوقتي (٠–٢٣) بتوقيت الحساب، أو null لو التوقيت غلط
+  function hourInTz(tz) {
+    try { return Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hourCycle: 'h23' }).format(new Date())) % 24; } catch (e) { return null; }
+  }
 
   var DEFAULT_SETTINGS = {
     learningDays: 3,          // الإعلان الأحدث من كده في فترة تعلّم — منقيّمش أداءه لسه
@@ -534,7 +538,7 @@
         var weakPerf = profitWeak || issues.some(function (i) {
           return (i.level === 'critical' || i.level === 'warning') && i.metrics.some(function (m) { return m === 'results' || m === 'cpr' || m === 'roas'; });
         }) || (!profitAd && !!(avgCpr && c.cpr != null && c.cpr >= avgCpr * s.cprWarnMultiple));
-        var fDetail = t('al.fatigue.d', { name: name, f: fmt.num(c.frequency), times: global.I18N ? global.I18N.measureNoun(c.frequency, 'n.time') : 'times', old: isOld ? t('al.fatigue.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '' });
+        var fDetail = t('al.fatigue.d', { name: name, freq: global.I18N ? global.I18N.timesText(c.frequency, fmt.num, true) : fmt.num(c.frequency) + ' times', old: isOld ? t('al.fatigue.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '' });
         if (hurting || weakPerf) {
           issues.push(makeIssue(hurting ? 'critical' : 'warning', ['frequency'], t('al.fatigue.t'), fDetail, t('al.fatigue.a'), 0, 'fatigue'));
         } else {
@@ -673,15 +677,24 @@
     var money = function (n) { return fmt.money(n, cur); };
     var accName = (meta && meta.label) || (ads[0] && ads[0].platform) || source;
 
+    // مشكلة الحساب (دفع، حد صرف) والإنفاق وقف فعلاً النهارده: «قد تتوقف» بتبقى «الأرجح توقفت بالفعل» (مراجعة ١١ أكتوبر ٢٠٢٦، حساب
+    // حقيقي: مبلغ مستحق غير مسدّد، وصفر إنفاق الساعة ١٠ بالليل مقابل نحو ٢٥٠ في اليوم — والتنبيه كان بيقول «قد تتوقف»).
+    // بعد الضهر بتوقيت الحساب بس (أول اليوم الصفر طبيعي)، ولو أمس كان فيه صرف
+    var stoppedToday = function () {
+      var hr = meta && meta.timeZone ? hourInTz(meta.timeZone) : null;
+      var avg = sum(acc.spendByDay, 0, YESTERDAY) / (YESTERDAY + 1);
+      if (hr == null || hr < 12 || (acc.spendByDay[TODAY] || 0) > 0 || !((acc.spendByDay[YESTERDAY] || 0) > 0) || !(avg > 0)) return '';
+      return t('al.acct.stoppedToday', { hour: t(hr === 12 ? 'al.clock.noon' : 'al.clock.pm', { h: fmt.int(hr === 12 ? 12 : hr - 12) }), avg: money(avg) });
+    };
     if (meta && meta.metaAccountStatus != null && meta.metaAccountStatus !== 1) {
       alerts.push(makeIssue('critical', ['account'], t('al.acct.t'),
-        t(META_ACCOUNT_STATUS[meta.metaAccountStatus] ? 'acct.' + meta.metaAccountStatus : 'acct.other'),
+        t(META_ACCOUNT_STATUS[meta.metaAccountStatus] ? 'acct.' + meta.metaAccountStatus : 'acct.other') + stoppedToday(),
         t('al.acct.a'), 0, 'acct-status'));
     }
 
     if (meta && meta.spendCapReached) {
       alerts.push(makeIssue('critical', ['account'], t('al.cap.t'),
-        t('al.cap.d', { acc: accName }), t('al.cap.a'), 0, 'spend-cap'));
+        t('al.cap.d', { acc: accName }) + stoppedToday(), t('al.cap.a'), 0, 'spend-cap'));
     }
 
     // إعلانات كانت بتصرف ووقفت بسبب مشكلة في الحساب — تنبيه واحد للحساب كله.

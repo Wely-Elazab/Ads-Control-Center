@@ -277,7 +277,7 @@
       'x.pv.hint': 'معاينة Meta الرسمية للإعلان. إن بقيت فارغة أو ظهرت رسالة «No permission»، فجرّب صيغة أخرى؛ فبعض إعدادات صفحة فيسبوك تمنع عرضها هنا.',
       'x.pv.catalog': 'وفي إعلانات الكتالوج تختار Meta المنتجات التي تظهر في المعاينة، كما تفعل مع كل شخص يرى الإعلان.',
       'x.cat.title': 'منتجات من كتالوج هذا الإعلان',
-      'x.cat.note': 'تختار Meta لكل شخص منتجات من هذا الكتالوج بحسب اهتمامه؛ وهذه أول {n} منتجات فيه، لا بالضرورة ما يراه كل شخص. اضغط المنتج لفتح صفحته.',
+      'x.cat.note': 'تختار Meta لكل شخص منتجات من هذا الكتالوج بحسب اهتمامه؛ وهذه أولى منتجاته ({n})، لا بالضرورة ما يراه كل شخص. اضغط المنتج لفتح صفحته.',
       'x.openMeta': 'افتح الإعلان في Meta Ads Manager',
       'x.openGoogle': 'افتح في Google Ads',
       'x.openGoogleNote': 'رقم الحساب: {acct} — إن فُتح حساب آخر، فانتقل إلى هذا الحساب من أعلى الصفحة.',
@@ -337,10 +337,10 @@
       'waste.found.s': 'الإعلانات النشطة المسببة له: {n}.',
       'waste.stop.k': 'يمكنك منعه',
       'waste.stop.v': 'نحو {v} يومياً',
-      'waste.stop.s': 'ما تصرفه هذه الإعلانات حالياً كل يوم، أي نحو {week} أسبوعياً إذا استمر أداؤها كما هو.',
+      'waste.stop.s': 'ما يُصرف بهذا الشكل حالياً كل يوم، أي نحو {week} أسبوعياً إذا استمر الأداء كما هو.',
       'waste.month.k': 'منذ {since}',
       'waste.month.s': 'صُرفت على إعلانات مبيعات لم تحقق أي طلب، أي {pct} من إنفاق الشهر. عددها {n}{live}.',
-      'waste.month.live': '، والنشط منها الآن {n}',
+      'waste.month.live': '، والنشط منها الآن {n} بإنفاق {v} هذا الشهر',
       'waste.cta': 'اعرض الإعلانات المسببة للهدر',
       'waste.note': 'الهدر: إنفاق لم يحقق أي طلب، أو زاد على قيمة المبيعات التي جاءت منه. المبلغ اليومي متوسط آخر الأيام المكتملة.',
       'waste.noteRes': 'الهدر: إنفاق لم يحقق أي نتيجة، أو زاد على قيمة المبيعات التي جاءت منه. المبلغ اليومي متوسط آخر الأيام المكتملة.',
@@ -661,7 +661,7 @@
       'al.spike.a': 'نقترح التأكد من أن زيادة الإنفاق مقصودة، ومتابعة النتائج معها.',
       'al.fatigue.t': 'مؤشرات على تشبّع الجمهور',
       'al.fatigue.old': '، والإعلان نشط منذ {days} {dayWord}',
-      'al.fatigue.d': 'شاهد الشخص نفسه {name} نحو {f} {times} في المتوسط خلال آخر ٧ أيام{old}. وتكرار الإعلان نفسه قد يدفع الجمهور إلى تجاهله ويرفع التكلفة.',
+      'al.fatigue.d': 'شاهد الشخص نفسه {name} نحو {freq} في المتوسط خلال آخر ٧ أيام{old}. وتكرار الإعلان نفسه قد يدفع الجمهور إلى تجاهله ويرفع التكلفة.',
       'al.fatigue.a': 'قد يفيد تجديد الإعلان (صورة أو فيديو أو نص جديد) أو توسيع الجمهور.',
       // التكرار العالي وأداء الإعلان سليم: «للعلم» بس
       'al.fatigue.ok': ' ولم يظهر لذلك أثر على نتائجه حتى الآن.',
@@ -739,6 +739,9 @@
       'acct.101': 'الحساب مغلق.',
       'acct.other': 'توجد مشكلة في حالة الحساب.',
       'al.acct.t': 'مشكلة في الحساب الإعلاني',
+      'al.acct.stoppedToday': ' ولم يُصرف أي مبلغ اليوم حتى الساعة {hour} بتوقيت الحساب، مقابل نحو {avg} يومياً قبلها؛ فالأرجح أن الإعلانات توقفت بالفعل.',
+      'al.clock.pm': '{h} مساءً',
+      'al.clock.noon': '١٢ ظهراً',
       'al.acct.a': 'نقترح مراجعة إعدادات الدفع والحساب في Meta Business Suite فوراً.',
       'al.cap.t': 'بلغ الحساب الحد الأقصى للإنفاق',
       'al.cap.d': 'بلغ {acc} حد الإنفاق المحدد له، وعندئذٍ توقف Meta جميع إعلانات الحساب.',
@@ -857,6 +860,7 @@
       'dx.cert.likely': 'الاتجاه واضح، لكن عدد الطلبات ({na} ثم {nb}) لا يكفي بعد لتأكيده.',
       'dx.cert.notable': 'هذه إشارة أولية؛ عدد الطلبات ({na} ثم {nb}) لا يكفي بعد لتأكيدها.',
       'dx.cert.normal': 'ومع هذا العدد من الطلبات ({na} ثم {nb}) يتغيّر هذا الرقم عادةً بهذا القدر من فترة إلى أخرى، فلا يمكن الجزم به بعد.',
+      'dx.cert.normalBig': 'ولم يتضح بعد هل سيستمر؛ فعدد الطلبات ({na} ثم {nb}) قليل للحكم عليه.',
       'dx.cert.review': ' ولأن الفرق كبير، يستحق المراجعة الآن دون انتظار تأكيده.',
       'dx.rev.down': 'المبيعات {to} مقابل {from} في الفترة السابقة، أي أقل بـ{pct} ({diff} أقل){aov}.',
       'dx.rev.up': 'المبيعات {to} مقابل {from} في الفترة السابقة، أي أعلى بـ{pct} ({diff} أكثر){aov}.',
@@ -1127,8 +1131,8 @@
       'dx.loadingMore': 'جارٍ إضافة {platforms} إلى الملخص…',
       'dx.seg.age': 'الفئة العمرية {a}–{b} سنة',
       'dx.seg.agePlus': 'الفئة العمرية {a} سنة فأكثر',
-      'dx.seg.gender.male': 'الرجال',
-      'dx.seg.gender.female': 'النساء',
+      'dx.seg.gender.male': 'شريحة الرجال',
+      'dx.seg.gender.female': 'شريحة النساء',
       'dx.pub.facebook': 'فيسبوك',
       'dx.pub.instagram': 'إنستغرام',
       'dx.pub.audience_network': 'شبكة الجمهور',
@@ -1541,7 +1545,7 @@
       'x.pv.hint': 'Meta\'s official preview of the ad. If it stays blank or says "No permission", try another format: some Facebook Page settings block it here.',
       'x.pv.catalog': 'For catalog ads, Meta picks the products shown in the preview, as it does for each person who sees the ad.',
       'x.cat.title': 'Products from this ad\'s catalog',
-      'x.cat.note': 'Meta picks products from this catalog for each person based on their interests; these are its first {n} products, not necessarily what everyone sees. Tap a product to open its page.',
+      'x.cat.note': 'Meta picks products from this catalog for each person based on their interests; these are its first products ({n}), not necessarily what everyone sees. Tap a product to open its page.',
       'x.openMeta': 'Open the ad in Meta Ads Manager',
       'x.openGoogle': 'Open in Google Ads',
       'x.openGoogleNote': 'Account ID: {acct} — if a different account opens, switch to this one at the top of the page.',
@@ -1597,10 +1601,10 @@
       'waste.found.s': 'Active ads causing it: {n}.',
       'waste.stop.k': 'You can prevent',
       'waste.stop.v': 'about {v} a day',
-      'waste.stop.s': 'What these ads spend this way each day now: about {week} a week if they keep performing the same.',
+      'waste.stop.s': 'What is being spent this way each day now: about {week} a week if performance stays the same.',
       'waste.month.k': 'Since {since}',
       'waste.month.s': 'Spent on sales ads that got no order at all: {pct} of this month\'s spend. Ads: {n}{live}.',
-      'waste.month.live': ', still running: {n}',
+      'waste.month.live': '; {n} still running, with {v} spent this month',
       'waste.cta': 'Show the ads causing it',
       'waste.note': 'Waste: spend that brought no order, or that exceeded the sales it brought. The daily figure is the average of the latest complete days.',
       'waste.noteRes': 'Waste: spend that brought no result, or that exceeded the sales it brought. The daily figure is the average of the latest complete days.',
@@ -1906,7 +1910,7 @@
       'al.spike.a': 'We suggest making sure the higher spend is intended, and watching the results with it.',
       'al.fatigue.t': 'Signs of audience fatigue',
       'al.fatigue.old': ', and the ad has been running for {days} {dayWord}',
-      'al.fatigue.d': 'The same person saw {name} about {f} {times} on average in the last 7 days{old}. Repeating the same ad can make people ignore it and raise costs.',
+      'al.fatigue.d': 'The same person saw {name} about {freq} on average in the last 7 days{old}. Repeating the same ad can make people ignore it and raise costs.',
       'al.fatigue.a': 'Refreshing the ad (new image, video or copy) or widening the audience may help.',
       'al.fatigue.ok': ' This hasn\'t shown up in its results so far.',
       'al.fatigue.okA': 'No change needed now, but preparing a fresh version of the ad may help in case its results start to drop.',
@@ -1979,6 +1983,9 @@
       'acct.101': 'The account is closed.',
       'acct.other': 'There\'s a problem with the account status.',
       'al.acct.t': 'Ad account problem',
+      'al.acct.stoppedToday': ' Nothing has been spent today up to {hour} account time, against about {avg} a day before, so the ads have most likely stopped already.',
+      'al.clock.pm': '{h} PM',
+      'al.clock.noon': '12 noon',
       'al.acct.a': 'We suggest checking the payment and account settings in Meta Business Suite right away.',
       'al.cap.t': 'Account reached its spending limit',
       'al.cap.d': '{acc} has reached its spending limit, and when that happens Meta stops all of the account\'s ads.',
@@ -2092,6 +2099,7 @@
       'dx.cert.likely': 'The direction is clear, but the number of orders ({na}, then {nb}) isn\'t enough to confirm it yet.',
       'dx.cert.notable': 'This is an early signal; the number of orders ({na}, then {nb}) isn\'t enough to confirm it yet.',
       'dx.cert.normal': 'With this many orders ({na}, then {nb}) this figure usually moves this much from one period to the next, so it can\'t be called yet.',
+      'dx.cert.normalBig': 'It isn\'t clear yet whether it will last: the number of orders ({na}, then {nb}) is too small to judge.',
       'dx.cert.review': ' Because the difference is large, it is worth reviewing now rather than waiting for confirmation.',
       'dx.rev.down': 'Sales were {to} vs {from} in the previous period, {pct} lower ({diff} less){aov}.',
       'dx.rev.up': 'Sales were {to} vs {from} in the previous period, {pct} higher ({diff} more){aov}.',
@@ -2636,6 +2644,14 @@
     if (r !== Math.round(r)) return t(base + (lang === 'ar' ? '.one' : '.many'));
     return noun(r, base);
   }
+  // «مرة واحدة» / «مرتان» (أو «مرتين» بعد فعل أو حرف جر — acc) / «٣ مرات» / «٤٫٥ مرة» / «١١ مرة» — «١ مرة» و«٢ مرة» مش فصحى
+  // (مراجعة ١١ أكتوبر ٢٠٢٦: تفاصيل الإعلان كانت بتقول «٢ مرة»). digits = دالة كتابة الرقم
+  function timesText(v, digits, acc) {
+    var r = Math.round((Number(v) || 0) * 10) / 10;
+    if (lang === 'ar' && r === 1) return 'مرة واحدة';
+    if (lang === 'ar' && r === 2) return acc ? 'مرتين' : 'مرتان';
+    return (digits ? digits(r) : String(r)) + ' ' + measureNoun(r, 'n.time');
+  }
 
   // بيترجم عناصر الـ HTML اللي عليها data-i18n (النص)، و data-i18n-placeholder / -title / -aria
   function apply(root) {
@@ -2671,6 +2687,7 @@
     countPhrase: countPhrase,
     timesPhrase: timesPhrase,
     measureNoun: measureNoun,
+    timesText: timesText,
     apply: apply,
     setLang: setLang,
     get lang() { return lang; },

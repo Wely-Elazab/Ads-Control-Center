@@ -1529,7 +1529,7 @@ var DX = (function () {
     var ctx = ctxOf(s.dim, s.key, s.name), name = ctx.seg;
     var title = s.pur === 0 ? t('dx.seg.zero', { seg: name, spend: M(s.spend), since: fmtKey(s.since) })
       : (s.ratio <= 0.34 ? t('dx.seg.few', { seg: name, spend: M(s.spend), since: fmtKey(s.since), orders: ordersText(s.pur) })
-        : t('dx.seg.costly', { seg: name, times: I18N.timesPhrase(1 / s.ratio, ar) }));
+        : t('dx.seg.costly', { seg: name, times: I18N.timesPhrase(1 / s.ratio, numAr) }));
     var lines = [t('dx.seg.expected', { orders: ordersText(Math.round(s.expected)) })];
     if (s.stage) {
       var st = s.stage, vars = { seg: name, a: rateText(st.seg), b: rateText(st.rest) };
@@ -1663,12 +1663,18 @@ var DX = (function () {
   // بيتقلّب بالقدر ده عادةً بعدد الطلبات ده. «مؤكد» (Z_REAL) بيتقال في العنوان والألوان مش هنا
   function chanceTier(p) { var n = Math.round(p * 100); return n >= 20 ? 'normal' : (n >= 5 ? 'notable' : 'likely'); }
   // الثقة بكلام تجاري (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: كلمة «الصدفة» ونِسَبها مش مناسبة للعميل) — من غير أرقام احتمالات
-  function certText(z, na, nb) { return t('dx.cert.' + chanceTier(pFromZ(z)), { na: fmtNum(na), nb: fmtNum(nb) }); }
+  // pct = حجم الفرق: فرق ٢٠٪ أو أكتر ومش مؤكد مبيتقالش عنه «بيتغيّر عادةً بالقدر ده» (مراجعة ١١ أكتوبر ٢٠٢٦ على حساب حقيقي: تكلفة
+  // الطلب +٣٢٪ واتقال إنه تغيّر معتاد — نفس شكوى صاحب المنتج) — بيتقال إنه لسه متأكدش
+  function certText(z, na, nb, pct) {
+    var tier = chanceTier(pFromZ(z));
+    if (tier === 'normal' && Math.abs(pct || 0) >= BIG_MOVE) tier = 'normalBig';
+    return t('dx.cert.' + tier, { na: fmtNum(na), nb: fmtNum(nb) });
+  }
   // نفس جملة التأكد بتتقال مرة واحدة في الشرح، و«يستحق المراجعة» مرة واحدة — ومتتقالش خالص في السطور لو الخلاصة بتقولها
   // (حساب حقيقي ١٠ أكتوبر ٢٠٢٦: «ولأن الفرق كبير…» اتكررت ٣ مرات و«هذه إشارة أولية…» مرتين في نفس الصندوق)
   function onceOnly(lines, r) {
     var v = { na: fmtNum(r.prev ? r.prev.pur : 0), nb: fmtNum(r.cur ? r.cur.pur : 0) };
-    var certs = ['likely', 'notable', 'normal'].map(function (k) { return t('dx.cert.' + k, v); });
+    var certs = ['likely', 'notable', 'normal', 'normalBig'].map(function (k) { return t('dx.cert.' + k, v); });
     var review = t('dx.cert.review'), inVerdict = lines.indexOf(t('dx.verdict.review')) > -1, seen = {};
     return lines.map(function (l) {
       if (typeof l !== 'string') return l;
@@ -1692,14 +1698,14 @@ var DX = (function () {
     var v = { from: M(cpaA), to: M(cpaB), pct: pctText(h.cpaPct) };
     if (Math.abs(h.cpaPct) < MIN_PCT) return t('dx.noise.cpaSmall', v);
     var up = h.cpaPct > 0;
-    return t('dx.fact.cpa.' + (up ? 'up' : 'down'), v) + ' ' + certText(h.effZ, a.pur, b.pur) + reviewText(h.cpaPct, up);
+    return t('dx.fact.cpa.' + (up ? 'up' : 'down'), v) + ' ' + certText(h.effZ, a.pur, b.pur, h.cpaPct) + reviewText(h.cpaPct, up);
   }
   function ordersNoiseLine(r) {
     var a = r.prev, b = r.cur, h = r.head;
     if (h.ordPct == null || Math.abs(h.ordPct) < MIN_PCT || h.dOrd !== 0 || h.dSpend !== 0) return null;
     var up = h.ordPct > 0;
     return t('dx.fact.orders.' + (up ? 'up' : 'down'), { from: fmtNum(a.pur), to: fmtNum(b.pur), pct: pctText(h.ordPct) }) + ' ' +
-      certText(h.ordersZ, a.pur, b.pur) + reviewText(h.ordPct, !up);
+      certText(h.ordersZ, a.pur, b.pur, h.ordPct) + reviewText(h.ordPct, !up);
   }
   // تراجع «واضح الاتجاه» (احتمال الصدفة أقل من ٥٪) بس مش مؤكد ولسه أقل من ٢٠٪: العنوان بيقول «يستحق المتابعة».
   // الربح أولاً: العائد قبل تكلفة الطلب وعدد الطلبات
@@ -1739,7 +1745,7 @@ var DX = (function () {
     if (!ro || ro.dir !== 0 || Math.abs(ro.pct) < MIN_PCT) return t('dx.money.back', v);
     var up = ro.pct > 0;
     v.pct = pctText(ro.pct);
-    return t('dx.fact.money.' + (up ? 'up' : 'down'), v) + ' ' + certText(ro.z, a.pur, b.pur) + reviewText(ro.pct, !up);
+    return t('dx.fact.money.' + (up ? 'up' : 'down'), v) + ' ' + certText(ro.z, a.pur, b.pur, ro.pct) + reviewText(ro.pct, !up);
   }
 
   // الحكم النهائي (العنوان واللون) — الربح أولاً: العائد على الإنفاق والمبيعات قبل عدد الطلبات وتكلفتها.
@@ -2022,7 +2028,7 @@ var DX = (function () {
     // للاختبارات
     _: { rateTest: rateTest, historyPhi: historyPhi, betai: betai, normInv: normInv, decompose: decompose, stagesFor: stagesFor,
       trackingOf: trackingOf, eventsOn: eventsOn, hijriOf: hijriOf, isWhiteFridayWeekend: isWhiteFridayWeekend, localize: localize,
-      actionOf: actionOf, keyInTz: keyInTz,
+      actionOf: actionOf, keyInTz: keyInTz, certText: certText,
       prepareDims: prepareDims, windowCount: windowCount, hijriSupported: !!HIJRI,
       T: { Z_REAL: Z_REAL, Z_SEG: Z_SEG, PHI_SAMPLING: PHI_SAMPLING },
       // للمعايرة بالمحاكاة بس (tests/dx-sim.js) — كود الأداة نفسه مبيغيّرش العتبات أبداً
