@@ -673,8 +673,7 @@
 
   function destinationInfo(creative) {
     try {
-      var spec = creative.object_story_spec;
-      if (!spec) return { url: '—', kind: null };
+      var spec = creative.object_story_spec || {}, feed = creative.asset_feed_spec || {};
       var link = null, ctaType = null;
       if (spec.link_data) {
         link = spec.link_data.link || (spec.link_data.call_to_action && spec.link_data.call_to_action.value && spec.link_data.call_to_action.value.link);
@@ -684,6 +683,16 @@
       if (!link && spec.video_data && spec.video_data.call_to_action) {
         link = spec.video_data.call_to_action.value && spec.video_data.call_to_action.value.link;
         ctaType = spec.video_data.call_to_action.type;
+      }
+      // إعلان الكتالوج (template_data)، والإعلان بأكتر من نسخة لكل مكان ظهور (asset_feed_spec — Advantage+) — حساب حقيقي
+      // ١٠ أكتوبر ٢٠٢٦: إعلانات الفيديو والكتالوج كانت «الوجهة —» لأن رابطها في المكانين دول بس
+      if (!link && spec.template_data) {
+        link = spec.template_data.link || null;
+        ctaType = spec.template_data.call_to_action && spec.template_data.call_to_action.type;
+      }
+      if (!link && feed.link_urls && feed.link_urls[0]) {
+        link = feed.link_urls[0].website_url || null;
+        ctaType = ctaType || (feed.call_to_action_types && feed.call_to_action_types[0]) || null;
       }
       if (!link) return { url: '—', kind: null };
       if (/whatsapp/i.test(link) || (ctaType && /WHATSAPP/i.test(ctaType))) return { url: link, kind: 'whatsapp' };
@@ -710,9 +719,9 @@
     'adset{id,name,optimization_goal,effective_status,start_time,end_time,lifetime_budget,budget_remaining,' + META_ISSUES + '},' +
     'campaign{id,name,effective_status,start_time,stop_time,' + META_ISSUES + '},';
   var META_AD_FIELDS_BASIC = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},campaign{id,name},';
-  var META_CREATIVE_FULL = '{title,body,image_url,image_hash,thumbnail_url,video_id,effective_object_story_id,product_set_id,' +
-    'asset_feed_spec{images{hash,url},videos{video_id,thumbnail_url}},' +
-    'object_story_spec{link_data{link,picture,image_hash,call_to_action,child_attachments{image_hash,picture}},video_data{video_id,call_to_action,image_url,image_hash}}}';
+  var META_CREATIVE_FULL = '{title,body,image_url,image_hash,thumbnail_url,video_id,effective_object_story_id,effective_instagram_media_id,product_set_id,' +
+    'asset_feed_spec{images{hash,url},videos{video_id,thumbnail_url},link_urls{website_url},call_to_action_types},' +
+    'object_story_spec{instagram_user_id,link_data{link,picture,image_hash,call_to_action,child_attachments{image_hash,picture}},video_data{video_id,call_to_action,image_url,image_hash},template_data{link,call_to_action}}}';
   var META_CREATIVE_BASIC = '{title,body,image_url,thumbnail_url,video_id,' +
     'object_story_spec{link_data{link,picture,call_to_action},video_data{video_id,call_to_action,image_url}}}';
   var META_AD_FIELD_ATTEMPTS = [
@@ -797,7 +806,14 @@
     (function run(i) { if (i >= jobs.length) { onDone(); return; } jobs[i](function () { run(i + 1); }); })(0);
   }
 
-  // أوضح صورة متاحة: الملف الأصلي ← الصورة الأصلية ← صورة الرابط ← غلاف الفيديو ← الصورة المصغّرة (١٠٨٠ لو اتطلبت)
+  // أوضح صورة متاحة: الملف الأصلي ← الصورة الأصلية ← صورة الرابط ← غلاف الفيديو ← الصورة المصغّرة (١٠٨٠ لو اتطلبت).
+  // الصور المصغّرة الصغيرة (أقل من ٤٠٠ — مقاسها في stp: «s160x160» أو «p64x64») بتتأجل لآخر حاجة: حساب حقيقي ١٠ أكتوبر ٢٠٢٦،
+  // ١١ إعلان فيديو كان غلافه ١٦٠×١٦٠ مشوّش من asset_feed_spec ونسخة ١٠٨٠ متاحة في thumbnail_url
+  function smallThumb(u) {
+    var stp = /[?&]stp=([^&]+)/.exec(u || '');
+    var m = stp && /[ps](\d{2,4})x(\d{2,4})/.exec(decodeURIComponent(stp[1]));
+    return !!m && Math.max(+m[1], +m[2]) < 400;
+  }
   function metaImageUrl(ad) {
     var creative = ad.creative || {};
     var spec = creative.object_story_spec || {};
@@ -805,9 +821,9 @@
     var firstChild = link.child_attachments && link.child_attachments[0];
     var feedImage = creative.asset_feed_spec && creative.asset_feed_spec.images && creative.asset_feed_spec.images[0];
     var feedVideo = creative.asset_feed_spec && creative.asset_feed_spec.videos && creative.asset_feed_spec.videos[0];
-    return ad._fullImage || creative.image_url || link.picture || (firstChild && firstChild.picture) ||
-      (feedImage && feedImage.url) || (spec.video_data && spec.video_data.image_url) || (feedVideo && feedVideo.thumbnail_url) ||
-      creative.thumbnail_url || null;
+    var list = [ad._fullImage, creative.image_url, link.picture, firstChild && firstChild.picture, feedImage && feedImage.url,
+      spec.video_data && spec.video_data.image_url, feedVideo && feedVideo.thumbnail_url, creative.thumbnail_url].filter(Boolean);
+    return list.filter(function (u) { return !smallThumb(u); })[0] || list[0] || null;
   }
 
   function transformRealAd(ad, insightRows, adsetStatusMap, days, reachRow, currency, acct, periodRow) {
@@ -907,6 +923,11 @@
       format: format,
       duration: format === 'video' ? '' : undefined,
       videoId: videoId,
+      // المعاينة (ui.js showMedia): الإعلان ليه حساب إنستغرام = معاينة إنستغرام الأول (معاينة فيسبوك بتقول «No permission to
+      // access this profile» لو صفحة فيسبوك مقيّدة — حساب حقيقي ١٠ أكتوبر ٢٠٢٦)، وإعلان الكتالوج بيتعرض بمعاينة Meta
+      // (المنتجات نفسها) بدل صورة واحدة
+      igPreview: !!((creative.object_story_spec && creative.object_story_spec.instagram_user_id) || creative.effective_instagram_media_id),
+      catalog: !!(creative.product_set_id || (creative.object_story_spec && creative.object_story_spec.template_data)),
       thumbUrl: imageUrl,
       headline: creative.title || ad.name,
       desc: creative.body || '',

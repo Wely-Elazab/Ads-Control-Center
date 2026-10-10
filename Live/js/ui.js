@@ -1890,8 +1890,10 @@
     var destLabel = DEST_LABELS[c.landingKind] || t('dest.default');
     // الرابط بيبقى قابل للضغط بس لو http/https — غير كده بيتعرض كنص عادي
     var landingHref = safeUrl(c.landing);
+    // النص: النطاق والمسار مقروءين («belvoirgulf.com/products/نظارة-…» بدل %D9%86…) من غير باراميترات التتبّع — الرابط
+    // الكامل في الرابط نفسه وفي التلميح
     var landingInner = landingHref
-      ? '<a href="' + esc(landingHref) + '" target="_blank" rel="noopener noreferrer" class="expand-landing-value mono">' + esc(c.landing) + '</a>'
+      ? '<a href="' + esc(landingHref) + '" target="_blank" rel="noopener noreferrer" class="expand-landing-value mono" dir="ltr" title="' + esc(c.landing) + '">' + esc(landingText(landingHref)) + '</a>'
       : '<span class="expand-landing-value mono">' + esc(c.landing || '—') + '</span>';
     document.getElementById('expandLanding').innerHTML = '<div class="expand-landing"><span class="expand-landing-label">' + destLabel + '</span>' + landingInner + '</div>';
 
@@ -1970,49 +1972,78 @@
     });
   }
 
+  function landingText(u) {
+    try {
+      var p = new URL(u), path = p.pathname.replace(/\/+$/, '');
+      try { path = decodeURIComponent(path); } catch (e) { /* مسار فيه % غلط: بيفضل زي ما هو */ }
+      return p.hostname.replace(/^www\./, '') + path;
+    } catch (e) { return u; }
+  }
+
+  // معاينة Meta بصيغها (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «عرض كل الكريتيفز بشكل صحيح وبمقاس مناسب ومحاولة عرض متغيرات
+  // الـ Catalog»): الفيديو والكتالوج بمعاينة Meta الرسمية بأزرار للصيغ — إنستغرام الأول لو الإعلان ليه حساب إنستغرام (معاينة
+  // فيسبوك بتقول «No permission to access this profile» لو صفحة فيسبوك مقيّدة، ومنقدرش نعرف ده من برّه الإطار — حساب حقيقي).
+  // الكتالوج: Meta بتختار منتجات من الكتالوج في المعاينة (كاروسيل = أكتر من منتج). الصور العادية بالملف الأصلي زي ما هي
+  var PREVIEW_FORMATS = { ig: 'INSTAGRAM_STANDARD', reels: 'INSTAGRAM_REELS', fb: 'MOBILE_FEED_STANDARD' };
+  var previewCache = {}, previewSeq = 0;
+  function previewTabsHtml(order, cur) {
+    return '<div class="pv-tabs" role="tablist">' + order.map(function (k) {
+      return '<button type="button" role="tab" class="pv-tab' + (k === cur ? ' on' : '') + '" aria-selected="' + (k === cur) + '" data-pv="' + k + '">' + esc(t('x.pv.' + k)) + '</button>';
+    }).join('') + '</div>';
+  }
   function showMedia(c) {
     var openSeq = ++expandSeq;
     var el = document.getElementById('expandPreview');
     el.innerHTML = previewMarkup(c);
-    if (!c.videoId || c.platform !== 'Meta' || typeof FB === 'undefined') return;
-
-    // المحاولة الأولى: Ad Previews API — أداة Meta الرسمية لمعاينة الإعلان كما يظهر فعلياً
-    metaApi('/' + c.id + '/previews', { ad_format: 'MOBILE_FEED_STANDARD' }, function (prevResp) {
-      if (openSeq !== expandSeq) return;
-      var previewFrame = prevResp && prevResp.data && prevResp.data[0] && metaIframeHtml(prevResp.data[0].body);
-      if (previewFrame) {
-        el.innerHTML = '<div class="video-embed-wrap">' + previewFrame + '</div>';
-        fitEmbeds(el);
-        return;
-      }
-      // المحاولة الثانية للفيديو: بيانات الفيديو مباشرة (تضمين رسمي، ثم ملف مباشر، ثم رابط خارجي)
-      metaApi('/' + c.videoId, { fields: 'embed_html,source,permalink_url,picture' }, function (vidResp) {
-        if (openSeq !== expandSeq) return;
-        var mediaHtml = '';
-        var embedFrame = vidResp && metaIframeHtml(vidResp.embed_html);
-        var videoSrc = vidResp && safeUrl(vidResp.source);
-        var posterSrc = vidResp && safeUrl(vidResp.picture);
-        if (embedFrame) {
-          mediaHtml = '<div class="video-embed-wrap">' + embedFrame + '</div>';
-        } else if (videoSrc) {
-          mediaHtml = '<video class="real-video" controls playsinline preload="metadata"' +
-            (posterSrc ? ' poster="' + esc(posterSrc) + '"' : '') +
-            '><source src="' + esc(videoSrc) + '" type="video/mp4"></video>';
-        }
-        // الرابط لازم يفضل على facebook.com — قيمة زي «@موقع-تاني.com/» كانت هتحوّل الرابط لدومين تاني
-        var permalink = vidResp && typeof vidResp.permalink_url === 'string' && vidResp.permalink_url.charAt(0) === '/' &&
-          safeUrl('https://www.facebook.com' + vidResp.permalink_url);
-        if (permalink && new URL(permalink).hostname !== 'www.facebook.com') permalink = null;
-        var linkHtml = permalink
-          ? '<a class="video-fallback-link" href="' + esc(permalink) + '" target="_blank" rel="noopener noreferrer">' + t('x.openVideo') + '</a>'
-          : '';
-        if (mediaHtml || linkHtml) {
-          el.innerHTML = mediaHtml + linkHtml;
-          fitEmbeds(el);
-        } else {
-          el.innerHTML += '<div class="video-fallback-note">' + t('x.videoFailed') + '</div>';
-        }
+    el.onclick = null;
+    if (c.platform !== 'Meta' || !(c.videoId || c.catalog)) return;
+    var order = c.igPreview ? ['ig', 'reels', 'fb'] : ['fb', 'ig', 'reels'], poster = el.innerHTML;
+    var hint = '<p class="pv-hint">' + esc(t('x.pv.hint') + (c.catalog ? ' ' + t('x.pv.catalog') : '')) + '</p>';
+    var load = function (k, first) {
+      var mine = ++previewSeq, key = c.id + '|' + k;
+      el.innerHTML = previewTabsHtml(order, k) + '<div class="pv-body">' + poster + '</div>' + hint;
+      var body = el.querySelector('.pv-body');
+      var show = function (frame) { body.innerHTML = '<div class="video-embed-wrap">' + frame + '</div>'; fitEmbeds(body); };
+      if (previewCache[key]) { show(previewCache[key]); return; }
+      metaApi('/' + c.id + '/previews', { ad_format: PREVIEW_FORMATS[k] }, function (resp) {
+        if (openSeq !== expandSeq || mine !== previewSeq) return;
+        var frame = resp && resp.data && resp.data[0] && metaIframeHtml(resp.data[0].body);
+        if (frame) { previewCache[key] = frame; show(frame); return; }
+        // الصيغة الأولى فشلت في فيديو: بيانات الفيديو مباشرة زي الأول
+        if (first && c.videoId) videoFallback(c, body, openSeq);
       });
+    };
+    el.onclick = function (e) { var b = e.target.closest('[data-pv]'); if (b && !b.classList.contains('on')) load(b.getAttribute('data-pv'), false); };
+    load(order[0], true);
+  }
+  function videoFallback(c, el, openSeq) {
+    // تضمين رسمي، ثم ملف مباشر، ثم رابط خارجي — محتاجة صلاحية على صفحة الفيديو (من غيرها: «Application does not have permission»)
+    metaApi('/' + c.videoId, { fields: 'embed_html,source,permalink_url,picture' }, function (vidResp) {
+      if (openSeq !== expandSeq) return;
+      var mediaHtml = '';
+      var embedFrame = vidResp && metaIframeHtml(vidResp.embed_html);
+      var videoSrc = vidResp && safeUrl(vidResp.source);
+      var posterSrc = vidResp && safeUrl(vidResp.picture);
+      if (embedFrame) {
+        mediaHtml = '<div class="video-embed-wrap">' + embedFrame + '</div>';
+      } else if (videoSrc) {
+        mediaHtml = '<video class="real-video" controls playsinline preload="metadata"' +
+          (posterSrc ? ' poster="' + esc(posterSrc) + '"' : '') +
+          '><source src="' + esc(videoSrc) + '" type="video/mp4"></video>';
+      }
+      // الرابط لازم يفضل على facebook.com — قيمة زي «@موقع-تاني.com/» كانت هتحوّل الرابط لدومين تاني
+      var permalink = vidResp && typeof vidResp.permalink_url === 'string' && vidResp.permalink_url.charAt(0) === '/' &&
+        safeUrl('https://www.facebook.com' + vidResp.permalink_url);
+      if (permalink && new URL(permalink).hostname !== 'www.facebook.com') permalink = null;
+      var linkHtml = permalink
+        ? '<a class="video-fallback-link" href="' + esc(permalink) + '" target="_blank" rel="noopener noreferrer">' + t('x.openVideo') + '</a>'
+        : '';
+      if (mediaHtml || linkHtml) {
+        el.innerHTML = mediaHtml + linkHtml;
+        fitEmbeds(el);
+      } else {
+        el.innerHTML += '<div class="video-fallback-note">' + t('x.videoFailed') + '</div>';
+      }
     });
   }
 

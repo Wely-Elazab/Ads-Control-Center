@@ -3384,6 +3384,42 @@
         delete activeSources.meta;
       }, function (e) { restore(); throw e; });
     });
+    // حساب حقيقي ١٠ أكتوبر ٢٠٢٦: إعلانات فيديو Advantage+ والكتالوج كانت «الوجهة —»، وغلاف ١١ فيديو ١٦٠×١٦٠ مشوّش
+    test('Meta: الوجهة من template_data (الكتالوج) وasset_feed_spec (نسخة لكل مكان ظهور)، والغلاف الصغير بيتأجل', function () {
+      var tpl = destinationInfo({ object_story_spec: { page_id: '1', template_data: { link: 'https://shop.com/c/1?tm={{ad.id}}', call_to_action: { type: 'SHOP_NOW' } } } });
+      eq([tpl.url, tpl.kind], ['https://shop.com/c/1?tm={{ad.id}}', 'website']);
+      var feed = destinationInfo({ object_story_spec: { page_id: '1' }, asset_feed_spec: { link_urls: [{ website_url: 'https://shop.com/p/2' }], call_to_action_types: ['SHOP_NOW'] } });
+      eq([feed.url, feed.kind], ['https://shop.com/p/2', 'website']);
+      var wa = destinationInfo({ asset_feed_spec: { link_urls: [{ website_url: 'https://api.whatsapp.com/send?phone=1' }], call_to_action_types: ['WHATSAPP_MESSAGE'] } });
+      eq(wa.kind, 'whatsapp');
+      eq(destinationInfo({}).url, '—');
+      var small = 'https://x.fbcdn.net/a.jpg?stp=dst-jpg_s160x160_tt6&x=1', big = 'https://x.fbcdn.net/b.jpg?stp=c0.5000x0.5000f_dst-emg0_p1080x1080_q75';
+      eq(metaImageUrl({ creative: { asset_feed_spec: { videos: [{ video_id: '1', thumbnail_url: small }] }, thumbnail_url: big } }), big);
+      eq(metaImageUrl({ creative: { asset_feed_spec: { videos: [{ video_id: '1', thumbnail_url: small }] } } }), small);
+      withLang('ar', function () { eq(landingText('https://www.shop.com/products/%D9%86%D8%B8%D8%A7%D8%B1%D8%A9/?utm_source=x'), 'shop.com/products/نظارة'); });
+    });
+    test('Meta: معاينة الفيديو والكتالوج بأزرار صيغ — إنستغرام الأول لو الإعلان ليه حساب إنستغرام، وفيسبوك الأول لو مالوش', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, asked = [];
+      window.FB = { api: function (p, params, cb) { asked.push(params.ad_format || params.fields); cb({ data: [{ body: '<iframe src="https://business.facebook.com/ads/api/preview_iframe.php?d=1" width="320" height="560"></iframe>' }] }); } };
+      try {
+        withLang('ar', function () {
+          var el = document.getElementById('expandPreview');
+          showMedia({ id: 'PV1', platform: 'Meta', format: 'video', videoId: 'v1', igPreview: true, themeClass: 'pv-t0' });
+          eq(asked[0], 'INSTAGRAM_STANDARD');
+          eq([].map.call(el.querySelectorAll('[data-pv]'), function (b) { return b.getAttribute('data-pv'); }), ['ig', 'reels', 'fb']);
+          ok(el.querySelector('.pv-body iframe'), 'preview frame');
+          el.querySelector('[data-pv="fb"]').click();
+          eq(asked[1], 'MOBILE_FEED_STANDARD');
+          ok(el.querySelector('[data-pv="fb"]').classList.contains('on'), 'fb tab on');
+          showMedia({ id: 'PV2', platform: 'Meta', format: 'image', catalog: true, igPreview: false, themeClass: 'pv-t0' });
+          eq(asked[2], 'MOBILE_FEED_STANDARD');
+          ok(/الكتالوج/.test(el.textContent), 'catalog note');
+          asked = [];
+          showMedia({ id: 'PV3', platform: 'Meta', format: 'image', thumbUrl: 'https://x.fbcdn.net/i.jpg', themeClass: 'pv-t0' });
+          eq(asked, []);   // صورة عادية: الملف الأصلي من غير معاينة
+        });
+      } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
+    });
     test('Meta: الطلب بيستنى مكتبة فيسبوك لو لسه متحمّلتش (شبكة بطيئة) بدل «FB is not defined»', function () {
       var hadFB = 'FB' in window, prevFB = window.FB, prevQ = fbReadyQueue, got = null;
       try {
