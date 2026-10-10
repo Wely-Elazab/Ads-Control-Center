@@ -27,10 +27,10 @@ export function shiftDateKey(key, days) {
   return new Date(Date.UTC(p[0], p[1] - 1, p[2] + days)).toISOString().slice(0, 10);
 }
 
-// نطاق آخر 7 أيام شاملة النهارده بتوقيت الحساب
+// نافذة تقييم الإعلانات بتوقيت الحساب: ٧ أيام مكتملة + النهارده (نفس js/core.js last7Days — من ١٠ أكتوبر ٢٠٢٦)
 export function last7DaysRange(tz) {
   const until = todayKeyInTz(tz);
-  return { since: shiftDateKey(until, -6), until: until, timeZone: isValidTz(tz) ? tz : 'UTC' };
+  return { since: shiftDateKey(until, -7), until: until, timeZone: isValidTz(tz) ? tz : 'UTC' };
 }
 
 // ---------- فترة البيانات اللي المستخدم اختارها ----------
@@ -49,11 +49,12 @@ export function daysBetweenKeys(a, b) {
 export function resolvePeriod(period, tz) {
   const today = todayKeyInTz(tz);
   const preset = (period && period.preset) || 'last7';
-  let since = shiftDateKey(today, -6), until = today;
+  // الفترات المتحركة = أيام مكتملة + النهارده (نفس resolvePeriodFor في js/core.js)
+  let since = shiftDateKey(today, -7), until = today;
   if (preset === 'today') { since = today; }
   else if (preset === 'yesterday') { since = until = shiftDateKey(today, -1); }
-  else if (preset === 'last14') { since = shiftDateKey(today, -13); }
-  else if (preset === 'last30') { since = shiftDateKey(today, -29); }
+  else if (preset === 'last14') { since = shiftDateKey(today, -14); }
+  else if (preset === 'last30') { since = shiftDateKey(today, -30); }
   else if (preset === 'thisMonth') { since = today.slice(0, 8) + '01'; }
   else if (preset === 'lastMonth') {
     until = shiftDateKey(today.slice(0, 8) + '01', -1);
@@ -64,7 +65,7 @@ export function resolvePeriod(period, tz) {
     if (until > today) until = today;
     if (since > until) since = until;
   } else if (preset !== 'last7') {
-    return { preset: 'last7', since: shiftDateKey(today, -6), until: today, isDefault: true };
+    return { preset: 'last7', since: shiftDateKey(today, -7), until: today, isDefault: true };
   }
   if (daysBetweenKeys(since, until) > PERIOD_MAX_DAYS - 1) since = shiftDateKey(until, -(PERIOD_MAX_DAYS - 1));
   return { preset: preset, since: since, until: until, isDefault: preset === 'last7' };

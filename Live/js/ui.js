@@ -138,6 +138,7 @@
     }
     beginLoad(platform); // أي رد لسه جاي من المنصة دي بيتجاهل
     loadingPlatforms[platform] = false;
+    numbersPending[platform] = false;
     document.body.classList.toggle('is-loading', anyLoading());
     cardGrid.setAttribute('aria-busy', anyLoading() ? 'true' : 'false');
     candidates = candidates.filter(function (c) { return platformOfSource(c.source) !== platform; });
@@ -1200,7 +1201,33 @@
   // (مبيدخلش المقارنة)، و«يحتاج انتباهك الآن» قائمة واحدة (DX.attention)، والشرح والفرص مطويين.
   // الملخص مش متاح (الحساب مفيهوش مشتريات، فشل، ?dx=0): شريط الإنفاق والنتائج القديم مكان الأرقام، والقائمة زي ما هي.
   // وهو بيتحمّل: الأرقام بتستنى (عشان متظهرش أرقام وتتبدّل قدام العميل)، والتنبيهات بتظهر على طول
+  // ---------- قفل الصفحة وهي بتتحمّل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) ----------
+  // قبل كده الكروت كانت بتظهر من غير أرقام و«يحتاج انتباهك الآن» يكتب «لا شيء عاجل»، وبعد ثواني تظهر التنبيهات والملخص.
+  // دلوقتي المحتوى مقفول (من غير تمرير ولا ضغط) لحد ما أرقام كل المنصات تيجي والملخص يخلص. الشريط العلوي بيفضل شغّال
+  // (تغيير الحساب، الخروج)، ولو التحميل طوّل عن ٣٠ ثانية القفل بيتشال والقسم اللي لسه بيتحمّل بيقول كده بنفسه
+  var LOCK_MAX_MS = 30000, lockSince = 0, lockTimer = null;
+  function pageBusy() {
+    if (PLATFORMS.some(function (p) { return numbersPending[p]; })) return true;
+    return DX_ON && PLATFORMS.some(isConnected) && dxState.status === 'loading';
+  }
+  function renderPageLock() {
+    var el = document.getElementById('pageLock');
+    if (!el) return;
+    var busy = pageBusy();
+    if (!busy) lockSince = 0;
+    else if (!lockSince) lockSince = Date.now();
+    var on = busy && Date.now() - lockSince < LOCK_MAX_MS;
+    if (on && !lockTimer) lockTimer = setTimeout(function () { lockTimer = null; renderPageLock(); }, LOCK_MAX_MS - (Date.now() - lockSince) + 50);
+    if (on) {
+      var bar = document.querySelector('.appbar');
+      el.style.top = Math.max(0, bar ? bar.getBoundingClientRect().bottom : 0) + 'px';
+      document.getElementById('pageLockSub').textContent = connectStatus.textContent;
+    }
+    el.hidden = !on;
+    document.body.classList.toggle('page-locked', on);
+  }
   function renderDiagnosis() {
+    renderPageLock();
     var sec = document.getElementById('storeSec');
     if (!sec) return;
     renderDigest();
@@ -1559,6 +1586,8 @@
       (review ? '<button type="button" class="attn-chip" data-kpi="review">' + esc(t('attn.review', { n: ar(review) })) + '</button>' : '');
     var head = '<div class="top-alerts-head"><h3 class="top-alerts-title">' + esc(t('sec.attn')) + '</h3>' + (chips ? '<span class="attn-chips">' + chips + '</span>' : '') + '</div>';
     if (!items.length) {
+      // لسه بيتحمّل (القفل اتشال بعد ٣٠ ثانية): منقولش «لا شيء عاجل» قبل ما الأرقام تيجي
+      if (pageBusy()) { el.innerHTML = head + '<div class="top-alerts-ok neutral">' + esc(t('attn.wait')) + '</div>'; return shown; }
       // الحكم فوق مش كويس ومفيش حاجة بعينها وراه: منقولش «كله تمام»
       var bad = o && (o.tone === 'bad' || o.tone === 'mixed');
       el.innerHTML = head + '<div class="top-alerts-ok' + (bad ? ' neutral' : '') + '">' + (bad ? '' : '✓ ') + esc(t(bad ? 'attn.noneBad' : 'attn.none')) + '</div>';
@@ -1653,6 +1682,8 @@
       '<th scope="col" class="cmp-store">' + t('cmp.store') + '</th><th scope="col">' + t('cmp.diff') + '</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>' +
       '<p class="attr-note">' + esc(compareNote(c, p, pp)) + '</p>' +
+      // شرح الجدول بالتفصيل في صفحة الدليل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) — في تاب جديد عشان الإعلانات المحمّلة متضيعش
+      '<a class="attr-more" href="/help#compare" target="_blank" rel="noopener">' + esc(t('cmp.more')) + '</a>' +
     '</div>';
   }
   // جملة الشرح تحت الجدول (صيغة صاحب المنتج — i18n cmp.note): اللي يثبت إنه جه من الإعلان الأول، وبعده اللي استبعدناه
@@ -1786,8 +1817,10 @@
     var secondRowLabel = hasSales ? (currencyLabel(cur) ? t('x.salesRow', { cur: currencyLabel(cur) }) : t('x.sales')) : (t('x.results') + (c.resultKey ? ' — ' + esc(resultLabelOf(c)) : ''));
     document.getElementById('legendSalesLabel').textContent = hasSales ? t('x.salesLegend') : t('x.resultsLegend');
     // عمود "أمس" متعلّم — أغلب التنبيهات مبنية عليه، وعمود النهارده يوم لسه مخلصش
-    var colCls = function (i) { return i === 5 ? ' class="col-yesterday"' : (i === 6 ? ' class="col-today"' : ''); };
-    var headerCells = c.dailyDates.map(function (dt, i) { return '<th' + colCls(i) + '>' + (i === 5 ? t('x.yesterday') : (i === 6 ? t('x.today') : fmtKey(dt))) + '</th>'; }).join('');
+    // آخر عمود = النهارده واللي قبله = أمس (النافذة ٨ أيام من ١٠ أكتوبر ٢٠٢٦ — مش أرقام ثابتة)
+    var lastCol = c.dailyDates.length - 1;
+    var colCls = function (i) { return i === lastCol - 1 ? ' class="col-yesterday"' : (i === lastCol ? ' class="col-today"' : ''); };
+    var headerCells = c.dailyDates.map(function (dt, i) { return '<th' + colCls(i) + '>' + (i === lastCol - 1 ? t('x.yesterday') : (i === lastCol ? t('x.today') : fmtKey(dt))) + '</th>'; }).join('');
     // الجدول: فاصل الآلاف (١٢٬٥٠٠)، والصرف والمبيعات الصغيرة بخانة عشرية (٠٫٤ مش ٠)
     var spendCells = c.daily.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + fmtNum(v, true) + '</span></td>'; }).join('');
     var secondCells = secondSeries.map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + fmtNum(v, hasSales) + '</span></td>'; }).join('');

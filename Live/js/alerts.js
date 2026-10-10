@@ -8,13 +8,21 @@
 //
 // مبدأ أساسي: المحرك ده بيقرا ويحلل بس — مفيش فيه أي حاجة بتغيّر في الإعلانات.
 //
-// ترتيب الأيام في كل إعلان: 7 خانات من الأقدم للأحدث، آخر خانة (6) = النهارده (يوم لسه مخلصش)،
-// عشان كده "أمس" = خانة 5، و"آخر يومين" = خانتين 4 و5 — أيام كاملة بس، عشان النهارده ميظلمش أي إعلان.
+// ترتيب الأيام في كل إعلان: خانات من الأقدم للأحدث، آخر خانة = النهارده (يوم لسه مخلصش)، واللي قبلها = «أمس».
+// من ١٠ أكتوبر ٢٠٢٦ النافذة ٨ خانات = ٧ أيام مكتملة + النهارده (قرار صاحب المنتج — قبل كده كانت ٧ خانات، فـ«الأسبوع»
+// كان ٦ أيام بس). المؤشرات بتتحسب من آخر النافذة (setWindow في analyze)، فالمحرك بيشتغل بأي طول — أيام كاملة بس
+// في الحكم، عشان النهارده ميظلمش أي إعلان.
 //
 // الحدود الافتراضية نسبية لأداء الحساب نفسه (مثلاً مضاعفات متوسط تكلفة النتيجة) —
 // كده بتشتغل مع أي عملة وأي حجم ميزانية، وصاحب البزنس يقدر يعدّلها من الإعدادات.
 (function (global) {
-  var TODAY = 6, YESTERDAY = 5, DAY_BEFORE = 4;
+  var WINDOW = 7, TODAY = 6, YESTERDAY = 5, DAY_BEFORE = 4, RECENT3 = 3;
+  // RECENT3 = أول يوم من «آخر ٣ أيام مكتملة»
+  function setWindow(n) {
+    WINDOW = n >= 5 ? n : 7;
+    TODAY = WINDOW - 1; YESTERDAY = WINDOW - 2; DAY_BEFORE = WINDOW - 3; RECENT3 = WINDOW - 4;
+  }
+  function zeros(n) { var a = []; for (var i = 0; i < n; i++) a.push(0); return a; }
 
   var DEFAULT_SETTINGS = {
     learningDays: 3,          // الإعلان الأحدث من كده في فترة تعلّم — منقيّمش أداءه لسه
@@ -124,7 +132,7 @@
   };
   // مشاكل الحساب بتوقف كل إعلاناته مرة واحدة — بتطلع تنبيه واحد على مستوى الحساب مش تنبيه لكل إعلان
   var ACCOUNT_STOP = { account: true, 'account-cap': true };
-  function recentSpend(c) { return sum(c.daily || [], 3, TODAY); }
+  function recentSpend(c) { return sum(c.daily || [], RECENT3, TODAY); }
 
   function sum(arr, from, to) {
     var s = 0;
@@ -158,11 +166,11 @@
   // لأن مقارنة تكلفة "محادثة" بتكلفة "شراء" مقارنة مضلّلة
   function accountStats(ads) {
     var byLabel = {}, byCampaign = {};
-    var hasSales = false, spendByDay = [0, 0, 0, 0, 0, 0, 0], resultsByDay = [0, 0, 0, 0, 0, 0, 0];
+    var hasSales = false, spendByDay = zeros(WINDOW), resultsByDay = zeros(WINDOW);
     var total7 = 0, activeCount = 0, spendingAds = 0, purchSpendW = 0, purchSalesW = 0;
     ads.forEach(function (c) {
       if ((c.spend || 0) > 0) spendingAds++;
-      for (var i = 0; i < 7; i++) {
+      for (var i = 0; i < WINDOW; i++) {
         spendByDay[i] += (c.daily && c.daily[i]) || 0;
         resultsByDay[i] += (c.dailyResults && c.dailyResults[i]) || 0;
       }
@@ -204,7 +212,7 @@
     peers.forEach(function (o) {
       if (o === c || !o.active) return;
       var d = o.daily || [];
-      gained += Math.max(0, (d[YESTERDAY] || 0) - sum(d, 0, DAY_BEFORE) / 5);
+      gained += Math.max(0, (d[YESTERDAY] || 0) - sum(d, 0, DAY_BEFORE) / (DAY_BEFORE + 1));
     });
     return gained >= lost * 0.5;
   }
@@ -237,12 +245,12 @@
     // العائد وفرص الزيادة بتتقاس على آخر ٣ أيام مكتملة مش أمس لوحده: المبيعات بتتنسب ليوم ظهور الإعلان
     // (إعداد Meta الافتراضي)، فأرقام أمس لسه هتزيد لما مشتريات متأخرة تتسجّل، والإعلان اللي مشترياته قليلة
     // وغالية ممكن يغيب يوم كامل ويرجع — تقييم يوم واحد كان بيطلع «عاجل» على إعلان عائده في الأسبوع ممتاز
-    var spend3 = sum(daily, 3, YESTERDAY), res3 = sum(results, 3, YESTERDAY), sales3 = sum(sales, 3, YESTERDAY);
+    var spend3 = sum(daily, RECENT3, YESTERDAY), res3 = sum(results, RECENT3, YESTERDAY), sales3 = sum(sales, RECENT3, YESTERDAY);
     // تكلفة النتيجة بمعدل الإعلان نفسه في الأسبوع — مقياس «هل الصرف ده كفاية نحكم عليه؟»
     var ownCpr = c.results > 0 && c.spend > 0 ? c.spend / c.results : null;
     // المتوسط بيتقسم على الأيام اللي الإعلان كان فيها موجود فعلاً — إعلان عمره ٣ أيام
-    // كان متوسطه بيتقسم على ٥ فيطلع أقل من الحقيقة وتنبيه "وصوله ضعيف" ميظهرش
-    var historyDays = age != null ? Math.max(1, Math.min(5, age - 1)) : 5;
+    // كان متوسطه بيتقسم على كل الأيام فيطلع أقل من الحقيقة وتنبيه "وصوله ضعيف" ميظهرش
+    var historyDays = age != null ? Math.max(1, Math.min(DAY_BEFORE + 1, age - 1)) : DAY_BEFORE + 1;
     var prevSpendAvg = sum(daily, 0, DAY_BEFORE) / historyDays;
     // الأسبوع = الأيام المكتملة بس (من غير النهارده): أساس الحكم على الإعلان كله، مش آخر يومين بس
     var spendW = sum(daily, 0, YESTERDAY), resW = sum(results, 0, YESTERDAY), salesW = sum(sales, 0, YESTERDAY);
@@ -440,8 +448,8 @@
       //    - أمس أسوأ من كل أيامه اللي فاتت (نتائج لكل ١ اتصرف): لو كان فيه يوم زيه قبل كده ورجع بعده،
       //      يبقى ده نمط الإعلان ده مش مشكلة جديدة
       //    - والانخفاض صعب يحصل صدفة (احتمال أقل من ٥٪ بالمعدل المتوقع لصرف أمس)
-      var prevResAvg = sum(results, 1, DAY_BEFORE) / 4;
-      var prevSpend4 = sum(daily, 1, DAY_BEFORE) / 4;
+      var prevResAvg = sum(results, 1, DAY_BEFORE) / DAY_BEFORE;
+      var prevSpend4 = sum(daily, 1, DAY_BEFORE) / DAY_BEFORE;
       var newLow = spendY > 0;
       for (var d = 1; d <= DAY_BEFORE && newLow; d++) {
         if ((daily[d] || 0) > 0 && (results[d] || 0) / daily[d] <= resY / spendY) newLow = false;
@@ -459,8 +467,12 @@
 
     // 8) صرف أعلى من المعتاد من غير ما النتائج تتحسن بنفس النسبة
     // (بنتجاهله لو الإعلان لسه بادئ يصرف — أقل من ٣ أيام صرف قبل أمس — أو لو عليه تنبيه صرف بدون نتائج أصلاً)
+    // حد أدنى (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): الزيادة نفسها لازم تساوي تكلفة نتيجة واحدة بمتوسط الحساب على الأقل —
+    // إعلان صرفه نط من ٥ لـ١٢ كان بيطلع «صرف أعلى من المعتاد». من غير متوسط في الحساب مفيش أساس نقيس عليه، فمفيش تنبيه
     var priorSpendDays = daily.slice(0, YESTERDAY).filter(function (v) { return v > 0; }).length;
-    if (!learning && !wasteRaised && priorSpendDays >= 3 && prevSpendAvg > 0 && spendY >= prevSpendAvg * s.spikeMultiple) {
+    var spikeFloor = avgCpr || accountCpr;
+    if (!learning && !wasteRaised && priorSpendDays >= 3 && prevSpendAvg > 0 && spendY >= prevSpendAvg * s.spikeMultiple &&
+      spikeFloor && spendY - prevSpendAvg >= spikeFloor) {
       var yCpr = resY > 0 ? spendY / resY : null;
       // «النتائج مزادتش معاه» = تكلفة النتيجة أمس أعلى بوضوح (نفس حد «تكلفة مرتفعة») — مش أعلى من المتوسط بسنت
       if (!avgCpr || yCpr == null || yCpr > avgCpr * s.cprWarnMultiple) {
@@ -598,7 +610,7 @@
     }
 
     var spendY = acc.spendByDay[YESTERDAY];
-    var prevAvg = sum(acc.spendByDay, 0, DAY_BEFORE) / 5;
+    var prevAvg = sum(acc.spendByDay, 0, DAY_BEFORE) / (DAY_BEFORE + 1);
     if (prevAvg > 0) {
       // لو فيه تنبيه حساب عاجل فوق (دفع، حد صرف، إعلانات وقفت) فهو اللي بيفسّر الوقوف ده — منكررش
       var acctAlreadyFlagged = alerts.length > 0;
@@ -611,7 +623,7 @@
           t('al.acctZero.d', { acc: accName, avg: money(prevAvg) }), t('al.acctZero.a'), 0, 'acct-zero'));
       } else if (spendY >= prevAvg * s.accountSpikeMultiple) {
         // الزيادة بتتنبّه بس لو النتائج مازادتش معاها — زيادة مفيدة مش حاجة عاجلة
-        var resPrev = sum(acc.resultsByDay, 0, DAY_BEFORE) / 5, resY = acc.resultsByDay[YESTERDAY];
+        var resPrev = sum(acc.resultsByDay, 0, DAY_BEFORE) / (DAY_BEFORE + 1), resY = acc.resultsByDay[YESTERDAY];
         var resultsKeptUp = resPrev > 0 && resY / resPrev >= (spendY / prevAvg) * 0.8;
         if (!resultsKeptUp) {
           alerts.push(makeIssue('warning', ['account'], t('al.acctSpike.t'),
@@ -629,7 +641,7 @@
     // بعد تنبيهات الوقوف فوق عشان ميمنعهاش (acctStopped بتتشال لو فيه تنبيه حساب قبلها)
     if (meta && !meta.spendCapReached && meta.spendCap > 0 && meta.amountSpent >= CAP_NEAR * meta.spendCap) {
       var left = (meta.spendCap - meta.amountSpent) / unitOf(cur);   // Meta بترجّع الاتنين بأصغر وحدة للعملة (سنت)
-      var perDay = acc.total7 / 7, daysLeft = perDay > 0 ? left / perDay : null;
+      var perDay = acc.total7 / WINDOW, daysLeft = perDay > 0 ? left / perDay : null;
       alerts.push(makeIssue(daysLeft != null && daysLeft <= CAP_NEAR_DAYS ? 'critical' : 'warning', ['account'], t('al.capNear.t'),
         t(daysLeft != null ? 'al.capNear.d' : 'al.capNear.dNoRate', { acc: accName, pct: fmt.int(meta.amountSpent / meta.spendCap * 100),
           left: money(left), days: daysLeft != null && daysLeft < 1 ? t('al.capNear.lessDay') : daysText(Math.floor(daysLeft || 0), fmt) }),
@@ -743,6 +755,8 @@
   // fmt: { money(n, cur), currencyLabel(cur), num(n), int(n) }
   function analyze(candidates, accountsMeta, customSettings, fmt) {
     var s = mergeSettings(customSettings);
+    // طول النافذة من البيانات نفسها (٨ خانات في الأداة، و٧ في بيانات قديمة أو اختبارات قديمة)
+    setWindow(candidates.reduce(function (m, c) { return Math.max(m, (c.daily || []).length); }, 0));
     var bySource = {};
     candidates.forEach(function (c) { (bySource[c.source] = bySource[c.source] || []).push(c); });
 

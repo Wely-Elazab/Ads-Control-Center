@@ -47,7 +47,9 @@
 
   // ---------- بيانات تجريبية ----------
   var TODAY = todayKeyInTz(BROWSER_TZ);
-  var DAYS = last7Days(TODAY);
+  // الاختبارات القديمة مبنية على ٧ خانات (٦ أيام مكتملة + النهارده) — المحرك بيحسب الأيام من آخر النافذة فبيشتغل بيها،
+  // ونافذة الأداة الحقيقية (٨ خانات = ٧ مكتملة + النهارده) ليها اختبارات لوحدها تحت
+  var DAYS = last7Days(TODAY).slice(-7);
   var KEYS = DAYS.map(function (d) { return d.key; });
   function sumArr(a) { return a.reduce(function (x, y) { return x + y; }, 0); }
   // إعلان بنفس الشكل اللي ملفات المنصات بتبنيه
@@ -174,10 +176,17 @@
       var r = resolvePeriodFor('UTC');
       eq([r.since, r.until, r.isDefault], [shiftKey(today, -1), shiftKey(today, -1), false]);
     });
-    test('آخر ٣٠ يوم', function () {
+    test('آخر ٣٠ يوم = ٣٠ يوماً مكتملة + اليوم', function () {
       period = { preset: 'last30' };
       var r = resolvePeriodFor('UTC');
-      eq([keyDiffDays(r.since, r.until), r.until], [29, today]);
+      eq([keyDiffDays(r.since, r.until), r.until], [30, today]);
+    });
+    test('آخر ٧ أيام = ٧ أيام مكتملة + اليوم (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦)', function () {
+      period = { preset: 'last7' };
+      var r = resolvePeriodFor('UTC');
+      eq([keyDiffDays(r.since, r.until), r.until, r.isDefault], [7, today, true]);
+      var w = last7Days(today);
+      eq([w.length, w[0].key, w[7].key], [8, r.since, today], 'ad window = same 8 days');
     });
     test('الشهر ده والشهر اللي فات', function () {
       period = { preset: 'thisMonth' };
@@ -3975,6 +3984,63 @@
         dxRecompute();
         eq(dxState.views.map(function (v) { return v.id; }), ['meta', 'google']);
       } finally { DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true; }
+    });
+  });
+
+  describe('نافذة الأداة: ٧ أيام مكتملة + اليوم', function () {
+    var s8 = function (n) { return [n, n, n, n, n, n, n, n]; };
+    var ad8 = function (id, daily, res) {
+      var c = ad(id, { daily: daily, res: res });
+      c.dailyDates = last7Days(TODAY).map(function (d) { return d.key; });
+      c.dailySales = s8(0);
+      return c;
+    };
+    test('طلب أمس (الخانة السابعة) بيتحسب في الأسبوع — مش «اليوم» زي الأرقام الثابتة القديمة', function () {
+      var ads = [ad8('g1', s8(100), s8(5)), ad8('g2', s8(100), s8(5)),
+        ad8('y', s8(100), [0, 0, 0, 0, 0, 0, 1, 0]), ad8('t', s8(100), [0, 0, 0, 0, 0, 0, 0, 1])];
+      var r = engine(ads);
+      var codes = function (id) { return r.alerts.filter(function (a) { return a.adId === id; }).map(function (a) { return a.code; }); };
+      ok(codes('y').indexOf('waste-week') < 0, 'yesterday\'s order counts: ' + codes('y'));
+      ok(codes('t').indexOf('waste-week') > -1, 'today\'s order is not part of the week: ' + codes('t'));
+    });
+    test('«صرف أعلى من المعتاد» بحد أدنى: الزيادة لازم تساوي تكلفة نتيجة بمتوسط الحساب', function () {
+      var ads = baseAccount().concat([
+        ad('small', { daily: [5, 5, 5, 5, 5, 12, 0], res: [1, 0, 0, 0, 0, 0, 0] }),
+        ad('big', { daily: [50, 50, 50, 50, 50, 150, 0], res: [3, 3, 3, 3, 3, 0, 0] })
+      ]);
+      var r = engine(ads);
+      var has = function (id) { return r.alerts.some(function (a) { return a.adId === id && a.code === 'spike'; }); };
+      eq([has('small'), has('big')], [false, true], 'avg cost per result = 20: +7 is not a spike, +100 is');
+    });
+    test('قفل الصفحة وهي بتتحمّل: لحد ما الأرقام تيجي، ومن غير قفل لتحميل المتوقفة في الخلفية', function () {
+      var lock = document.getElementById('pageLock');
+      try {
+        setLoading('meta', true, 'x');
+        renderPageLock();
+        ok(!lock.hidden && document.body.classList.contains('page-locked'), 'locked while numbers are coming');
+        candidates = [ad('w1', { daily: steady(10), res: steady(1) })];
+        render();
+        ok(document.querySelector('#topAlerts').textContent.indexOf(t('attn.wait')) > -1 || document.querySelectorAll('#topAlerts .top-alert').length,
+          'no «nothing urgent» before the numbers');
+        setLoading('meta', true, 'x', { bg: true });
+        renderPageLock();
+        ok(lock.hidden && !document.body.classList.contains('page-locked'), 'stopped ads in the background do not lock');
+      } finally { setLoading('meta', false); renderPageLock(); }
+    });
+    test('ملخص المتجر: ٦ أرقام فيها متوسط قيمة الطلب (المبيعات ÷ الطلبات)', function () {
+      var o = DX.compose(DX.analyze(DX_SIM.simulate({ seed: 7, spend: 2000 })));
+      eq(o.kpis.map(function (k) { return k.id; }), ['spend', 'orders', 'revenue', 'aov', 'roas', 'cpa']);
+      var aov = o.kpis[3];
+      ok(aov.value && aov.value !== '—' && aov.prev !== '—', 'aov shown with the previous period');
+    });
+    test('جدول الأيام في التفاصيل: آخر عمود «اليوم» واللي قبله «أمس» مهما كان عدد الأيام', function () {
+      var c = ad8('d1', s8(10), s8(1));
+      candidates = [c];
+      render();
+      openExpand(c);
+      var th = Array.prototype.map.call(document.querySelectorAll('#expandChart thead th'), function (x) { return x.textContent; });
+      eq([th.length, th[7], th[8]], [9, t('x.yesterday'), t('x.today')]);
+      expandOverlay.classList.add('hidden');
     });
   });
 

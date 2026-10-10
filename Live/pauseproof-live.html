@@ -194,6 +194,8 @@
   .attr-table .cmp-worse { color: var(--alert); }
   .attr-table .cmp-better { color: var(--verified); }
   .attr-note { margin: 8px 0 0; font-size: 12px; line-height: 1.65; color: var(--ink-soft); }
+  .attr-more { display: inline-block; margin-top: 6px; font-size: 12.5px; font-weight: 600; color: var(--verified); text-decoration: none; }
+  .attr-more:hover { text-decoration: underline; }
   .chart-section-label { font-size: 11.5px; color: var(--ink-faint); margin-bottom: 8px; }
   .chart-legend { display: flex; gap: 16px; margin-bottom: 10px; }
   .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-soft); }
@@ -494,6 +496,15 @@
 
   /* ---------- الموبايل: الشريط اللي فوق بيستخبى وإنت نازل ويرجع أول ما تطلع (ui.js) ---------- */
   .appbar { transition: transform .2s ease; }
+  /* قفل الصفحة وهي بتتحمّل: تحت الشريط العلوي (z-index أقل منه) — renderPageLock في ui.js بيحدد top */
+  .page-lock { position: fixed; left: 0; right: 0; bottom: 0; top: 0; z-index: 35; display: flex; align-items: center; justify-content: center; padding: 16px; background: color-mix(in srgb, var(--paper) 90%, transparent); }
+  .page-lock[hidden] { display: none; }
+  .page-lock-box { max-width: 360px; text-align: center; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px 20px; box-shadow: 0 8px 28px rgba(22,26,31,0.08); }
+  .page-lock-spin { display: block; width: 28px; height: 28px; margin: 0 auto 12px; border: 3px solid var(--line); border-top-color: var(--verified); border-radius: 50%; animation: spin 0.9s linear infinite; }
+  .page-lock-title { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+  .page-lock-sub { margin: 0; font-size: 12.5px; line-height: 1.7; color: var(--ink-soft); }
+  .page-lock-sub:empty { display: none; }
+  body.page-locked { overflow: hidden; }
   @media (max-width: 720px) { .appbar.appbar-hidden { transform: translateY(-100%); } }
 
   /* ---------- آخر تحديث: قديم = زرار «حدّث» ---------- */
@@ -675,7 +686,9 @@
   .dx-headline { margin: 0 0 12px; font-size: 16px; font-weight: 700; line-height: 1.5; }
   /* العائد مقارنةً بالمستهدف وحد الخسارة (الربح أولاً) — تحت العنوان مباشرةً */
   .dx-basis { margin: -6px 0 12px; font-size: 13px; line-height: 1.7; color: var(--ink-soft); }
-  .dx-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; }
+  /* ستة أرقام: ٣ في الصف على الكمبيوتر، و٢ على الهاتف */
+  .dx-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  @media (max-width: 560px) { .dx-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .dx-kpi { background: var(--paper); border-radius: 10px; padding: 10px 12px; min-width: 0; }
   .dx-kpi-label { font-size: 12px; color: var(--ink-soft); }
   .dx-kpi-value { font-size: 17px; font-weight: 700; margin-top: 2px; overflow-wrap: anywhere; }
@@ -809,6 +822,16 @@
     </div>
   </div>
 </header>
+
+<!-- قفل الصفحة وهي بتتحمّل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): قبل كده كانت بتكتب «لا شيء عاجل» وبعدين تظهر التنبيهات.
+     تحت الشريط العلوي بس — اختيار الحساب والخروج بيفضلوا شغّالين لو التحميل علق. renderPageLock في ui.js -->
+<div class="page-lock" id="pageLock" hidden>
+  <div class="page-lock-box" role="status" aria-live="polite">
+    <span class="page-lock-spin" aria-hidden="true"></span>
+    <p class="page-lock-title" data-i18n="lock.title">جارٍ تحميل إعلانات الحساب وتحليلها…</p>
+    <p class="page-lock-sub" id="pageLockSub"></p>
+  </div>
+</div>
 
 <div class="status-strip">
   <span class="spinner" aria-hidden="true"></span>

@@ -1403,14 +1403,18 @@ var DX = (function () {
     var a = r.prev, b = r.cur, h = r.head || {};
     var ch = function (x, y) { return x > 0 ? y / x - 1 : null; };
     var cpaA = cpaOf(a), cpaB = cpaOf(b);
+    var aovA = a.pur > 0 && a.rev > 0 ? a.rev / a.pur : null, aovB = b.pur > 0 && b.rev > 0 ? b.rev / b.pur : null;
     var roasA = a.spend > 0 && a.rev > 0 ? a.rev / a.spend : null, roasB = b.spend > 0 && b.rev > 0 ? b.rev / b.spend : null;
     // sig = اتجاه التغيّر لو حقيقي بس (١ / −١)، وإلا صفر — الألوان (أخضر/أحمر) مبتظهرش على تذبذب عادي.
-    // الترتيب بلغة الفلوس (قرار ٧ أكتوبر ٢٠٢٦): صرفت كام ← جالك كام طلب ← بمبيعات كام ← العائد ← تكلفة الطلب
+    // الترتيب بلغة الفلوس (قرار ٧ أكتوبر ٢٠٢٦): صرفت كام ← جالك كام طلب ← بمبيعات كام ← متوسط قيمة الطلب ← العائد ← تكلفة الطلب
     return [
       { id: 'spend', label: t('dx.kpi.spend'), value: M(b.spend), prev: M(a.spend), pct: ch(a.spend, b.spend), sig: 0, goodUp: null },
       { id: 'orders', label: t('dx.kpi.orders'), value: fmtNum(b.pur), prev: fmtNum(a.pur), pct: ch(a.pur, b.pur), sig: h.dOrd || 0, goodUp: true },
       { id: 'revenue', label: t('dx.kpi.revenue'), value: money(b.rev, r.currency), prev: money(a.rev, r.currency), pct: ch(a.rev, b.rev),
         sig: (h.dOrd || (h.aov && h.aov.real) || (h.roas && h.roas.dir)) ? sign(b.rev - a.rev) : 0, goodUp: true },
+      // متوسط قيمة الطلب = المبيعات ÷ الطلبات (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) — لونه من اختبار متوسط القيمة نفسه
+      { id: 'aov', label: t('dx.kpi.aov'), value: aovB ? M(aovB) : '—', prev: aovA ? M(aovA) : '—', pct: aovA && aovB ? aovB / aovA - 1 : null,
+        sig: h.aov && h.aov.real ? sign(h.aov.pct) : 0, goodUp: true },
       // لون العائد من اختبار العائد نفسه (مش من تكلفة الطلب): عائد نزل ٦٠٪ كان بيفضل رمادي لأن تكلفة الطلب في حدود التذبذب
       { id: 'roas', label: t('dx.kpi.roas'), value: roasB ? roasStr(roasB) : '—', prev: roasA ? roasStr(roasA) : '—', pct: roasA && roasB ? roasB / roasA - 1 : null, sig: (h.roas && h.roas.dir) || 0, goodUp: true },
       { id: 'cpa', label: t('dx.kpi.cpa'), value: cpaB ? M(cpaB) : '—', prev: cpaA ? M(cpaA) : '—', pct: cpaA && cpaB ? cpaB / cpaA - 1 : null, sig: h.dEff ? -h.dEff : 0, goodUp: false }

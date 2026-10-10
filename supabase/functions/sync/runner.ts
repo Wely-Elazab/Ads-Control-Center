@@ -276,7 +276,7 @@ async function brokenLinks(cands: any[]): Promise<any[]> {
   const pages: Record<string, { url: string; ads: string[]; spend: number }> = {};
   cands.forEach((c) => {
     const d = c.daily || [];
-    if (!c.active || c.landingKind !== 'website' || ((d[5] || 0) + (d[6] || 0)) <= 0 || /\{\{/.test(c.landing || '')) return;
+    if (!c.active || c.landingKind !== 'website' || ((d[d.length - 2] || 0) + (d[d.length - 1] || 0)) <= 0 || /\{\{/.test(c.landing || '')) return;
     let u: URL;
     try { u = new URL(c.landing); } catch (_) { return; }
     if (!linkAllowed(u)) return;

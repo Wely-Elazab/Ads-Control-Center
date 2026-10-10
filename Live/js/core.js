@@ -136,11 +136,14 @@
     if (tz) { try { return fmt(Object.assign({ timeZone: tz }, base)); } catch (e) { /* توقيت غير معروف */ } }
     return fmt(base);
   }
-  // آخر 7 أيام (من الأقدم للأحدث) منتهية بـ untilKey — حساب تقويمي بحت من غير توقيت
+  // نافذة تقييم الإعلانات: ٧ أيام مكتملة + يوم untilKey (النهارده) = ٨ أيام من الأقدم للأحدث — حساب تقويمي بحت.
+  // قبل ١٠ أكتوبر ٢٠٢٦ كانت ٧ أيام شاملة النهارده، فـ«الأسبوع» في الحكم كان ٦ أيام مكتملة بس (قرار صاحب المنتج).
+  // الاسم فضل زي ما هو عشان المُشغّل (runner.ts) والمنصات بيستخدموه
+  var WEEK_SLOTS = 8;
   function last7Days(untilKey) {
     var p = untilKey.split('-').map(Number);
     var out = [];
-    for (var i = 6; i >= 0; i--) {
+    for (var i = WEEK_SLOTS - 1; i >= 0; i--) {
       var d = new Date(Date.UTC(p[0], p[1] - 1, p[2] - i));
       out.push({ key: d.toISOString().slice(0, 10) });
     }
@@ -404,11 +407,12 @@
     return Math.round((Date.UTC(pb[0], pb[1] - 1, pb[2]) - Date.UTC(pa[0], pa[1] - 1, pa[2])) / 86400000);
   }
   function resolvePeriodFor(tz) {
-    var today = todayKeyInTz(tz), since = shiftKey(today, -6), until = today, preset = period.preset;
+    // الفترات المتحركة = أيام مكتملة + النهارده: «آخر ٧ أيام» = ٧ أيام قبل النهارده + النهارده (نفس نافذة الإعلانات)
+    var today = todayKeyInTz(tz), since = shiftKey(today, -7), until = today, preset = period.preset;
     if (preset === 'today') since = today;
     else if (preset === 'yesterday') since = until = shiftKey(today, -1);
-    else if (preset === 'last14') since = shiftKey(today, -13);
-    else if (preset === 'last30') since = shiftKey(today, -29);
+    else if (preset === 'last14') since = shiftKey(today, -14);
+    else if (preset === 'last30') since = shiftKey(today, -30);
     else if (preset === 'thisMonth') since = today.slice(0, 8) + '01';
     else if (preset === 'lastMonth') { until = shiftKey(today.slice(0, 8) + '01', -1); since = until.slice(0, 8) + '01'; }
     else if (preset === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(period.since || '') && /^\d{4}-\d{2}-\d{2}$/.test(period.until || '')) {
@@ -496,13 +500,10 @@
     }
   }
   // فترة التشخيص = الفترة المختارة بس أيام مكتملة (أرقام النهارده لسه بتتحسب ومينفعش تتقارن بيوم كامل):
-  // الفترات المتحركة (اليوم/آخر ٧/١٤/٣٠) بتترجع يوم لورا بنفس طولها، والباقي بيقف عند أمس
+  // بتقف عند أمس. «آخر ٧ أيام» = ٧ أيام مكتملة + النهارده، فالتشخيص = الـ٧ المكتملة بالظبط، و«اليوم» = أمس
   function dxPeriodFor(tz) {
     var p = resolvePeriodFor(tz), today = todayKeyInTz(tz), since = p.since, until = p.until;
-    if (until >= today) {
-      if (/^(today|last7|last14|last30)$/.test(p.preset)) { since = shiftKey(since, -1); until = shiftKey(until, -1); }
-      else until = shiftKey(today, -1);
-    }
+    if (until >= today) until = shiftKey(today, -1);
     if (since > until) since = until;
     return { since: since, until: until };
   }
@@ -525,8 +526,13 @@
 
   var loadingPlatforms = {};
   function anyLoading() { return Object.keys(loadingPlatforms).some(function (p) { return loadingPlatforms[p]; }); }
+  // numbersPending = أرقام المنصة دي لسه مجاتش (الكروت ممكن تكون ظاهرة من غير أرقام) — قفل الصفحة (renderPageLock في ui.js)
+  // بيستناها. opts.bg = الأرقام وصلت وفاضل تحميل في الخلفية بس (الإعلانات المتوقفة) — مفيش قفل
+  var numbersPending = {};
   function setLoading(platform, on, text, opts) {
     loadingPlatforms[platform] = !!on;
+    numbersPending[platform] = !!on && !(opts && opts.bg);
+    if (typeof renderPageLock === 'function') setTimeout(renderPageLock, 0);   // بعد setStatus تحت (نصها بيظهر جوه القفل)
     document.body.classList.toggle('is-loading', anyLoading());
     cardGrid.setAttribute('aria-busy', anyLoading() ? 'true' : 'false');
     if (text) setStatus(text, opts);

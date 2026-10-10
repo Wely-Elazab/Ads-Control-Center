@@ -414,7 +414,7 @@
       setPlatformState('meta', null);
       var text = connectedText(notes);
       if (done) setLoading('meta', false, text);
-      else setLoading('meta', true, function () { return text() + ' ' + t('s.metaStoppedLoading'); });
+      else setLoading('meta', true, function () { return text() + ' ' + t('s.metaStoppedLoading'); }, { bg: true });
       render();
     };
 
@@ -764,7 +764,7 @@
     // تحقق أخير: لو الإعلان صرف النهارده فهو بيظهر فعلاً، مهما كانت الملاحظة اللي رجعت من المنصة —
     // الصرف دليل عملي أقوى من أي وصف. الملاحظة بتفضل ظاهرة في التفاصيل
     var ISSUE_LEVELS = { issue: 1, 'ad-issue': 1, 'adset-issue': 1, 'campaign-issue': 1, budget: 1 };
-    if (!delivery.active && ISSUE_LEVELS[delivery.level] && daily[6] > 0) {
+    if (!delivery.active && ISSUE_LEVELS[delivery.level] && daily[daily.length - 1] > 0) {
       delivery = { active: true, level: null, reason: delivery.reason };
     }
     // مصدر واحد بس لقيمة المبيعات: مجموع نفس الأرقام اليومية الظاهرة في الجدول تحت —
