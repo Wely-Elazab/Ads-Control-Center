@@ -353,6 +353,12 @@
     // هي نفسها آخر ٧ أيام — عشان رقم ٣٠ يوم ميتلوّنش أحمر بسبب حاجة حصلت أمس بس
     var p = periodOf(c);
     var hl = function (metric) { return period.preset === 'last7' ? mv(c, metric) : ''; };
+    // لون خفيف (أخضر/أحمر) على تكلفة النتيجة أو العائد من التقييم (tones في alerts.js) — لو مفيش ملاحظة ملوّنة عليه أصلاً
+    var tn = function (metric) {
+      var v = period.preset === 'last7' && !mv(c, metric) ? (adAnalysis(c).tones || {})[metric] : 0;
+      return v > 0 ? ' tone-good' : (v < 0 ? ' tone-bad' : '');
+    };
+    var tnTip = function (metric) { var k = tn(metric); return k ? ' — ' + t('chip.tone.' + metric + (k === ' tone-good' ? '.good' : '.bad')) : ''; };
     var tip = ' — ' + periodLabel();
     var chips = '<span class="metric-chip' + hl('spend') + '" title="' + t('chip.spend') + tip + '">' + money(p.spend, c.currency) + '</span>';
     if (p.results != null) {
@@ -361,10 +367,10 @@
     // تكلفة النتيجة (زي تكلفة الطلب CPO) والعائد (ROAS) الاتنين بيظهروا لو موجودين — كل واحد بيجاوب سؤال مختلف:
     // التكلفة مقارنةً بهامش ربحك، والعائد مقارنةً بالمبيعات
     if (p.cpr != null) {
-      chips += '<span class="metric-chip' + hl('cpr') + '" title="' + t('chip.cprTip') + tip + '">' + money(p.cpr, c.currency) + ' / ' + esc(resultNounOf(c, 1)) + '</span>';
+      chips += '<span class="metric-chip' + hl('cpr') + tn('cpr') + '" title="' + t('chip.cprTip') + tip + tnTip('cpr') + '">' + money(p.cpr, c.currency) + ' / ' + esc(resultNounOf(c, 1)) + '</span>';
     }
     if (p.roas != null || hl('roas')) {
-      chips += '<span class="metric-chip' + hl('roas') + '" title="' + t('chip.roasTip') + tip + '">' + t('chip.roas') + ' ' + roasStr(p.roas) + '</span>';
+      chips += '<span class="metric-chip' + hl('roas') + tn('roas') + '" title="' + t('chip.roasTip') + tip + tnTip('roas') + '">' + t('chip.roas') + ' ' + roasStr(p.roas) + '</span>';
     }
     if (c.frequency != null && mv(c, 'frequency')) {
       chips += '<span class="metric-chip' + mv(c, 'frequency') + '" title="' + t('chip.freqTip') + '">' + t('chip.freq') + ' ' + numAr(c.frequency) + '</span>';
@@ -665,10 +671,13 @@
   var DX_KIND_LABEL = { urgent: 'dx.kind.urgent', decision: 'dx.kind.decision', watch: 'dx.kind.watch', opportunity: 'dx.kind.opportunity' };
   function dxPct(x) { return ar(Math.round(Math.abs(x) * 100)) + (isAr() ? '٪' : '%'); }
   function dxKpiHtml(k) {
-    // اللون (أخضر/أحمر) بس لو التغيّر حقيقي — تذبذب عادي بيفضل رمادي
-    var tone = !k.sig || k.goodUp == null ? '' : ((k.sig > 0) === k.goodUp ? ' good' : ' bad');
+    // تلات درجات (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): تغيّر مؤكد = أخضر/أحمر بخلفية، مرجّح = اللون من غير خلفية،
+    // ضمن التذبذب = رمادي (والتلميح بيقول ده)
+    var dir = k.sig || k.soft || 0, lvl = k.sig ? 'strong' : (k.soft ? 'soft' : '');
+    var tone = !dir || k.goodUp == null ? '' : ((dir > 0) === k.goodUp ? ' good ' : ' bad ') + lvl;
+    var tip = tone ? t('dx.kpi.tip.' + lvl) : (k.goodUp != null && k.pct != null && Math.abs(k.pct) >= 0.1 ? t('dx.kpi.tip.noise') : '');
     var pct = k.pct == null || Math.abs(k.pct) < 0.005 ? '' :
-      '<span class="dx-kpi-pct' + tone + '">' + (k.pct > 0 ? '↑ ' : '↓ ') + dxPct(k.pct) + '</span>';
+      '<span class="dx-kpi-pct' + tone + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + '>' + (k.pct > 0 ? '↑ ' : '↓ ') + dxPct(k.pct) + '</span>';
     return '<div class="dx-kpi"><div class="dx-kpi-label">' + esc(k.label) + '</div>' +
       '<div class="dx-kpi-value">' + esc(k.value) + ' ' + pct + '</div>' +
       '<div class="dx-kpi-sub">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</div></div>';
@@ -1271,7 +1280,9 @@
     var more = pending.length ? '<p class="dx-notes">' + esc(t('dx.loadingMore', { platforms: DX.listText(pending.map(function (p) { return t('dx.plat.' + p); })) })) + '</p>' : '';
     body.innerHTML = tabs + more + '<div class="dx-head ' + esc(o.tone) + '"><p class="dx-headline">' + esc(o.title) + '</p>' +
       (o.basis ? '<p class="dx-basis">' + esc(o.basis) + '</p>' : '') +
-      (nums ? '<div class="dx-kpis">' + o.kpis.map(dxKpiHtml).join('') + '</div>' : '') + '</div>';
+      (nums ? '<div class="dx-kpis">' + o.kpis.map(dxKpiHtml).join('') + '</div>' : '') +
+      // شرح الألوان بيظهر بس لو فيه رقم ملوّن (على الهاتف مفيش تلميح بالماوس)
+      (nums && o.kpis.some(function (k) { return k.goodUp != null && (k.sig || k.soft); }) ? '<p class="dx-kpi-legend">' + esc(t('dx.kpi.legend')) + '</p>' : '') + '</div>';
     renderVerdict(o);
     renderDxMore(o, renderTopAlerts(o));
   }

@@ -578,7 +578,15 @@
     } else if (avgCpr && c.cpr != null) {
       basis = t('basis.cpr', { one: one, cpr: money(c.cpr), avg: money(avgCpr) });
     }
-    return done(pend, basis);
+    // ألوان أرقام الكارت (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «كل النص رمادي وأسود»): أخضر/أحمر خفيف على العائد مقارنةً
+    // بالمستهدف وحد الخسارة لإعلان المبيعات (الربح أولاً)، وعلى تكلفة النتيجة مقارنةً بمتوسط الحساب لغيره (±١٥٪) —
+    // بس للإعلان اللي اتحكم عليه فعلاً (مش «لم يُحكم بعد» ولا متوقف)
+    var tones = {};
+    if (profitAd && weekEvidence && roasW != null) tones.roas = roasW >= s.roasTarget ? 1 : (roasW < s.roasBreakEven ? -1 : 0);
+    else if (!profitAd && avgCpr && ownCpr && othersHave) tones.cpr = ownCpr <= avgCpr * 0.85 ? 1 : (ownCpr >= avgCpr * 1.15 ? -1 : 0);
+    var out = done(pend, basis);
+    out.tones = out.health === 'pending' || out.health === 'inactive' ? {} : tones;
+    return out;
   }
 
   // ملاحظة على إعلان صغير بالنسبة لحسابه: بتفضل ظاهرة في تفاصيله "للعلم"، بس مش تنبيه —

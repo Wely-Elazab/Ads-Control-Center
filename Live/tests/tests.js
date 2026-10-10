@@ -848,6 +848,13 @@
       var fresh = ad('fresh', { daily: [0, 0, 0, 0, 2, 2, 0], res: [0, 0, 0, 0, 1, 0, 0], age: 2 });
       eq(engine(baseAccount().concat([fresh])).byAd.fresh.health, 'pending', 'still learning');
     });
+    test('ألوان أرقام الكارت: تكلفة النتيجة أرخص من متوسط الحساب = أخضر، وأغلى = أحمر، والإعلان اللي لم يُحكم عليه من غير لون', function () {
+      var cheap = ad('cheap', { daily: steady(100), res: steady(8) }), dear = ad('dear', { daily: steady(100), res: steady(3) });
+      var r = engine(baseAccount().concat([cheap, dear]));
+      eq([r.byAd.cheap.tones.cpr, r.byAd.dear.tones.cpr], [1, -1]);
+      var fresh = ad('fresh2', { daily: steady(100), res: steady(8), age: 1 });
+      eq(engine(baseAccount().concat([fresh])).byAd.fresh2.tones, {}, 'learning = no colour');
+    });
     test('حكم مبدئي: نتيجة واحدة بإنفاق بين تكلفة نتيجة واتنين = قراءة أولية بالمقارنة بدل «لا تكفي»', function () {
       // متوسط الحساب ≈ ٢٠ للطلب: ٣٠ في الأسبوع وطلب واحد = بين تكلفة طلب واتنين، وأغلى من المتوسط
       var one = ad('one', { daily: [5, 5, 5, 5, 5, 5, 0], res: [0, 0, 0, 1, 0, 0, 0] });
@@ -3954,6 +3961,18 @@
     test('الألوان (أخضر/أحمر) على الأرقام بس لو التغيّر حقيقي', function () {
       var calm = scenarios()[0];
       ok(DX.compose(calm).kpis.every(function (k) { return !k.sig; }), 'no colours on a steady account');
+    });
+    test('ألوان الأرقام بتلات درجات: مؤكد بخلفية، مرجّح من غير خلفية، والباقي رمادي — والمرجّح عمره ما يبقى مؤكد', function () {
+      var soft = 0, bad = 0;
+      for (var s = 1; s <= 60; s++) {
+        var o = DX.compose(DX.analyze(DX_SIM.simulate({ seed: s * 104729 + 7, spend: 2000 })));
+        (o.kpis || []).forEach(function (k) { if (k.soft) { soft++; if (k.sig) bad++; } });
+      }
+      ok(soft >= 1, 'some probable moves: ' + soft);
+      eq(bad, 0);
+      var html = dxKpiHtml({ label: 'x', value: '1', prev: '1', pct: 0.3, sig: 0, soft: 1, goodUp: true });
+      ok(/dx-kpi-pct good soft/.test(html) && !/strong/.test(html), html);
+      ok(/good strong/.test(dxKpiHtml({ label: 'x', value: '1', prev: '1', pct: 0.3, sig: 1, soft: 0, goodUp: true })), 'confirmed = filled');
     });
     // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «ضمن التذبذب» من غير أرقام، والشرح مطوي ومكانه مش واضح
     var arNum = function (s) { return Number(String(s).replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); }).replace('٫', '.')); };

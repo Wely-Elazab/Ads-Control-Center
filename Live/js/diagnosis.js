@@ -1406,18 +1406,21 @@ var DX = (function () {
     var aovA = a.pur > 0 && a.rev > 0 ? a.rev / a.pur : null, aovB = b.pur > 0 && b.rev > 0 ? b.rev / b.pur : null;
     var roasA = a.spend > 0 && a.rev > 0 ? a.rev / a.spend : null, roasB = b.spend > 0 && b.rev > 0 ? b.rev / b.spend : null;
     // sig = اتجاه التغيّر لو حقيقي بس (١ / −١)، وإلا صفر — الألوان (أخضر/أحمر) مبتظهرش على تذبذب عادي.
+    // soft = اتجاهه لو «مرجّح» (احتمال الصدفة أقل من ٥٪) ومش مؤكد — لون من غير خلفية (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦)
+    var lik = function (z, pct) { return pct != null && Math.abs(pct) >= MIN_PCT && chanceTier(pFromZ(z)) === 'likely' ? sign(pct) : 0; };
+    var ordPct = ch(a.pur, b.pur), roasPct = roasA && roasB ? roasB / roasA - 1 : null, cpaPct = cpaA && cpaB ? cpaB / cpaA - 1 : null, aovPct = aovA && aovB ? aovB / aovA - 1 : null;
     // الترتيب بلغة الفلوس (قرار ٧ أكتوبر ٢٠٢٦): صرفت كام ← جالك كام طلب ← بمبيعات كام ← متوسط قيمة الطلب ← العائد ← تكلفة الطلب
     return [
       { id: 'spend', label: t('dx.kpi.spend'), value: M(b.spend), prev: M(a.spend), pct: ch(a.spend, b.spend), sig: 0, goodUp: null },
-      { id: 'orders', label: t('dx.kpi.orders'), value: fmtNum(b.pur), prev: fmtNum(a.pur), pct: ch(a.pur, b.pur), sig: h.dOrd || 0, goodUp: true },
+      { id: 'orders', label: t('dx.kpi.orders'), value: fmtNum(b.pur), prev: fmtNum(a.pur), pct: ordPct, sig: h.dOrd || 0, soft: h.dOrd ? 0 : lik(h.ordersZ, ordPct), goodUp: true },
       { id: 'revenue', label: t('dx.kpi.revenue'), value: money(b.rev, r.currency), prev: money(a.rev, r.currency), pct: ch(a.rev, b.rev),
         sig: (h.dOrd || (h.aov && h.aov.real) || (h.roas && h.roas.dir)) ? sign(b.rev - a.rev) : 0, goodUp: true },
       // متوسط قيمة الطلب = المبيعات ÷ الطلبات (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) — لونه من اختبار متوسط القيمة نفسه
       { id: 'aov', label: t('dx.kpi.aov'), value: aovB ? M(aovB) : '—', prev: aovA ? M(aovA) : '—', pct: aovA && aovB ? aovB / aovA - 1 : null,
-        sig: h.aov && h.aov.real ? sign(h.aov.pct) : 0, goodUp: true },
+        sig: h.aov && h.aov.real ? sign(h.aov.pct) : 0, soft: h.aov && !h.aov.real ? lik(h.aov.z, aovPct) : 0, goodUp: true },
       // لون العائد من اختبار العائد نفسه (مش من تكلفة الطلب): عائد نزل ٦٠٪ كان بيفضل رمادي لأن تكلفة الطلب في حدود التذبذب
-      { id: 'roas', label: t('dx.kpi.roas'), value: roasB ? roasStr(roasB) : '—', prev: roasA ? roasStr(roasA) : '—', pct: roasA && roasB ? roasB / roasA - 1 : null, sig: (h.roas && h.roas.dir) || 0, goodUp: true },
-      { id: 'cpa', label: t('dx.kpi.cpa'), value: cpaB ? M(cpaB) : '—', prev: cpaA ? M(cpaA) : '—', pct: cpaA && cpaB ? cpaB / cpaA - 1 : null, sig: h.dEff ? -h.dEff : 0, goodUp: false }
+      { id: 'roas', label: t('dx.kpi.roas'), value: roasB ? roasStr(roasB) : '—', prev: roasA ? roasStr(roasA) : '—', pct: roasPct, sig: (h.roas && h.roas.dir) || 0, soft: h.roas && !h.roas.dir ? lik(h.roas.z, roasPct) : 0, goodUp: true },
+      { id: 'cpa', label: t('dx.kpi.cpa'), value: cpaB ? M(cpaB) : '—', prev: cpaA ? M(cpaA) : '—', pct: cpaPct, sig: h.dEff ? -h.dEff : 0, soft: h.dEff ? 0 : lik(h.effZ, cpaPct), goodUp: false }
     ];
   }
   // جدول الأدلة (للمسوّق): الفترتين جنب بعض، مرحلة مرحلة
@@ -1655,12 +1658,15 @@ var DX = (function () {
   }
   // الدرجة من الرقم المقرّب اللي العميل بيشوفه (٤٫٩٪ بتتعرض «٥٪» فمتبقاش «مرجّح»)
   function chanceTier(p) { var n = Math.round(p * 100); return n >= 20 ? 'normal' : (n >= 5 ? 'notable' : 'likely'); }
-  function chanceText(p) { return pctText(Math.max(0.01, p)); }
+  // تحت ٢٪ بخانة عشرية (٠٫٩٪ مش «١٪» — وإلا «نحو ١٪» جنب «حد التأكد أقل من ١٪» بتبان تناقض)
+  function chanceText(p) { p = Math.max(0.001, p); return p < 0.02 ? fmtNum(Math.round(p * 1000) / 10, true) + pctSign() : pctText(p); }
+  // حد «التأكد» نفسه (Z_REAL ≈ ٠٫٦٪) — بيتقال في درجة «مرجّح»
+  function limitText() { return chanceText(pFromZ(Z_REAL)); }
   // سطر تكلفة الطلب: الفرق، واحتمال إنه صدفة — للأحكام الهادية وللتكلفة «غير المؤكدة» في «لماذا؟»
   function cpaNoiseLine(r, M) {
     var a = r.prev, b = r.cur, h = r.head, cpaA = cpaOf(a), cpaB = cpaOf(b);
     if (!cpaA || !cpaB || h.cpaPct == null || h.dEff !== 0) return null;
-    var v = { from: M(cpaA), to: M(cpaB), pct: pctText(h.cpaPct), na: fmtNum(a.pur), nb: fmtNum(b.pur) };
+    var v = { from: M(cpaA), to: M(cpaB), pct: pctText(h.cpaPct), na: fmtNum(a.pur), nb: fmtNum(b.pur), limit: limitText() };
     if (Math.abs(h.cpaPct) < MIN_PCT) return t('dx.noise.cpaSmall', v);
     var p = pFromZ(h.effZ);
     v.p = chanceText(p);
@@ -1670,7 +1676,7 @@ var DX = (function () {
     var a = r.prev, b = r.cur, h = r.head;
     if (h.ordPct == null || Math.abs(h.ordPct) < MIN_PCT || h.dOrd !== 0 || h.dSpend !== 0) return null;
     var p = pFromZ(h.ordersZ);
-    return t('dx.noise.orders.' + (h.ordPct > 0 ? 'up' : 'down') + '.' + chanceTier(p), { from: fmtNum(a.pur), to: fmtNum(b.pur), pct: pctText(h.ordPct), p: chanceText(p) });
+    return t('dx.noise.orders.' + (h.ordPct > 0 ? 'up' : 'down') + '.' + chanceTier(p), { from: fmtNum(a.pur), to: fmtNum(b.pur), pct: pctText(h.ordPct), p: chanceText(p), limit: limitText() });
   }
   // تراجع «مرجّح» (احتمال الصدفة أقل من ٥٪) بس مش مؤكد: العنوان بيقول «يستحق المتابعة» بدل «ضمن التذبذب المعتاد»
   // الربح أولاً: العائد قبل تكلفة الطلب وعدد الطلبات
@@ -1681,6 +1687,13 @@ var DX = (function () {
     if (h.dOrd === 0 && h.dSpend === 0 && h.ordPct != null && h.ordPct <= -MIN_PCT && h.ordersZ < 0 && chanceTier(pFromZ(h.ordersZ)) === 'likely') return 'likelyFewer';
     return null;
   }
+  // تحسّن «مرجّح» ومش مؤكد (العائد أو تكلفة الطلب أو الطلبات): «في مستواه المعتاد» كانت بتناقض «فالأرجح أنها زيادة حقيقية»
+  function likelyGood(h) {
+    var ro = h.roas, L = function (z) { return chanceTier(pFromZ(z)) === 'likely'; };
+    return !!((ro && ro.dir === 0 && ro.pct >= MIN_PCT && ro.z > 0 && L(ro.z)) ||
+      (h.dEff === 0 && h.cpaPct != null && h.cpaPct <= -MIN_PCT && h.effZ > 0 && L(h.effZ)) ||
+      (h.dOrd === 0 && h.dSpend === 0 && h.ordPct != null && h.ordPct >= MIN_PCT && h.ordersZ > 0 && L(h.ordersZ)));
+  }
   // بلغة الفلوس: كل ١٠٠ اتصرفت على الإعلانات رجّعت مبيعات قد إيه، مقابل الفترة السابقة. لو العائد اتحرك ١٠٪ أو أكتر
   // ومش مؤكد: احتمال الصدفة جنبه (عائد نازل ٢٠٪ من غير تعليق وتحته «في مستواه المعتاد» كان بيلخبط)
   function moneyLine(r, M) {
@@ -1689,7 +1702,7 @@ var DX = (function () {
     var v = { base: M(100), to: M(100 * b.rev / b.spend), from: M(100 * a.rev / a.spend) };
     if (!ro || ro.dir !== 0 || Math.abs(ro.pct) < MIN_PCT) return t('dx.money.back', v);
     var p = pFromZ(ro.z);
-    v.pct = pctText(ro.pct); v.p = chanceText(p);
+    v.pct = pctText(ro.pct); v.p = chanceText(p); v.limit = limitText();
     return t('dx.money.' + (ro.pct > 0 ? 'up' : 'down') + '.' + chanceTier(p), v);
   }
 
@@ -1708,6 +1721,7 @@ var DX = (function () {
       if (rv && rv.pct < 0 && !rv.seen) return { key: 'salesDown', tone: 'mixed', vars: { pct: pctText(rv.pct) } };
       var lk = likelyBad(h);
       if (lk) return { key: lk + (actionable ? 'Act' : ''), tone: 'mixed' };
+      if (likelyGood(h)) return actionable ? { key: 'likelyBetterAct', tone: 'mixed' } : { key: 'likelyBetter', tone: 'neutral' };
       if (actionable) return { key: h.type + 'Act', tone: 'mixed' };
     }
     return { key: h.type, tone: h.tone };
@@ -1794,6 +1808,7 @@ var DX = (function () {
       if (!tl || tl.level === 'above') {
         if (fh.key === h.type) calmBlock.lines.push(t('dx.verdict.calm'));
         else if (fh.key === h.type + 'Act') calmBlock.lines.push(t('dx.verdict.calmAct'));
+        else if (/^likelyBetter/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.likelyBetter'));
         else if (/^likely/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.watch' + ({ Worse: 'Cpa', Fewer: 'Orders', Roas: 'Roas' })[fh.key.replace(/^likely|Act$/g, '')]));
       }
     }
