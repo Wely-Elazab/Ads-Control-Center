@@ -128,8 +128,12 @@
   // صريح مع الطلب، لأن على الهاتف مكتبة فيسبوك مبتعرفش إن العميل رابط. غير كده المكتبة بتستخدم جلستها زي الأول.
   // نفس شكل FB.api: (path, params, cb) أو (path, method, params, cb)
   function metaApi(path, a, b, c) {
-    // المكتبة لسه متحمّلتش (شبكة بطيئة): الطلب بيستنى جاهزيتها بدل خطأ «FB is not defined» — حساب حقيقي ١٠ أكتوبر ٢٠٢٦: الجلسة
-    // اتسترجعت من المفتاح المحفوظ قبل المكتبة، والصفحة فضلت على «جارٍ تحميل الحسابات الإعلانية…» من غير رسالة. لو المكتبة اتمنعت،
+    // معانا مفتاح: Graph API على طول من غير مكتبة فيسبوك (نفس طريقة المُشغّل على الخادم — runner.ts graph). المكتبة على الشبكة
+    // البطيئة بتتأخر أو جزء منها مبيتحمّلش (حساب حقيقي ١٠ و١١ أكتوبر ٢٠٢٦: «تعذّر تحميل الحسابات» وهي بتتحمّل)، وحاجب الإعلانات
+    // بيمنعها كلها — والأرقام مالهاش دعوة بيها. المكتبة بتفضل للدخول نفسه (FB.login)، وللطلب من غير مفتاح (جلسة المكتبة)
+    var tok = validToken(sessionTokens.meta);
+    if (tok) { graphCall(path, a, b, c, tok); return; }
+    // من غير مفتاح والمكتبة لسه متحمّلتش: الطلب بيستنى جاهزيتها بدل خطأ «FB is not defined». لو المكتبة اتمنعت،
     // onFbSdkFailed بيعرض رسالتها. المُشغّل على الخادم معرّف FB بديل (runner.ts) فمبيستناش
     if (typeof FB === 'undefined') {
       if (fbReadyQueue) { fbReadyQueue.push(function () { metaApi(path, a, b, c); }); return; }
@@ -137,11 +141,28 @@
       if (done) done({ error: { message: 'Facebook SDK unavailable' } });
       return;
     }
-    var tok = validToken(sessionTokens.meta);
-    if (!tok) return FB.api(path, a, b, c);
-    var withTok = function (p) { var q = {}; for (var k in (p || {})) q[k] = p[k]; q.access_token = tok; return q; };
-    if (typeof a === 'string') return FB.api(path, a, withTok(b), c);
-    return FB.api(path, withTok(a), b);
+    return FB.api(path, a, b, c);
+  }
+  // نفس شكل FB.api: (path, params, cb) أو (path, method, params, cb). القيم اللي مش نص بتتبعت JSON (زي المكتبة)، والخطأ بيرجع
+  // { error } زي ما Graph بيرجّعه (حتى مع ٤٠٠/٤٠٣)، وفشل الشبكة نفسه { error: { message } }
+  var GRAPH_BASE = 'https://graph.facebook.com/' + GRAPH_VERSION;
+  function graphCall(path, a, b, c, tok) {
+    var method = 'GET', params = {}, cb = function () {};
+    if (typeof a === 'string') { method = a.toUpperCase(); if (typeof b === 'function') cb = b; else { params = b || {}; cb = c || cb; } }
+    else if (typeof a === 'function') cb = a;
+    else { params = a || {}; cb = b || cb; }
+    var pairs = [];
+    Object.keys(params).forEach(function (k) {
+      var v = params[k];
+      if (v == null) return;
+      pairs.push(encodeURIComponent(k) + '=' + encodeURIComponent(typeof v === 'string' ? v : (typeof v === 'object' ? JSON.stringify(v) : String(v))));
+    });
+    pairs.push('access_token=' + encodeURIComponent(tok));
+    var url = GRAPH_BASE + (path.charAt(0) === '/' ? path : '/' + path);
+    var req = method === 'GET' ? fetch(url + '?' + pairs.join('&'))
+      : fetch(url, { method: method, headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: pairs.join('&') });
+    req.then(function (r) { return r.json().catch(function () { return { error: { message: 'http ' + r.status } }; }); })
+      .then(cb, function (e) { cb({ error: { message: String((e && e.message) || e) } }); });
   }
 
   function fetchAllPages(path, params, cap, onDone, acc) {

@@ -1962,7 +1962,7 @@
         eq(scene(), 3, 'tapping a step jumps to it');
         at(0.3);
         eq(Array.prototype.map.call(d.querySelectorAll('[data-count]'), function (el) { return el.textContent; }), ['٤١٢', '٤٥ ر.س', '٨٠٬٣٠٠ ر.س'], 'reduced motion: full values right away, in riyals for a Saudi visitor');
-        eq(Array.prototype.map.call(d.querySelectorAll('[data-amount]'), function (el) { return el.textContent; }), ['٢٢٥ ر.س', '225 SAR', '٢٬٣٥٠ ر.س', '2,350 SAR'], 'sentence amounts in riyals, each in its own language');
+        eq(Array.prototype.map.call(d.querySelectorAll('[data-amount]'), function (el) { return el.textContent; }), ['٤٥٠ ر.س', '450 SAR', '١٬٢٨٠ ر.س', '1,280 SAR', '٢٢٥ ر.س', '225 SAR', '٢٬٣٥٠ ر.س', '2,350 SAR'], 'sentence amounts in riyals, each in its own language (incl. the attention items)');
         d.documentElement.lang = 'en';
         return sleep(50).then(function () {
           eq(d.querySelector('[data-count][data-money]').textContent, '45 SAR', 'English: 45 SAR');
@@ -2050,7 +2050,7 @@
         var d = f.contentDocument, w = f.contentWindow;
         eq(w.getComputedStyle(d.querySelector('[data-menu-toggle]')).display, 'none', 'desktop: no menu button');
         eq(w.getComputedStyle(d.getElementById('siteNav')).display, 'flex', 'desktop: links visible');
-        eq(d.querySelectorAll('.eyebrow').length, 6, 'a small label above every section heading');
+        eq(d.querySelectorAll('.eyebrow').length, 7, 'a small label above every section heading (incl. #owners)');
         ok(d.querySelectorAll('main > .band').length >= 3, 'alternating section backgrounds');
       }).then(function () { f.remove(); }, function (e) { if (f) f.remove(); throw e; });
     });
@@ -3444,6 +3444,33 @@
         });
       } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
     });
+    // حساب حقيقي ١٠ و١١ أكتوبر ٢٠٢٦: مكتبة فيسبوك على شبكة بطيئة كانت بتسيب «تعذّر تحميل الحسابات» — مع المفتاح الطلب بيروح Graph على طول
+    testAsync('Meta: مع مفتاح في الجلسة الطلب بيروح Graph API على طول من غير مكتبة فيسبوك (GET وPOST وخطأ الشبكة)', function () {
+      var prevFetch = window.fetch, hadFB = 'FB' in window, prevFB = window.FB, prevTok = sessionTokens.meta, calls = [];
+      window.FB = { api: function () { calls.push('SDK'); } };
+      sessionTokens.meta = { token: 'TOK123', expiresAt: Date.now() + 3600000 };
+      window.fetch = function (url, opts) {
+        calls.push({ url: String(url), method: opts && opts.method, body: opts && opts.body });
+        if (/fail/.test(url)) return Promise.reject(new Error('offline'));
+        return Promise.resolve({ status: /bad/.test(url) ? 403 : 200, json: function () { return Promise.resolve(/bad/.test(url) ? { error: { code: 200, message: 'no' } } : { data: [1, 2] }); } });
+      };
+      var call = function (p, x, y) { return new Promise(function (res) { if (y) metaApi(p, x, y, res); else metaApi(p, x, res); }); };
+      var restore = function () { window.fetch = prevFetch; if (prevTok) sessionTokens.meta = prevTok; else delete sessionTokens.meta; if (hadFB) window.FB = prevFB; else delete window.FB; };
+      return Promise.all([
+        call('/act_1/ads', { fields: 'id,name', filtering: [{ field: 'ad.id', operator: 'IN', value: ['9'] }] }),
+        call('/', 'POST', { batch: '[]', include_headers: false }),
+        call('/bad', {}),
+        call('/fail', {})
+      ]).then(function (r) {
+        restore();
+        eq(r[0].data, [1, 2]);
+        eq([r[2].error.code, typeof r[3].error.message], [200, 'string']);
+        ok(calls.indexOf('SDK') < 0, 'SDK not used');
+        var get = calls[0], post = calls[1];
+        ok(/^https:\/\/graph\.facebook\.com\/v\d+\.0\/act_1\/ads\?/.test(get.url) && /access_token=TOK123/.test(get.url) && /filtering=%5B%7B/.test(get.url) && !get.method, get.url);
+        eq([post.method, /access_token=TOK123/.test(post.body), /include_headers=false/.test(post.body), /\?/.test(post.url)], ['POST', true, true, false]);
+      }, function (e) { restore(); throw e; });
+    });
     test('Meta: الطلب بيستنى مكتبة فيسبوك لو لسه متحمّلتش (شبكة بطيئة) بدل «FB is not defined»', function () {
       var hadFB = 'FB' in window, prevFB = window.FB, prevQ = fbReadyQueue, got = null;
       try {
@@ -4347,15 +4374,24 @@
         eq(calls[0][1], { limit: 5 });
       });
     });
-    test('بالمفتاح المحفوظ: بيتبعت صريح مع الطلب (GET وPOST)، ومن غير ما يغيّر params الأصلية', function () {
+    // من ١١ أكتوبر ٢٠٢٦ الطلب بالمفتاح بيروح Graph على طول (graphCall) مش عن طريق المكتبة
+    test('بالمفتاح المحفوظ: الطلب بيروح Graph على طول بالمفتاح (GET وPOST)، من غير المكتبة ومن غير ما يغيّر params الأصلية', function () {
+      var prevTok = sessionTokens.meta, prevFetch = window.fetch, sent = [];
       rememberToken('meta', 'LONG_TOKEN_X', 3600);
-      withFb(function (calls) {
-        var p = { fields: 'id' };
-        metaApi('/act_1/ads', p, function () {});
-        metaApi('/', 'POST', { batch: '[]' }, function () {});
-        eq([calls[0][1].access_token, calls[0][1].fields, p.access_token], ['LONG_TOKEN_X', 'id', undefined]);
-        eq([calls[1][1], calls[1][2].access_token, calls[1][2].batch], ['POST', 'LONG_TOKEN_X', '[]']);
-      });
+      window.fetch = function (u, o) { sent.push([String(u), o && o.body]); return new Promise(function () {}); };
+      try {
+        withFb(function (calls) {
+          var p = { fields: 'id' };
+          metaApi('/act_1/ads', p, function () {});
+          metaApi('/', 'POST', { batch: '[]' }, function () {});
+          eq([calls.length, p.access_token], [0, undefined]);
+          ok(/access_token=LONG_TOKEN_X/.test(sent[0][0]) && /fields=id/.test(sent[0][0]), sent[0][0]);
+          ok(/access_token=LONG_TOKEN_X/.test(sent[1][1]) && /batch=%5B%5D/.test(sent[1][1]), String(sent[1][1]));
+        });
+      } finally {
+        window.fetch = prevFetch;
+        if (prevTok) sessionTokens.meta = prevTok; else delete sessionTokens.meta;
+      }
     });
     testAsync('كل طلبات Meta في meta.js وui.js بتعدّي من metaApi', function () {
       return Promise.all(['/js/meta.js', '/js/ui.js'].map(function (u) {
