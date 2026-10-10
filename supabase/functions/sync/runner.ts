@@ -19,7 +19,7 @@ import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
 import { joinReminders } from './join.ts';
 
-const ENGINE_COMMIT = '12e708b48d0f8363ae4fb98dce50e0baa462711b';
+const ENGINE_COMMIT = 'a08fec6d845e58062e3c7ba04de610b196267a7a';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
@@ -454,6 +454,14 @@ function summaryDue(s: Settings): { since: string; until: string } | null {
   if (days.indexOf(lp.dow) < 0 || lp.hour < (s.summary_hour == null ? 9 : s.summary_hour)) return null;
   return summaryWindow(days, s.last_summary_until, lp.key, lp.dow);
 }
+// الملخص الشهري (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): أول أحد في الشهر بعد ساعة الملخص، للشهر اللي فات كله — مرة واحدة
+// (last_monthly = الشهر اللي اتبعت ملخصه، مش أرقام)
+function monthlyDue(s: Settings): { since: string; until: string; month: string } | null {
+  const lp = localParts(s.timezone || 'UTC');
+  if (lp.dow !== 0 || Number(lp.key.slice(8)) > 7 || lp.hour < (s.summary_hour == null ? 9 : s.summary_hour)) return null;
+  const until = g.shiftKey(lp.key.slice(0, 8) + '01', -1), month = until.slice(0, 7);
+  return s.last_monthly === month ? null : { since: month + '-01', until, month };
+}
 async function feedbackOf(account: string): Promise<any[]> {
   const r = await db('feedback?select=block,since,until,verdict,reasons,note&view_key=eq.' + encodeURIComponent('meta:' + account) + '&limit=200', { method: 'GET' }).catch(() => null);
   const rows = r ? await r.json().catch(() => null) : null;
@@ -541,10 +549,14 @@ function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: strin
   return '<div style="border-inline-start:4px solid #b91c1c;padding:2px 12px;margin:0 0 20px">' +
     P(esc(en ? 'Urgent alerts since the previous summary' : 'التنبيهات العاجلة منذ الملخص السابق'), 'font-weight:700') + rows.join('') + '</div>';
 }
-function summaryMail(name: string, since: string, until: string, sum: { composed: any; actions: any }, alerts: string | null, s: Settings, en: boolean, stop: string) {
+function summaryMail(name: string, since: string, until: string, sum: { composed: any; actions: any }, alerts: string | null, s: Settings, en: boolean, stop: string, monthly = false) {
   const o = sum.composed, t = g.I18N.t, n = esc(name), app = '<a href="' + SITE + '/app">Ads Center</a>';
   const range = g.fmtRange(since, until);
-  const subject = (en ? name + ' summary, ' + range + ': ' : 'ملخص ' + name + ' (' + range + '): ') + o.title;
+  // الشهري: «الملخص الشهري لـ X (سبتمبر): …»
+  const monthName = g.I18N.months()[Number(since.slice(5, 7)) - 1];
+  const subject = monthly
+    ? (en ? name + ' monthly summary, ' + monthName + ': ' : 'الملخص الشهري لـ' + name + ' (' + monthName + '): ') + o.title
+    : (en ? name + ' summary, ' + range + ': ' : 'ملخص ' + name + ' (' + range + '): ') + o.title;
   const parts: string[] = [];
   parts.push('<div style="margin:0 0 16px">' + P(esc(o.period), MUTED) +
     P(esc(o.title), 'font-size:17px;font-weight:700;color:' + (TONE_COLOR[o.tone] || TONE_COLOR.neutral)) + '</div>');
@@ -561,11 +573,15 @@ function summaryMail(name: string, since: string, until: string, sum: { composed
   if (alerts) parts.push(alerts);
   (o.notes || []).forEach((x: string) => parts.push('<div>' + P(esc(x), MUTED) + '</div>'));
   const days = daysText(s.summary_days || [0, 3], en ? 'en' : 'ar'), hour = hourText(s.summary_hour == null ? 9 : s.summary_hour, en ? 'en' : 'ar');
-  parts.push(en
-    ? 'You receive this summary for <strong>' + n + '</strong> on ' + days + ' at ' + hour + ' account time. Full details are in ' + app + '; to change the schedule open the tool, then "Store summary", then "Automatic summary".'
-    : 'يصلك هذا الملخص لحساب <strong>' + n + '</strong> ' + days + ' الساعة ' + hour + ' بتوقيت الحساب. التفاصيل الكاملة في ' + app + '، ولتعديل المواعيد: افتح الأداة، ثم «ملخص المتجر»، ثم «الملخص التلقائي».');
+  parts.push(monthly
+    ? (en ? 'You receive this monthly summary for <strong>' + n + '</strong> on the first Sunday of each month, alongside your summary on ' + days + '. Full details are in ' + app + '.'
+      : 'يصلك هذا الملخص الشهري لحساب <strong>' + n + '</strong> في أول أحد من كل شهر، إلى جانب ملخصك ' + days + '. التفاصيل الكاملة في ' + app + '.')
+    : (en
+      ? 'You receive this summary for <strong>' + n + '</strong> on ' + days + ' at ' + hour + ' account time. Full details are in ' + app + '; to change the schedule open the tool, then "Store summary", then "Automatic summary".'
+      : 'يصلك هذا الملخص لحساب <strong>' + n + '</strong> ' + days + ' الساعة ' + hour + ' بتوقيت الحساب. التفاصيل الكاملة في ' + app + '، ولتعديل المواعيد: افتح الأداة، ثم «ملخص المتجر»، ثم «الملخص التلقائي».'));
   parts.push(en ? 'To stop the summary and alerts: <a href="' + stop + '">Stop</a>' : 'لإيقاف الملخص والتنبيهات: <a href="' + stop + '">إيقاف</a>');
-  const heading = esc(en ? 'Store summary — ' + name : 'ملخص المتجر — ' + name);
+  const heading = esc(monthly ? (en ? 'Monthly summary — ' + name + ', ' + monthName : 'الملخص الشهري — ' + name + '، ' + monthName)
+    : (en ? 'Store summary — ' + name : 'ملخص المتجر — ' + name));
   const acts = sum.actions ? [sum.actions.title].concat(sum.actions.lines || [],
     (sum.actions.items || []).map((it: any) => '• ' + it.title + ' (' + it.meta + ')\n  ' + it.lines.join('\n  ')), sum.actions.after || []).join('\n') : '';
   const text = subject + '\n\n' + g.DX.toText(o, name) + (acts ? '\n\n' + acts : '') + '\n\n' + stop;
@@ -574,17 +590,17 @@ function summaryMail(name: string, since: string, until: string, sum: { composed
 
 // ---------- فحص حساب واحد ----------
 type Settings = { account_id: string; email: string; lang: string; timezone: string; summary_days: number[]; summary_hour: number; last_summary_until: string | null; checked_at?: string | null;
-  roas_target?: number | null; roas_break_even?: number | null };
+  roas_target?: number | null; roas_break_even?: number | null; last_monthly?: string | null };
 // الفحص العاجل مرة في الساعة لكل حساب، مع إن المُشغّل بيشتغل كل ١٠ دقايق (عشان الملخصات اللي ميعادها واحد متتأخرش)
 function urgentDueFor(s: Settings): boolean { return !s.checked_at || Date.now() - Date.parse(s.checked_at) >= URGENT_EVERY_MS; }
 async function checkAccount(s: Settings): Promise<string> {
   const account = s.account_id, en = s.lang === 'en', tz = s.timezone || 'UTC';
   const hour = hourIn(tz);
   const night = hour >= QUIET_FROM || hour < QUIET_UNTIL;
-  const due = summaryDue(s);
+  const due = summaryDue(s), monthly = monthlyDue(s);
   const doUrgent = !night && urgentDueFor(s);
   // بالليل التنبيهات العاجلة بتستنى الصبح، بس الملخص بيتبعت في الساعة اللي العميل اختارها حتى لو بدري
-  if (!doUrgent && !due) return night ? 'quiet' : 'skip';
+  if (!doUrgent && !due && !monthly) return night ? 'quiet' : 'skip';
 
   const rows = await rpc('vault_get_token', { p_account: account });
   const t = Array.isArray(rows) && rows[0] ? rows[0] : null;
@@ -679,6 +695,16 @@ async function checkAccount(s: Settings): Promise<string> {
         outcome += '+summary';
       } else outcome += '+summary-failed';
     }
+    // الملخص الشهري: رسالة منفصلة (لو فشل بيتحاول تاني في التشغيلات الجاية لحد آخر اليوم — monthlyDue = الأحد بس)
+    if (monthly) {
+      keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });
+      const sum = await buildSummary(account, acct, monthly.since, monthly.until, targetOf(s));
+      const alerts = alertStatusHtml(marks, cands, monthly.since, acct.timezone_name || tz, en);
+      if (await send(account, 'monthly', s.email, summaryMail(acct.name || account, monthly.since, monthly.until, sum, alerts, s, en, stop, true))) {
+        await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_monthly: monthly.month }) });
+        outcome += '+monthly';
+      } else outcome += '+monthly-failed';
+    }
     return outcome;
   } finally {
     metaToken = '';
@@ -693,11 +719,11 @@ export async function runAll(): Promise<Record<string, unknown>> {
   try { joinReminded = await joinReminders(); } catch (e) { console.error('join reminders failed', String((e as Error).message || e).slice(0, 200)); }
   const outdated = await loadEngine();
   if (outdated.length) await rpc('beat', { p_source: 'runner-engine-outdated' }).catch(() => {});
-  const r = await db('digest_settings?select=account_id,email,lang,timezone,summary_days,summary_hour,last_summary_until,checked_at,roas_target,roas_break_even&enabled=is.true&order=checked_at.asc.nullsfirst&limit=500', { method: 'GET' });
+  const r = await db('digest_settings?select=account_id,email,lang,timezone,summary_days,summary_hour,last_summary_until,checked_at,roas_target,roas_break_even,last_monthly&enabled=is.true&order=checked_at.asc.nullsfirst&limit=500', { method: 'GET' });
   const all = (await r.json()) as Settings[];
   // الملخصات اللي ميعادها جه الأول، وبعدها الفحص العاجل الأقدم — واللي مفيش عليه حاجة بيتخطّى من غير أي طلب
-  const list = all.filter((s) => summaryDue(s) || urgentDueFor(s))
-    .sort((a, b) => (summaryDue(b) ? 1 : 0) - (summaryDue(a) ? 1 : 0));
+  const mailDue = (s: Settings) => (summaryDue(s) || monthlyDue(s) ? 1 : 0);
+  const list = all.filter((s) => mailDue(s) || urgentDueFor(s)).sort((a, b) => mailDue(b) - mailDue(a));
   const outcomes: Record<string, number> = {};
   for (const s of list) {
     if (Date.now() - started > TIME_BUDGET_MS) { outcomes.deferred = (outcomes.deferred || 0) + 1; continue; }
@@ -723,7 +749,7 @@ async function markChecked(account: string): Promise<void> {
 // معاينة الملخص لمدير التطبيق بس: نفس الرسالة بالظبط لفترة معيّنة (أو زي ما كانت هتتبعت النهارده بالمواعيد الافتراضية)،
 // بمفتاح المدير نفسه، من غير إرسال ولا تسجيل أي حاجة
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
-export async function previewSummary(token: string, accountId: string, lang: string, since?: string, until?: string): Promise<Record<string, unknown>> {
+export async function previewSummary(token: string, accountId: string, lang: string, since?: string, until?: string, monthly = false): Promise<Record<string, unknown>> {
   const outdated = await loadEngine();
   return await exclusive(async () => {
     metaToken = token;
@@ -734,13 +760,15 @@ export async function previewSummary(token: string, accountId: string, lang: str
       if (!acct) return { error: fail };
       const tz = acct.timezone_name || 'UTC';
       let win = since && until && DAY_KEY.test(since) && DAY_KEY.test(until) && since <= until && g.keyDiffDays(since, until) < 31 ? { since, until } : null;
+      // الشهري من غير فترة = الشهر اللي فات كله (زي ما هيتبعت أول أحد)
+      if (!win && monthly) { const lp = localParts(tz); const u = g.shiftKey(lp.key.slice(0, 8) + '01', -1); win = { since: u.slice(0, 8) + '01', until: u }; }
       if (!win) { const lp = localParts(tz); win = summaryWindow([0, 3], null, lp.key, lp.dow); }
       if (!win) return { error: 'window' };
       const s: Settings = { account_id: accountId, email: '', lang: en ? 'en' : 'ar', timezone: tz, summary_days: [0, 3], summary_hour: 9, last_summary_until: null };
       const cands = (await loadCandidates(accountId, acct)) || [];
       const sum = await buildSummary(accountId, acct, win.since, win.until, await storedTarget(accountId));
       const alerts = alertStatusHtml(await marksOf(accountId), cands, win.since, tz, en);
-      const mail = summaryMail(acct.name || accountId, win.since, win.until, sum, alerts, s, en, await stopUrl(accountId));
+      const mail = summaryMail(acct.name || accountId, win.since, win.until, sum, alerts, s, en, await stopUrl(accountId), monthly);
       return { engineCommit: ENGINE_COMMIT, engineOutdated: outdated, since: win.since, until: win.until, subject: mail.subject, html: mail.html, text: mail.text };
     } finally {
       metaToken = '';

@@ -172,13 +172,13 @@ async function mailEnabled(account: string, name: string | undefined, s: any): P
   const lines = en ? [
     'Hello,',
     'You will receive a performance summary for <strong>' + n + '</strong> on ' + daysText(s.summary_days, 'en') + ' at ' + hourText(s.summary_hour, 'en') +
-      ' account time (' + tz + '), plus an immediate alert whenever something urgent needs action.',
+      ' account time (' + tz + '), a summary of the previous month on the first Sunday of each month, plus an immediate alert whenever something urgent needs action.',
     'To change the schedule or turn it off: open the tool, then "Store summary", then "Automatic summary".',
     'If you did not ask for this, turn it off right away: <a href="' + stop + '">Stop the automatic summary</a>'
   ] : [
     'مرحباً،',
     'سيصلك ملخص أداء إعلانات حساب <strong>' + n + '</strong> ' + daysText(s.summary_days, 'ar') + ' الساعة ' + hourText(s.summary_hour, 'ar') +
-      ' بتوقيت الحساب (' + tz + ')، إلى جانب تنبيه فوري كلما ظهر أمر عاجل يحتاج إلى إجراء.',
+      ' بتوقيت الحساب (' + tz + ')، وملخصاً للشهر السابق في أول أحد من كل شهر، إلى جانب تنبيه فوري كلما ظهر أمر عاجل يحتاج إلى إجراء.',
     'لتعديل المواعيد أو الإيقاف: افتح الأداة، ثم «ملخص المتجر»، ثم «الملخص التلقائي».',
     'إذا لم تطلب هذا التفعيل، أوقفه فوراً من هذا الرابط: <a href="' + stop + '">إيقاف الملخص التلقائي</a>'
   ];

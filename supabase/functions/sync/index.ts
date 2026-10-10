@@ -9,7 +9,7 @@
 //   testmail  ← { token } لمدير التطبيق بس: رسالة تجريبية لـ support@adscenter.online (العنوان ثابت — مش بياخد مستلم)
 //   run       ← pg_cron كل ساعة، بهيدر x-runner-key (مفتاح عشوائي في Vault): فحص التنبيهات العاجلة (runner.ts)
 //   digest.preview ← { token, accountId, lang } لمدير التطبيق بس: الرسالة العاجلة اللي كانت هتتبعت دلوقتي، من غير إرسال
-//   digest.previewSummary ← { token, accountId, lang, since?, until? } لمدير التطبيق بس: رسالة الملخص، من غير إرسال
+//   digest.previewSummary ← { token, accountId, lang, since?, until?, monthly? } لمدير التطبيق بس: رسالة الملخص (أو الشهري)، من غير إرسال
 //   join و join.peek و join.activate ← طلبات الانضمام للتجربة من نموذج /join، وزرار «أرسلت الدعوة» في إشعارنا (join.ts)
 //   login.* ← تسجيل الدخول للأداة: كلمة المرور + رمز على البريد (auth.ts)
 //   meta.seal و meta.renew ← ربط Meta المحفوظ على الجهاز، عشان الهاتف ميفصلش الحسابات كل مرة (metalink.ts)
@@ -147,7 +147,7 @@ Deno.serve(async (req: Request) => {
       if (typeof body.accountId !== 'string' || !META_ID.test(body.accountId)) return reply(400, { error: 'account' }, origin);
       const lang = body.lang === 'en' ? 'en' : 'ar';
       if (action === 'digest.preview') return reply(200, await preview(body.token, body.accountId, lang), origin);
-      return reply(200, await previewSummary(body.token, body.accountId, lang, str(body.since, 10) || undefined, str(body.until, 10) || undefined), origin);
+      return reply(200, await previewSummary(body.token, body.accountId, lang, str(body.since, 10) || undefined, str(body.until, 10) || undefined, body.monthly === true), origin);
     }
 
     if (typeof action === 'string' && action.indexOf('digest.') === 0) return await handleDigest(action, body, origin);
