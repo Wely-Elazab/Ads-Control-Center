@@ -3349,6 +3349,35 @@
       }, function (e) { restore(); throw e; });
     });
 
+    // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «معرّض للهدر» آخر يومين بس — جمعه من بداية الشهر
+    testAsync('Meta: «دون طلبات منذ بداية الشهر»: إعلانات المبيعات اللي مجابتش ولا طلب (والمتوقفة كمان)، من غير إعلانات الوعي', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, asked = null;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      var buy = function (n) { return [{ action_type: 'omni_purchase', value: String(n), '7d_click': String(n) }]; };
+      window.FB = fakeFB({ '/act/ads:ACTIVE': { data: [metaAd('M1', 'ACTIVE')] },
+        '/act/insights': function (p) {
+          if (!/optimization_goal/.test(p.fields || '') || p.level !== 'ad' || p.time_increment) return { data: [] };
+          asked = JSON.parse(p.time_range);
+          return { data: [
+            { ad_id: 'M1', spend: '300', optimization_goal: 'OFFSITE_CONVERSIONS', actions: buy(4) },
+            { ad_id: 'M2', spend: '120', optimization_goal: 'OFFSITE_CONVERSIONS', actions: [] },
+            { ad_id: 'M3', spend: '80', optimization_goal: 'OFFSITE_CONVERSIONS' },
+            { ad_id: 'M4', spend: '500', optimization_goal: 'REACH' }] };
+        } });
+      accountInfo['meta:act_12'] = { timeZone: 'UTC', currency: 'SAR' };
+      loadAdsForAccount('act_12');
+      var settle = function (n) { return sleep(40).then(function () { return !monthWaste['meta:act_12'] && n > 0 && asked !== false ? settle(n - 1) : monthWaste['meta:act_12']; }); };
+      return settle(50).then(function (w) {
+        restore();
+        var today = todayKeyInTz('UTC');
+        if (today.slice(8) === '01') { ok(!w, 'first day of the month: nothing yet'); return; }
+        eq([asked.since, asked.until], [today.slice(0, 8) + '01', shiftKey(today, -1)]);
+        eq([w.spend, w.ads, w.total], [200, 2, 1000]);
+        activeSources.meta = 'act_12';
+        withLang('ar', function () { ok(/دون طلبات منذ ١ .*: ٢٠٠ ر\.س على إعلانين/.test(monthWasteChip(null)), monthWasteChip(null)); });
+        delete activeSources.meta;
+      }, function (e) { restore(); throw e; });
+    });
     testAsync('Meta: تعديل ميزانية المجموعة الإعلانية من سجل الحساب بيوصل لإعلاناتها (التقييم بيستنى نتيجته)', function () {
       var hadFB = 'FB' in window, prevFB = window.FB;
       var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };

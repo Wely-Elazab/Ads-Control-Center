@@ -1605,6 +1605,7 @@
     // «معرّض للهدر» و«تحتاج مراجعة» (كانوا مربعين في شريط «ملخص الأداء»): شارات بتفتح اللي وراها
     var sum = analysis.summary, risk = sum.atRisk, review = sum.health.review;
     var chips = (Object.keys(risk).some(function (k) { return risk[k] > 0; }) ? '<button type="button" class="attn-chip" data-kpi="risk">' + esc(t('attn.risk', { v: moneyByCur(risk) })) + '</button>' : '') +
+      monthWasteChip(pick) +
       (review ? '<button type="button" class="attn-chip" data-kpi="review">' + esc(t('attn.review', { n: ar(review) })) + '</button>' : '');
     var head = '<div class="top-alerts-head"><h3 class="top-alerts-title">' + esc(t('sec.attn')) + '</h3>' + (chips ? '<span class="attn-chips">' + chips + '</span>' : '') + '</div>';
     if (!items.length) {
@@ -1621,6 +1622,16 @@
     el.innerHTML = head + list.map(function (it) { return it.type === 'block' ? attnBlockHtml(it) : attnAlertHtml(it.alert); }).join('') +
       (all ? '<button type="button" class="top-alerts-all" data-go-alerts>' + t('top.all', { n: ar(all) }) + '</button>' : '');
     return shown;
+  }
+  // «دون طلبات منذ ١ أكتوبر» (Meta — meta.js loadMonthWaste): شارة معلومة مش زرار — فيها إعلانات اتوقفت ومش في القائمة.
+  // pick = المنصة المختارة في الملخص (عرض Google لوحده = مفيش شارة)
+  function monthWasteChip(pick) {
+    var w = typeof monthWaste !== 'undefined' && activeSources.meta && (!pick || pick === 'meta') ? monthWaste['meta:' + activeSources.meta] : null;
+    if (!w || !(w.spend > 0)) return '';
+    var plat = PLATFORMS.filter(isConnected).length > 1 ? ' (Meta)' : '';
+    var tip = t('attn.monthTip', { since: fmtKey(w.since), pct: ar(Math.round(w.total > 0 ? w.spend / w.total * 100 : 0)) + (isAr() ? '٪' : '%') });
+    return '<span class="attn-chip attn-chip-info" title="' + esc(tip) + '">' +
+      esc(t('attn.month', { since: fmtKey(w.since), v: money(w.spend, w.currency), ads: w.ads <= 2 ? t('attn.month.ads' + w.ads) : ar(w.ads) + ' ' + noun(w.ads, 'n.ad') }) + plat) + '</span>';
   }
   // «تحتاج مراجعة» بيفلتر الإعلانات دي وينزل لها، و«معرّض للهدر» بيفتح التنبيهات اللي وراه
   function kpiAction(kind) {

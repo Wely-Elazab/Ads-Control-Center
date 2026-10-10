@@ -196,6 +196,30 @@
   // من المشاهدة، المفتاح بتاعهم يظهر ونعرف إن «نقرة ٧ أيام» = صفر (Meta بتشيل النوافذ اللي قيمتها صفر).
   // لو Meta رفضت الطلب بالنوافذ، بنعيده من غيرها والأرقام بتفضل زي الأول (من غير مقارنة)
   var ATTR_WINDOWS = JSON.stringify(['7d_click', '1d_view', '1d_ev']);
+  // «إنفاق دون طلبات هذا الشهر» (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «معرّض للهدر» كان آخر يومين بس): إنفاق إعلانات المبيعات
+  // (هدف مجموعتها شراء) اللي مجابتش ولا طلب من أول الشهر لحد أمس — بما فيها اللي اتوقفت. بيتحسب من Meta وقت الفتح
+  // ومبيتحفظش عندنا (سياسة الخصوصية: مفيش أرقام حسابات على السيرفر). أول يوم في الشهر مفيش أيام مكتملة = مفيش رقم
+  var monthWaste = {};
+  function loadMonthWaste(accountId, source, tz, currency, live) {
+    var today = todayKeyInTz(tz), until = shiftKey(today, -1), since = today.slice(0, 8) + '01';
+    if (until < since) { delete monthWaste[source]; return Promise.resolve(); }
+    return fbPagesPromise('/' + accountId + '/insights', {
+      level: 'ad', time_range: JSON.stringify({ since: since, until: until }), fields: 'ad_id,spend,actions,optimization_goal', limit: 500
+    }, FULL_SCAN_CAP).then(function (res) {
+      if (!live() || !res || res.err || res.truncated) return;
+      var w = { since: since, until: until, spend: 0, total: 0, ads: 0, currency: currency };
+      res.data.forEach(function (row) {
+        var sp = num(row.spend), goal = GOAL_TO_ACTION[row.optimization_goal];
+        w.total += sp;
+        if (!(sp > 0) || !goal || goal[0].key !== 'purchase') return;
+        var p = valueForType(row.actions, 'omni_purchase');
+        if (p == null) p = valueForType(row.actions, 'purchase');
+        if (!(p > 0)) { w.spend += sp; w.ads++; }
+      });
+      monthWaste[source] = w;
+      render();
+    }).catch(function () { /* الرقم مش ضروري */ });
+  }
   // تعديلات الإعلان أو مجموعته أو حملته في آخر ٨ أيام (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «لا يتم اعتبار إجراءات التحسين»):
   // الميزانية والاستهداف والتصميم وإعادة التشغيل، من سجل الحساب (activities) في الخلفية بعد ما الأرقام تظهر. التقييم
   // (alerts.js) بيستنى ٣ أيام كاملة بعد التعديل، وبعدها بيحكم على الأيام اللي بعده بس. فشل الطلب = التقييم زي ما كان
@@ -508,6 +532,7 @@
       loadMetaDiagnosis(accountId, info, live);
       loadLifeFrequency(accountId, source, live);
       loadAdEdits(accountId, source, info.timeZone || BROWSER_TZ, live);
+      loadMonthWaste(accountId, source, info.timeZone || BROWSER_TZ, info.currency || null, live);
       if (showStopped) stage3();
     }).catch(function (err) {
       // أي خطأ مش متوقع (بيانات بشكل غريب من Meta مثلاً) — قبل كده مؤشر التحميل كان بيفضل يلف على طول

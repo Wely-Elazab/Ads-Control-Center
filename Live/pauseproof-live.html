@@ -635,6 +635,8 @@
   .attn-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-inline-start: auto; }
   .attn-chip { font-family: inherit; font-size: 12px; font-weight: 600; border: none; border-radius: 999px; padding: 3px 10px; cursor: pointer; color: var(--alert); background: var(--alert-bg); }
   .attn-chip:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  /* «دون طلبات منذ بداية الشهر»: معلومة مش زرار */
+  .attn-chip.attn-chip-info { cursor: default; color: var(--pending); background: var(--pending-bg); }
   /* بلوك من الملخص جوه القائمة: نفس شكل التنبيه، وبيتفتح على التفاصيل والاقتراح */
   .attn-block { margin-bottom: 6px; }
   .attn-block > summary { list-style: none; margin-bottom: 0; }
