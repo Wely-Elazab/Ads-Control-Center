@@ -3384,6 +3384,21 @@
         delete activeSources.meta;
       }, function (e) { restore(); throw e; });
     });
+    test('Meta: الطلب بيستنى مكتبة فيسبوك لو لسه متحمّلتش (شبكة بطيئة) بدل «FB is not defined»', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, prevQ = fbReadyQueue, got = null;
+      try {
+        delete window.FB; fbReadyQueue = [];
+        metaApi('/me', { fields: 'id' }, function (r) { got = r; });
+        eq([fbReadyQueue.length, got], [1, null]);
+        window.FB = { api: function (p, params, cb) { cb({ id: 'x' }); } };
+        var q = fbReadyQueue; fbReadyQueue = null; q.forEach(function (f) { f(); });
+        eq(got && got.id, 'x');
+        // المكتبة مش موجودة والطابور خلص (اتمنعت): الطلب بيرجع بخطأ مش بيلف على نفسه
+        delete window.FB; got = null;
+        metaApi('/me', {}, function (r) { got = r; });
+        ok(got && got.error, 'error back');
+      } finally { fbReadyQueue = prevQ; if (hadFB) window.FB = prevFB; else delete window.FB; }
+    });
     testAsync('Meta: تعديل ميزانية المجموعة الإعلانية من سجل الحساب بيوصل لإعلاناتها (التقييم بيستنى نتيجته)', function () {
       var hadFB = 'FB' in window, prevFB = window.FB;
       var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };

@@ -128,6 +128,15 @@
   // صريح مع الطلب، لأن على الهاتف مكتبة فيسبوك مبتعرفش إن العميل رابط. غير كده المكتبة بتستخدم جلستها زي الأول.
   // نفس شكل FB.api: (path, params, cb) أو (path, method, params, cb)
   function metaApi(path, a, b, c) {
+    // المكتبة لسه متحمّلتش (شبكة بطيئة): الطلب بيستنى جاهزيتها بدل خطأ «FB is not defined» — حساب حقيقي ١٠ أكتوبر ٢٠٢٦: الجلسة
+    // اتسترجعت من المفتاح المحفوظ قبل المكتبة، والصفحة فضلت على «جارٍ تحميل الحسابات الإعلانية…» من غير رسالة. لو المكتبة اتمنعت،
+    // onFbSdkFailed بيعرض رسالتها. المُشغّل على الخادم معرّف FB بديل (runner.ts) فمبيستناش
+    if (typeof FB === 'undefined') {
+      if (fbReadyQueue) { fbReadyQueue.push(function () { metaApi(path, a, b, c); }); return; }
+      var done = [a, b, c].filter(function (f) { return typeof f === 'function'; })[0];
+      if (done) done({ error: { message: 'Facebook SDK unavailable' } });
+      return;
+    }
     var tok = validToken(sessionTokens.meta);
     if (!tok) return FB.api(path, a, b, c);
     var withTok = function (p) { var q = {}; for (var k in (p || {})) q[k] = p[k]; q.access_token = tok; return q; };
