@@ -3339,6 +3339,7 @@
       window.FB = fakeFB({ '/act/ads:ACTIVE': { data: [metaAd('F1', 'ACTIVE')] },
         '/act/insights': function (p) {
           if (p.date_preset === 'maximum') { asked.push(JSON.parse(p.filtering)[0].value); return { data: [{ ad_id: 'F1', frequency: '3.4' }] }; }
+          if (p.date_preset === 'last_30d') return { data: [{ ad_id: 'F1', frequency: '2.6' }] };
           if (/frequency/.test(p.fields)) return { data: [{ ad_id: 'F1', frequency: '1.8', reach: '500', impressions: '900' }] };
           return { data: [] };
         } });
@@ -3349,8 +3350,8 @@
       return settle(50).then(function (c) {
         restore();
         eq(asked, [['F1']], 'one request, live ads only');
-        eq([c.frequency, c.frequencyLife], [1.8, 3.4]);
-        withLang('ar', function () { ok(/منذ إطلاق الإعلان: ٣٫٤/.test(freqBox(c)), freqBox(c)); });
+        eq([c.frequency, c.frequency30, c.frequencyLife], [1.8, 2.6, 3.4]);
+        withLang('ar', function () { var h = freqBox(c); ok(/آخر ٣٠ يوماً/.test(h) && /٢٫٦/.test(h) && /منذ إطلاق الإعلان: ٣٫٤/.test(h) && !/١٫٨/.test(h), h); });
       }, function (e) { restore(); throw e; });
     });
 

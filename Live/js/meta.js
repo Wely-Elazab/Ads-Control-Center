@@ -256,29 +256,37 @@
   }
   // تكرار الظهور منذ إطلاق الإعلان (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: التفاصيل كانت بتقول آخر ٧ أيام بس). طلب منفصل في
   // الخلفية بعد ما الأرقام تظهر، للإعلانات الشغّالة بس (date_preset=maximum)، ٥٠ إعلان في الطلب ولحد ٥٠٠ — فشله مش بيأثر على
-  // حاجة. قاعدة «زهق الجمهور» زي ما هي على آخر ٧ أيام: التكرار من شهور مش بيقول حاجة عن الجمهور النهارده
-  var lifeFreq = {};
+  // حاجة. قاعدة «زهق الجمهور» زي ما هي على آخر ٧ أيام: التكرار من شهور مش بيقول حاجة عن الجمهور النهارده.
+  // ومعاه آخر ٣٠ يوماً (last_30d — أيام مكتملة من غير النهارده): ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦ «آخر ٧ أيام مش مفيد —
+  // ٣٠ يوم + من بداية الإعلان». ده اللي بيظهر في التفاصيل، و٧ أيام في نص تنبيه التشبّع بس (بيقول فترته)
+  var lifeFreq = {}, freq30 = {};
+  var FREQ_PRESETS = [{ preset: 'maximum', map: lifeFreq, field: 'frequencyLife' }, { preset: 'last_30d', map: freq30, field: 'frequency30' }];
   function loadLifeFrequency(accountId, source, live) {
-    var ids = candidates.filter(function (c) { return c.source === source && c.active && lifeFreq[c.nativeId || c.id] == null; })
+    var ids = candidates.filter(function (c) { return c.source === source && c.active && (lifeFreq[c.nativeId || c.id] == null || freq30[c.nativeId || c.id] == null); })
       .map(function (c) { return String(c.nativeId || c.id); }).slice(0, 500);
-    var batches = [];
-    for (var i = 0; i < ids.length; i += 50) batches.push(ids.slice(i, i + 50));
-    return batches.reduce(function (p, batch) {
+    var jobs = [];
+    for (var i = 0; i < ids.length; i += 50) {
+      FREQ_PRESETS.forEach(function (fp) { jobs.push({ fp: fp, batch: ids.slice(i, i + 50) }); });
+    }
+    return jobs.reduce(function (p, job) {
       return p.then(function () {
         if (!live()) return null;
         return fbPagesPromise('/' + accountId + '/insights', {
-          level: 'ad', date_preset: 'maximum', fields: 'ad_id,frequency', limit: 500,
-          filtering: JSON.stringify([{ field: 'ad.id', operator: 'IN', value: batch }])
+          level: 'ad', date_preset: job.fp.preset, fields: 'ad_id,frequency', limit: 500,
+          filtering: JSON.stringify([{ field: 'ad.id', operator: 'IN', value: job.batch }])
         }, 20).then(function (res) {
-          (res && !res.err ? res.data : []).forEach(function (row) { var f = parseFloat(row.frequency); if (isFinite(f)) lifeFreq[row.ad_id] = f; });
+          (res && !res.err ? res.data : []).forEach(function (row) { var f = parseFloat(row.frequency); if (isFinite(f)) job.fp.map[row.ad_id] = f; });
         });
       });
     }, Promise.resolve()).then(function () {
       if (!live()) return;
       var changed = false;
       candidates.forEach(function (c) {
-        var f = c.source === source ? lifeFreq[c.nativeId || c.id] : null;
-        if (f != null && c.frequencyLife !== f) { c.frequencyLife = f; changed = true; }
+        if (c.source !== source) return;
+        FREQ_PRESETS.forEach(function (fp) {
+          var f = fp.map[c.nativeId || c.id];
+          if (f != null && c[fp.field] !== f) { c[fp.field] = f; changed = true; }
+        });
       });
       if (changed) render();
     }).catch(function () { /* مش ضروري — التفاصيل بتفضل بآخر ٧ أيام */ });
@@ -912,6 +920,7 @@
       reviewStatus: META_REVIEW_STATUS[ad.effective_status] || null,
       frequency: reachRow && isFinite(parseFloat(reachRow.frequency)) ? parseFloat(reachRow.frequency) : null,
       frequencyLife: lifeFreq[ad.id] != null ? lifeFreq[ad.id] : null,
+      frequency30: freq30[ad.id] != null ? freq30[ad.id] : null,
       reach: reachRow && isFinite(parseInt(reachRow.reach, 10)) ? parseInt(reachRow.reach, 10) : null,
       placement: (ad.campaign && ad.campaign.name) || (ad.adset && ad.adset.name) || '—',
       campaignId: (ad.campaign && ad.campaign.id) || null,

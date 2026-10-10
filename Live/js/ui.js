@@ -1747,11 +1747,13 @@
 
 
   function metricBox(label, value, extraCls) { return '<div class="metric-box' + (extraCls || '') + '"><div class="metric-label">' + label + '</div><div class="metric-value">' + value + '</div></div>'; }
-  // التكرار: آخر ٧ أيام (أساس قاعدة زهق الجمهور) ومنذ الإطلاق تحته لما يوصل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦ — meta.js loadLifeFrequency)
+  // التكرار: آخر ٣٠ يوماً ومنذ الإطلاق (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «آخر ٧ أيام مش مفيد») — بيوصلوا في الخلفية
+  // (meta.js loadLifeFrequency)، ولحد ما ييجوا آخر ٧ أيام باسمه. قاعدة تشبّع الجمهور لسه على ٧ أيام ونص التنبيه بيقول فترته
   function freqBox(c) {
     var times = function (f) { return numAr(f) + ' ' + I18N.measureNoun(f, 'n.time'); };
+    var has30 = c.frequency30 != null;
     var life = c.frequencyLife != null ? '<div class="metric-sub">' + esc(t('x.freqLife', { v: times(c.frequencyLife) })) + '</div>' : '';
-    return metricBox(t('x.freq'), times(c.frequency) + life, mv(c, 'frequency'));
+    return metricBox(t(has30 ? 'x.freq30' : 'x.freq'), times(has30 ? c.frequency30 : c.frequency) + life, mv(c, 'frequency'));
   }
 
   // ---------- أرقام المنصة مقابل «الأقرب للمتجر» (قرار صاحب المنتج ٦ أكتوبر ٢٠٢٦) ----------
@@ -1909,14 +1911,14 @@
     if (pp && p.results != null) {
       // Meta وSnapchat وGoogle: الأرقام الأساسية «الأقرب للمتجر» جنب رقم المنصة والفرق — مكان المربعات الخمسة
       boxes = compareMarkup(c, p, pp, hl, pl);
-      if (c.frequency != null) boxes += freqBox(c);
+      if (c.frequency != null || c.frequency30 != null) boxes += freqBox(c);
     } else {
       boxes =
         metricBox(t('x.spend') + pl, money(p.spend, cur), hl('spend') || hl('delivery')) +
         metricBox(resultsLabelTxt, p.results != null ? fmtNum(p.results) : t('x.noConversions'), hl('results')) +
         metricBox(t('x.cpr'), p.cpr != null ? money(p.cpr, cur) : '—', hl('cpr')) +
         metricBox(t('x.roas'), roasStr(p.roas), hl('roas'));
-      if (c.frequency != null) boxes += freqBox(c);
+      if (c.frequency != null || c.frequency30 != null) boxes += freqBox(c);
       boxes += metricBox(t('x.sales') + pl, p.sales > 0 ? money(p.sales, cur) : t('x.noSales'));
     }
     document.getElementById('expandMetrics').innerHTML = boxes;
