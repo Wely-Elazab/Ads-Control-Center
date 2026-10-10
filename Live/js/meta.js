@@ -285,7 +285,13 @@
     var withWindows = {};
     for (var k in params) withWindows[k] = params[k];
     withWindows.action_attribution_windows = ATTR_WINDOWS;
-    return once(withWindows).then(function (res) { return res.err ? once(params) : res; });
+    // فشل بالنوافذ = نعيده مرة بعد ثانية ونص قبل ما نرجع لرقم المنصة — حساب حقيقي (١٠ أكتوبر ٢٠٢٦): فشل عابر خلّى الأداة
+    // كلها تعرض رقم المنصة (١٦ طلب بدل ٨، ومتوسط تكلفة الطلب ٦٥ بدل ١٥٤) من غير أي إشارة. noWindows = رجعنا لرقم المنصة
+    var retry = function () { return new Promise(function (r) { setTimeout(r, 1500); }).then(function () { return once(withWindows); }); };
+    return once(withWindows).then(function (res) { return res.err && !isMetaAuthError(res.err) ? retry() : res; }).then(function (res) {
+      if (!res.err) return res;
+      return once(params).then(function (plain) { if (!plain.err) plain.noWindows = true; return plain; });
+    });
   }
   // أرقام الإعلانات مع "results" = رقم Meta نفسها لعمود Results في Ads Manager (بنفس إعدادات الإحالة).
   // لو الحقل ده اترفض لأي سبب، بنعيد الطلب من غيره ونرجع لطريقتنا (نوع النتيجة من هدف المجموعة)
@@ -485,6 +491,7 @@
       if (done || !cachedShown) cacheSource(source, candidates.filter(function (c) { return c.source === source; }));
       var notes = [];
       if (maps.periodRes && maps.periodRes.err) notes.push(msg('note.periodFailed'));
+      if (maps.daily.noWindows) notes.push(msg('note.noWindows'));
       if (adsTruncated) notes.push(msg('note.adsCapped', { n: PAGE_SAFETY_CAP, ads: function () { return noun(PAGE_SAFETY_CAP, 'n.ad'); } }));
       if (maps.daily.err) notes.push(msg('note.dailyFailed', { msg: metaErrorText(maps.daily.err) }));
       else if (maps.daily.truncated) notes.push(msg('note.dailyTruncated', { n: FULL_SCAN_CAP }));

@@ -65,9 +65,9 @@
   // النصوص كلها من i18n.js — عشان التنبيهات تطلع بلغة الواجهة
   // {wd} = عدد الأيام المكتملة في نافذة الحكم («آخر ٧ أيام») — من النافذة نفسها مش رقم ثابت في النص
   // (النصوص فضلت تقول «آخر ٦ أيام» بعد ما النافذة بقت ٧ أيام مكتملة في ١٠ أكتوبر ٢٠٢٦)
-  var WEEK_TXT = null;
+  var WEEK_TXT = null, WEEK_AD = null;   // WEEK_AD = أيام الإعلان ده بعد آخر تعديل (evaluateAd)
   var t = function (k, v) {
-    if (v && v.wd == null) v.wd = WEEK_TXT || String(YESTERDAY + 1);
+    if (v && v.wd == null) v.wd = WEEK_AD || WEEK_TXT || String(YESTERDAY + 1);
     return global.I18N ? global.I18N.t(k, v) : k;
   };
 
@@ -255,6 +255,7 @@
     });
     var editFresh = !!edit && YESTERDAY - edit.idx < 3;
     var weekStart = edit && !editFresh ? edit.idx + 1 : 0;
+    WEEK_AD = weekStart ? (fmt && fmt.int ? fmt.int(YESTERDAY - weekStart + 1) : String(YESTERDAY - weekStart + 1)) : null;
     var spendY = daily[YESTERDAY] || 0, spend2 = sum(daily, DAY_BEFORE, YESTERDAY);
     var resY = results[YESTERDAY] || 0, res2 = sum(results, DAY_BEFORE, YESTERDAY);
     // العائد وفرص الزيادة بتتقاس على آخر ٣ أيام مكتملة مش أمس لوحده: المبيعات بتتنسب ليوم ظهور الإعلان
@@ -607,9 +608,11 @@
         if (!urgent) { pend = 'edited'; basis = t('pend.edited.d', { what: what, when: when }); }
       } else if (basis) {
         var pre = { s: sum(daily, 0, edit.idx - 1), r: sum(results, 0, edit.idx - 1), v: sum(sales, 0, edit.idx - 1) };
-        var cmp = '';
-        if (profitAd && pre.s > 0 && spendW > 0) cmp = t('basis.edit.roas', { after: fmt.num(salesW / spendW), before: fmt.num(pre.v / pre.s) });
-        else if (!profitAd && pre.r > 0 && resW > 0) cmp = t('basis.edit.cpr', { one: one, after: money(spendW / resW), before: money(pre.s / pre.r) });
+        // «بعده مقابل قبله» بس لو كل جانب صرف تكلفة نتيجة على الأقل وفيه نتائج — حساب حقيقي: «×٠ مقابل ×٠» و«×١٫٤ مقابل
+        // ×٢٤٫٤» على ١٠ ريال قبل التعديل كانوا بيظهروا
+        var cmp = '', floor = evidenceCpr || 0, enough = pre.s >= floor && spendW >= floor && pre.s > 0 && spendW > 0;
+        if (enough && profitAd && pre.v + salesW > 0 && pre.r + resW >= 2) cmp = t('basis.edit.roas', { after: fmt.num(salesW / spendW), before: fmt.num(pre.v / pre.s) });
+        else if (enough && !profitAd && pre.r > 0 && resW > 0) cmp = t('basis.edit.cpr', { one: one, after: money(spendW / resW), before: money(pre.s / pre.r) });
         basis += t('basis.edit.window', { what: what, when: when }) + cmp;
       }
     }
@@ -844,6 +847,7 @@
       var acc = accountStats(ads);
       ads.forEach(function (c) {
         var r = evaluateAd(c, acc, s, fmt);
+        WEEK_AD = null;
         byAd[c.id] = r;
         r.issues.forEach(function (i) {
           setImpact(i, c.spend, acc.total7, c.currency, fmt, false);

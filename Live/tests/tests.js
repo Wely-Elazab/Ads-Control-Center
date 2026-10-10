@@ -713,10 +713,12 @@
       ]).then(function (res) {
         restore();
         var windows = JSON.stringify(['7d_click', '1d_view', '1d_ev']);
+        // الرفض بيتعاد مرة بالنوافذ قبل ما نرجع لرقم المنصة (فشل عابر كان بيبدّل الأرقام كلها — ١٠ أكتوبر ٢٠٢٦)، وnoWindows بيقول ده
         eq(calls.map(function (c) { return c.path + ' ' + (c.w ? 'w' : '-'); }),
-          ['/act_1/insights w', '/act_1/insights -', '/act_1/ads -', '/act_bad/insights w', '/act_bad/insights -']);
+          ['/act_1/insights w', '/act_1/insights -', '/act_1/ads -', '/act_bad/insights w', '/act_bad/insights w', '/act_bad/insights -']);
         eq(calls[0].w, windows);
         ok(res.every(function (r) { return !r.err && r.data.length === 1; }), 'every request ends with data');
+        eq([!!res[0].noWindows, !!res[3].noWindows], [false, true]);
       }, function (e) { restore(); throw e; });
     });
   });
