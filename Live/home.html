@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl" data-title-ar="Ads Center — اعرف لماذا تغيّرت مبيعات متجرك من الإعلانات" data-title-en="Ads Center — Know why your store's ad sales changed">
+<html lang="ar" dir="rtl" data-title-ar="Ads Center — اكتشف الهدر في حسابات عملائك قبل أن يكتشفوه" data-title-en="Ads Center — Catch the waste in your clients' ad accounts before they do">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,18 +11,20 @@
 <meta name="apple-mobile-web-app-title" content="Ads Center">
 <meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#14171C" media="(prefers-color-scheme: dark)">
-<title>Ads Center — اعرف لماذا تغيّرت مبيعات متجرك من الإعلانات</title>
+<title>Ads Center — اكتشف الهدر في حسابات عملائك قبل أن يكتشفوه</title>
 <!-- الصفحة الرئيسية على / (adscenter.online) والأداة على /app — من ٢٥ سبتمبر ٢٠٢٦ مع الدومين.
      /home القديم بيتحوّل لـ / (cloudflare/worker.js)، ورابط الرجوع في Snapchat = /app.
-     الجمهور من ٢٩ سبتمبر ٢٠٢٦: أصحاب المتاجر الإلكترونية (قرار صاحب المنتج — تخصّص يميّزنا عن المنافسين).
+     الجمهور من ١٠ أكتوبر ٢٠٢٦: مسؤولو الإعلانات والوكالات اللي بيديروا إعلانات المتاجر الإلكترونية أولاً، وقسم لأصحاب المتاجر
+     (#owners) — قرار صاحب المنتج (المستخدم الرسمي للأداة = مسؤول الإعلانات من ٥ أكتوبر). قبلها كانت لأصحاب المتاجر.
      النص العربي فصحى، ونبرته تسويقية من غير أرقام أو شهادات عملاء مخترعة، ومن غير وعد بحاجة مش موجودة
-     (الإرسال على الواتساب مثلاً لسه مش شغّال — المكتوب هو النسخ والإرسال بإيد العميل) -->
-<meta name="description" content="لأصحاب المتاجر الإلكترونية: يجمع Ads Center إعلاناتك على Meta وGoogle Ads وSnapchat، ويخبرك بلغة واضحة ما الذي تغيّر في طلباتك وتكلفة كل طلب، وأين حدث ذلك بين الإعلان وإتمام الشراء، وما الذي تتحقق منه أولاً — دون أن يغيّر أي شيء في حساباتك.">
+     (الإرسال على الواتساب مثلاً لسه مش شغّال — المكتوب هو النسخ والإرسال بإيد العميل؛ ولوحة الهدر الشهرية والبريد لـ Meta بس) -->
+<meta name="description" content="لمسؤولي الإعلانات والوكالات التي تدير إعلانات المتاجر الإلكترونية: يقرأ Ads Center حسابات Meta وGoogle Ads وSnapchat، ويرتّب ما يحتاج تدخّلك الآن بحجمه بالمال — إنفاق دون طلبات، وعائد أقل من المستهدف، وتغيّر كبير في المبيعات — مع تفسير تشاركه مع عميلك، دون أن يغيّر أي شيء في الحسابات.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Ads Center">
-<meta property="og:title" content="Ads Center — اعرف لماذا تغيّرت مبيعات متجرك من الإعلانات">
-<meta property="og:description" content="لأصحاب المتاجر الإلكترونية: ما الذي تغيّر في طلباتك من الإعلانات، وأين حدث، والأسباب الأرجح، وما الذي تتحقق منه أولاً — على Meta وGoogle Ads وSnapchat.">
-<!-- صورة المعاينة لما الرابط يتشارك (واتساب وفيسبوك وX...): og.png ١٢٠٠×٦٣٠. الرابط لازم يبقى كامل (https) عشان المنصات تجيبها -->
+<meta property="og:title" content="Ads Center — اكتشف الهدر في حسابات عملائك قبل أن يكتشفوه">
+<meta property="og:description" content="لمسؤولي الإعلانات والوكالات: ما يهدر ميزانية عملائك الآن وبكم، ولماذا تغيّرت المبيعات، وما الذي تفعله أولاً — على Meta وGoogle Ads وSnapchat.">
+<!-- صورة المعاينة لما الرابط يتشارك (واتساب وفيسبوك وX...): og.png ١٢٠٠×٦٣٠. الرابط لازم يبقى كامل (https) عشان المنصات تجيبها.
+     ملحوظة: نص الصورة نفسها لسه بصياغة أصحاب المتاجر — محتاجة تتعمل من جديد -->
 <meta property="og:url" content="https://adscenter.online/">
 <meta property="og:locale" content="ar_AR">
 <meta property="og:locale:alternate" content="en_US">
@@ -47,6 +49,7 @@
     <a class="site-brand" href="/">Ads Center</a>
     <nav class="site-nav" id="siteNav">
       <a href="#features"><span class="only-ar">المزايا</span><span class="only-en">Features</span></a>
+      <a href="#owners"><span class="only-ar">لأصحاب المتاجر</span><span class="only-en">Store owners</span></a>
       <a href="#how"><span class="only-ar">كيف تعمل</span><span class="only-en">How it works</span></a>
       <a href="#data"><span class="only-ar">بياناتك</span><span class="only-en">Your data</span></a>
       <a href="#faq"><span class="only-ar">الأسئلة</span><span class="only-en">FAQ</span></a>
@@ -67,14 +70,14 @@
   <!-- ================= البداية ================= -->
   <section class="section home-hero">
     <div>
-      <span class="badge"><span aria-hidden="true">🛒</span><span class="only-ar">لأصحاب المتاجر الإلكترونية — تجربة مغلقة بأماكن محدودة</span><span class="only-en">For online store owners — closed pilot, limited spots</span></span>
+      <span class="badge"><span aria-hidden="true">📊</span><span class="only-ar">لمسؤولي الإعلانات والوكالات — تجربة مغلقة بأماكن محدودة</span><span class="only-en">For media buyers and agencies — closed pilot, limited spots</span></span>
       <h1>
-        <span class="only-ar">اعرف لماذا تغيّرت <span class="hl">مبيعات متجرك</span> من الإعلانات، ومن أين تبدأ</span>
-        <span class="only-en">Know why your store's <span class="hl">ad sales</span> changed — and where to start</span>
+        <span class="only-ar">اكتشف <span class="hl">الهدر</span> في حسابات عملائك قبل أن يكتشفوه</span>
+        <span class="only-en">Catch the <span class="hl">waste</span> in your clients' ad accounts before they do</span>
       </h1>
       <p class="lead">
-        <span class="only-ar">يجمع Ads Center إعلانات متجرك على Meta وGoogle Ads وSnapchat، ويخبرك بلغة واضحة: ما الذي تغيّر في طلباتك وتكلفة كل طلب، وفي أي مرحلة حدث التغيّر بين الإعلان وإتمام الشراء، وما الأسباب الأرجح، وما الذي تتحقق منه أولاً — دون أن تحتاج إلى خبرة في إدارة الإعلانات.</span>
-        <span class="only-en">Ads Center brings your store's Meta, Google Ads and Snapchat ads together and tells you in plain language what changed in your orders and cost per order, at which step between the ad and the checkout it happened, the most likely reasons, and what to check first — no ad-management expertise needed.</span>
+        <span class="only-ar">يقرأ Ads Center حسابات المتاجر التي تديرها على Meta وGoogle Ads وSnapchat، ويرتّب ما يحتاج تدخّلك الآن بحجمه بالمال: إعلانات تصرف دون طلبات، وعائد أقل من المستهدف، وتغيّر كبير في المبيعات — مع أين حدث التغيّر ولماذا على الأرجح، في ملخص واضح تشاركه مع عميلك.</span>
+        <span class="only-en">Ads Center reads the store accounts you manage on Meta, Google Ads and Snapchat and ranks what needs you now by its money impact: ads spending with no orders, return below target, big swings in sales — with where the change happened and its likely cause, in a clear summary you can share with your client.</span>
       </p>
       <div class="cta-row">
         <a class="btn btn-primary" href="/join" data-join><span class="only-ar">اطلب الانضمام إلى التجربة</span><span class="only-en">Request to join the pilot</span></a>
@@ -99,7 +102,7 @@
          المشهد التاني = «ملخص المتجر» (نفس صياغة الأداة الحقيقية تقريباً — js/diagnosis.js) -->
     <div class="demo-track" data-demo-track>
     <div class="demo-wrap">
-      <p class="sr-only"><span class="only-ar">عرض توضيحي متحرك ببيانات مثال: ربط حسابات Meta وGoogle Ads وSnapchat، ثم ملخص المتجر الذي يشرح لماذا ارتفعت تكلفة الطلب وأين، ثم التنبيهات مرتّبة حسب حجمها في الميزانية، ثم تفاصيل تنبيه عاجل مع الخطوة التالية.</span><span class="only-en">Animated demo with sample data: connecting Meta, Google Ads and Snapchat, then the store summary explaining why cost per order rose and where, then alerts ranked by their size in the budget, then an urgent alert's details with the next step.</span></p>
+      <p class="sr-only"><span class="only-ar">عرض توضيحي متحرك ببيانات مثال: ربط حسابات Meta وGoogle Ads وSnapchat، ثم ملخص المتجر الذي يشرح لماذا ارتفعت تكلفة الطلب وأين، ثم ما يحتاج انتباهك الآن مع أثر كل بند بالمال، ثم تفاصيل تنبيه عاجل مع الخطوة التالية.</span><span class="only-en">Animated demo with sample data: connecting Meta, Google Ads and Snapchat, then the store summary explaining why cost per order rose and where, then what needs your attention now with each item's money impact, then an urgent alert's details with the next step.</span></p>
       <div class="demo" aria-hidden="true" data-demo>
         <div class="demo-bar">
           <span class="demo-lights"><i></i><i></i><i></i></span>
@@ -132,9 +135,9 @@
 
           <!-- ٣. التنبيهات مرتّبة حسب حجمها في الميزانية -->
           <div class="demo-scene" data-scene>
-            <div class="demo-h"><span class="only-ar">أهم التنبيهات</span><span class="only-en">Top alerts</span></div>
-            <div class="demo-alert lv-critical demo-item demo-pulse" style="--d:0"><span class="demo-level"><span class="only-ar">عاجل</span><span class="only-en">Urgent</span></span><div><b><span class="only-ar">إنفاق دون طلبات</span><span class="only-en">Spend without orders</span></b><small><span class="only-ar">إعلان «عرض الصيف» · Meta</span><span class="only-en">“Summer offer” ad · Meta</span></small><em><span class="only-ar">📊 ١٣٪ من إنفاق الحساب</span><span class="only-en">📊 13% of account spend</span></em></div></div>
-            <div class="demo-alert lv-warning demo-item" style="--d:1"><span class="demo-level"><span class="only-ar">يحتاج قرارك</span><span class="only-en">Your call</span></span><div><b><span class="only-ar">زوار الكويت نادراً ما يضيفون إلى السلة</span><span class="only-en">Kuwait visitors rarely add to cart</span></b><small><span class="only-ar">الدولة · Meta</span><span class="only-en">Country · Meta</span></small><em><span class="only-ar">📊 ٩٪ من إنفاق الحساب</span><span class="only-en">📊 9% of account spend</span></em></div></div>
+            <div class="demo-h"><span class="only-ar">يحتاج انتباهك الآن</span><span class="only-en">Needs your attention now</span></div>
+            <div class="demo-alert lv-critical demo-item demo-pulse" style="--d:0"><span class="demo-level"><span class="only-ar">عاجل</span><span class="only-en">Urgent</span></span><div><b><span class="only-ar">إنفاق دون طلبات</span><span class="only-en">Spend without orders</span></b><small><span class="only-ar">إعلان «عرض الصيف» · Meta</span><span class="only-en">“Summer offer” ad · Meta</span></small><em><span class="only-ar">💸 <span data-amount="120">١٢٠ $</span> دون طلبات</span><span class="only-en">💸 <span data-amount="120">$120</span> with no orders</span></em></div></div>
+            <div class="demo-alert lv-warning demo-item" style="--d:1"><span class="demo-level"><span class="only-ar">يحتاج قرارك</span><span class="only-en">Your call</span></span><div><b><span class="only-ar">زوار الكويت نادراً ما يضيفون إلى السلة</span><span class="only-en">Kuwait visitors rarely add to cart</span></b><small><span class="only-ar">الدولة · Meta</span><span class="only-en">Country · Meta</span></small><em><span class="only-ar">💸 تكلفة زائدة <span data-amount="340">٣٤٠ $</span></span><span class="only-en">💸 <span data-amount="340">$340</span> extra cost</span></em></div></div>
             <div class="demo-alert lv-opportunity demo-item" style="--d:2"><span class="demo-level"><span class="only-ar">فرصة</span><span class="only-en">Opportunity</span></span><div><b><span class="only-ar">فرصة لاختبار زيادة الاستثمار</span><span class="only-en">Worth testing a bigger budget</span></b><small><span class="only-ar">إعلان «حملة البحث» · Google Ads</span><span class="only-en">“Search campaign” ad · Google Ads</span></small><em><span class="only-ar">📊 ٨٪ من إنفاق الحساب</span><span class="only-en">📊 8% of account spend</span></em></div></div>
             <div class="demo-more demo-item" style="--d:3"><span class="only-ar">جميع التنبيهات (٧) ←</span><span class="only-en">All alerts (7) →</span></div>
           </div>
@@ -148,7 +151,7 @@
             </div>
             <div class="demo-chart-key demo-item" style="--d:2.5"><span><i></i><span class="only-ar">الإنفاق اليومي — آخر ٧ أيام</span><span class="only-en">Daily spend — last 7 days</span></span><span class="bad"><i></i><span class="only-ar">يومان دون طلبات</span><span class="only-en">2 days with no orders</span></span></div>
             <p class="demo-impact demo-item" style="--d:3"><span class="only-ar">📊 الحجم في ميزانيتك: <span data-amount="626">٦٢٦ $</span> خلال آخر ٧ أيام — ١٣٪ من إنفاق الحساب</span><span class="only-en">📊 Size in your budget: <span data-amount="626">$626</span> in the last 7 days — 13% of account spend</span></p>
-            <p class="demo-advice demo-item" style="--d:4"><span class="only-ar">💡 أرسله إلى مسؤول الإعلانات بضغطة، فقد يحتاج الإعلان إلى تعديل أو إيقاف.</span><span class="only-en">💡 Send it to your ads manager in one tap — the ad may need changes or a pause.</span></p>
+            <p class="demo-advice demo-item" style="--d:4"><span class="only-ar">💡 أوقفه أو عدّله الآن، وشارك السبب مع عميلك بضغطة.</span><span class="only-en">💡 Pause or fix it now, and share the reason with your client in one tap.</span></p>
           </div>
 
         </div>
@@ -156,7 +159,7 @@
       <ol class="demo-steps" aria-hidden="true">
         <li class="is-active" data-step><span class="demo-step-fill"></span><span class="only-ar">اربط حساباتك</span><span class="only-en">Connect your accounts</span></li>
         <li data-step><span class="demo-step-fill"></span><span class="only-ar">ما الذي تغيّر ولماذا</span><span class="only-en">What changed and why</span></li>
-        <li data-step><span class="demo-step-fill"></span><span class="only-ar">تنبيهات حسب حجمها في ميزانيتك</span><span class="only-en">Alerts ranked by budget size</span></li>
+        <li data-step><span class="demo-step-fill"></span><span class="only-ar">ما يحتاجك الآن وبكم</span><span class="only-en">What needs you now, and how much</span></li>
         <li data-step><span class="demo-step-fill"></span><span class="only-ar">التفاصيل والخطوة التالية</span><span class="only-en">Details and next step</span></li>
       </ol>
       <p class="demo-hint" aria-hidden="true"><span class="only-ar">مرّر الصفحة لأسفل لتنتقل بين الخطوات، أو اضغط اسم الخطوة.</span><span class="only-en">Scroll down to move through the steps, or tap a step's name.</span></p>
@@ -165,31 +168,31 @@
     </div>
   </section>
 
-  <!-- ================= المشكلة ================= -->
+  <!-- ================= المشكلة (لمسؤولي الإعلانات والوكالات — ١٠ أكتوبر ٢٠٢٦) ================= -->
   <section class="section band" id="problem">
     <div class="section-head">
       <p class="eyebrow"><span class="only-ar">المشكلة</span><span class="only-en">The problem</span></p>
-      <h2><span class="only-ar">مبيعاتك من الإعلانات تتغيّر… والسبب غير واضح</span><span class="only-en">Your ad sales change… and the reason isn't clear</span></h2>
+      <h2><span class="only-ar">حسابات كثيرة، ووقت محدود، وعميل يسأل: لماذا؟</span><span class="only-en">Many accounts, little time, and a client asking: why?</span></h2>
       <p class="section-lead">
-        <span class="only-ar">يعرف كل صاحب متجر هذه اللحظة: الطلبات قلّت، أو تكلفة الطلب ارتفعت، ولا أحد يستطيع أن يقول لماذا بثقة:</span>
-        <span class="only-en">Every store owner knows the moment: orders dropped or the cost per order rose, and nobody can say why with confidence:</span>
+        <span class="only-ar">كل مسؤول إعلانات يعرف هذه اللحظة: العميل يرسل «المبيعات قلّت، ماذا حدث؟» قبل أن تنتبه أنت إلى ما حدث:</span>
+        <span class="only-en">Every media buyer knows the moment: the client messages "sales dropped, what happened?" before you've noticed it yourself:</span>
       </p>
     </div>
     <div class="grid">
       <article class="card">
-        <span class="card-icon" aria-hidden="true">📉</span>
-        <h3><span class="only-ar">تعرف أن شيئاً تغيّر، ولا تعرف لماذا</span><span class="only-en">You know something changed, not why</span></h3>
-        <p><span class="only-ar">لوحات المنصات تعرض لك الأرقام، لكنها لا تقول لك هل المشكلة في الإعلانات أم في المتجر أم في العرض أم في السوق.</span><span class="only-en">Platform dashboards show you numbers, but they don't tell you whether the problem is in the ads, the store, the offer or the market.</span></p>
-      </article>
-      <article class="card">
-        <span class="card-icon" aria-hidden="true">🔁</span>
-        <h3><span class="only-ar">كل طرف يرى المشكلة عند الآخر</span><span class="only-en">Everyone sees the problem elsewhere</span></h3>
-        <p><span class="only-ar">مسؤول الإعلانات يراها في المتجر، وفريق المتجر يراها في الإعلانات، ويبقى القرار معلّقاً بينما يستمر الإنفاق.</span><span class="only-en">Your ads manager sees it in the store, your store team sees it in the ads, and the decision hangs while the spend goes on.</span></p>
-      </article>
-      <article class="card">
         <span class="card-icon" aria-hidden="true">💸</span>
-        <h3><span class="only-ar">هدر يستمر حتى يُكتشف متأخراً</span><span class="only-en">Waste that's found too late</span></h3>
-        <p><span class="only-ar">دولة أو حملة تستهلك الميزانية أسابيع دون طلبات، أو إعلان ناجح يتوقف بصمت، فتضيع مبيعات لا يلاحظها أحد.</span><span class="only-en">A country or campaign eating budget for weeks with no orders, or a winning ad stopping silently — and sales slip away unnoticed.</span></p>
+        <h3><span class="only-ar">الهدر يمر بين مراجعة وأخرى</span><span class="only-en">Waste slips through between reviews</span></h3>
+        <p><span class="only-ar">إعلان يصرف أياماً دون طلب، أو إعلان رابح يتوقف بصمت، ولا يظهر ذلك إلا حين تفتح كل حساب وتراجع كل إعلان بنفسك.</span><span class="only-en">An ad spending for days with no orders, or a winning ad stopping silently — and you only see it when you open each account and check every ad yourself.</span></p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">📈</span>
+        <h3><span class="only-ar">أرقام المنصة أكبر من طلبات المتجر</span><span class="only-en">Platform numbers run above the store's orders</span></h3>
+        <p><span class="only-ar">تنسب المنصة إلى الإعلانات طلبات لا دليل كافياً على أنها جاءت منها، فتبدو النتائج أفضل مما يراه عميلك في متجره، ويضيع الحكم الصحيح على الإعلان.</span><span class="only-en">The platform credits ads with orders there's little evidence they brought, so results look better than what your client sees in the store, and the right call on an ad gets lost.</span></p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">💬</span>
+        <h3><span class="only-ar">شرح التغيّر للعميل يأخذ وقتاً</span><span class="only-en">Explaining a change to the client takes time</span></h3>
+        <p><span class="only-ar">العميل يريد أن يعرف أين المشكلة: في الإعلانات أم في المتجر أم في العرض؟ وجمع الأدلة من لوحات المنصات لكل عميل يستهلك ساعات كل أسبوع.</span><span class="only-en">The client wants to know where the problem is — the ads, the store or the offer? Pulling the evidence together from each platform for every client eats hours every week.</span></p>
       </article>
     </div>
   </section>
@@ -198,48 +201,77 @@
   <section class="section" id="features">
     <div class="section-head">
       <p class="eyebrow"><span class="only-ar">المزايا</span><span class="only-en">Features</span></p>
-      <h2><span class="only-ar">افهم ما يحدث في إعلانات متجرك، دون أن تصبح خبيراً فيها</span><span class="only-en">Understand your store's ads without becoming an expert</span></h2>
+      <h2><span class="only-ar">ما يحتاج تدخّلك الآن، بأثره بالمال</span><span class="only-en">What needs you now, with its money impact</span></h2>
       <p class="section-lead">
-        <span class="only-ar">صُمّم Ads Center لصاحب المتجر الإلكتروني الذي يريد أن يعرف ما يحدث وماذا يسأل فريقه، ولمسؤول الإعلانات الذي يريد تفسيراً واضحاً يتفقان عليه — على Meta وGoogle Ads وSnapchat معاً.</span>
-        <span class="only-en">Built for online store owners who want to know what's happening and what to ask their team — and for ads managers who want a clear explanation both sides agree on — across Meta, Google Ads and Snapchat.</span>
+        <span class="only-ar">صُمّم Ads Center لمسؤول الإعلانات والوكالة التي تدير إعلانات المتاجر الإلكترونية: يقرأ كل حساب، ويحكم على كل إعلان بأسبوع كامل، ويضع أمامك ما يستحق قرارك أولاً — على Meta وGoogle Ads وSnapchat.</span>
+        <span class="only-en">Ads Center is built for media buyers and agencies running ads for online stores: it reads each account, judges every ad on a full week, and puts what deserves your call first — across Meta, Google Ads and Snapchat.</span>
       </p>
     </div>
     <div class="grid">
       <article class="card">
+        <span class="card-icon" aria-hidden="true">💸</span>
+        <h3><span class="only-ar">الهدر بالمال، وما يمكنك منعه</span><span class="only-en">Waste in money, and what you can prevent</span></h3>
+        <p><span class="only-ar">كم صُرف خلال آخر ٧ أيام على إعلانات نشطة دون طلبات أو بأكثر من مبيعاتها، وكم تصرفه يومياً الآن إن لم تتدخل، وإنفاق الشهر الذي لم يحقق أي طلب في Meta.</span><span class="only-en">How much went in the last 7 days on active ads with no orders or more than their sales, how much they spend per day now if you don't step in, and this month's Meta spend that brought no order at all.</span></p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">🚨</span>
+        <h3><span class="only-ar">قائمة واحدة مرتّبة بالأهمية</span><span class="only-en">One list, ranked by importance</span></h3>
+        <p><span class="only-ar">إنفاق دون طلبات، وعائد أقل من المستهدف، وإعلان رابح توقف، وميزانية نفدت — كل بند يعرض أثره بالمال قبل أن تفتحه، ومعه الخطوة التالية.</span><span class="only-en">Spend with no orders, return below target, a winning ad that stopped, a budget that ran out — each item shows its money impact before you open it, with the next step.</span></p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">🎯</span>
+        <h3><span class="only-ar">أرقام أقرب إلى طلبات المتجر</span><span class="only-en">Numbers closer to the store's orders</span></h3>
+        <p><span class="only-ar">نستبعد الطلبات التي لا دليل كافياً على أن الإعلان جلبها، ونعرض رقم المنصة إلى جانبه في تفاصيل كل إعلان، فتحكم على الإعلان بما يقترب مما يراه عميلك.</span><span class="only-en">We remove orders there's no solid evidence the ad brought, and show the platform's number next to it in each ad's details — so you judge the ad on something close to what your client sees.</span></p>
+      </article>
+      <article class="card">
         <span class="card-icon" aria-hidden="true">🩺</span>
-        <h3><span class="only-ar">ملخص متجرك: ما الذي تغيّر ولماذا</span><span class="only-en">Your store summary: what changed and why</span></h3>
-        <p><span class="only-ar">طلباتك ومبيعاتك وتكلفة كل طلب مقارنةً بالفترة السابقة، مع تفسير واضح لما حدث، والأسباب الأرجح، وما الذي تتحقق منه أولاً.</span><span class="only-en">Your orders, sales and cost per order compared with the previous period, with a clear explanation of what happened, the most likely reasons, and what to check first.</span></p>
+        <h3><span class="only-ar">لماذا تغيّرت المبيعات، وأين</span><span class="only-en">Why sales changed, and where</span></h3>
+        <p><span class="only-ar">هل جاء التغيّر من الإنفاق أم من تكلفة الطلب؟ وفي أي مرحلة: الوصول، أم الضغط، أم الإضافة إلى السلة، أم الدفع؟ وفي كل الحملات أم في حملة أو دولة واحدة؟</span><span class="only-en">Did the change come from spend or from cost per order? At which step — reach, clicks, add to cart or payment? Everywhere, or in one campaign or country?</span></p>
       </article>
       <article class="card">
-        <span class="card-icon" aria-hidden="true">🛒</span>
-        <h3><span class="only-ar">أين يتعثّر العميل بين الإعلان والشراء</span><span class="only-en">Where customers stall between ad and purchase</span></h3>
-        <p><span class="only-ar">هل قلّ من يضغطون على الإعلان، أم من يضيفون إلى السلة، أم من يكملون الدفع؟ فتعرف هل تسأل مسؤول الإعلانات، أم فريق المتجر، أم مسؤول الشحن والدفع.</span><span class="only-en">Did fewer people click the ad, add to cart, or complete payment? So you know whether to ask your ads manager, your store team, or whoever handles shipping and payments.</span></p>
-      </article>
-      <article class="card">
-        <span class="card-icon" aria-hidden="true">🌍</span>
-        <h3><span class="only-ar">المشكلة عامة أم في جزء واحد؟</span><span class="only-en">Is it everywhere, or in one place?</span></h3>
-        <p><span class="only-ar">نقارن الحملات والمنصات والدول والفئات العمرية وأماكن الظهور، لنكشف إن كان التغيّر في كل شيء أم في جزء واحد، كدولة لا يُكمل زوارها الشراء.</span><span class="only-en">We compare campaigns, platforms, countries, age groups and placements to show whether a change is everywhere or in one place — like a country whose visitors never complete a purchase.</span></p>
-      </article>
-      <article class="card">
-        <span class="card-icon" aria-hidden="true">🛡️</span>
-        <h3><span class="only-ar">حذر قبل أي حكم</span><span class="only-en">Careful before any verdict</span></h3>
-        <p><span class="only-ar">لا نفسّر تغيّراً إلا إذا كان أكبر من التذبذب المعتاد في حسابك، ونخبرك بصراحة حين لا تكفي البيانات. والأسباب تُعرض احتمالاتٍ لتتحقق منها، لا حقائق.</span><span class="only-en">We only explain a change when it's bigger than your account's usual swings, and we tell you plainly when there isn't enough data. Causes are shown as possibilities to check, not facts.</span></p>
-      </article>
-      <article class="card">
-        <span class="card-icon" aria-hidden="true">🔔</span>
-        <h3><span class="only-ar">تنبيهات لا تحتمل الانتظار</span><span class="only-en">Alerts that can't wait</span></h3>
-        <p><span class="only-ar">توقّف تسجيل المبيعات رغم استمرار الزيارات، وإنفاق دون طلبات، وإعلان ناجح توقف فجأة، وميزانية نفدت — مع الخطوة التالية بوضوح.</span><span class="only-en">Sales stopped being recorded while visits continue, spend without orders, a winning ad that suddenly stopped, an exhausted budget — each with a clear next step.</span></p>
+        <span class="card-icon" aria-hidden="true">🛠️</span>
+        <h3><span class="only-ar">يحترم تعديلاتك</span><span class="only-en">Respects your edits</span></h3>
+        <p><span class="only-ar">إذا عدّلت في Meta الميزانية أو الاستهداف أو التصميم، ينتظر التقييم ٣ أيام كاملة بعد التعديل، ثم يحكم على ما بعده فقط، ويقارن الأداء بعده بما قبله.</span><span class="only-en">If you change a Meta budget, targeting or creative, the verdict waits 3 full days after the edit, then judges only what came after it and compares after with before.</span></p>
       </article>
       <article class="card">
         <span class="card-icon" aria-hidden="true">📤</span>
-        <h3><span class="only-ar">شاركه مع فريقك بضغطة</span><span class="only-en">Share it with your team in one tap</span></h3>
-        <p><span class="only-ar">انسخ الملخص أو أي تنبيه وأرسله عبر الواتساب إلى مسؤول إعلاناتك، ليبدأ النقاش من الأرقام نفسها بدل التخمين.</span><span class="only-en">Copy the summary or any alert and send it on WhatsApp to your ads manager, so the conversation starts from the same numbers instead of guesses.</span></p>
+        <h3><span class="only-ar">ملخص جاهز لعميلك</span><span class="only-en">A summary ready for your client</span></h3>
+        <p><span class="only-ar">انسخ الملخص أو أي تنبيه وأرسله إلى عميلك عبر الواتساب. ولحسابات Meta يصلك على بريدك ملخص في الأيام التي تختارها، وملخص شهري، وتنبيه فوري حين يظهر أمر عاجل.</span><span class="only-en">Copy the summary or any alert and send it to your client on WhatsApp. For Meta accounts, you also get an email summary on the days you choose, a monthly summary, and an immediate alert when something urgent comes up.</span></p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ================= لأصحاب المتاجر ================= -->
+  <section class="section band" id="owners">
+    <div class="section-head">
+      <p class="eyebrow"><span class="only-ar">لأصحاب المتاجر</span><span class="only-en">For store owners</span></p>
+      <h2><span class="only-ar">تدير متجراً ولديك مسؤول إعلانات أو وكالة؟</span><span class="only-en">Running a store with a media buyer or agency?</span></h2>
+      <p class="section-lead">
+        <span class="only-ar">لا تحتاج إلى خبرة في الإعلانات لتعرف أين تذهب ميزانيتك. يعرض لك Ads Center بلغة واضحة: كم صُرف، وكم عاد مبيعاتٍ، وما الذي يهدر المال الآن — فيبدأ حديثك مع فريقك من الأرقام نفسها.</span>
+        <span class="only-en">You don't need ad expertise to know where your budget goes. Ads Center shows you in plain language what was spent, what came back in sales, and what's wasting money right now — so your talk with your team starts from the same numbers.</span>
+      </p>
+    </div>
+    <div class="grid">
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">🧾</span>
+        <h3><span class="only-ar">صرفت كم، وعاد كم</span><span class="only-en">What you spent, what came back</span></h3>
+        <p><span class="only-ar">كل ١٠٠ صُرفت على الإعلانات أعادت كم من المبيعات، مقارنةً بالفترة السابقة، مع تنبيهك حين يقل العائد عن المستهدف الذي تحدده.</span><span class="only-en">What every 100 spent on ads brought back in sales compared with the previous period, with an alert when the return falls below the target you set.</span></p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">❓</span>
+        <h3><span class="only-ar">ماذا تسأل فريقك</span><span class="only-en">What to ask your team</span></h3>
+        <p><span class="only-ar">حين تتغيّر المبيعات، يوضّح لك الملخص أين حدث التغيّر وما الذي يُتحقق منه أولاً، فتعرف هل تسأل مسؤول الإعلانات أم فريق المتجر أم مسؤول الشحن والدفع.</span><span class="only-en">When sales change, the summary shows where it happened and what to check first, so you know whether to ask your media buyer, your store team, or whoever handles shipping and payment.</span></p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">🔒</span>
+        <h3><span class="only-ar">للقراءة فقط</span><span class="only-en">Read-only</span></h3>
+        <p><span class="only-ar">لا تغيّر الأداة أي شيء في حساباتك؛ تقرأ الأرقام وتشرحها، والقرار يبقى لك ولفريقك.</span><span class="only-en">The tool changes nothing in your accounts: it reads the numbers and explains them, and the decision stays with you and your team.</span></p>
       </article>
     </div>
   </section>
 
   <!-- ================= كيف تعمل ================= -->
-  <section class="section band" id="how">
+  <section class="section" id="how">
     <div class="section-head">
       <p class="eyebrow"><span class="only-ar">كيف تعمل</span><span class="only-en">How it works</span></p>
       <h2><span class="only-ar">ابدأ في ثلاث خطوات</span><span class="only-en">Get started in three steps</span></h2>
@@ -247,15 +279,15 @@
     <ol class="grid steps">
       <li class="card">
         <h3><span class="only-ar">اطلب الانضمام</span><span class="only-en">Request to join</span></h3>
-        <p><span class="only-ar">أرسل إلينا بياناتك ورابط متجرك، وسنفعّل حسابك في التجربة خلال ٢٤ ساعة ونرسل إليك خطوات الربط.</span><span class="only-en">Send us your details and your store link, and we'll activate your pilot access within 24 hours and send you the connection steps.</span></p>
+        <p><span class="only-ar">أرسل إلينا بياناتك ورابط متجر تدير إعلاناته (أو متجرك)، وسنفعّل حسابك في التجربة خلال ٢٤ ساعة ونرسل إليك خطوات الربط.</span><span class="only-en">Send us your details and the link of a store whose ads you run (or your own store), and we'll activate your pilot access within 24 hours and send you the connection steps.</span></p>
       </li>
       <li class="card">
         <h3><span class="only-ar">اربط حساباتك في دقائق</span><span class="only-en">Connect your accounts in minutes</span></h3>
-        <p><span class="only-ar">سجّل الدخول بحسابك على Meta أو Google أو Snapchat، ووافق على صلاحية قراءة الإعلانات. الخطوات مشروحة بالتفصيل في <a href="/help">دليل البدء</a>.</span><span class="only-en">Log in with Meta, Google or Snapchat and approve read access to your ads. Every step is explained in the <a href="/help">getting-started guide</a>.</span></p>
+        <p><span class="only-ar">سجّل الدخول بحسابك على Meta أو Google أو Snapchat، ووافق على صلاحية قراءة الإعلانات، فتظهر لك كل الحسابات الإعلانية التي يصل إليها حسابك لتتنقل بينها. الخطوات مشروحة بالتفصيل في <a href="/help">دليل البدء</a>.</span><span class="only-en">Log in with Meta, Google or Snapchat and approve read access to your ads; every ad account your login can reach shows up for you to switch between. Every step is explained in the <a href="/help">getting-started guide</a>.</span></p>
       </li>
       <li class="card">
-        <h3><span class="only-ar">افهم وقرّر مع فريقك</span><span class="only-en">Understand and decide with your team</span></h3>
-        <p><span class="only-ar">افتح ملخص متجرك لترى ما الذي تغيّر ولماذا، وقرّر مع مسؤول إعلاناتك أو فريق متجرك ما يجب فعله. لا تنفّذ الأداة أي إجراء من تلقاء نفسها.</span><span class="only-en">Open your store summary to see what changed and why, and decide with your ads manager or store team what to do. The tool never takes action on its own.</span></p>
+        <h3><span class="only-ar">تدخّل أولاً حيث يُهدر المال</span><span class="only-en">Step in first where money is wasted</span></h3>
+        <p><span class="only-ar">افتح الحساب لترى الهدر وما يحتاج انتباهك الآن مرتّباً بأثره بالمال، وسبب تغيّر المبيعات، ثم نفّذ قرارك من لوحة المنصة وشارك الملخص مع عميلك. لا تنفّذ الأداة أي إجراء من تلقاء نفسها.</span><span class="only-en">Open the account to see the waste and what needs you now, ranked by money impact, and why sales changed — then act in the platform and share the summary with your client. The tool never takes action on its own.</span></p>
       </li>
     </ol>
   </section>
@@ -263,7 +295,7 @@
   <!-- ================= البيانات =================
        Google بتطلب إن الصفحة الرئيسية توضّح ليه التطبيق بيطلب بيانات المستخدم — الفقرة الأخيرة هنا هي التوضيح،
        وجدول الصلاحيات بالتفصيل في سياسة الخصوصية. لازم يفضلوا متطابقين -->
-  <section class="section" id="data">
+  <section class="section band" id="data">
     <div class="section-head">
       <p class="eyebrow"><span class="only-ar">الخصوصية والأمان</span><span class="only-en">Privacy &amp; security</span></p>
       <h2><span class="only-ar">بياناتك في أمان</span><span class="only-en">Your data stays safe</span></h2>
@@ -281,15 +313,19 @@
   </section>
 
   <!-- ================= الأسئلة ================= -->
-  <section class="section band" id="faq">
+  <section class="section" id="faq">
     <div class="section-head">
       <p class="eyebrow"><span class="only-ar">لديك سؤال؟</span><span class="only-en">Questions?</span></p>
       <h2><span class="only-ar">الأسئلة الشائعة</span><span class="only-en">Frequently asked questions</span></h2>
     </div>
     <div class="faq">
       <details>
-        <summary><span class="only-ar">هل تناسب الأداة متجري؟</span><span class="only-en">Is the tool right for my store?</span></summary>
-        <p><span class="only-ar">صُمّمت للمتاجر الإلكترونية التي تسجّل مشترياتها في المنصات الإعلانية عبر أداة التتبّع (Meta Pixel أو وسم Google أو Snap Pixel)، أياً كانت منصة المتجر: سلة أو زد أو Shopify أو WooCommerce أو غيرها. لا تحتاج الأداة إلى ربط متجرك نفسه.</span><span class="only-en">It's built for online stores that record their purchases in the ad platforms through a tracking tool (Meta Pixel, the Google tag or Snap Pixel), whatever the store platform: Salla, Zid, Shopify, WooCommerce or another. The tool doesn't need to connect to your store itself.</span></p>
+        <summary><span class="only-ar">لمن صُمّمت الأداة؟</span><span class="only-en">Who is the tool for?</span></summary>
+        <p><span class="only-ar">لمسؤولي الإعلانات والوكالات التي تدير إعلانات متاجر إلكترونية، ولأصحاب المتاجر أنفسهم؛ بشرط أن يسجّل المتجر مشترياته في المنصات الإعلانية عبر أداة التتبّع (Meta Pixel أو وسم Google أو Snap Pixel)، أياً كانت منصة المتجر: سلة أو زد أو Shopify أو WooCommerce أو غيرها. ولا تحتاج الأداة إلى ربط المتجر نفسه.</span><span class="only-en">Media buyers and agencies running ads for online stores, and store owners themselves — as long as the store records its purchases in the ad platforms through a tracking tool (Meta Pixel, the Google tag or Snap Pixel), whatever the store platform: Salla, Zid, Shopify, WooCommerce or another. The tool doesn't need to connect to the store itself.</span></p>
+      </details>
+      <details>
+        <summary><span class="only-ar">هل أستطيع متابعة حسابات عدة عملاء؟</span><span class="only-en">Can I follow several clients' accounts?</span></summary>
+        <p><span class="only-ar">نعم. تظهر لك كل الحسابات الإعلانية التي يصل إليها حسابك على Meta، وحسابات Google Ads (بما فيها حسابات MCC)، وحسابات Snapchat، وتنتقل بينها من القائمة أعلى الأداة؛ ويُعرض كل حساب بملخصه وتنبيهاته. ويُفعَّل الملخص التلقائي بالبريد لكل حساب Meta على حدة.</span><span class="only-en">Yes. Every ad account your login can reach on Meta, Google Ads (including MCC accounts) and Snapchat shows up, and you switch between them from the list at the top of the tool; each account is shown with its own summary and alerts. The automatic email summary is turned on per Meta account.</span></p>
       </details>
       <details>
         <summary><span class="only-ar">كيف تعرف الأداة سبب التغيّر؟</span><span class="only-en">How does the tool know why something changed?</span></summary>
@@ -297,11 +333,11 @@
       </details>
       <details>
         <summary><span class="only-ar">هل تغيّر الأداة أي شيء في إعلاناتي؟</span><span class="only-en">Does the tool change anything in my ads?</span></summary>
-        <p><span class="only-ar">لا. الأداة للقراءة فقط، ولا يمكنها تعديل أي إعلان أو إيقافه أو إنشاؤه. القرار يبقى دائماً لك ولمسؤول إعلاناتك.</span><span class="only-en">No. The tool only reads — it can't edit, pause or create any ad. The decision is always yours and your ads manager's.</span></p>
+        <p><span class="only-ar">لا. الأداة للقراءة فقط، ولا يمكنها تعديل أي إعلان أو إيقافه أو إنشاؤه. القرار يبقى دائماً لك.</span><span class="only-en">No. The tool only reads — it can't edit, pause or create any ad. The decision is always yours.</span></p>
       </details>
       <details>
         <summary><span class="only-ar">لماذا التجربة مغلقة؟</span><span class="only-en">Why is the pilot closed?</span></summary>
-        <p><span class="only-ar">نقدّم الأداة حالياً لعدد محدود من المتاجر، لنمنح كل متجر متابعة مباشرة، ونطوّر الأداة وفق احتياجاته الفعلية قبل إطلاقها للجميع.</span><span class="only-en">We're offering the tool to a limited number of stores for now, so each one gets direct support and the tool is shaped around real needs before it opens to everyone.</span></p>
+        <p><span class="only-ar">نقدّم الأداة حالياً لعدد محدود من مسؤولي الإعلانات والوكالات وأصحاب المتاجر، لنمنح كل منهم متابعة مباشرة، ونطوّر الأداة وفق احتياجاته الفعلية قبل إطلاقها للجميع.</span><span class="only-en">We're offering the tool to a limited number of media buyers, agencies and store owners for now, so each one gets direct support and the tool is shaped around real needs before it opens to everyone.</span></p>
       </details>
       <!-- نفس الوعد في الشروط (البند ٢، برنامج التجربة) — لو اتغيّر هنا يتغيّر هناك -->
       <details>
@@ -314,7 +350,7 @@
       </details>
       <details>
         <summary><span class="only-ar">كيف يصلني الملخص والتنبيهات؟</span><span class="only-en">How do the summary and alerts reach me?</span></summary>
-        <p><span class="only-ar">يظهران داخل الأداة فور فتحها: ملخص متجرك وأهم التنبيهات في أعلى الصفحة، وجميع التنبيهات في تبويب «التنبيهات». ولحسابات Meta يمكنك أيضاً أن يصلك الملخص على بريدك في الأيام والساعة التي تختارها، مع تنبيه فوري حين يظهر أمر عاجل، دون أن تفتح الأداة. ويمكنك نسخ الملخص أو أي تنبيه وإرساله عبر الواتساب إلى مسؤول إعلاناتك. التفاصيل في <a href="/help#email">دليل البدء</a>.</span><span class="only-en">They appear inside the tool as soon as you open it: your store summary and the top alerts at the top of the page, and all alerts in the Alerts tab. For Meta accounts, you can also get the summary by email on the days and time you choose, plus an immediate alert whenever something urgent comes up — without opening the tool. You can copy the summary or any alert and send it on WhatsApp to your ads manager. Details are in the <a href="/help#email">getting-started guide</a>.</span></p>
+        <p><span class="only-ar">يظهران داخل الأداة فور فتحها: ملخص متجرك وأهم التنبيهات في أعلى الصفحة، وجميع التنبيهات في تبويب «التنبيهات». ولحسابات Meta يمكنك أيضاً أن يصلك الملخص على بريدك في الأيام والساعة التي تختارها، مع تنبيه فوري حين يظهر أمر عاجل، دون أن تفتح الأداة. ويمكنك نسخ الملخص أو أي تنبيه وإرساله عبر الواتساب إلى عميلك أو فريقك. التفاصيل في <a href="/help#email">دليل البدء</a>.</span><span class="only-en">They appear inside the tool as soon as you open it: your store summary and the top alerts at the top of the page, and all alerts in the Alerts tab. For Meta accounts, you can also get the summary by email on the days and time you choose, plus an immediate alert whenever something urgent comes up — without opening the tool. You can copy the summary or any alert and send it on WhatsApp to your client or team. Details are in the <a href="/help#email">getting-started guide</a>.</span></p>
       </details>
       <details>
         <summary><span class="only-ar">هل تطابق الأرقام لوحة المنصة وطلبات متجري؟</span><span class="only-en">Do the numbers match the platform and my store's orders?</span></summary>
@@ -328,13 +364,13 @@
   </section>
 
   <!-- ================= من نحن ================= -->
-  <section class="section" id="about">
+  <section class="section band" id="about">
     <div class="section-head">
       <p class="eyebrow"><span class="only-ar">تعرّف إلينا</span><span class="only-en">Get to know us</span></p>
       <h2><span class="only-ar">من نحن</span><span class="only-en">About us</span></h2>
       <p class="section-lead">
-        <span class="only-ar">Ads Center منصة برمجية مصرية لتحليل أداء الإعلانات الرقمية، صُمّمت خصيصاً لأصحاب المتاجر الإلكترونية في مصر ودول الخليج. نساعد عملاءنا على فهم ما يحدث في إعلاناتهم على Meta وGoogle Ads وSnapchat — وTikTok قريباً — من مكان واحد، بصلاحيات قراءة فقط، ودون الاحتفاظ ببياناتهم الإعلانية على خوادمنا.</span>
-        <span class="only-en">Ads Center is an Egyptian software platform for digital ad performance analytics, built for online store owners in Egypt and the Gulf. We help our clients understand what's happening in their ads on Meta, Google Ads and Snapchat — with TikTok coming soon — from one place, with read-only access and without keeping their ad data on our servers.</span>
+        <span class="only-ar">Ads Center منصة برمجية مصرية لتحليل أداء الإعلانات الرقمية، صُمّمت خصيصاً لمسؤولي الإعلانات والوكالات وأصحاب المتاجر الإلكترونية في مصر ودول الخليج. نساعد عملاءنا على فهم ما يحدث في إعلاناتهم على Meta وGoogle Ads وSnapchat — وTikTok قريباً — من مكان واحد، بصلاحيات قراءة فقط، ودون الاحتفاظ ببياناتهم الإعلانية على خوادمنا.</span>
+        <span class="only-en">Ads Center is an Egyptian software platform for digital ad performance analytics, built for media buyers, agencies and online store owners in Egypt and the Gulf. We help our clients understand what's happening in their ads on Meta, Google Ads and Snapchat — with TikTok coming soon — from one place, with read-only access and without keeping their ad data on our servers.</span>
       </p>
       <!-- بيانات الشركة: TikTok (وGoogle في التوثيق) بيطلبوا إن الموقع يعرضها من غير تسجيل دخول -->
       <ul class="company-info">
@@ -350,8 +386,8 @@
   <!-- ================= طلب الانضمام ================= -->
   <section class="section" id="join">
     <div class="join-band">
-      <h2><span class="only-ar">جاهز لتعرف ما الذي يحدث في إعلانات متجرك؟</span><span class="only-en">Ready to understand your store's ads?</span></h2>
-      <p><span class="only-ar">أماكن التجربة محدودة. أرسل إلينا بياناتك ورابط متجرك، وسنفعّل حسابك خلال ٢٤ ساعة ونرسل إليك خطوات الربط.</span><span class="only-en">Pilot spots are limited. Send us your details and your store link, and we'll activate your access within 24 hours and send you the connection steps.</span></p>
+      <h2><span class="only-ar">جاهز لتكتشف الهدر في حسابات عملائك؟</span><span class="only-en">Ready to catch the waste in your clients' accounts?</span></h2>
+      <p><span class="only-ar">أماكن التجربة محدودة. أرسل إلينا بياناتك ورابط متجر تدير إعلاناته (أو متجرك)، وسنفعّل حسابك خلال ٢٤ ساعة ونرسل إليك خطوات الربط.</span><span class="only-en">Pilot spots are limited. Send us your details and the link of a store whose ads you run (or your own), and we'll activate your access within 24 hours and send you the connection steps.</span></p>
       <div class="cta-row">
         <a class="btn btn-primary" href="/join" data-join><span class="only-ar">اطلب الانضمام إلى التجربة</span><span class="only-en">Request to join the pilot</span></a>
       </div>
