@@ -246,6 +246,15 @@
     var age = c.daysAgo;
     var learning = age != null && age < s.learningDays;
     var daily = c.daily || [], results = c.dailyResults || [], sales = c.dailySales || [];
+    // آخر تعديل على الإعلان أو مجموعته أو حملته جوه النافذة (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦ — meta.js loadAdEdits):
+    // أقل من ٣ أيام مكتملة بعده = الحكم بيستنى (إلا الهدر الواضح — العاجل). ٣ أيام أو أكتر = الحكم على الأيام اللي بعده بس
+    var edit = null;
+    (c.edits || []).forEach(function (e) {
+      var i = (c.dailyDates || []).indexOf(e.date);
+      if (i >= 0 && i <= TODAY) edit = { e: e, idx: i };   // مترتبة بالوقت — الأخير يكسب
+    });
+    var editFresh = !!edit && YESTERDAY - edit.idx < 3;
+    var weekStart = edit && !editFresh ? edit.idx + 1 : 0;
     var spendY = daily[YESTERDAY] || 0, spend2 = sum(daily, DAY_BEFORE, YESTERDAY);
     var resY = results[YESTERDAY] || 0, res2 = sum(results, DAY_BEFORE, YESTERDAY);
     // العائد وفرص الزيادة بتتقاس على آخر ٣ أيام مكتملة مش أمس لوحده: المبيعات بتتنسب ليوم ظهور الإعلان
@@ -256,10 +265,11 @@
     var ownCpr = c.results > 0 && c.spend > 0 ? c.spend / c.results : null;
     // المتوسط بيتقسم على الأيام اللي الإعلان كان فيها موجود فعلاً — إعلان عمره ٣ أيام
     // كان متوسطه بيتقسم على كل الأيام فيطلع أقل من الحقيقة وتنبيه "وصوله ضعيف" ميظهرش
-    var historyDays = age != null ? Math.max(1, Math.min(DAY_BEFORE + 1, age - 1)) : DAY_BEFORE + 1;
-    var prevSpendAvg = sum(daily, 0, DAY_BEFORE) / historyDays;
-    // الأسبوع = الأيام المكتملة بس (من غير النهارده): أساس الحكم على الإعلان كله، مش آخر يومين بس
-    var spendW = sum(daily, 0, YESTERDAY), resW = sum(results, 0, YESTERDAY), salesW = sum(sales, 0, YESTERDAY);
+    // بعد تعديل: المعتاد = الأيام اللي بعده بس (رفع الميزانية مش «صرف أعلى من المعتاد»)
+    var historyDays = Math.min(age != null ? Math.max(1, Math.min(DAY_BEFORE + 1, age - 1)) : DAY_BEFORE + 1, Math.max(1, DAY_BEFORE + 1 - weekStart));
+    var prevSpendAvg = sum(daily, weekStart, DAY_BEFORE) / historyDays;
+    // الأسبوع = الأيام المكتملة بس (من غير النهارده): أساس الحكم على الإعلان كله، مش آخر يومين بس — أو اللي بعد آخر تعديل
+    var spendW = sum(daily, weekStart, YESTERDAY), resW = sum(results, weekStart, YESTERDAY), salesW = sum(sales, weekStart, YESTERDAY);
     // إعلان مبيعات بيسجّل قيمة الطلبات: الحكم بالربح الأول (العائد مقابل المستهدف وحد الخسارة)، والمقارنة بإعلانات
     // الحساب في الفترة نفسها شرح جنبه مش أساس الحكم (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦ — الفترات بتختلف: عروض، رواتب، موسم)
     var profitAd = acc.hasSales && any(sales);
@@ -290,6 +300,14 @@
       var raised = issues.some(function (i) { return (i.level === 'critical' || i.level === 'warning') && !i.quiet; });
       issues = issues.map(function (i) { return i.level === 'info' || i.quiet ? i : minor(i); });
       return finalize(c, issues, raised && c.active ? 'small' : pend, raised && c.active ? pendText('small') : basis);
+    }
+    // التعديل بكلام واضح: «رفع ميزانية الحملة من ٢٠٠ إلى ٤٠٠ ر.س»، «تعديل استهداف المجموعة الإعلانية»…
+    function editText(e) {
+      var lvl = t('edit.lvl.' + e.level);
+      if (e.kind === 'budget' && e.from > 0 && e.to > 0) {
+        return t(e.to > e.from ? 'edit.budget.up' : 'edit.budget.down', { lvl: lvl, from: fmt.money(e.from / unitOf(cur), cur), to: fmt.money(e.to / unitOf(cur), cur) });
+      }
+      return t('edit.' + e.kind, { lvl: lvl });
     }
     // سبب «لم يُحكم بعد» بكلام واضح — بيظهر في تفاصيل الإعلان
     function pendText(key) {
@@ -484,7 +502,7 @@
     // (بنتجاهله لو الإعلان لسه بادئ يصرف — أقل من ٣ أيام صرف قبل أمس — أو لو عليه تنبيه صرف بدون نتائج أصلاً)
     // حد أدنى (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): الزيادة نفسها لازم تساوي تكلفة نتيجة واحدة بمتوسط الحساب على الأقل —
     // إعلان صرفه نط من ٥ لـ١٢ كان بيطلع «صرف أعلى من المعتاد». من غير متوسط في الحساب مفيش أساس نقيس عليه، فمفيش تنبيه
-    var priorSpendDays = daily.slice(0, YESTERDAY).filter(function (v) { return v > 0; }).length;
+    var priorSpendDays = daily.slice(weekStart, YESTERDAY).filter(function (v) { return v > 0; }).length;
     var spikeFloor = avgCpr || accountCpr;
     if (!learning && !wasteRaised && priorSpendDays >= 3 && prevSpendAvg > 0 && spendY >= prevSpendAvg * s.spikeMultiple &&
       spikeFloor && spendY - prevSpendAvg >= spikeFloor) {
@@ -576,7 +594,24 @@
     else if (profitAd && weekEvidence) {
       basis = t('basis.profit', { roas: fmt.num(roasW), target: fmt.num(s.roasTarget) }) + (acc.roasW != null ? t('basis.vsAcc', { acc: fmt.num(acc.roasW) }) : '');
     } else if (avgCpr && c.cpr != null) {
-      basis = t('basis.cpr', { one: one, cpr: money(c.cpr), avg: money(avgCpr) });
+      basis = t('basis.cpr', { one: one, cpr: money(weekStart && resW > 0 ? spendW / resW : c.cpr), avg: money(avgCpr) });
+    }
+    // التعديل الأخير (ملاحظة ١٠ أكتوبر): حديث = الحكم بيستنى، والملاحظات «المهمة» بتبقى «للعلم» لأن نتيجة التعديل لسه
+    // مظهرتش — والعاجل (هدر واضح) بيفضل زي ما هو. أقدم = الحكم على اللي بعده، وسطر «بعده مقابل قبله» في أساس الحكم
+    if (edit && c.active && !learning) {
+      var ago = TODAY - edit.idx, what = editText(edit.e);
+      var when = ago === 0 ? t('edit.when.0') : (ago === 1 ? t('edit.when.1') : t('edit.when.n', { days: daysText(ago, fmt) }));
+      if (editFresh) {
+        var urgent = issues.some(function (i) { return i.level === 'critical'; });
+        issues.forEach(function (i) { if (i.level === 'warning') { i.level = 'info'; i.detail += t('al.afterEditNote'); } });
+        if (!urgent) { pend = 'edited'; basis = t('pend.edited.d', { what: what, when: when }); }
+      } else if (basis) {
+        var pre = { s: sum(daily, 0, edit.idx - 1), r: sum(results, 0, edit.idx - 1), v: sum(sales, 0, edit.idx - 1) };
+        var cmp = '';
+        if (profitAd && pre.s > 0 && spendW > 0) cmp = t('basis.edit.roas', { after: fmt.num(salesW / spendW), before: fmt.num(pre.v / pre.s) });
+        else if (!profitAd && pre.r > 0 && resW > 0) cmp = t('basis.edit.cpr', { one: one, after: money(spendW / resW), before: money(pre.s / pre.r) });
+        basis += t('basis.edit.window', { what: what, when: when }) + cmp;
+      }
     }
     // ألوان أرقام الكارت (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «كل النص رمادي وأسود»): أخضر/أحمر خفيف على العائد مقارنةً
     // بالمستهدف وحد الخسارة لإعلان المبيعات (الربح أولاً)، وعلى تكلفة النتيجة مقارنةً بمتوسط الحساب لغيره (±١٥٪) —

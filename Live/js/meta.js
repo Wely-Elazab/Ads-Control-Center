@@ -196,6 +196,31 @@
   // من المشاهدة، المفتاح بتاعهم يظهر ونعرف إن «نقرة ٧ أيام» = صفر (Meta بتشيل النوافذ اللي قيمتها صفر).
   // لو Meta رفضت الطلب بالنوافذ، بنعيده من غيرها والأرقام بتفضل زي الأول (من غير مقارنة)
   var ATTR_WINDOWS = JSON.stringify(['7d_click', '1d_view', '1d_ev']);
+  // تعديلات الإعلان أو مجموعته أو حملته في آخر ٨ أيام (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «لا يتم اعتبار إجراءات التحسين»):
+  // الميزانية والاستهداف والتصميم وإعادة التشغيل، من سجل الحساب (activities) في الخلفية بعد ما الأرقام تظهر. التقييم
+  // (alerts.js) بيستنى ٣ أيام كاملة بعد التعديل، وبعدها بيحكم على الأيام اللي بعده بس. فشل الطلب = التقييم زي ما كان
+  var adEditsById = {};
+  var EDIT_KINDS = { budget: 1, targeting: 1, creative: 1, resume: 1 };
+  function loadAdEdits(accountId, source, tz, live) {
+    if (!window.DX || !DX._ || typeof DX._.actionOf !== 'function') return Promise.resolve();
+    return metaActivities(accountId, shiftKey(todayKeyInTz(tz), -8)).then(function (res) {
+      if (!live() || !res || res.err) return;
+      var byObj = {};
+      res.data.forEach(function (ev) {
+        var a = DX._.actionOf(ev, tz);
+        if (a && EDIT_KINDS[a.kind]) (byObj[a.id] = byObj[a.id] || []).push({ kind: a.kind, level: a.level, date: a.date, time: a.time, from: a.from || null, to: a.to || null });
+      });
+      var changed = false;
+      candidates.forEach(function (c) {
+        if (c.source !== source) return;
+        var list = [].concat(byObj[String(c.nativeId || c.id)] || [], (c.adsetId && byObj[String(c.adsetId)]) || [], (c.campaignId && byObj[String(c.campaignId)]) || [])
+          .sort(function (x, y) { return x.time < y.time ? -1 : (x.time > y.time ? 1 : 0); });
+        adEditsById[c.id] = list.length ? list : null;
+        if (JSON.stringify(c.edits || null) !== JSON.stringify(adEditsById[c.id])) { c.edits = adEditsById[c.id]; changed = true; }
+      });
+      if (changed) render();
+    }).catch(function () { /* التقييم بيفضل زي ما كان */ });
+  }
   // تكرار الظهور منذ إطلاق الإعلان (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: التفاصيل كانت بتقول آخر ٧ أيام بس). طلب منفصل في
   // الخلفية بعد ما الأرقام تظهر، للإعلانات الشغّالة بس (date_preset=maximum)، ٥٠ إعلان في الطلب ولحد ٥٠٠ — فشله مش بيأثر على
   // حاجة. قاعدة «زهق الجمهور» زي ما هي على آخر ٧ أيام: التكرار من شهور مش بيقول حاجة عن الجمهور النهارده
@@ -482,6 +507,7 @@
       // ملخص المتجر بيبدأ بعد ما الأرقام تظهر (مش قبلها) — عشان طلباته متأخرش الكروت
       loadMetaDiagnosis(accountId, info, live);
       loadLifeFrequency(accountId, source, live);
+      loadAdEdits(accountId, source, info.timeZone || BROWSER_TZ, live);
       if (showStopped) stage3();
     }).catch(function (err) {
       // أي خطأ مش متوقع (بيانات بشكل غريب من Meta مثلاً) — قبل كده مؤشر التحميل كان بيفضل يلف على طول
@@ -832,6 +858,8 @@
       reach: reachRow && isFinite(parseInt(reachRow.reach, 10)) ? parseInt(reachRow.reach, 10) : null,
       placement: (ad.campaign && ad.campaign.name) || (ad.adset && ad.adset.name) || '—',
       campaignId: (ad.campaign && ad.campaign.id) || null,
+      adsetId: (ad.adset && ad.adset.id) || null,
+      edits: adEditsById[ad.id] || null,
       campaignName: (ad.campaign && ad.campaign.name) || null,
       adsetName: (ad.adset && ad.adset.name) || null,
       nativeId: ad.id,

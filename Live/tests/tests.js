@@ -848,6 +848,28 @@
       var fresh = ad('fresh', { daily: [0, 0, 0, 0, 2, 2, 0], res: [0, 0, 0, 0, 1, 0, 0], age: 2 });
       eq(engine(baseAccount().concat([fresh])).byAd.fresh.health, 'pending', 'still learning');
     });
+    // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «لا يتم اعتبار إجراءات التحسين في الإعلان»
+    var editOn = function (i, kind, extra) { return [Object.assign({ kind: kind, level: 'campaign', date: KEYS[i], time: KEYS[i] + 'T10:00:00+0000' }, extra || {})]; };
+    test('تعديل من أقل من ٣ أيام: الحكم بيستنى «عُدّل مؤخراً» والملاحظات المهمة للعلم — والعاجل بيفضل عاجل', function () {
+      var weak = ad('w1', { cid: 'c9', camp: 'Other', daily: [100, 100, 100, 100, 100, 10, 0], res: [5, 5, 5, 5, 5, 1, 0] });
+      eq(issuesOf(engine(baseAccount().concat([weak])), 'w1').filter(function (i) { return i.level === 'warning'; }).length > 0, true, 'warning without the edit');
+      weak.edits = editOn(4, 'budget', { from: 20000, to: 5000 });
+      var r = withLang('ar', function () { return engine(baseAccount().concat([weak])); });
+      eq([r.byAd.w1.health, r.byAd.w1.pending], ['pending', 'edited']);
+      ok(/جرى منذ يومين تعديل يخصّ هذا الإعلان \(خفض ميزانية الحملة من ٢٠٠ ر\.س إلى ٥٠ ر\.س\)/.test(r.byAd.w1.basis), r.byAd.w1.basis);
+      ok(!issuesOf(r, 'w1').some(function (i) { return i.level === 'warning'; }), 'warnings became FYI');
+      var waste = ad('x1', { daily: [100, 100, 100, 100, 100, 100, 0], res: [5, 5, 5, 5, 0, 0, 0] });
+      waste.edits = editOn(5, 'targeting', { level: 'adset' });
+      eq(engine(baseAccount().concat([waste])).byAd.x1.health, 'review', 'clear waste stays urgent');
+    });
+    test('تعديل من ٣ أيام أو أكتر: الحكم على الأيام اللي بعده بس، وسطر «بعده مقابل قبله»', function () {
+      var c = ad('a1', { daily: [100, 100, 50, 50, 50, 50, 0], res: [1, 1, 5, 5, 5, 5, 0] });
+      c.edits = editOn(1, 'budget', { from: 10000, to: 5000 });
+      var r = withLang('ar', function () { return engine(baseAccount().concat([c])); });
+      ok(/والحكم هنا على الأيام التي تلت خفض ميزانية الحملة من ١٠٠ ر\.س إلى ٥٠ ر\.س \(منذ ٥ أيام\) فقط\./.test(r.byAd.a1.basis), r.byAd.a1.basis);
+      ok(/تكلفة كل عملية شراء بعده ١٠ ر\.س مقابل ١٠٠ ر\.س قبله/.test(r.byAd.a1.basis), r.byAd.a1.basis);
+      eq(r.byAd.a1.health, 'good');
+    });
     test('ألوان أرقام الكارت: تكلفة النتيجة أرخص من متوسط الحساب = أخضر، وأغلى = أحمر، والإعلان اللي لم يُحكم عليه من غير لون', function () {
       var cheap = ad('cheap', { daily: steady(100), res: steady(8) }), dear = ad('dear', { daily: steady(100), res: steady(3) });
       var r = engine(baseAccount().concat([cheap, dear]));
@@ -3324,6 +3346,22 @@
         eq(asked, [['F1']], 'one request, live ads only');
         eq([c.frequency, c.frequencyLife], [1.8, 3.4]);
         withLang('ar', function () { ok(/منذ إطلاق الإعلان: ٣٫٤/.test(freqBox(c)), freqBox(c)); });
+      }, function (e) { restore(); throw e; });
+    });
+
+    testAsync('Meta: تعديل ميزانية المجموعة الإعلانية من سجل الحساب بيوصل لإعلاناتها (التقييم بيستنى نتيجته)', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      var evs = [{ event_type: 'update_ad_set_budget', object_type: 'CAMPAIGN', object_id: 's1', object_name: 'S', event_time: todayKeyInTz('UTC') + 'T08:00:00+0000', actor_name: 'X',
+        extra_data: JSON.stringify({ old_value: { type: 'payment_amount', currency: 'SAR', old_value: 10000 }, new_value: { type: 'payment_amount', currency: 'SAR', new_value: 30000, additional_value: 'Per day' }, type: 'composite_data' }) }];
+      window.FB = fakeFB({ '/act/ads:ACTIVE': { data: [metaAd('E1', 'ACTIVE')] }, '/act/activities': { data: evs } });
+      accountInfo['meta:act_11'] = { timeZone: 'UTC', currency: 'SAR' };
+      loadAdsForAccount('act_11');
+      var find = function () { return candidates.filter(function (x) { return x.id === 'E1'; })[0]; };
+      var settle = function (n) { return sleep(40).then(function () { var c = find(); return (!c || !c.edits) && n > 0 ? settle(n - 1) : c; }); };
+      return settle(50).then(function (c) {
+        restore();
+        eq([c.adsetId, c.edits && c.edits[0].kind, c.edits && c.edits[0].level, c.edits && c.edits[0].to], ['s1', 'budget', 'adset', 30000]);
       }, function (e) { restore(); throw e; });
     });
 
