@@ -937,6 +937,7 @@
       // (المنتجات نفسها) بدل صورة واحدة
       igPreview: !!((creative.object_story_spec && creative.object_story_spec.instagram_user_id) || creative.effective_instagram_media_id),
       catalog: !!(creative.product_set_id || (creative.object_story_spec && creative.object_story_spec.template_data)),
+      productSetId: creative.product_set_id || null,
       thumbUrl: imageUrl,
       headline: creative.title || ad.name,
       desc: creative.body || '',

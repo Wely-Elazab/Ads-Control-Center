@@ -3421,6 +3421,29 @@
         });
       } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
     });
+    // معاينة Meta بتقول «Preview Not Available» لإعلانات الكتالوج — بنعرض منتجات الكتالوج نفسه (حساب حقيقي ١٠ أكتوبر ٢٠٢٦)
+    test('Meta: إعلان الكتالوج بيعرض منتجات الكتالوج (صورة واسم وسعر ورابط)، ولو الطلب فشل أزرار معاينة Meta', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, asked = [], products = true;
+      window.FB = { api: function (p, params, cb) {
+        asked.push(p);
+        if (/\/products$/.test(p)) { cb(products ? { data: [{ id: '1', name: 'Willow | Black', image_url: 'https://cdn.shop.com/1.jpg', price: 'SAR329.00', url: 'https://shop.com/p/1' }, { id: '2', name: 'Max', price: '12 USD' }] } : { error: { message: 'no' } }); return; }
+        cb({ data: [{ body: '<iframe src="https://business.facebook.com/ads/api/preview_iframe.php?d=1"></iframe>' }] });
+      } };
+      try {
+        withLang('ar', function () {
+          var el = document.getElementById('expandPreview');
+          showMedia({ id: 'CG1', platform: 'Meta', format: 'image', catalog: true, productSetId: 'PS1', igPreview: true, themeClass: 'pv-t0' });
+          eq(asked, ['/PS1/products']);
+          eq(el.querySelectorAll('.cat-item').length, 2);
+          ok(/٣٢٩/.test(el.textContent) && /ر\.س/.test(el.textContent) && /12 USD/.test(el.textContent), el.textContent);
+          eq(el.querySelector('a.cat-item').getAttribute('href'), 'https://shop.com/p/1');
+          products = false; asked = [];
+          showMedia({ id: 'CG2', platform: 'Meta', format: 'image', catalog: true, productSetId: 'PS1', igPreview: true, themeClass: 'pv-t0' });
+          eq(asked, ['/PS1/products', '/CG2/previews']);
+          ok(el.querySelector('[data-pv="ig"].on'), 'falls back to preview tabs');
+        });
+      } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
+    });
     test('Meta: الطلب بيستنى مكتبة فيسبوك لو لسه متحمّلتش (شبكة بطيئة) بدل «FB is not defined»', function () {
       var hadFB = 'FB' in window, prevFB = window.FB, prevQ = fbReadyQueue, got = null;
       try {

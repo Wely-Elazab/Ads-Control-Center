@@ -1987,6 +1987,8 @@
   // فيسبوك بتقول «No permission to access this profile» لو صفحة فيسبوك مقيّدة، ومنقدرش نعرف ده من برّه الإطار — حساب حقيقي).
   // الكتالوج: Meta بتختار منتجات من الكتالوج في المعاينة (كاروسيل = أكتر من منتج). الصور العادية بالملف الأصلي زي ما هي
   var PREVIEW_FORMATS = { ig: 'INSTAGRAM_STANDARD', reels: 'INSTAGRAM_REELS', fb: 'MOBILE_FEED_STANDARD' };
+  // مقاس ثابت لكل صيغة (مقاس Meta أصغر من المحتوى — core.js metaIframeHtml)، وبيتصغّر بنفس النسبة على الشاشة الضيقة (fitEmbeds)
+  var PREVIEW_SIZES = { ig: { w: 360, h: 760 }, reels: { w: 360, h: 720 }, fb: { w: 380, h: 720 } };
   var previewCache = {}, previewSeq = 0;
   function previewTabsHtml(order, cur) {
     return '<div class="pv-tabs" role="tablist">' + order.map(function (k) {
@@ -2009,14 +2011,38 @@
       if (previewCache[key]) { show(previewCache[key]); return; }
       metaApi('/' + c.id + '/previews', { ad_format: PREVIEW_FORMATS[k] }, function (resp) {
         if (openSeq !== expandSeq || mine !== previewSeq) return;
-        var frame = resp && resp.data && resp.data[0] && metaIframeHtml(resp.data[0].body);
+        var frame = resp && resp.data && resp.data[0] && metaIframeHtml(resp.data[0].body, PREVIEW_SIZES[k]);
         if (frame) { previewCache[key] = frame; show(frame); return; }
         // الصيغة الأولى فشلت في فيديو: بيانات الفيديو مباشرة زي الأول
         if (first && c.videoId) videoFallback(c, body, openSeq);
       });
     };
-    el.onclick = function (e) { var b = e.target.closest('[data-pv]'); if (b && !b.classList.contains('on')) load(b.getAttribute('data-pv'), false); };
-    load(order[0], true);
+    var tabs = function () {
+      el.onclick = function (e) { var b = e.target.closest('[data-pv]'); if (b && !b.classList.contains('on')) load(b.getAttribute('data-pv'), false); };
+      load(order[0], true);
+    };
+    // الكتالوج: معاينة Meta بتقول «Preview Not Available» بكل الصيغ في إعلانات الكتالوج (حساب حقيقي ١٠ أكتوبر ٢٠٢٦)، فبنعرض
+    // منتجات الكتالوج نفسه (الصورة والاسم والسعر ورابط المنتج). لو الطلب فشل: أزرار معاينة Meta
+    if (c.productSetId) catalogGrid(c, el, openSeq, tabs); else tabs();
+  }
+  var CATALOG_MAX = 8;
+  // «SAR329.00» → ٣٢٩ ر.س — وأي شكل تاني بيتعرض زي ما هو
+  function catalogPrice(p) {
+    var m = /^([A-Z]{3})\s?([\d,]+(?:\.\d+)?)$/.exec(String(p || '').trim());
+    return m ? money(parseFloat(m[2].replace(/,/g, '')), m[1]) : String(p || '');
+  }
+  function catalogGrid(c, el, openSeq, onFail) {
+    metaApi('/' + c.productSetId + '/products', { fields: 'id,name,image_url,price,url', limit: CATALOG_MAX }, function (resp) {
+      if (openSeq !== expandSeq) return;
+      var items = (resp && !resp.error && resp.data) || [];
+      if (!items.length) { onFail(); return; }
+      el.innerHTML = '<p class="cat-title">' + esc(t('x.cat.title')) + '</p><div class="cat-grid">' + items.map(function (p) {
+        var img = safeUrl(p.image_url), href = safeUrl(p.url);
+        var inner = (img ? '<img class="cat-img" src="' + esc(img) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '<span class="cat-img"></span>') +
+          '<span class="cat-name" dir="auto">' + esc(p.name || '') + '</span>' + (p.price ? '<span class="cat-price">' + esc(catalogPrice(p.price)) + '</span>' : '');
+        return href ? '<a class="cat-item" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>' : '<div class="cat-item">' + inner + '</div>';
+      }).join('') + '</div><p class="pv-hint">' + esc(t('x.cat.note', { n: ar(items.length) })) + '</p>';
+    });
   }
   function videoFallback(c, el, openSeq) {
     // تضمين رسمي، ثم ملف مباشر، ثم رابط خارجي — محتاجة صلاحية على صفحة الفيديو (من غيرها: «Application does not have permission»)

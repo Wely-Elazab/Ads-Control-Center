@@ -663,6 +663,14 @@
   .pv-tab.on { color: #fff; background: var(--verified); border-color: var(--verified); cursor: default; }
   .pv-tab:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   .pv-hint { margin: 8px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-faint); text-align: center; }
+  /* منتجات كتالوج الإعلان (catalogGrid في ui.js) */
+  .cat-title { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--ink-soft); text-align: center; }
+  .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+  .cat-item { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); text-decoration: none; }
+  a.cat-item:hover { border-color: var(--verified); }
+  .cat-img { width: 100%; aspect-ratio: 1 / 1; object-fit: contain; border-radius: 6px; background: var(--paper); display: block; }
+  .cat-name { font-size: 12px; font-weight: 600; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .cat-price { font-size: 12px; font-weight: 800; color: var(--verified); }
   /* بلوك من الملخص جوه القائمة: نفس شكل التنبيه، وبيتفتح على التفاصيل والاقتراح */
   .attn-block { margin-bottom: 6px; }
   .attn-block > summary { list-style: none; margin-bottom: 0; }

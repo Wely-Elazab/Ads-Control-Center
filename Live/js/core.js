@@ -103,7 +103,9 @@
   // المقاس: Meta بتحدد عرض وارتفاع الإطار حسب شكل الإعلان — لازم نحافظ عليهم (كأرقام بس)،
   // وإلا الإعلان بيتقص أو بيصغر. مشغّل الفيديو (plugins/video.php) بيتمدد بعرض النافذة بنفس النسبة،
   // وصفحة المعاينة (preview_iframe) بتتعرض بمقاسها الأصلي لأن محتواها مش بيتمدد
-  function metaIframeHtml(html) {
+  // size = مقاس ثابت بدل مقاس Meta (معاينة الصيغ في ui.js showMedia: Meta بترجّع ٢٧٤×٢١٣ لريلز فيديو طولي و٣٢٠×٥٢٥ لإنستغرام
+  // والمحتوى أكبر منهم — حساب حقيقي ١٠ أكتوبر ٢٠٢٦)
+  function metaIframeHtml(html, size) {
     try {
       var doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
       var frame = doc.querySelector('iframe');
@@ -113,7 +115,7 @@
         var n = parseInt(frame.getAttribute(name), 10);
         return (n >= 150 && n <= 2000) ? n : fallback;
       };
-      var w = dim('width', 540), h = dim('height', 690);
+      var w = size ? size.w : dim('width', 540), h = size ? size.h : dim('height', 690);
       var style = /\/plugins\/video\.php/.test(src)
         ? 'width:100%;aspect-ratio:' + w + ' / ' + h + ';'
         : 'width:' + w + 'px;height:' + h + 'px;';
