@@ -455,11 +455,12 @@
             t('al.loss.a'), spend3 - sales3, 'loss', true), 'loss', (spend3 - sales3) / 3));
         } else if (lossRecent) {
           // أسبوع قوي وآخر ٣ أيام بخسارة: تراجع يتابَع («مهم») — ممكن مبيعات اتأخر تسجيلها
-          issues.push(makeIssue('warning', ['roas'], t('al.roasDrop.t'),
+          issues.push(withMoney(makeIssue('warning', ['roas'], t('al.roasDrop.t'),
             t('al.roasDrop.d', { name: name, roasW: fmt.num(roasW), roas3: fmt.num(roas3), spend: money(spend3), sales: money(sales3) }),
-            t('al.roasDrop.a'), 0, 'roas-drop'));
+            t('al.roasDrop.a'), spend3 - sales3, 'roas-drop'), 'loss', 0));
         } else if (weekEvidence && roasW < s.roasTarget) {
-          issues.push(makeIssue('warning', ['roas'], t('al.lowRoas.t'), t('al.lowRoasWeek.d', wkVars), t('al.lowRoas.a'), 0, 'low-roas'));
+          // الأثر بالفلوس: المبيعات أقل قد إيه من اللي كان المفروض الإنفاق ده يجيبه بالعائد المستهدف
+          issues.push(withMoney(makeIssue('warning', ['roas'], t('al.lowRoas.t'), t('al.lowRoasWeek.d', wkVars), t('al.lowRoas.a'), spendW * s.roasTarget - salesW, 'low-roas'), 'short', 0));
         } else if (weekEvidence && roasW >= s.roasTarget * 1.5) {
           issues.push(makeIssue('opportunity', ['roas'], t('al.greatRoas.t'), t('al.greatRoasWeek.d', wkVars), t('al.greatRoas.a'), 0, 'roas-great'));
         }

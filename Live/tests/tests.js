@@ -3524,11 +3524,11 @@
       withLang('ar', function () {
         var o1 = DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
           daily: mk(function (k) { return k >= '2026-09-27' ? 200 : 500; }), dims: [] }), { mail: true }), rare = lines(o1);
-        ok(/أقل بـ٦٠٪/.test(rare) && /متوسط قيمة الطلب/.test(rare) && /يستحق المراجعة/.test(rare), rare);
+        ok(/أقل بـ٦٠٪/.test(rare) && /متوسط قيمة الطلب/.test(rare) && /لمراجعته الآن|يستحق المراجعة/.test(rare), rare);
         ok(/يستحق المراجعة/.test(o1.title) && o1.tone === 'mixed', o1.title);
         var seen = lines(DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
           daily: mk(function (k) { return k >= '2026-09-27' || (k >= '2026-09-21' && k <= '2026-09-23') ? 200 : 500; }), dims: [] }), { mail: true }));
-        ok(!/تكررت/.test(seen) && /يستحق المراجعة/.test(seen), seen);
+        ok(!/تكررت/.test(seen) && /لمراجعته الآن|يستحق المراجعة/.test(seen), seen);
         var flat = lines(DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
           daily: mk(function () { return 500; }), dims: [] }), { mail: true }));
         ok(!/المبيعات/.test(flat), 'no line when sales barely moved: ' + flat);
@@ -4084,12 +4084,33 @@
           var all = o.title + ' ' + o.blocks.map(function (b) { return (b.lines || []).join(' '); }).join(' ');
           if (/صدفة|ضمن التذبذب/.test(all)) bad.push('wording: ' + all.slice(0, 160));
           if (o.main == null || o.main < 0 || o.blocks[o.main].kind !== 'note') continue;
-          if (!(o.blocks[o.main].lines || []).some(function (l) { return /يستحق المراجعة الآن/.test(l); })) continue;
+          if (!(o.blocks[o.main].lines || []).some(function (l) { return /يستحق المراجعة الآن|لمراجعته الآن/.test(l); })) continue;
           seen++;
           if (!/يستحق المراجعة/.test(o.title) || o.tone !== 'mixed') bad.push(o.tone + ': ' + o.title);
         }
       });
       ok(seen >= 3, 'big unconfirmed declines: ' + seen);
+      eq(bad, []);
+    });
+    // حساب حقيقي ١٠ أكتوبر ٢٠٢٦: «ولأن الفرق كبير، يستحق المراجعة…» اتكررت ٣ مرات و«هذه إشارة أولية…» مرتين في صندوق سبب الحكم
+    test('سبب الحكم: جملة التأكد و«يستحق المراجعة» مرة واحدة بالكتير، ومفيش «يستحق المراجعة» في السطور لو الخلاصة بتقولها — والمبيعات قبل تكلفة الطلب', function () {
+      var bad = [], checked = 0;
+      withLang('ar', function () {
+        var review = t('dx.cert.review').trim(), verdict = t('dx.verdict.review');
+        for (var s = 1; s <= 60; s++) {
+          var o = DX.compose(DX.analyze(DX_SIM.simulate({ seed: s * 104729 + 7, spend: 400 })));
+          if (o.main == null || o.main < 0) continue;
+          var L = o.blocks[o.main].lines || [], all = L.join(' ');
+          checked++;
+          var count = function (p) { return all.split(p).length - 1; };
+          if (count(review) > 1) bad.push('review x' + count(review) + ': ' + all.slice(0, 200));
+          if (L.indexOf(verdict) > -1 && count(review) > 0) bad.push('review + verdict: ' + all.slice(0, 200));
+          ['أولية؛', 'الاتجاه واضح، لكن', 'يتغيّر هذا الرقم عادةً'].forEach(function (p) { if (count(p) > 1) bad.push(p + ' x' + count(p)); });
+          var iRev = L.findIndex(function (l) { return /^المبيعات .* مقابل/.test(l); }), iCpa = L.findIndex(function (l) { return /^تكلفة الطلب (ارتفعت|انخفضت)/.test(l); });
+          if (iRev > -1 && iCpa > -1 && iRev > iCpa) bad.push('order: ' + all.slice(0, 200));
+        }
+      });
+      ok(checked >= 20, 'checked ' + checked);
       eq(bad, []);
     });
     test('ألوان الأرقام بتلات درجات: مؤكد بخلفية، مرجّح من غير خلفية، والباقي رمادي — والمرجّح عمره ما يبقى مؤكد', function () {

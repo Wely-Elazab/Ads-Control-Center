@@ -1664,6 +1664,23 @@ var DX = (function () {
   function chanceTier(p) { var n = Math.round(p * 100); return n >= 20 ? 'normal' : (n >= 5 ? 'notable' : 'likely'); }
   // الثقة بكلام تجاري (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: كلمة «الصدفة» ونِسَبها مش مناسبة للعميل) — من غير أرقام احتمالات
   function certText(z, na, nb) { return t('dx.cert.' + chanceTier(pFromZ(z)), { na: fmtNum(na), nb: fmtNum(nb) }); }
+  // نفس جملة التأكد بتتقال مرة واحدة في الشرح، و«يستحق المراجعة» مرة واحدة — ومتتقالش خالص في السطور لو الخلاصة بتقولها
+  // (حساب حقيقي ١٠ أكتوبر ٢٠٢٦: «ولأن الفرق كبير…» اتكررت ٣ مرات و«هذه إشارة أولية…» مرتين في نفس الصندوق)
+  function onceOnly(lines, r) {
+    var v = { na: fmtNum(r.prev ? r.prev.pur : 0), nb: fmtNum(r.cur ? r.cur.pur : 0) };
+    var certs = ['likely', 'notable', 'normal'].map(function (k) { return t('dx.cert.' + k, v); });
+    var review = t('dx.cert.review'), inVerdict = lines.indexOf(t('dx.verdict.review')) > -1, seen = {};
+    return lines.map(function (l) {
+      if (typeof l !== 'string') return l;
+      certs.forEach(function (p) {
+        if (l.indexOf(p) < 0) return;
+        if (seen[p]) l = l.replace(' ' + p, '').replace(p, '');
+        seen[p] = true;
+      });
+      if (l.indexOf(review) > -1) { if (inVerdict || seen.review) l = l.replace(review, ''); seen.review = true; }
+      return l;
+    });
+  }
   // ٢٠٪ أو أكتر = فرق كبير بمقياس البيزنس: لو للأسوأ بنقول إنه يستحق المراجعة الآن حتى لو لسه متأكدش (ملاحظة ١٠ أكتوبر:
   // «الفرق كبير ومع ذلك يقول ضمن التذبذب» — حجم الفرق هو اللي بيحدد الانتباه، والتأكد بيحدد صياغة الثقة بس)
   var BIG_MOVE = 0.2;
@@ -1789,9 +1806,9 @@ var DX = (function () {
       var noise = [cpaNoiseLine(r, M), ordersNoiseLine(r)].filter(Boolean);
       var first = !noise.length ? [h.dSpend !== 0 ? t('dx.stable.spend', { pct: pctText(h.spendPct) }) : t('dx.stable')]
         : (h.dSpend !== 0 ? [t(h.spendPct > 0 ? 'dx.vol.spend.up' : 'dx.vol.spend.down', { pct: pctText(h.spendPct) })] : []).concat(noise);
+      // المبيعات قبل الإنفاق وتكلفة الطلب (الربح أولاً) — وسطر «كل ١٠٠ رجّعت كام» بيتحط قبلهم تحت
       calmBlock = { kind: 'note', title: t('dx.head.' + h.type),
-        lines: first
-          .concat(rev ? [rev] : [])
+        lines: (rev ? [rev] : []).concat(first)
           .concat(h.dSpend !== 0 && r.other && r.other.spendShift ? [t(r.other.spendShift.dir > 0 ? 'dx.vol.otherUp' : 'dx.vol.otherDown', { pct: pctText(r.other.spendShift.share) })] : [])
           .concat(ownerLines(r)) };
       o.blocks.push(calmBlock);
@@ -1836,6 +1853,7 @@ var DX = (function () {
       else if (/^likelyBetter/.test(fh.key)) { if (calmOk) calmBlock.lines.push(t('dx.verdict.likelyBetter')); }
       else if (/^likely/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.watch' + ({ Worse: 'Cpa', Fewer: 'Orders', Roas: 'Roas' })[fh.key.replace(/^likely|Act$/g, '')]));
     }
+    if (mainBlock) mainBlock.lines = onceOnly(mainBlock.lines, r);
     // الشرح الأساسي للحكم بيتعرض ظاهر تحت الأرقام مش مطوي (ملاحظة ١٠ أكتوبر) — رقمه في البلوكات
     o.main = mainBlock ? o.blocks.indexOf(mainBlock) : -1;
     // جملة «الطلبات والمبيعات هنا كما سجّلتها المنصة…» اتشالت (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: مالهاش أهمية هنا) — الشرح في /help#compare
