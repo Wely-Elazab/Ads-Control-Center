@@ -1694,6 +1694,19 @@ var DX = (function () {
       (h.dEff === 0 && h.cpaPct != null && h.cpaPct <= -MIN_PCT && h.effZ > 0 && L(h.effZ)) ||
       (h.dOrd === 0 && h.dSpend === 0 && h.ordPct != null && h.ordPct >= MIN_PCT && h.ordersZ > 0 && L(h.ordersZ)));
   }
+  // فروق كبيرة (٢٠٪ أو أكتر) في درجة «ملحوظ» (احتمال الصدفة ٥–٢٠٪): العنوان بيسمّيها بأرقامها بدل «ضمن التذبذب المعتاد،
+  // ولا شيء يستدعي تدخّلك» — حساب حقيقي (١٠ أكتوبر ٢٠٢٦): العائد −٤٢٪ وتكلفة الطلب +٥٨٪ وكان العنوان بيقول كده
+  function notableMoves(h) {
+    var out = [];
+    var add = function (key, pct, z) {
+      if (pct == null || Math.abs(pct) < 0.2 || chanceTier(pFromZ(z)) === 'normal') return;
+      out.push(t('dx.move.' + key + (pct > 0 ? '.up' : '.down'), { pct: pctText(pct) }));
+    };
+    if (h.roas && !h.roas.dir) add('roas', h.roas.pct, h.roas.z);
+    if (!h.dEff) add('cpa', h.cpaPct, h.effZ);
+    if (!h.dOrd && !h.dSpend) add('orders', h.ordPct, h.ordersZ);
+    return out.length ? listText(out) : null;
+  }
   // بلغة الفلوس: كل ١٠٠ اتصرفت على الإعلانات رجّعت مبيعات قد إيه، مقابل الفترة السابقة. لو العائد اتحرك ١٠٪ أو أكتر
   // ومش مؤكد: احتمال الصدفة جنبه (عائد نازل ٢٠٪ من غير تعليق وتحته «في مستواه المعتاد» كان بيلخبط)
   function moneyLine(r, M) {
@@ -1722,6 +1735,9 @@ var DX = (function () {
       var lk = likelyBad(h);
       if (lk) return { key: lk + (actionable ? 'Act' : ''), tone: 'mixed' };
       if (likelyGood(h)) return actionable ? { key: 'likelyBetterAct', tone: 'mixed' } : { key: 'likelyBetter', tone: 'neutral' };
+      var nm = notableMoves(h);
+      // رمادي (زي ألوان الأرقام: غير مؤكد = من غير لون) — بالكهرماني كان بيطلع في ١٥–٢٧٪ من أسابيع حسابات مستقرة بالمحاكاة
+      if (nm) return { key: 'notable' + (actionable ? 'Act' : ''), tone: actionable ? 'mixed' : 'neutral', vars: { moves: nm } };
       if (actionable) return { key: h.type + 'Act', tone: 'mixed' };
     }
     return { key: h.type, tone: h.tone };
@@ -1795,7 +1811,7 @@ var DX = (function () {
     // العنوان واللون النهائيين بعد ما البلوكات اتبنت (عشان نعرف لو تحت فيه حاجة محتاجة قرار)
     var act = o.blocks.some(function (b) { return b.kind === 'urgent' || b.kind === 'decision' || b.kind === 'watch'; });
     var fh = finalHead(r, h, act);
-    o.title = t('dx.head.' + fh.key, fh.vars); o.tone = fh.tone;
+    o.title = capFirst(t('dx.head.' + fh.key, fh.vars)); o.tone = fh.tone;
     var tl = targetLine(r, opts && opts.target);
     if (tl) {
       o.basis = tl.text;
@@ -1804,13 +1820,14 @@ var DX = (function () {
     }
     if (calmBlock) {
       calmBlock.title = o.title;
-      // الخلاصة: الحساب ككل في مستواه — بس لو مفيش حاجة تناقضها (تحت حد الخسارة أو المستهدف، أو المبيعات نزلت)
-      if (!tl || tl.level === 'above') {
-        if (fh.key === h.type) calmBlock.lines.push(t('dx.verdict.calm'));
-        else if (fh.key === h.type + 'Act') calmBlock.lines.push(t('dx.verdict.calmAct'));
-        else if (/^likelyBetter/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.likelyBetter'));
-        else if (/^likely/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.watch' + ({ Worse: 'Cpa', Fewer: 'Orders', Roas: 'Roas' })[fh.key.replace(/^likely|Act$/g, '')]));
-      }
+      // الخلاصة: «في مستواه المعتاد» بس لو مفيش حاجة تناقضها (تحت حد الخسارة أو المستهدف، أو المبيعات نزلت). خلاصة
+      // «مرجّح» و«ملحوظ» مبتدّعيش إن الحساب في مستواه، فبتظهر حتى لو العائد تحت المستهدف
+      var calmOk = !tl || tl.level === 'above';
+      if (calmOk && fh.key === h.type) calmBlock.lines.push(t('dx.verdict.calm'));
+      else if (calmOk && fh.key === h.type + 'Act') calmBlock.lines.push(t('dx.verdict.calmAct'));
+      else if (/^notable/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.notable'));
+      else if (/^likelyBetter/.test(fh.key)) { if (calmOk) calmBlock.lines.push(t('dx.verdict.likelyBetter')); }
+      else if (/^likely/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.watch' + ({ Worse: 'Cpa', Fewer: 'Orders', Roas: 'Roas' })[fh.key.replace(/^likely|Act$/g, '')]));
     }
     // الشرح الأساسي للحكم بيتعرض ظاهر تحت الأرقام مش مطوي (ملاحظة ١٠ أكتوبر) — رقمه في البلوكات
     o.main = mainBlock ? o.blocks.indexOf(mainBlock) : -1;

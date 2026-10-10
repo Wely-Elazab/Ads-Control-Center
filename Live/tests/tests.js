@@ -3984,6 +3984,26 @@
       var calm = scenarios()[0];
       ok(DX.compose(calm).kpis.every(function (k) { return !k.sig; }), 'no colours on a steady account');
     });
+    // حساب حقيقي (١٠ أكتوبر ٢٠٢٦): العائد −٤٢٪ وتكلفة الطلب +٥٨٪ (احتمال الصدفة ٩–١٠٪) والعنوان «ضمن التذبذب المعتاد، ولا شيء يستدعي تدخّلك»
+    test('فرق ٢٠٪ أو أكتر في درجة «ملحوظ»: العنوان بيسمّيه بأرقامه (رمادي) مش «ضمن التذبذب المعتاد»', function () {
+      var seen = 0, bad = [];
+      withLang('ar', function () {
+        for (var s = 1; s <= 60; s++) {
+          var o = DX.compose(DX.analyze(DX_SIM.simulate({ seed: s * 104729 + 7, spend: 400 })));
+          if (o.main == null || o.main < 0) continue;
+          var big = (o.blocks[o.main].lines || []).some(function (l) {
+            var m = l.match(/(?:أعلى|أقل|أكثر) بـ([٠-٩]+)٪\)/);
+            return m && Number(m[1].replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); })) >= 20 && /ملحوظ/.test(l);
+          });
+          if (!big) continue;
+          seen++;
+          if (/ضمن التذبذب المعتاد/.test(o.title)) bad.push(o.title);
+          if (/لم يتأكد بعد/.test(o.title) && !/أدناه/.test(o.title) && o.tone !== 'neutral') bad.push('tone ' + o.tone + ': ' + o.title);
+        }
+      });
+      ok(seen >= 3, 'notable cases: ' + seen);
+      eq(bad, []);
+    });
     test('ألوان الأرقام بتلات درجات: مؤكد بخلفية، مرجّح من غير خلفية، والباقي رمادي — والمرجّح عمره ما يبقى مؤكد', function () {
       var soft = 0, bad = 0;
       for (var s = 1; s <= 60; s++) {
