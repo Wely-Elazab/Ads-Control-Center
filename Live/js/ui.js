@@ -373,7 +373,7 @@
       chips += '<span class="metric-chip' + hl('roas') + tn('roas') + '" title="' + t('chip.roasTip') + tip + tnTip('roas') + '">' + t('chip.roas') + ' ' + roasStr(p.roas) + '</span>';
     }
     if (c.frequency != null && mv(c, 'frequency')) {
-      chips += '<span class="metric-chip' + mv(c, 'frequency') + '" title="' + t('chip.freqTip') + '">' + t('chip.freq') + ' ' + numAr(c.frequency) + '</span>';
+      chips += '<span class="metric-chip' + mv(c, 'frequency') + '" title="' + t('chip.freqTip') + (c.frequencyLife != null ? ' — ' + t('chip.freqLife', { v: numAr(c.frequencyLife) }) : '') + '">' + t('chip.freq') + ' ' + numAr(c.frequency) + '</span>';
     }
     if (mv(c, 'delivery') && !mv(c, 'spend')) {
       chips += '<span class="metric-chip' + mv(c, 'delivery') + '">' + t('chip.weakDelivery') + '</span>';
@@ -1668,6 +1668,12 @@
 
 
   function metricBox(label, value, extraCls) { return '<div class="metric-box' + (extraCls || '') + '"><div class="metric-label">' + label + '</div><div class="metric-value">' + value + '</div></div>'; }
+  // التكرار: آخر ٧ أيام (أساس قاعدة زهق الجمهور) ومنذ الإطلاق تحته لما يوصل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦ — meta.js loadLifeFrequency)
+  function freqBox(c) {
+    var times = function (f) { return numAr(f) + ' ' + I18N.measureNoun(f, 'n.time'); };
+    var life = c.frequencyLife != null ? '<div class="metric-sub">' + esc(t('x.freqLife', { v: times(c.frequencyLife) })) + '</div>' : '';
+    return metricBox(t('x.freq'), times(c.frequency) + life, mv(c, 'frequency'));
+  }
 
   // ---------- أرقام المنصة مقابل «الأقرب للمتجر» (قرار صاحب المنتج ٦ أكتوبر ٢٠٢٦) ----------
   // كل الأداة (الكروت والتقييم والتنبيهات) مبنية على «الأقرب للمتجر» = اللي نقر على الإعلان واشترى خلال ٧ أيام.
@@ -1822,14 +1828,14 @@
     if (pp && p.results != null) {
       // Meta وSnapchat وGoogle: الأرقام الأساسية «الأقرب للمتجر» جنب رقم المنصة والفرق — مكان المربعات الخمسة
       boxes = compareMarkup(c, p, pp, hl, pl);
-      if (c.frequency != null) boxes += metricBox(t('x.freq'), numAr(c.frequency) + ' ' + I18N.measureNoun(c.frequency, 'n.time'), mv(c, 'frequency'));
+      if (c.frequency != null) boxes += freqBox(c);
     } else {
       boxes =
         metricBox(t('x.spend') + pl, money(p.spend, cur), hl('spend') || hl('delivery')) +
         metricBox(resultsLabelTxt, p.results != null ? fmtNum(p.results) : t('x.noConversions'), hl('results')) +
         metricBox(t('x.cpr'), p.cpr != null ? money(p.cpr, cur) : '—', hl('cpr')) +
         metricBox(t('x.roas'), roasStr(p.roas), hl('roas'));
-      if (c.frequency != null) boxes += metricBox(t('x.freq'), numAr(c.frequency) + ' ' + I18N.measureNoun(c.frequency, 'n.time'), mv(c, 'frequency'));
+      if (c.frequency != null) boxes += freqBox(c);
       boxes += metricBox(t('x.sales') + pl, p.sales > 0 ? money(p.sales, cur) : t('x.noSales'));
     }
     document.getElementById('expandMetrics').innerHTML = boxes;

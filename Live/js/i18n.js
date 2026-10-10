@@ -198,6 +198,7 @@
       'chip.cprTip': 'تكلفة النتيجة الواحدة',
       'chip.freq': 'التكرار',
       'chip.freqTip': 'متوسط عدد مرات ظهور الإعلان للشخص نفسه',
+      'chip.freqLife': 'ومنذ إطلاقه {v}',
       'chip.weakDelivery': 'وصول ضعيف',
       'legend.aria': 'دليل الألوان',
 
@@ -224,6 +225,7 @@
       'x.cpr': 'تكلفة النتيجة الواحدة',
       'x.roas': 'العائد (مقابل كل ١)',
       'x.freq': 'تكرار الظهور للشخص نفسه (آخر ٧ أيام)',
+      'x.freqLife': 'منذ إطلاق الإعلان: {v}',
       'n.time.one': 'مرة', 'n.time.many': 'مرات',
       'x.sales': 'قيمة المبيعات',
       'x.noSales': '— (لا توجد قيمة مالية مرتبطة بالنتائج)',
@@ -1415,6 +1417,7 @@
       'chip.cprTip': 'Cost per result',
       'chip.freq': 'Freq.',
       'chip.freqTip': 'Average times the same person saw the ad',
+      'chip.freqLife': 'since launch {v}',
       'chip.weakDelivery': 'Weak delivery',
       'legend.aria': 'Color legend',
 
@@ -1439,6 +1442,7 @@
       'x.cpr': 'Cost per result',
       'x.roas': 'ROAS (return per 1)',
       'x.freq': 'Frequency per person (last 7 days)',
+      'x.freqLife': 'Since the ad launched: {v}',
       'n.time.one': 'time', 'n.time.many': 'times',
       'x.sales': 'Sales value',
       'x.noSales': '— (no sales value linked to results)',

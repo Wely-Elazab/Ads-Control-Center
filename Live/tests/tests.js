@@ -3305,6 +3305,28 @@
       }, function (e) { restore(); throw e; });
     });
 
+    // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: التكرار كان آخر ٧ أيام بس
+    testAsync('Meta: تكرار الظهور منذ الإطلاق بيوصل في الخلفية للإعلانات الشغّالة ويظهر في التفاصيل جنب آخر ٧ أيام', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, asked = [];
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      window.FB = fakeFB({ '/act/ads:ACTIVE': { data: [metaAd('F1', 'ACTIVE')] },
+        '/act/insights': function (p) {
+          if (p.date_preset === 'maximum') { asked.push(JSON.parse(p.filtering)[0].value); return { data: [{ ad_id: 'F1', frequency: '3.4' }] }; }
+          if (/frequency/.test(p.fields)) return { data: [{ ad_id: 'F1', frequency: '1.8', reach: '500', impressions: '900' }] };
+          return { data: [] };
+        } });
+      accountInfo['meta:act_9'] = { timeZone: 'UTC', currency: 'SAR' };
+      loadAdsForAccount('act_9');
+      var find = function () { return candidates.filter(function (x) { return x.id === 'F1'; })[0]; };
+      var settle = function (n) { return sleep(40).then(function () { var c = find(); return (!c || c.frequencyLife == null) && n > 0 ? settle(n - 1) : c; }); };
+      return settle(50).then(function (c) {
+        restore();
+        eq(asked, [['F1']], 'one request, live ads only');
+        eq([c.frequency, c.frequencyLife], [1.8, 3.4]);
+        withLang('ar', function () { ok(/منذ إطلاق الإعلان: ٣٫٤/.test(freqBox(c)), freqBox(c)); });
+      }, function (e) { restore(); throw e; });
+    });
+
     test('Meta: الفيديو في asset_feed_spec أو video_data بيتعرف إنه فيديو (مش صورة)', function () {
       var days = DAYS;
       var feed = transformRealAd(metaAd('V1', 'ACTIVE', { creative: { asset_feed_spec: { videos: [{ video_id: '555', thumbnail_url: 'https://example.com/v.jpg' }] } } }), [], {}, days, null, 'SAR', null, null);

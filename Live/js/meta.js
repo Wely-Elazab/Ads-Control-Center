@@ -196,6 +196,35 @@
   // من المشاهدة، المفتاح بتاعهم يظهر ونعرف إن «نقرة ٧ أيام» = صفر (Meta بتشيل النوافذ اللي قيمتها صفر).
   // لو Meta رفضت الطلب بالنوافذ، بنعيده من غيرها والأرقام بتفضل زي الأول (من غير مقارنة)
   var ATTR_WINDOWS = JSON.stringify(['7d_click', '1d_view', '1d_ev']);
+  // تكرار الظهور منذ إطلاق الإعلان (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: التفاصيل كانت بتقول آخر ٧ أيام بس). طلب منفصل في
+  // الخلفية بعد ما الأرقام تظهر، للإعلانات الشغّالة بس (date_preset=maximum)، ٥٠ إعلان في الطلب ولحد ٥٠٠ — فشله مش بيأثر على
+  // حاجة. قاعدة «زهق الجمهور» زي ما هي على آخر ٧ أيام: التكرار من شهور مش بيقول حاجة عن الجمهور النهارده
+  var lifeFreq = {};
+  function loadLifeFrequency(accountId, source, live) {
+    var ids = candidates.filter(function (c) { return c.source === source && c.active && lifeFreq[c.nativeId || c.id] == null; })
+      .map(function (c) { return String(c.nativeId || c.id); }).slice(0, 500);
+    var batches = [];
+    for (var i = 0; i < ids.length; i += 50) batches.push(ids.slice(i, i + 50));
+    return batches.reduce(function (p, batch) {
+      return p.then(function () {
+        if (!live()) return null;
+        return fbPagesPromise('/' + accountId + '/insights', {
+          level: 'ad', date_preset: 'maximum', fields: 'ad_id,frequency', limit: 500,
+          filtering: JSON.stringify([{ field: 'ad.id', operator: 'IN', value: batch }])
+        }, 20).then(function (res) {
+          (res && !res.err ? res.data : []).forEach(function (row) { var f = parseFloat(row.frequency); if (isFinite(f)) lifeFreq[row.ad_id] = f; });
+        });
+      });
+    }, Promise.resolve()).then(function () {
+      if (!live()) return;
+      var changed = false;
+      candidates.forEach(function (c) {
+        var f = c.source === source ? lifeFreq[c.nativeId || c.id] : null;
+        if (f != null && c.frequencyLife !== f) { c.frequencyLife = f; changed = true; }
+      });
+      if (changed) render();
+    }).catch(function () { /* مش ضروري — التفاصيل بتفضل بآخر ٧ أيام */ });
+  }
   function fbPagesPromise(path, params, cap) {
     var auto = /\/insights$/.test(path) && /(^|,)actions(,|$)/.test(params.fields || '') && !params.action_attribution_windows;
     var once = function (q) {
@@ -452,6 +481,7 @@
       if (typeof digestAutoRefresh === 'function') digestAutoRefresh(accountId);
       // ملخص المتجر بيبدأ بعد ما الأرقام تظهر (مش قبلها) — عشان طلباته متأخرش الكروت
       loadMetaDiagnosis(accountId, info, live);
+      loadLifeFrequency(accountId, source, live);
       if (showStopped) stage3();
     }).catch(function (err) {
       // أي خطأ مش متوقع (بيانات بشكل غريب من Meta مثلاً) — قبل كده مؤشر التحميل كان بيفضل يلف على طول
@@ -798,6 +828,7 @@
       currency: currency || null,
       reviewStatus: META_REVIEW_STATUS[ad.effective_status] || null,
       frequency: reachRow && isFinite(parseFloat(reachRow.frequency)) ? parseFloat(reachRow.frequency) : null,
+      frequencyLife: lifeFreq[ad.id] != null ? lifeFreq[ad.id] : null,
       reach: reachRow && isFinite(parseInt(reachRow.reach, 10)) ? parseInt(reachRow.reach, 10) : null,
       placement: (ad.campaign && ad.campaign.name) || (ad.adset && ad.adset.name) || '—',
       campaignId: (ad.campaign && ad.campaign.id) || null,
