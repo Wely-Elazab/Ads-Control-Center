@@ -1584,7 +1584,9 @@
   }
   function alertMoneyHtml(a) {
     var c = a.adId ? findCandidate(a.adId) : null, m = a.money;
-    if (m && m.v > 0) return moneyPill(m.kind === 'waste' && c && c.resultKey !== 'purchase' ? 'wasteRes' : m.kind, money(m.v, a.currency || null), true);
+    // الهدر بالطلبات لإعلان المشتريات، و«بالنتائج» لغيره (رسائل، عملاء محتملين…)
+    var nonBuy = c && c.resultKey !== 'purchase', kind = m && (m.kind === 'waste' && nonBuy ? 'wasteRes' : (m.kind === 'wasteClick' && nonBuy ? 'wasteClickRes' : m.kind));
+    if (m && m.v > 0) return moneyPill(kind, money(m.v, a.currency || null), true);
     var sp = a.impact && a.impact.spend;
     if (!(sp > 0)) return '';
     if (a.impact.account) return moneyPill('account', money(sp, a.currency || null), false);

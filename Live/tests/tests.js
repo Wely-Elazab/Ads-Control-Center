@@ -735,6 +735,23 @@
       eq(I18N.resultAny('lead'), 'عملاء محتملين'); eq(t('res.lead'), 'عملاء محتملون', 'standalone label stays nominative');
       withLang('en', function () { eq(I18N.resultNoun(15, 'lead'), t('res.lead')); eq(I18N.resultAny('lead'), t('res.lead')); });
     });
+    // مراجعة ١١ أكتوبر ٢٠٢٦ (حساب حقيقي): «عاجل — إنفاق دون نتائج» على إعلان المنصة بتنسب له ٦ مشتريات بعائد ×٩٫٧ (بعد المشاهدة)
+    test('ولا طلب بالنقر طول الأسبوع والمنصة بتنسب له طلبين أو أكتر: «مهم» مش «عاجل»، ومبيتحسبش في الهدر — وطلب واحد: عاجل زي الأول', function () {
+      var mk = function (platRes) {
+        var w = ad('W', { daily: [60, 60, 60, 60, 60, 60, 60], res: [0, 0, 0, 0, 0, 0, 0] });
+        w.plat = { results: platRes, sales: platRes * 400 };
+        return engine([ad('A', { daily: steady(100), res: steady(2), sales: steady(400) }), ad('B', { daily: steady(100), res: steady(2), sales: steady(400) }), w]);
+      };
+      withLang('ar', function () {
+        var view = mk(6), click = mk(1);
+        var v = view.alerts.filter(function (a) { return a.adId === 'W' && /^waste/.test(a.code); })[0];
+        var c = click.alerts.filter(function (a) { return a.adId === 'W' && /^waste/.test(a.code); })[0];
+        eq([v.code, v.level, v.atRisk, v.money.kind], ['waste-view', 'warning', false, 'wasteClick']);
+        ok(/بعد النقر/.test(v.title) && /تنسب له المنصة ٦/.test(v.detail) && /طلبات متجرك/.test(v.advice), v.title + ' | ' + v.detail);
+        eq(Object.keys(view.summary.atRisk).length, 0, 'not counted as waste');
+        eq([c.code, c.level, c.atRisk], ['waste-week', 'critical', true]);
+      });
+    });
     // مراجعة ١١ أكتوبر ٢٠٢٦ (حساب حقيقي): مبلغ مستحق غير مسدّد وصفر إنفاق الساعة ١٠ بالليل، والتنبيه كان بيقول «قد تتوقف»
     test('مشكلة الحساب والإنفاق وقف النهارده بعد الضهر: «الأرجح أن الإعلانات توقفت بالفعل» — وقبل الضهر أو فيه صرف: لا', function () {
       // منطقة زمنية الساعة فيها دلوقتي بين ١ و١٠ بالليل، وتانية الساعة فيها الصبح

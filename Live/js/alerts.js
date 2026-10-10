@@ -407,7 +407,16 @@
       // 4أ) ولا نتيجة طول الأسبوع: الإنفاق كله مقارنةً بتكلفة النتيجة في الحساب (نفس مضاعف «إنفاق دون نتائج»).
       //     قبل كده الحكم كان على آخر يومين بس، فإعلان بيصرف شوية كل يوم من غير ولا طلب فضل «جيد» طول الأسبوع
       var weekDry = resW === 0 && spendW > 0 && !!avgCpr;
-      if (weekDry) {
+      // المنصة بتنسب له نتيجتين أو أكتر بعد المشاهدة من غير نقر (مراجعة ١١ أكتوبر ٢٠٢٦، حساب حقيقي: «عاجل — إنفاق دون نتائج» على
+      // إعلان المنصة بتنسب له ٦ مشتريات بعائد ×٩٫٧، والتاني ٦ بعائد ×٧٫٦). أساسنا النقر زي ما هو (قرار ٦ أكتوبر)، بس «هدر مؤكد
+      // عاجل» مش أمين هنا: «مهم»، ومبيتحسبش في لوحة الهدر ولا بيوصل بريد عاجل، والاقتراح نقارن بطلبات المتجر قبل الإيقاف
+      var platOnly = weekDry && c.plat && c.plat.results >= 2 ? c.plat.results : 0;
+      if (platOnly && spendW >= (threshold || 0) / 2) {
+        wasteRaised = true;
+        issues.push(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteView.t', { label: label }),
+          t('al.wasteView.d', { name: name, spend: money(spendW), label: label, plat: countText(platOnly, c.resultKey, fmt) }),
+          t('al.wasteView.a'), spendW, 'waste-view'), 'wasteClick', spend3 / 3));
+      } else if (weekDry) {
         var wVars = { name: name, spend: money(spendW), label: label, one: one, avg: money(avgCpr),
           expPhrase: countText(Math.round(Math.max(1, spendW / avgCpr)), c.resultKey, fmt) };
         if (spendW >= threshold) {
