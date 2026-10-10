@@ -667,6 +667,9 @@
   .waste-note { flex: 1 1 220px; margin: 0; font-size: 11.5px; color: var(--ink-faint); }
   .top-alert-money { flex-shrink: 0; margin-inline-start: auto; font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 999px; color: var(--ink-soft); background: var(--sending-bg); white-space: nowrap; }
   .top-alert-money.bad { color: var(--alert); background: var(--alert-bg); }
+  /* الشاشة الضيقة: المبلغ بينزل سطر لوحده بدل ما يضغط العنوان في ٤ سطور (هاتف — ١٠ أكتوبر ٢٠٢٦) */
+  .top-alert { flex-wrap: wrap; }
+  .top-alert-text { flex: 1 1 0; min-width: 55%; }
   /* أزرار صيغ معاينة Meta (showMedia في ui.js) */
   .pv-tabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 10px; }
   .pv-tab { font-family: inherit; font-size: 12.5px; font-weight: 700; color: var(--ink-soft); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 4px 14px; cursor: pointer; }
