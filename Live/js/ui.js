@@ -360,25 +360,26 @@
     };
     var tnTip = function (metric) { var k = tn(metric); return k ? ' — ' + t('chip.tone.' + metric + (k === ' tone-good' ? '.good' : '.bad')) : ''; };
     var tip = ' — ' + periodLabel();
-    var chips = '<span class="metric-chip' + hl('spend') + '" title="' + t('chip.spend') + tip + '">' + money(p.spend, c.currency) + '</span>';
-    if (p.results != null) {
-      chips += '<span class="metric-chip' + hl('results') + '" title="' + t('chip.results') + tip + '">' + fmtNum(p.results) + ' ' + esc(resultNounOf(c, p.results)) + '</span>';
-    }
+    // شبكة أرقام بعنوان صغير تحت كل رقم (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: الكارت فيه نص وتفاصيل كتير — أرقام من غير عناوين
+    // في سطرين بأشكال مختلفة). نفس الألوان: ملاحظة التنبيه (mv-*) أو اللون الخفيف من التقييم (tone-*)
+    var stat = function (value, label, cls, title) {
+      return '<span class="card-stat' + cls + '" title="' + esc(title) + '"><b class="card-stat-v">' + value + '</b><span class="card-stat-k">' + esc(label) + '</span></span>';
+    };
+    var cells = [stat(money(p.spend, c.currency), t('chip.spend'), hl('spend'), t('chip.spend') + tip)];
+    if (p.results != null) cells.push(stat(fmtNum(p.results), resultLabelOf(c), hl('results'), t('chip.results') + tip));
     // تكلفة النتيجة (زي تكلفة الطلب CPO) والعائد (ROAS) الاتنين بيظهروا لو موجودين — كل واحد بيجاوب سؤال مختلف:
     // التكلفة مقارنةً بهامش ربحك، والعائد مقارنةً بالمبيعات
-    if (p.cpr != null) {
-      chips += '<span class="metric-chip' + hl('cpr') + tn('cpr') + '" title="' + t('chip.cprTip') + tip + tnTip('cpr') + '">' + money(p.cpr, c.currency) + ' / ' + esc(resultNounOf(c, 1)) + '</span>';
-    }
-    if (p.roas != null || hl('roas')) {
-      chips += '<span class="metric-chip' + hl('roas') + tn('roas') + '" title="' + t('chip.roasTip') + tip + tnTip('roas') + '">' + t('chip.roas') + ' ' + roasStr(p.roas) + '</span>';
-    }
+    if (p.cpr != null) cells.push(stat(money(p.cpr, c.currency), t('card.k.cpr', { one: resultNounOf(c, 1) }), hl('cpr') + tn('cpr'), t('chip.cprTip') + tip + tnTip('cpr')));
+    if (p.roas != null || hl('roas')) cells.push(stat(roasStr(p.roas), t('chip.roas'), hl('roas') + tn('roas'), t('chip.roasTip') + tip + tnTip('roas')));
+    // علامات بتظهر بس لو عليها ملاحظة (تكرار عالي، وصول ضعيف)
+    var flags = '';
     if (c.frequency != null && mv(c, 'frequency')) {
-      chips += '<span class="metric-chip' + mv(c, 'frequency') + '" title="' + t('chip.freqTip') + (c.frequencyLife != null ? ' — ' + t('chip.freqLife', { v: numAr(c.frequencyLife) }) : '') + '">' + t('chip.freq') + ' ' + numAr(c.frequency) + '</span>';
+      flags += '<span class="metric-chip' + mv(c, 'frequency') + '" title="' + t('chip.freqTip') + (c.frequencyLife != null ? ' — ' + t('chip.freqLife', { v: numAr(c.frequencyLife) }) : '') + '">' + t('chip.freq') + ' ' + numAr(c.frequency) + '</span>';
     }
     if (mv(c, 'delivery') && !mv(c, 'spend')) {
-      chips += '<span class="metric-chip' + mv(c, 'delivery') + '">' + t('chip.weakDelivery') + '</span>';
+      flags += '<span class="metric-chip' + mv(c, 'delivery') + '">' + t('chip.weakDelivery') + '</span>';
     }
-    return chips;
+    return '<div class="card-stats">' + cells.join('') + '</div>' + (flags ? '<div class="card-metrics">' + flags + '</div>' : '');
   }
 
   function cardMarkup(c) {
@@ -395,9 +396,10 @@
       ? '<div class="card-issue ' + LEVELS[top.level].cls + '">' + esc(top.title) + (shown.length > 1 ? ' <span class="card-issue-more">+' + ar(shown.length - 1) + '</span>' : '') + '</div>'
       // «لم يُحكم بعد»: السبب باختصار مكان الملاحظة (جديد، إنفاق صغير، مبيصرفش...)
       : (a.health === 'pending' && a.pending ? '<div class="card-issue lv-pending">' + esc(t('pend.' + a.pending + '.t')) + '</div>' : '');
-    var line1 = '<div class="card-line1">' + esc(c.platform) + ' <span style="color:var(--ink-faint);font-weight:400;">·</span> ' + esc(c.placement) + '</div>';
+    // اسم الإعلان هو العنوان، والمنصة والحملة سطر صغير تحته (قبل كده الحملة كانت العنوان العريض في ٣ سطور والإعلان رمادي مقطوع)
+    var line1 = '<div class="card-line1" dir="auto" title="' + esc(c.placement) + '">' + esc(c.platform) + ' · ' + esc(c.placement) + '</div>';
     var name = '<div class="card-name" dir="auto" title="' + esc(c.offer) + '">' + esc(c.offer) + '</div>';
-    var info = '<div class="card-info">' + line1 + name + issueLine + '<div class="card-metrics">' + cardChips(c) + '</div>';
+    var info = '<div class="card-info">' + name + line1 + issueLine + cardChips(c);
 
     return (
       '<article class="candidate-card ' + h.cls + '" id="card-' + eid + '" data-id="' + eid + '" tabindex="0" role="button" aria-label="' + esc(c.offer) + ' — ' + h.label + '">' +
