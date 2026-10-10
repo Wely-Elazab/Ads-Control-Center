@@ -832,9 +832,28 @@
       var r = engine(ads);
       var list = issuesOf(r, 'tiny');
       ok(list.length > 0, 'has a note');
-      ok(list.every(function (i) { return i.level === 'info' && i.minor && !i.atRisk; }), 'all notes are FYI');
-      // صغير وعليه ملاحظة = «لم يُحكم بعد» (مش «جيد» — كان أخضر وهو مجابش ولا طلب)
-      eq([r.byAd.tiny.health, r.byAd.tiny.pending], ['pending', 'small']);
+      ok(list.filter(function (i) { return i.code !== 'underspend'; }).every(function (i) { return i.level === 'info' && i.minor && !i.atRisk; }), 'other notes are FYI');
+      // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: نشط من أكتر من ٣ أيام وإنفاقه أقل من تكلفة نتيجة = «يحتاج إلى تحسين»
+      // (لا يأخذ إنفاقاً كافياً) بدل «لم يُحكم بعد» — على الكارت بس، مش في قائمة التنبيهات
+      eq([r.byAd.tiny.health, r.byAd.tiny.pending], ['improve', null]);
+      ok(!r.alerts.some(function (a) { return a.adId === 'tiny' && a.code === 'underspend'; }), 'not in the alerts list');
+    });
+    test('لا يأخذ إنفاقاً كافياً: جاب نتيجة بإنفاق أقل من تكلفة نتيجة = «يحتاج إلى تحسين»، وفي فترة التعلّم لأ', function () {
+      var low = ad('low', { daily: [2, 2, 2, 2, 2, 2, 0], res: [0, 0, 1, 0, 0, 0, 0] });
+      var r = withLang('ar', function () { return engine(baseAccount().concat([low])); });
+      var us = issuesOf(r, 'low').filter(function (i) { return i.code === 'underspend'; })[0];
+      ok(us && us.level === 'warning' && us.quiet, 'quiet warning');
+      eq(r.byAd.low.health, 'improve');
+      ok(/لا يأخذ إنفاقاً كافياً/.test(us.title) && /وحقق عملية شراء واحدة/.test(us.detail), us.detail);
+      var fresh = ad('fresh', { daily: [0, 0, 0, 0, 2, 2, 0], res: [0, 0, 0, 0, 1, 0, 0], age: 2 });
+      eq(engine(baseAccount().concat([fresh])).byAd.fresh.health, 'pending', 'still learning');
+    });
+    test('حكم مبدئي: نتيجة واحدة بإنفاق بين تكلفة نتيجة واتنين = قراءة أولية بالمقارنة بدل «لا تكفي»', function () {
+      // متوسط الحساب ≈ ٢٠ للطلب: ٣٠ في الأسبوع وطلب واحد = بين تكلفة طلب واتنين، وأغلى من المتوسط
+      var one = ad('one', { daily: [5, 5, 5, 5, 5, 5, 0], res: [0, 0, 0, 1, 0, 0, 0] });
+      var r = withLang('ar', function () { return engine(baseAccount().concat([one])); });
+      eq([r.byAd.one.health, r.byAd.one.pending], ['pending', 'prelimWorse'], r.byAd.one.basis);
+      ok(/^قراءة مبدئية: تكلفة كل عملية شراء فيه ٣٠ ر\.س مقابل/.test(r.byAd.one.basis), r.byAd.one.basis);
     });
     test('الإعلان الصغير بيبقى مهم لو صرفه عدّى متوسط تكلفة النتيجة', function () {
       var ads = baseAccount().concat([ad('mid', { daily: [30, 30, 30, 30, 30, 0, 0], res: [0, 0, 0, 0, 0, 0, 0] })]);

@@ -63,7 +63,13 @@
   };
 
   // النصوص كلها من i18n.js — عشان التنبيهات تطلع بلغة الواجهة
-  var t = function (k, v) { return global.I18N ? global.I18N.t(k, v) : k; };
+  // {wd} = عدد الأيام المكتملة في نافذة الحكم («آخر ٧ أيام») — من النافذة نفسها مش رقم ثابت في النص
+  // (النصوص فضلت تقول «آخر ٦ أيام» بعد ما النافذة بقت ٧ أيام مكتملة في ١٠ أكتوبر ٢٠٢٦)
+  var WEEK_TXT = null;
+  var t = function (k, v) {
+    if (v && v.wd == null) v.wd = WEEK_TXT || String(YESTERDAY + 1);
+    return global.I18N ? global.I18N.t(k, v) : k;
+  };
 
   // وصف كل إعداد لشاشة الإعدادات — بلغة بزنس (النص نفسه في i18n.js تحت set.<key> و set.<key>.help)
   // kind: multiple (×) / ratio (بيتعرض كنسبة مئوية) / days / times / count
@@ -278,16 +284,25 @@
     var share = acc.total7 > 0 ? adSpend / acc.total7 : 0;
     var material = share >= s.minSpendShare || (accountCpr != null && adSpend >= accountCpr && share >= s.minSpendShare / 4);
     // الإعلان الصغير: ملاحظاته «للعلم» من غير تنبيه — وحالته «لم يُحكم بعد» (مش «جيد») لو كان عليه ملاحظة حقيقية
+    // الملاحظة الهادية (quiet — «لا يأخذ إنفاقاً كافياً») بتفضل زي ما هي: هي نفسها عن إن الإنفاق صغير
     function done(pend, basis) {
       if (material) return finalize(c, issues, pend, basis);
-      var raised = issues.some(function (i) { return i.level === 'critical' || i.level === 'warning'; });
-      issues = issues.map(function (i) { return i.level === 'info' ? i : minor(i); });
+      var raised = issues.some(function (i) { return (i.level === 'critical' || i.level === 'warning') && !i.quiet; });
+      issues = issues.map(function (i) { return i.level === 'info' || i.quiet ? i : minor(i); });
       return finalize(c, issues, raised && c.active ? 'small' : pend, raised && c.active ? pendText('small') : basis);
     }
     // سبب «لم يُحكم بعد» بكلام واضح — بيظهر في تفاصيل الإعلان
     function pendText(key) {
       if (key === 'learning') return t('pend.learning.d', { age: age === 0 ? t('al.capNear.lessDay') : daysText(age, fmt), days: daysText(s.learningDays, fmt) });
       if (key === 'small') return t('pend.small.d', { pct: share < 0.01 ? t('al.impactPctLow') : t('al.impactPct', { pct: fmt.int(share * 100) }) });
+      // حكم مبدئي (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): نتيجة أو اتنين بإنفاق ≥ تكلفة نتيجة — بنقول القراءة الأولية بدل «لا تكفي»
+      if (/^prelim/.test(key)) {
+        var pv = { count: countText(resW, c.resultKey, fmt), need: countText(3, c.resultKey, fmt), one: one,
+          cmp: t('pend.cmp.' + key, { target: fmt.num(s.roasTarget), be: fmt.num(s.roasBreakEven) }) };
+        if (profitAd) { pv.roas = fmt.num(roasW); return t('pend.prelim.profit', pv); }
+        pv.cpr = money(spendW / resW); pv.avg = money(avgCpr);
+        return t('pend.prelim.cpr', pv);
+      }
       if (key === 'little' && profitAd && resW > 0) {
         return t('pend.little.profit', { count: countText(resW, c.resultKey, fmt), roas: fmt.num(roasW), need: countText(3, c.resultKey, fmt) });
       }
@@ -528,17 +543,36 @@
 
     // «لم يُحكم بعد» بدل «جيد» لما البيانات متكفيش للحكم (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦) — «جيد» بقى حكم بدليل:
     // إعلان المبيعات بعائد فوق حد الخسارة على أسبوع فيه دليل كفاية، والباقي بنتائج كفاية وتكلفة مش أعلى من الحساب
+    // «لا يأخذ إنفاقاً كافياً» (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): إعلان نشط خلّص فترة التعلّم وإنفاقه في الأسبوع أقل من
+    // تكلفة نتيجة واحدة بمتوسط الحساب = المنصة مش بتديله إنفاق، فـ«يحتاج إلى تحسين» بدل «لم يُحكم بعد» للأبد — جاب نتيجة
+    // ولا لأ. quiet: على الكارت وفي التفاصيل بس، مش في قائمة التنبيهات ولا «يحتاج انتباهك الآن» (حسابات الميزانية على
+    // مستوى الحملة فيها إعلانات كتير بإنفاق صغير — كانت هتغرق القائمة)
+    var underspend = c.active && !learning && age != null && age > s.learningDays && c.results != null && !!avgCpr && spendW > 0 && spendW < avgCpr;
+    if (underspend) {
+      var usVars = { name: name, age: daysText(age, fmt), spend: money(spendW), count: countText(resW, c.resultKey, fmt), label: label, one: one, avg: money(avgCpr) };
+      var us = makeIssue('warning', ['spend'], t('al.underspend.t'), t(resW > 0 ? 'al.underspend.d' : 'al.underspend.dZero', usVars), t('al.underspend.a'), 0, 'underspend');
+      us.quiet = true;
+      issues.push(us);
+    }
+
     var pend = null;
-    if (learning) pend = 'learning';
+    if (underspend) pend = null;
+    else if (learning) pend = 'learning';
     else if (c.spend === 0) pend = 'noSpend';
     else if (c.results == null) pend = 'noGoal';
     else if (profitAd) { if (!weekEvidence) pend = 'little'; }
     else if (!avgCpr || !othersHave) pend = 'noRef';
     else if (resW < 2 && spendW < 2 * avgCpr) pend = 'little';
+    // نتيجة على الأقل وإنفاق ≥ تكلفة نتيجة بمتوسط الحساب: حكم مبدئي بالمقارنة (مع المستهدف لإعلان المبيعات، ومع الحساب لغيره)
+    if (pend === 'little' && resW > 0 && avgCpr && spendW >= avgCpr) {
+      if (profitAd) pend = roasW < s.roasBreakEven ? 'prelimLoss' : (roasW < s.roasTarget ? 'prelimBelow' : 'prelimAbove');
+      else { var rel = spendW / resW / avgCpr; pend = rel <= 0.85 ? 'prelimBetter' : (rel >= 1.15 ? 'prelimWorse' : 'prelimSimilar'); }
+    }
 
     // سطر «على أي أساس الحكم» في تفاصيل الإعلان — حتى الإعلان «الجيد» بيقول ليه
     var basis = null;
-    if (pend) basis = pendText(pend);
+    if (underspend) basis = t('basis.underspend', { spend: money(spendW), one: one, avg: money(avgCpr) });
+    else if (pend) basis = pendText(pend);
     else if (profitAd && weekEvidence) {
       basis = t('basis.profit', { roas: fmt.num(roasW), target: fmt.num(s.roasTarget) }) + (acc.roasW != null ? t('basis.vsAcc', { acc: fmt.num(acc.roasW) }) : '');
     } else if (avgCpr && c.cpr != null) {
@@ -757,6 +791,7 @@
     var s = mergeSettings(customSettings);
     // طول النافذة من البيانات نفسها (٨ خانات في الأداة، و٧ في بيانات قديمة أو اختبارات قديمة)
     setWindow(candidates.reduce(function (m, c) { return Math.max(m, (c.daily || []).length); }, 0));
+    WEEK_TXT = fmt && fmt.int ? fmt.int(YESTERDAY + 1) : null;
     var bySource = {};
     candidates.forEach(function (c) { (bySource[c.source] = bySource[c.source] || []).push(c); });
 
@@ -770,6 +805,7 @@
         r.issues.forEach(function (i) {
           setImpact(i, c.spend, acc.total7, c.currency, fmt, false);
           addCompare(i, c, fmt);
+          if (i.quiet) return;   // على الكارت وفي التفاصيل بس (underspend)
           alerts.push(Object.assign({ adId: c.id, source: source, platform: c.platform, adName: c.offer || c.headline || c.id, currency: c.currency }, i));
         });
       });
