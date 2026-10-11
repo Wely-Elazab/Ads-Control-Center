@@ -74,18 +74,31 @@
   }
 
   // الخطوة الجاية في سجل الرجوع: none / replace / push / back.
-  // hs = الخطوة الحالية ({ key, parts, from }) — from = الخطوة اللي اتعملت منها، فلو المستخدم رجّع الحالة ليها
-  // (قفل النافذة، شال الحملة) بنرجع خطوة بدل ما نزوّد واحدة
+  // hs = الخطوة الحالية ({ key, parts, from }) — from = الخطوة اللي اتعملت منها
+  // الرجوع بس لما المستخدم «يقفل» حاجة هو فتحها (نافذة، تفاصيل إعلان، حملة) — فالرجوع بعد القفل ميفتحهاش تاني.
+  // أي تغيير تاني (تبويب، عرض، فترة، حساب) خطوة جديدة حتى لو رجّع شكل الصفحة اللي قبلها: الإعلانات ← التنبيهات ←
+  // الإعلانات بالضغط، والرجوع بعدها يرجّع التنبيهات. قبل كده كان بيرجع خطوة، فزرار الرجوع بعدها خرج من الأداة (مراجعة ١١ أكتوبر)
   function routeStep(hs, parts, key, user) {
     if (hs && hs.key === key) return 'none';
     if (!user || !hs) return 'replace';
-    if (hs.from === key) return 'back';
     var prev = hs.parts || {};
-    // قفل حاجة اتفتحت من غير خطوة (من رابط البريد مثلاً): مفيش خطوة نرجعلها
-    if (!parts.overlay && !parts.ad && (prev.overlay || prev.ad) && routeSameExcept(prev, parts, ['overlay', 'ad'])) return 'replace';
+    // قفل: نفس الصفحة، واختفى منها نافذة أو تفاصيل إعلان أو حملة من غير ما يتفتح غيرها.
+    // لو اتفتحت بخطوة من الصفحة دي بالظبط: رجوع. لو اتفتحت من غير خطوة (رابط البريد مثلاً): استبدال، مفيش خطوة نرجعلها
+    if (routeClosing(prev, parts)) return hs.from === key ? 'back' : 'replace';
     // حساب اتحمّل أو اتشال (فصل) مش صفحة جديدة — التبديل من حساب لحساب هو اللي صفحة جديدة
     if (routeSameExcept(prev, parts, ['accounts']) && !routeSwitched(prev.accounts || {}, parts.accounts)) return 'replace';
     return 'push';
+  }
+  var ROUTE_LAYERS = ['overlay', 'ad', 'campaign'];
+  function routeClosing(prev, next) {
+    if (!routeSameExcept(prev, next, ROUTE_LAYERS)) return false;
+    var removed = false;
+    for (var i = 0; i < ROUTE_LAYERS.length; i++) {
+      var k = ROUTE_LAYERS[i];
+      if (next[k] && next[k] !== prev[k]) return false; // اتفتحت حاجة جديدة
+      if (prev[k] && !next[k]) removed = true;
+    }
+    return removed;
   }
   function routeSameExcept(a, b, skip) {
     return ['accounts', 'view', 'list', 'campaign', 'ad', 'period', 'overlay'].every(function (k) {

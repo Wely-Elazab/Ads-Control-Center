@@ -5349,6 +5349,16 @@
       eq(routeStep({ key: 'A', parts: Object.assign({}, base, { accounts: {} }), from: null }, base, 'D', true), 'replace', 'account loaded');
       eq(routeStep(hs, Object.assign({}, base, { accounts: { meta: 'act_2' } }), 'E', true), 'push', 'account switched');
       eq(routeStep(hs, Object.assign({}, base, { accounts: {} }), 'F', true), 'replace', 'account disconnected');
+      // الرجوع لصفحة شبيهة بالضغط (الإعلانات ← التنبيهات ← الإعلانات) خطوة جديدة مش رجوع — غير كده زرار الرجوع بعدها
+      // كان بيخرج من الأداة بدل ما يرجّع التنبيهات (مراجعة ١١ أكتوبر). الرجوع بس لما المستخدم يقفل حاجة فتحها
+      var alertsView = Object.assign({}, base, { view: 'alerts' });
+      eq(routeStep({ key: 'B', parts: alertsView, from: 'A' }, base, 'A', true), 'push', 'back to a peer view by clicking');
+      var last30 = Object.assign({}, base, { period: 'last30' });
+      eq(routeStep({ key: 'P', parts: last30, from: 'A' }, base, 'A', true), 'push', 'period changed back by hand');
+      var withCamp = Object.assign({}, base, { campaign: '9' });
+      eq(routeStep({ key: 'C', parts: withCamp, from: 'A' }, base, 'A', true), 'back', 'removing the campaign the user opened');
+      var withSettings = Object.assign({}, alertsView, { overlay: 'settingsOverlay' });
+      eq(routeStep({ key: 'S', parts: withSettings, from: 'B' }, alertsView, 'B', true), 'back', 'closing the settings window');
     });
 
     // الأداة الحقيقية في إطار (الروابط شغّالة على /pauseproof-live.html في الإطار زي /app على الموقع)
@@ -5425,6 +5435,26 @@
           return go(w, 'back');
         }).then(function () {
           eq([d.getElementById('viewAds').classList.contains('hidden'), param(w, 'view')], [false, null], 'Back again returns to the ads tab');
+          f.remove();
+        });
+      });
+    });
+    testAsync('الإعلانات ← التنبيهات ← الإعلانات بالضغط: خطوة جديدة، فالرجوع بعدها بيرجّع التنبيهات مش برّه الأداة', function () {
+      return frame().then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, alertsKey;
+        w.candidates = [ad('p1', { daily: steady(10), res: steady(1) })];
+        w.render();
+        d.getElementById('tabAlerts').click();
+        return sleep(30).then(function () {
+          alertsKey = w.history.state.key;
+          d.getElementById('tabAds').click();
+          return sleep(80);
+        }).then(function () {
+          // قبل الإصلاح الضغط على «الإعلانات» كان بيرجع خطوة، فالخطوة الحالية بقت أول خطوة (from = null)
+          eq([param(w, 'view'), w.history.state.from], [null, alertsKey], 'clicking back to ads is a new step');
+          return go(w, 'back');
+        }).then(function () {
+          eq(param(w, 'view'), 'alerts', 'Back returns to the alerts tab');
           f.remove();
         });
       });
