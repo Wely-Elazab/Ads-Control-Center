@@ -19,7 +19,7 @@ import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
 import { joinReminders } from './join.ts';
 
-const ENGINE_COMMIT = 'b94add13ecf898da1524693e9762676d118915a4';
+const ENGINE_COMMIT = '7ebd4b2d74ecb3e7242148c252257a470e758eed';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
@@ -524,7 +524,7 @@ const KIND_TITLE: Record<string, string> = {
 // التعديل الكبير حدث لحظي مش مشكلة ليها «حُلّت/مستمرة» — مبيظهرش في الملخص
 const NO_STATUS: Record<string, boolean> = { expiry: true, 'big-edit': true };
 // التنبيهات العاجلة اللي اتبعتت من أول الفترة (أو لسه قائمة): «حُلّت» أو «مستمرة» — من البصمات، من غير أي أرقام
-function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: string, tz: string, en: boolean): string | null {
+function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: string, tz: string, en: boolean, target: Target = null): string | null {
   const from = Date.parse(since + 'T00:00:00Z') - 86400000;
   const list = Object.keys(marks).map((k) => marks[k]).filter((m) => !NO_STATUS[m.kind] &&
     (Date.parse(m.first_at) >= from || !m.resolved_at || Date.parse(m.resolved_at as string) >= from))
@@ -537,7 +537,7 @@ function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: strin
     const c = m.object_id && !camp && m.object_id.indexOf('u:') !== 0 ? cands.find((x) => x.id === m.object_id) : null;
     const key = (c && c.resultKey) || 'purchase';
     const title = m.kind === 'connection' ? (en ? 'We lost access to the account' : 'توقف وصولنا إلى الحساب')
-      : t(KIND_TITLE[m.kind] || 'al.stopped.t', { label: g.I18N.resultAny(key), one1: t('res1.' + key) });
+      : t(m.kind === 'loss' && target && target.be > 1 ? 'al.lossBE.t' : (KIND_TITLE[m.kind] || 'al.stopped.t'), { label: g.I18N.resultAny(key), one1: t('res1.' + key) });   // حد خسارة فوق ١ = «أقل من حد الخسارة» مش «أقل من التكلفة»
     const name = !m.object_id || m.object_id.indexOf('u:') === 0 ? ''
       : (camp ? t('al.topStopped.camp', { name: camp.campaignName || '' })
         : (c ? (c.offer || c.headline || '') : (en ? 'an ad that is no longer running' : 'إعلان لم يعد يعمل')));
@@ -689,7 +689,7 @@ async function checkAccount(s: Settings): Promise<string> {
     if (due) {
       keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });   // «حُلّت/مستمرة» بحالة الساعة دي
       const sum = await buildSummary(account, acct, due.since, due.until, targetOf(s));
-      const alerts = alertStatusHtml(marks, cands, due.since, acct.timezone_name || tz, en);
+      const alerts = alertStatusHtml(marks, cands, due.since, acct.timezone_name || tz, en, targetOf(s));
       if (await send(account, 'summary', s.email, summaryMail(acct.name || account, due.since, due.until, sum, alerts, s, en, stop))) {
         await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_summary_until: due.until }) });
         outcome += '+summary';
@@ -699,7 +699,7 @@ async function checkAccount(s: Settings): Promise<string> {
     if (monthly) {
       keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });
       const sum = await buildSummary(account, acct, monthly.since, monthly.until, targetOf(s));
-      const alerts = alertStatusHtml(marks, cands, monthly.since, acct.timezone_name || tz, en);
+      const alerts = alertStatusHtml(marks, cands, monthly.since, acct.timezone_name || tz, en, targetOf(s));
       if (await send(account, 'monthly', s.email, summaryMail(acct.name || account, monthly.since, monthly.until, sum, alerts, s, en, stop, true))) {
         await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_monthly: monthly.month }) });
         outcome += '+monthly';
@@ -767,7 +767,7 @@ export async function previewSummary(token: string, accountId: string, lang: str
       const s: Settings = { account_id: accountId, email: '', lang: en ? 'en' : 'ar', timezone: tz, summary_days: [0, 3], summary_hour: 9, last_summary_until: null };
       const cands = (await loadCandidates(accountId, acct)) || [];
       const sum = await buildSummary(accountId, acct, win.since, win.until, await storedTarget(accountId));
-      const alerts = alertStatusHtml(await marksOf(accountId), cands, win.since, tz, en);
+      const alerts = alertStatusHtml(await marksOf(accountId), cands, win.since, tz, en, await storedTarget(accountId));
       const mail = summaryMail(acct.name || accountId, win.since, win.until, sum, alerts, s, en, await stopUrl(accountId), monthly);
       return { engineCommit: ENGINE_COMMIT, engineOutdated: outdated, since: win.since, until: win.until, subject: mail.subject, html: mail.html, text: mail.text };
     } finally {
