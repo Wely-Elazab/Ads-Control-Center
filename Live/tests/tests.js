@@ -1754,12 +1754,22 @@
         window.dispatchEvent(new StorageEvent('storage', { key: 'acc.theme', newValue: prev }));
       }
     });
-    test('اسم الأداة فوق رابط للصفحة الرئيسية', function () {
+    // قبل المراجعة كان بيروح لصفحة التعريف (/) ويخرج من الأداة (ف٩ — NN/g: الاسم بيرجّع للرئيسية، ورئيسية الأداة هي الملخص)
+    test('اسم الأداة فوق بيرجّع لصفحة الملخص جوه الأداة من غير تحميل', function () {
       var brand = document.querySelector('.appbar a.brand');
-      ok(brand && brand.getAttribute('href') === '/', 'brand links to the landing page (/)');
-      eq(brand.getAttribute('title'), t('brand.home'));
+      ok(brand && brand.getAttribute('href') === '/app', 'brand links to the tool (/app)');
+      eq(brand.getAttribute('title'), t('nav.summaryTitle'));
+      try {
+        showView('settings');
+        var ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+        brand.dispatchEvent(ev);
+        ok(ev.defaultPrevented, 'no page load');
+        eq(currentView, 'summary');
+      } finally { showView('summary'); }
     });
     testAsync('النوافذ: التركيز بيدخل جوه النافذة وبيرجع للزرار اللي فتحها', function () {
+      // زرار الحسابات بقى في صفحة «الإعدادات»
+      showView('settings');
       loginMenuBtn.focus();
       loginMenuBtn.click();
       return tick().then(function () {
@@ -1768,7 +1778,7 @@
         return tick();
       }).then(function () {
         eq(document.activeElement && document.activeElement.id, 'loginMenuBtn');
-      });
+      }).then(function () { showView('summary'); }, function (e) { showView('summary'); throw e; });
     });
     testAsync('سياسة الأمان: script-src من غير unsafe-inline/eval، وصفحة الفحص مطابقة للموقع', function () {
       return Promise.all([import('/cloudflare/worker.js'), fetch('/tests/csp-check.html').then(function (r) { return r.text(); })]).then(function (r) {
@@ -3213,18 +3223,18 @@
       eq([num('12.5'), num('x'), num(null)], [12.5, 0, 0]);
     });
 
-    test('قارئ الشاشة: رسالة الحالة بتتقري، والتبويبات بتتنقل بالأسهم، والقائمة بتقول إنها بتتحمّل', function () {
+    test('قارئ الشاشة: رسالة الحالة بتتقري، والقسم الحالي معلَّم في القائمة (aria-current)، والقائمة بتقول إنها بتتحمّل', function () {
       var status = document.getElementById('connectStatus');
       eq([status.getAttribute('role'), status.getAttribute('aria-live')], ['status', 'polite']);
-      var tabAds = document.getElementById('tabAds'), tabAlerts = document.getElementById('tabAlerts');
+      var nav = document.getElementById('appNav');
+      eq([nav.tagName, nav.getAttribute('aria-label')], ['NAV', t('nav.aria')], 'a labelled navigation landmark');
       try {
-        showView('ads');
-        tabAds.focus();
-        var next = document.documentElement.dir === 'rtl' ? 'ArrowLeft' : 'ArrowRight';
-        tabAds.dispatchEvent(new KeyboardEvent('keydown', { key: next, bubbles: true }));
-        eq([document.activeElement && document.activeElement.id, tabAlerts.getAttribute('aria-selected'), tabAlerts.tabIndex, tabAds.tabIndex], ['tabAlerts', 'true', 0, -1]);
-        eq(document.getElementById('viewAlerts').getAttribute('aria-labelledby'), 'tabAlerts');
-      } finally { showView('ads'); }
+        showView('alerts');
+        var current = Array.prototype.map.call(nav.querySelectorAll('[aria-current="page"]'), function (n) { return n.id; });
+        eq(current, ['tabAlerts'], 'only the open page is marked');
+        // صفحات مش تبويبات: كل زرار بيتوصله بـ Tab عادي (من غير tabindex=-1)
+        ok(Array.prototype.every.call(nav.querySelectorAll('.nav-item'), function (n) { return n.tabIndex === 0 && !n.getAttribute('role'); }), 'plain buttons reachable with Tab');
+      } finally { showView('summary'); }
       setLoading('google', true);
       eq(cardGrid.getAttribute('aria-busy'), 'true');
       setLoading('google', false);
@@ -3397,6 +3407,8 @@
         var one = ad('long1', { daily: steady(5), res: steady(1) });
         one.offer = one.headline = long; one.campaignName = one.placement = long; one.campaignId = 'c-long';
         w.candidates = [one];
+        // الإعلانات بقت صفحة لوحدها — لازم تكون ظاهرة عشان العرض يتقاس فعلاً
+        w.showView('ads');
         w.render();
         // المحتوى مش أعرض من الجزء الظاهر (من غير شريط التمرير)
         var extra = function () { return d.documentElement.scrollWidth - d.documentElement.clientWidth; };
@@ -5321,7 +5333,8 @@
       eq(r, { accounts: { meta: 'act_123', google: '1234567890', snapchat: '0a1b2c3d-0000-4000-8000-1234567890ab', tiktok: '7012345678901234567' },
         view: 'alerts', list: 'campaigns', campaign: 'c9', ad: '120210', period: { preset: 'last30' } });
       eq(parseRoute('?meta=123&google=12-34&snapchat=x&tiktok=abc&view=x&list=x&ad=%3Cscript%3E&period=forever', '2026-10-11'),
-        { accounts: {}, view: 'ads', list: null, campaign: null, ad: null, period: null });
+        { accounts: {}, view: 'summary', list: null, campaign: null, ad: null, period: null });
+      eq(['ads', 'alerts', 'settings', 'summary'].map(function (v) { return parseRoute('?view=' + v, '2026-10-11').view; }), ['ads', 'alerts', 'settings', 'summary'], 'the four pages');
       eq(parseRoute('?campaign=' + new Array(302).join('x'), '2026-10-11').campaign, null, 'very long campaign value');
     });
     test('الفترة المخصصة في الرابط: مترتبة، مش في المستقبل، وأقصاها ٩٣ يوم — زي زرار «تطبيق»', function () {
@@ -5333,8 +5346,10 @@
     test('كتابة الرابط: المعاملات التانية (digest وdx) بتفضل، والقديمة بتتشال', function () {
       var parts = { accounts: { meta: 'act_1' }, view: 'alerts', list: null, campaign: null, ad: '55', period: 'last7', overlay: null };
       eq(routeSearch(parts, '?digest=1&ad=99&campaign=old&list=campaigns&dx=0'), '?digest=1&dx=0&meta=act_1&view=alerts&ad=55&period=last7');
-      parts.period = 'custom:2026-10-01:2026-10-07'; parts.ad = null; parts.view = 'ads';
-      eq(routeSearch(parts, ''), '?meta=act_1&period=custom&since=2026-10-01&until=2026-10-07');
+      parts.period = 'custom:2026-10-01:2026-10-07'; parts.ad = null; parts.view = 'summary';
+      eq(routeSearch(parts, ''), '?meta=act_1&period=custom&since=2026-10-01&until=2026-10-07', 'the summary is the default page — no view');
+      parts.view = 'settings';
+      eq(routeSearch(parts, ''), '?meta=act_1&view=settings&period=custom&since=2026-10-01&until=2026-10-07');
     });
     test('زرار الرجوع: فعل المستخدم خطوة، وقفل اللي فتحه رجوع، والتلقائي استبدال', function () {
       var base = { accounts: { meta: 'act_1' }, view: 'ads', list: null, campaign: null, ad: null, period: 'last7', overlay: null };
@@ -5379,6 +5394,103 @@
       });
     }
     function param(w, k) { return new URLSearchParams(w.location.search).get(k); }
+
+    // ---------- أقسام الأداة: قائمة جانبية / شريط ضيق / شريط سفلي (مراجعة المرحلة ١ — ق٢) ----------
+    function sized(width, height, query) {
+      var f = document.createElement('iframe');
+      f.style.cssText = 'position:fixed;left:0;top:0;width:' + width + 'px;height:' + height + 'px;opacity:0;pointer-events:none';
+      f.src = '/pauseproof-live.html?t=' + Date.now() + (query || '');
+      var loaded = new Promise(function (r) { f.onload = r; });
+      document.body.appendChild(f);
+      return loaded.then(function () { return sleep(150); }).then(function () { return f; });
+    }
+    function keepLang(lang) {
+      var prev = localStorage.getItem('acc.lang');
+      localStorage.setItem('acc.lang', lang);
+      return function () { if (prev == null) localStorage.removeItem('acc.lang'); else localStorage.setItem('acc.lang', prev); };
+    }
+    function box(el) { var r = el.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) }; }
+    testAsync('الكمبيوتر بالعربي: قائمة جانبية بأسماء على اليمين، والمحتوى جنبها من غير تداخل، والمساعدة في أسفلها', function () {
+      var restore = keepLang('ar');
+      return sized(1200, 800).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, nav = box(d.getElementById('appNav')), main = box(d.getElementById('appMain'));
+        eq([nav.r, nav.w], [1200, 216], 'sidebar on the right edge, 216px wide');
+        ok(main.r <= nav.l + 1, 'content sits beside it, not under it');
+        ok(nav.t >= box(d.querySelector('.appbar')).b - 1, 'starts below the top bar');
+        var labels = Array.prototype.map.call(d.querySelectorAll('#appNav .nav-label'), function (s) { return s.textContent; });
+        eq(labels, [w.t('nav.summary'), w.t('nav.ads'), w.t('nav.alerts'), w.t('nav.settings')], 'four destinations with words');
+        ok(d.querySelector('#appNav .app-nav-foot').offsetHeight > 0, 'help and support at the bottom of the menu');
+        f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+    testAsync('الكمبيوتر بالإنجليزي: القائمة في جهة البداية (الشمال)', function () {
+      var restore = keepLang('en');
+      return sized(1200, 800, '&lang=en').then(function (f) {
+        var nav = box(f.contentDocument.getElementById('appNav'));
+        eq([nav.l, nav.w], [0, 216]);
+        f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+    testAsync('التابلت (٧٠٠): شريط جانبي ضيق بأيقونة واسم تحتها', function () {
+      var restore = keepLang('ar');
+      return sized(700, 900).then(function (f) {
+        var d = f.contentDocument, nav = box(d.getElementById('appNav')), item = d.getElementById('tabAds');
+        eq([nav.r, nav.w], [700, 88]);
+        ok(box(item.querySelector('.nav-label')).t > box(item.querySelector('.nav-ico')).t, 'label under the icon');
+        eq(d.querySelector('#appNav .app-nav-foot').offsetHeight, 0, 'no help links in the narrow rail');
+        f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+    testAsync('الهاتف: شريط سفلي بأربع وجهات، والشريط العلوي صف واحد، ومفيش حاجة مستخبية تحت الشريط', function () {
+      var restore = keepLang('ar');
+      return sized(375, 812).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, nav = box(d.getElementById('appNav'));
+        // العرض = الجزء الظاهر (شريط التمرير في المتصفح على الكمبيوتر بياخد ١٥px على الشمال في الصفحة العربية — الهاتف مفيهوش)
+        eq([nav.b, nav.w, nav.r, nav.h], [812, d.documentElement.clientWidth, 375, 64], 'fixed at the bottom, full width');
+        var items = Array.prototype.map.call(d.querySelectorAll('#appNav .nav-item'), box);
+        eq(items.length, 4);
+        ok(items.every(function (b) { return b.w >= 80 && b.h >= 48; }), 'four touch targets of at least 48px (Material)');
+        // قبل المراجعة الشريط العلوي كان ٢٢٢px (٢٧٪ من الشاشة) بستة أزرار
+        ok(box(d.querySelector('.appbar')).h <= 70, 'top bar is one row: ' + box(d.querySelector('.appbar')).h);
+        ok(parseFloat(w.getComputedStyle(d.getElementById('appMain')).paddingBottom) >= 64, 'content ends above the bar');
+        eq(d.documentElement.scrollWidth - d.documentElement.clientWidth, 0, 'no sideways scroll');
+        f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+    testAsync('كل قسم صفحة لوحدها: الضغط في القائمة بيعرض صفحته بس، والإعدادات فيها الربط والتنبيهات والمظهر واللغة والخروج', function () {
+      return sized(1200, 800).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        w.candidates = [ad('v1', { daily: steady(10), res: steady(1) })];
+        w.render();
+        var pages = { summary: 'viewSummary', ads: 'viewAds', alerts: 'viewAlerts', settings: 'viewSettings' };
+        var shown = function () { return Object.keys(pages).filter(function (k) { return d.getElementById(pages[k]).offsetHeight > 0; }); };
+        var seen = {};
+        Object.keys(pages).forEach(function (k) {
+          d.querySelector('#appNav [data-view="' + k + '"]').click();
+          seen[k] = shown();
+        });
+        eq(seen, { summary: ['summary'], ads: ['ads'], alerts: ['alerts'], settings: ['settings'] });
+        var set = d.getElementById('viewSettings');
+        ok(['loginMenuBtn', 'themeToggle', 'langToggle', 'logoutBtn'].every(function (id) { return set.contains(d.getElementById(id)); }), 'the controls that left the top bar live in Settings');
+        ok(set.querySelector('[data-open-settings]'), 'alert settings reachable from Settings');
+        f.remove();
+      });
+    });
+    testAsync('«تحتاج مراجعة» و«عرض الحملة» في الملخص بيفتحوا صفحة الإعلانات', function () {
+      return sized(1200, 800).then(function (f) {
+        var w = f.contentWindow;
+        w.candidates = [ad('g1', { daily: steady(10), res: steady(1), cid: '55', camp: 'Fall' })];
+        w.render();
+        w.kpiAction('review');
+        eq(w.currentView, 'ads', 'review chip');
+        w.showView('summary');
+        var btn = f.contentDocument.createElement('button');
+        btn.setAttribute('data-campaign', w.campaignKey(w.candidates[0]));
+        w.openCampaign(btn);
+        eq([w.currentView, w.viewMode], ['ads', 'ads'], 'show campaign');
+        f.remove();
+      });
+    });
 
     testAsync('رابط فيه التبويب والعرض والفترة بيفتح عليهم، من غير ما يغيّر الاختيارات المحفوظة', function () {
       var saved = [localStorage.getItem('acc.period.v1'), localStorage.getItem('acc.view.v1')];
@@ -5434,7 +5546,7 @@
           eq([d.getElementById('settingsOverlay').classList.contains('hidden'), param(w, 'view')], [true, 'alerts'], 'Back closed the settings only');
           return go(w, 'back');
         }).then(function () {
-          eq([d.getElementById('viewAds').classList.contains('hidden'), param(w, 'view')], [false, null], 'Back again returns to the ads tab');
+          eq([d.getElementById('viewSummary').classList.contains('hidden'), param(w, 'view')], [false, null], 'Back again returns to the summary (the first page)');
           f.remove();
         });
       });
@@ -5444,14 +5556,17 @@
         var w = f.contentWindow, d = f.contentDocument, alertsKey;
         w.candidates = [ad('p1', { daily: steady(10), res: steady(1) })];
         w.render();
-        d.getElementById('tabAlerts').click();
+        d.getElementById('tabAds').click();
         return sleep(30).then(function () {
+          d.getElementById('tabAlerts').click();
+          return sleep(30);
+        }).then(function () {
           alertsKey = w.history.state.key;
           d.getElementById('tabAds').click();
           return sleep(80);
         }).then(function () {
-          // قبل الإصلاح الضغط على «الإعلانات» كان بيرجع خطوة، فالخطوة الحالية بقت أول خطوة (from = null)
-          eq([param(w, 'view'), w.history.state.from], [null, alertsKey], 'clicking back to ads is a new step');
+          // قبل الإصلاح الضغط على «الإعلانات» كان بيرجع خطوة، فالخطوة الحالية بقت خطوة الإعلانات الأولى (from = خطوة الملخص)
+          eq([param(w, 'view'), w.history.state.from], ['ads', alertsKey], 'clicking back to ads is a new step');
           return go(w, 'back');
         }).then(function () {
           eq(param(w, 'view'), 'alerts', 'Back returns to the alerts tab');
@@ -5460,16 +5575,16 @@
       });
     });
     testAsync('فتح حملة من عرض الحملات خطوة: الرابط فيه رقم الحملة، والرجوع بيرجّع قايمة الحملات', function () {
-      return frame('&list=campaigns').then(function (f) {
+      return frame('&view=ads&list=campaigns').then(function (f) {
         var w = f.contentWindow, d = f.contentDocument;
         w.candidates = [ad('k1', { daily: steady(10), res: steady(1), cid: '777', camp: 'Spring' })];
         w.render();
         d.querySelector('.campaign-card').click();
         return sleep(30).then(function () {
-          eq([w.viewMode, !!w.filters.campaign, param(w, 'campaign'), param(w, 'list')], ['ads', true, '777', null]);
+          eq([w.viewMode, !!w.filters.campaign, param(w, 'campaign'), param(w, 'list'), param(w, 'view')], ['ads', true, '777', null, 'ads']);
           return go(w, 'back');
         }).then(function () {
-          eq([w.viewMode, w.filters.campaign, param(w, 'list')], ['campaigns', null, 'campaigns']);
+          eq([w.viewMode, w.filters.campaign, param(w, 'list'), w.currentView], ['campaigns', null, 'campaigns', 'ads']);
           f.remove();
         });
       });
@@ -5495,6 +5610,7 @@
         w.candidates = [ad('m1', { daily: steady(10), res: steady(1), cid: '888', camp: 'Autumn' }), ad('m2', { daily: steady(10), res: steady(1), cid: '999', camp: 'Other' })];
         w.render();
         eq([w.viewMode, d.querySelectorAll('.candidate-card').length, param(w, 'campaign')], ['ads', 1, '888']);
+        eq([w.currentView, d.getElementById('viewAds').classList.contains('hidden'), param(w, 'view')], ['ads', false, 'ads'], 'opens on the ads page');
         ok(d.getElementById('activeFilters').textContent.indexOf('Autumn') !== -1, 'the campaign chip names it');
         f.remove();
       });

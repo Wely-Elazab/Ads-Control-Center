@@ -26,7 +26,8 @@
   // على الموبايل الشريط ٣ صفوف (حوالي خُمس الشاشة) — ثابت طول الوقت كان بيقلّل الكروت اللي بتبان.
   // زي فيسبوك وإنستجرام: بينزل مع الصفحة وبيرجع مع أول حركة لفوق
   var appbarEl = document.querySelector('.appbar');
-  var mobileBar = window.matchMedia ? window.matchMedia('(max-width: 720px)') : null;
+  // الهاتف بس (أقل من ٦٠٠ — نفس حد الشريط السفلي): من ٦٠٠ لفوق القائمة الجانبية بتبدأ تحت الشريط، فلو استخبى يسيب فراغ
+  var mobileBar = window.matchMedia ? window.matchMedia('(max-width: 599.98px)') : null;
   // (أحداث الـ scroll أصلاً بتيجي مرة كل فريم، والشغل هنا خفيف: قراية رقم وتبديل كلاس)
   var lastScrollY = window.scrollY || 0;
   // زرار «لأعلى الصفحة»: بيظهر بعد ما تنزل في قائمة طويلة، ومش بيتوصله بـ Tab وهو مستخبي
@@ -560,8 +561,10 @@
     filters.campaignName = (g && g.campaignName) || null;
     // بنعرض إعلانات الحملة من غير ما نغيّر الاختيار المحفوظ — لو كان "الحملات" هيفضل هو اللي يفتح المرة الجاية
     viewMode = 'ads';
+    // من «يحتاج انتباهك الآن» في الملخص كمان: إعلانات الحملة في صفحة «الإعلانات» من أولها
+    showView('ads');
     render();
-    window.scrollTo({ top: document.getElementById('adsContent').offsetTop - 70, behavior: 'smooth' });
+    window.scrollTo({ top: 0 });
   }
 
   function sortCandidates(list, key) {
@@ -1741,11 +1744,11 @@
     if (kind === 'risk') { openAlertsView('risk'); return; }
     var group = document.querySelector('.filter-group[data-filter="health"]');
     if (group) setFilterChip(group, 'review');
-    // بنعرض الإعلانات من غير ما نغيّر طريقة العرض المحفوظة
+    // بنعرض الإعلانات من غير ما نغيّر طريقة العرض المحفوظة — في صفحة «الإعلانات» من أولها
     viewMode = 'ads';
+    showView('ads');
     render();
-    var ads = document.getElementById('adsContent');
-    if (ads) window.scrollTo({ top: ads.offsetTop - 70, behavior: 'smooth' });
+    window.scrollTo({ top: 0 });
   }
   document.getElementById('dxWaste').addEventListener('click', function (e) {
     var el = e.target.closest('[data-kpi]');
@@ -2188,36 +2191,49 @@
     if (e.target.closest('.campaign-card, .candidate-card')) { e.preventDefault(); activateCard(e); }
   });
 
-  // ---------- التبويبات: الإعلانات / التنبيهات ----------
-  var viewTabs = document.querySelectorAll('.view-tab');
+  // ---------- أقسام الأداة: الملخص / الإعلانات / التنبيهات / الإعدادات ----------
+  // (مراجعة المرحلة ١، ١١ أكتوبر ٢٠٢٦) قبل كده تبويبين بس، و«الإعلانات» كان فيه الملخص والإعلانات في صفحة طولها ٨٫٩ شاشات
+  // (١٧٫٢ على الهاتف). دلوقتي كل قسم صفحة لوحدها من القائمة الجانبية أو الشريط السفلي (#appNav)، وليها رابط (?view= — js/route.js).
+  // التنقل بين صفحات = nav وaria-current (مش tablist — دي لتبويبات جوه نفس الصفحة)
+  var VIEWS = ['summary', 'ads', 'alerts', 'settings'];
+  var currentView = 'summary';
+  var navItems = document.querySelectorAll('#appNav .nav-item');
   function showView(view) {
-    viewTabs.forEach(function (t) {
-      var on = t.dataset.view === view;
-      t.classList.toggle('active', on);
-      t.setAttribute('aria-selected', on ? 'true' : 'false');
-      t.tabIndex = on ? 0 : -1;
+    if (VIEWS.indexOf(view) === -1) view = 'summary';
+    currentView = view;
+    navItems.forEach(function (n) {
+      var on = n.dataset.view === view;
+      n.classList.toggle('active', on);
+      if (on) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current');
     });
+    // الملخص والإعلانات بيشتركوا في شاشة البداية وكروت الحالة وفترة البيانات
+    document.getElementById('dataViews').classList.toggle('hidden', view !== 'summary' && view !== 'ads');
+    document.getElementById('viewSummary').classList.toggle('hidden', view !== 'summary');
     document.getElementById('viewAds').classList.toggle('hidden', view !== 'ads');
     document.getElementById('viewAlerts').classList.toggle('hidden', view !== 'alerts');
+    document.getElementById('viewSettings').classList.toggle('hidden', view !== 'settings');
   }
-  // فتح تبويب التنبيهات من فوق بيرجّعه للعرض العادي (العاجل + المهم)، حتى لو كان متفلتر قبل كده
-  viewTabs.forEach(function (tab) {
-    tab.addEventListener('click', function () {
-      if (tab.dataset.view === 'alerts') openAlertsView('urgent'); else showView(tab.dataset.view);
-    });
+  // فتح صفحة جديدة من القائمة = أول الصفحة. التنبيهات بترجع للعرض العادي (العاجل + المهم) حتى لو كانت متفلترة قبل كده
+  function goView(view) {
+    if (view === 'alerts') { openAlertsView('urgent'); return; }
+    showView(view);
+    window.scrollTo({ top: 0 });
+  }
+  document.getElementById('appNav').addEventListener('click', function (e) {
+    var item = e.target.closest('.nav-item');
+    if (item) goView(item.dataset.view);
   });
-  // الأسهم (يمين/شمال) بتتنقل بين التبويبات — بالعربي السهم الشمال هو «اللي بعده»
-  document.querySelector('.view-tabs').addEventListener('keydown', function (e) {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return;
-    var tabs = Array.prototype.slice.call(viewTabs), i = tabs.indexOf(document.activeElement);
-    if (i === -1) return;
-    var rtl = document.documentElement.dir === 'rtl';
-    var next = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1
-      : (i + ((e.key === 'ArrowLeft') === rtl ? 1 : -1) + tabs.length) % tabs.length;
+  // الاسم فوق = الملخص (الرئيسية جوه الأداة) من غير ما الصفحة تتحمّل من جديد
+  document.getElementById('brandLink').addEventListener('click', function (e) {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button > 0) return; // فتح في تاب جديد بيفضل شغّال
     e.preventDefault();
-    tabs[next].focus();
-    tabs[next].click();
+    goView('summary');
   });
+  // ارتفاع الشريط العلوي للقائمة الجانبية (بتبدأ تحته) — بيتغيّر مع اللغة والعرض
+  function syncAppbarHeight() { if (appbarEl) document.documentElement.style.setProperty('--appbar-h', appbarEl.offsetHeight + 'px'); }
+  syncAppbarHeight();
+  if (window.ResizeObserver && appbarEl) new ResizeObserver(syncAppbarHeight).observe(appbarEl);
+  else window.addEventListener('resize', syncAppbarHeight);
 
 
   // ---------- صفحة التنبيهات ----------
@@ -2247,6 +2263,11 @@
     // الرقم على التبويب = العاجل بس — الحاجة اللي محتاجة تدخّل النهارده
     alertsTabCount.textContent = s.levels.critical ? ar(s.levels.critical) : '';
     alertsTabCount.classList.toggle('has-critical', s.levels.critical > 0);
+    // «عاجل» جنب الرقم (قرار ق٤ في المراجعة): الرقم ده العاجل بس، و«جميع التنبيهات (٣)» في الملخص = العاجل والمهم —
+    // من غير الكلمة كانوا رقمين مختلفين لنفس الاسم. وقارئ الشاشة بيسمع الجملة كاملة
+    document.getElementById('alertsTabWord').hidden = !s.levels.critical;
+    document.getElementById('tabAlerts').setAttribute('aria-label', s.levels.critical
+      ? t('nav.alertsUrgent', { n: ar(s.levels.critical) }) : t('nav.alerts'));
 
     if (!candidates.length) {
       alertsSummaryEl.innerHTML = '';
@@ -2372,7 +2393,10 @@
     });
   });
 
-  document.getElementById('openSettingsBtn').addEventListener('click', function () { renderSettingsForm(); settingsOverlay.classList.remove('hidden'); });
+  function openAlertSettings() { renderSettingsForm(); settingsOverlay.classList.remove('hidden'); }
+  document.getElementById('openSettingsBtn').addEventListener('click', openAlertSettings);
+  // نفس النافذة من صفحة «الإعدادات» كمان (كل الإعدادات في مكان واحد)
+  document.querySelectorAll('[data-open-settings]').forEach(function (b) { b.addEventListener('click', openAlertSettings); });
   document.getElementById('settingsClose').addEventListener('click', function () { settingsOverlay.classList.add('hidden'); });
   settingsOverlay.addEventListener('click', function (e) { if (e.target === settingsOverlay) settingsOverlay.classList.add('hidden'); });
   document.getElementById('settingsReset').addEventListener('click', function () {
@@ -2577,7 +2601,12 @@
     if (installPrompt) return 'prompt';
     return iosCanAddToHome() && !installState().answer ? 'ios' : null;
   }
-  function renderInstallButton() { installBtn.hidden = !installMode(); }
+  // الزرار في بطاقة «التثبيت على الهاتف» في صفحة الإعدادات — والبطاقة كلها بتستخبى معاه (الكمبيوتر، أو الأداة مثبّتة)
+  function renderInstallButton() {
+    installBtn.hidden = !installMode();
+    var card = document.getElementById('installCard');
+    if (card) card.hidden = installBtn.hidden;
+  }
   // البطاقة: آيفون بس، بعد ما الخطوات اتفتحت في زيارة قبل كده، ولسه مفيش إجابة. أول ظهور في الزيارة بيتحسب مرة واحدة
   function renderInstallAsk() {
     var s = installState(), session = installSession();

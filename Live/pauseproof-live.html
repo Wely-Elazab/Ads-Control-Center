@@ -233,10 +233,6 @@
   .ghost-btn:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 
   /* ---------- التبويبات ---------- */
-  .view-tabs { display: flex; gap: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 5px; margin-bottom: 14px; }
-  .view-tab { flex: 1; border: none; background: none; padding: 11px 14px; border-radius: 9px; font-family: inherit; font-size: 14px; font-weight: 600; color: var(--ink-soft); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-  .view-tab.active { background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
-  .view-tab:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   .tab-count { min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--pending); color: var(--on-pending); font-size: 12px; line-height: 1.6; }
   .tab-count.has-critical { background: var(--alert); }
   .tab-count:empty { display: none; }
@@ -438,28 +434,79 @@
   .install-ask-actions .stop-btn, .install-ask-actions .ghost-btn { padding: 8px 14px; font-size: 13px; }
   .install-ask-no { border: none; background: none; color: var(--ink-soft); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; padding: 8px 6px; text-decoration: underline; }
   .install-ask-no:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
-  /* على الموبايل: صف للاسم والأيقونات، صف للتبويبات، صف للحساب وتسجيل الدخول */
+  /* على الموبايل: صف واحد — الاسم، واختيار الحساب ياخد الباقي، والتحديث (التنقل في الشريط السفلي) */
   @media (max-width: 720px) {
-    .appbar-inner { gap: 8px 10px; }
-    .brand { order: 1; }
-    .appbar-icons { order: 2; margin-inline-start: auto; }
-    .view-tabs { order: 3; width: 100%; }
-    .view-tabs .view-tab { flex: 1; justify-content: center; }
-    .appbar-actions { order: 4; width: 100%; }
+    .appbar-inner { gap: 8px 10px; flex-wrap: nowrap; }
     .appbar-spacer { display: none; }
-    .account-select { flex: 1 1 auto; max-width: none; }
-    .appbar-actions .stop-btn { padding: 11px 16px; font-size: 13.5px; }
+    .appbar-actions { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; justify-content: flex-end; }
+    .account-select { flex: 1 1 auto; min-width: 0; max-width: none; }
     .brand-tag { display: none; }
   }
 
-  /* التبويبات جوه الشريط */
-  .view-tabs { display: flex; gap: 4px; background: var(--paper); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
-  .view-tab { border: none; background: none; padding: 8px 16px; border-radius: 999px; font-family: inherit; font-size: 13.5px; font-weight: 600; color: var(--ink-soft); cursor: pointer; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
-  .view-tab.active { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-  .view-tab:focus-visible, .icon-toggle:focus-visible, .lang-toggle:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
-  .tab-count { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--pending); color: var(--on-pending); font-size: 11.5px; line-height: 18px; }
+  .icon-toggle:focus-visible, .lang-toggle:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .tab-count { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--pending); color: var(--on-pending); font-size: 11.5px; line-height: 18px; text-align: center; }
   .tab-count.has-critical { background: var(--alert); color: var(--on-alert); }
   .tab-count:empty { display: none; }
+
+  /* ---------- أقسام الأداة (appNav) — مراجعة المرحلة ١، ١١ أكتوبر ٢٠٢٦ ----------
+     عنصر واحد بيتشكّل حسب عرض الشاشة (Material 3 window size classes) — مش قائمتين مكررتين (NN/g):
+     موسّع ٨٤٠px فأكتر = قائمة جانبية بأسماء في جهة البداية (اليمين بالعربي)، متوسط ٦٠٠–٨٣٩ = شريط جانبي ضيق،
+     مضغوط أقل من ٦٠٠ = شريط سفلي بأربع وجهات. أيقونة + اسم دايماً (NN/g: الأيقونات من غير كلام بتزوّد الجهد) */
+  :root { --nav-w: 0px; --nav-h: 0px; }
+  .app-nav { position: fixed; z-index: 38; background: var(--card); }
+  .app-nav-main { display: flex; }
+  .nav-item { position: relative; border: none; background: none; font-family: inherit; color: var(--ink-soft); cursor: pointer; display: flex; align-items: center; gap: 12px; font-weight: 600; }
+  .nav-ico { width: 22px; height: 22px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .nav-item:hover { color: var(--ink); }
+  .nav-item.active { color: var(--verified); }
+  .nav-item:focus-visible { outline: 2px solid var(--verified); outline-offset: -2px; }
+  .tab-count-word { font-size: 11.5px; font-weight: 700; color: var(--alert); }
+  .tab-count-word[hidden] { display: none; }
+  .app-nav-foot { display: none; }
+  .nav-link { color: var(--ink-soft); text-decoration: none; font-size: 12.5px; overflow-wrap: anywhere; }
+  .nav-link:hover { color: var(--verified); text-decoration: underline; }
+  .app-main { display: block; margin-inline-start: var(--nav-w); }
+  @media (min-width: 840px) {
+    :root { --nav-w: 216px; }
+    .appbar-inner { max-width: none; }
+    .app-nav { top: var(--appbar-h, 58px); bottom: 0; inset-inline-start: 0; width: var(--nav-w); border-inline-end: 1px solid var(--line); padding: 14px 10px; display: flex; flex-direction: column; justify-content: space-between; overflow-y: auto; }
+    .app-nav-main { flex-direction: column; gap: 4px; }
+    .nav-item { width: 100%; padding: 11px 14px; border-radius: 10px; font-size: 14.5px; text-align: start; }
+    .nav-item.active { background: var(--verified-bg); }
+    .nav-item .tab-count { margin-inline-start: auto; }
+    .app-nav-foot { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 4px; border-top: 1px solid var(--line); }
+  }
+  @media (min-width: 600px) and (max-width: 839.98px) {
+    :root { --nav-w: 88px; }
+    .app-nav { top: var(--appbar-h, 58px); bottom: 0; inset-inline-start: 0; width: var(--nav-w); border-inline-end: 1px solid var(--line); padding: 12px 6px; }
+    .app-nav-main { flex-direction: column; gap: 6px; }
+    .nav-item { flex-direction: column; gap: 4px; width: 100%; padding: 10px 2px; border-radius: 12px; font-size: 11.5px; }
+    .nav-item.active { background: var(--verified-bg); }
+    .nav-item .tab-count { position: absolute; top: 4px; inset-inline-end: 12px; }
+    .tab-count-word { display: none !important; }
+  }
+  @media (max-width: 599.98px) {
+    :root { --nav-h: 64px; }
+    .app-nav { left: 0; right: 0; bottom: 0; height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); border-top: 1px solid var(--line); }
+    .app-nav-main { height: var(--nav-h); }
+    .nav-item { flex: 1 1 0; min-width: 0; flex-direction: column; justify-content: center; gap: 4px; padding: 6px 2px; font-size: 11.5px; }
+    .nav-label { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* مؤشر الوجهة الحالية حوالين الأيقونة (Material navigation bar) */
+    .nav-item.active .nav-ico { background: var(--verified-bg); border-radius: 999px; width: 56px; height: 30px; padding: 4px 17px; box-sizing: border-box; }
+    .nav-item .tab-count { position: absolute; top: 5px; inset-inline-start: calc(50% + 8px); }
+    .tab-count-word { display: none !important; }
+    .app-main { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); }
+  }
+
+  /* صفحة «الإعدادات» */
+  .set-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  .set-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+  .set-card[hidden] { display: none; }
+  .set-card-title { margin: 0; font-size: 15px; }
+  .set-card-text { margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--ink-soft); }
+  .set-card-text a { color: var(--verified); }
+  .set-card-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
+  .set-card-label { font-size: 13.5px; color: var(--ink); }
 
   /* شريط الحالة تحت الشريط العلوي + مؤشر تحميل */
   .status-strip { position: relative; max-width: 1100px; margin: 0 auto; padding: 8px 16px 0; font-size: 12.5px; color: var(--ink-soft); display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 30px; }
@@ -525,7 +572,7 @@
   .page-lock-sub { margin: 0; font-size: 12.5px; line-height: 1.7; color: var(--ink-soft); }
   .page-lock-sub:empty { display: none; }
   body.page-locked { overflow: hidden; }
-  @media (max-width: 720px) { .appbar.appbar-hidden { transform: translateY(-100%); } }
+  @media (max-width: 599.98px) { .appbar.appbar-hidden { transform: translateY(-100%); } }
 
   /* ---------- آخر تحديث: قديم = زرار «حدّث» ---------- */
   .last-updated.stale { color: var(--pending); }
@@ -822,8 +869,8 @@
     .top-alert:hover, .alert-item.clickable:hover, .kpi-link:hover, .summary-box:hover { transform: translateY(-2px); }
     .icon-toggle:hover, .lang-toggle:hover, .filters-btn:hover, .sort-select:hover, .view-switch-btn:hover { border-color: var(--ink-faint); }
   }
-  .ghost-btn, .filters-btn, .chip, .view-tab, .view-switch-btn, .icon-toggle, .lang-toggle, .sort-select, .show-more, .status-action, .platform-item, .platform-disconnect, .active-filter { transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .12s ease; }
-  .ghost-btn:active, .filters-btn:active, .chip:active, .view-tab:active, .view-switch-btn:active, .icon-toggle:active, .lang-toggle:active, .show-more:active, .active-filter:active, .platform-item:active:not(:disabled) { transform: scale(.97); }
+  .ghost-btn, .filters-btn, .chip, .nav-item, .view-switch-btn, .icon-toggle, .lang-toggle, .sort-select, .show-more, .status-action, .platform-item, .platform-disconnect, .active-filter { transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .12s ease; }
+  .ghost-btn:active, .filters-btn:active, .chip:active, .nav-item:active, .view-switch-btn:active, .icon-toggle:active, .lang-toggle:active, .show-more:active, .active-filter:active, .platform-item:active:not(:disabled) { transform: scale(.97); }
   /* زرار التحديث بيلف طول ما البيانات بتتحمّل */
   body.is-loading #resetAllBtn { animation: spin 1s linear infinite; }
 
@@ -855,11 +902,14 @@
   /* زرار «لأعلى الصفحة» */
   .to-top { position: fixed; bottom: 18px; inset-inline-end: 18px; z-index: 30; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-family: inherit; font-size: 19px; font-weight: 700; line-height: 1; cursor: pointer; box-shadow: 0 10px 26px -14px rgba(22, 26, 31, .55); opacity: 0; transform: translateY(12px); pointer-events: none; transition: opacity .25s ease, transform .25s ease, border-color .2s ease, color .2s ease; }
   .to-top.is-visible { opacity: 1; transform: none; pointer-events: auto; }
+  /* فوق الشريط السفلي على الهاتف */
+  @media (max-width: 599.98px) { .to-top { bottom: calc(var(--nav-h) + 14px + env(safe-area-inset-bottom, 0px)); } }
   .to-top:hover { border-color: var(--verified); color: var(--verified); }
   .to-top:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 
   @media print {
-    .appbar, .status-strip, .period-custom, .toolbar, .drawer, .expand-overlay, #openSettingsBtn, .to-top { display: none !important; }
+    .appbar, .app-nav, .status-strip, .period-custom, .toolbar, .drawer, .expand-overlay, #openSettingsBtn, .to-top { display: none !important; }
+    .app-main { margin: 0 !important; padding: 0 !important; }
   }
   /* «تقليل الحركة»: كل الحركة بتخلص على طول (من غير تأخير ولا تكرار) والمحتوى بيظهر في مكانه */
   @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0s !important; } }
@@ -868,32 +918,54 @@
 </head>
 <body>
 
+<!-- الشريط العلوي (مراجعة المرحلة ١، ١١ أكتوبر ٢٠٢٦): الاسم واختيار الحساب والتحديث بس. التنقل بقى في القائمة تحت (appNav)،
+     والربط والمظهر واللغة والتثبيت والخروج في صفحة «الإعدادات». قبل كده الشريط على الهاتف كان ٢٢٢px = ربع الشاشة بستة أزرار
+     (Material 3 App bars: إجراء أو اتنين بس في الشريط العلوي) -->
 <header class="appbar">
   <div class="appbar-inner">
-    <a class="brand" href="/" title="الصفحة الرئيسية" data-i18n-title="brand.home">
+    <!-- الاسم بيرجّع لصفحة الملخص (الرئيسية جوه الأداة) مش لصفحة التعريف — NN/g Homepage links وMaterial App bars -->
+    <a class="brand" href="/app" id="brandLink" title="ملخص المتجر" data-i18n-title="nav.summaryTitle">
       <div class="brand-mark">Ads Center</div>
       <div class="brand-tag" id="tBrandTag" data-i18n="app.tag">افهم ما يحدث في إعلانات متجرك الإلكتروني ولماذا</div>
     </a>
-    <nav class="view-tabs" role="tablist" aria-label="أقسام الصفحة" data-i18n-aria="tabs.aria">
-      <button type="button" class="view-tab active" id="tabAds" data-view="ads" role="tab" aria-selected="true" aria-controls="viewAds"><span data-i18n="tab.ads">الإعلانات</span></button>
-      <button type="button" class="view-tab" id="tabAlerts" data-view="alerts" role="tab" aria-selected="false" aria-controls="viewAlerts" tabindex="-1"><span data-i18n="tab.alerts">التنبيهات</span> <span class="tab-count" id="alertsTabCount"></span></button>
-    </nav>
     <span class="appbar-spacer"></span>
     <div class="appbar-actions">
       <select id="accountSelect" class="sort-select account-select hidden" aria-label="الحساب الإعلاني" data-i18n-aria="account.aria"></select>
       <button type="button" class="icon-toggle" id="resetAllBtn" title="تحديث البيانات" aria-label="تحديث البيانات" data-i18n-title="btn.refresh" data-i18n-aria="btn.refresh">↻</button>
-      <button type="button" class="stop-btn" id="loginMenuBtn" data-i18n="btn.login">ربط حساب إعلاني</button>
-    </div>
-    <div class="appbar-icons">
-      <!-- بيظهر على الموبايل بس، ولو الأداة مش مثبّتة — installBtn في ui.js -->
-      <button type="button" class="lang-toggle install-btn" id="installBtn" title="أضف Ads Center إلى الشاشة الرئيسية لهاتفك لتفتحه بلمسة واحدة" data-i18n="install.btn" data-i18n-title="install.btnTitle" hidden>ثبّت الأداة</button>
-      <button type="button" class="icon-toggle" id="themeToggle" aria-label="المظهر" data-i18n-aria="theme.aria">☀️</button>
-      <button type="button" class="lang-toggle" id="langToggle" data-i18n="lang.toggle">EN</button>
-      <!-- خروج من الأداة نفسها (js/auth.js بيظهّره بعد ما يتأكد من الدخول، وعنوانه فيه البريد) -->
-      <button type="button" class="lang-toggle" id="logoutBtn" data-i18n="auth.logout" hidden>خروج</button>
     </div>
   </div>
 </header>
+
+<!-- أقسام الأداة (مراجعة المرحلة ١ — audit/phase-1-structure.md ق٢): عنصر واحد بيتشكّل حسب عرض الشاشة (Material 3):
+     ٨٤٠px فأكتر قائمة جانبية بأسماء في جهة البداية (اليمين بالعربي — زي Google Ads وShopify وStripe)، ومن ٦٠٠ لـ ٨٣٩ شريط جانبي ضيق
+     (أيقونة واسم تحتها)، وأقل من ٦٠٠ شريط سفلي بأربع وجهات. كل وجهة صفحة لوحدها برابطها (?view= — js/route.js) -->
+<nav class="app-nav" id="appNav" aria-label="أقسام الأداة" data-i18n-aria="nav.aria">
+  <div class="app-nav-main">
+    <button type="button" class="nav-item active" id="tabSummary" data-view="summary" aria-current="page">
+      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+      <span class="nav-label" data-i18n="nav.summary">الملخص</span>
+    </button>
+    <button type="button" class="nav-item" id="tabAds" data-view="ads">
+      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      <span class="nav-label" data-i18n="nav.ads">الإعلانات</span>
+    </button>
+    <button type="button" class="nav-item" id="tabAlerts" data-view="alerts">
+      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 21h4"/></svg>
+      <span class="nav-label" data-i18n="nav.alerts">التنبيهات</span>
+      <!-- العدد = العاجل بس (قرار ق٤)، وكلمة «عاجل» جنبه في القائمة الجانبية — من غيرها كان بيتعارض مع «جميع التنبيهات (٣)» -->
+      <span class="tab-count" id="alertsTabCount"></span><span class="tab-count-word" id="alertsTabWord" hidden data-i18n="nav.urgent">عاجل</span>
+    </button>
+    <button type="button" class="nav-item" id="tabSettings" data-view="settings">
+      <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      <span class="nav-label" data-i18n="nav.settings">الإعدادات</span>
+    </button>
+  </div>
+  <!-- المساعدة والدعم في نفس المكان في كل الصفحات (WCAG 3.2.6) — على الهاتف جوه صفحة «الإعدادات» -->
+  <div class="app-nav-foot">
+    <a class="nav-link" href="/help" data-i18n="footer.help">دليل البدء</a>
+    <a class="nav-link" href="mailto:support@adscenter.online" dir="ltr">support@adscenter.online</a>
+  </div>
+</nav>
 
 <!-- قفل الصفحة وهي بتتحمّل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): قبل كده كانت بتكتب «لا شيء عاجل» وبعدين تظهر التنبيهات.
      تحت الشريط العلوي بس — اختيار الحساب والخروج بيفضلوا شغّالين لو التحميل علق. renderPageLock في ui.js -->
@@ -905,6 +977,8 @@
   </div>
 </div>
 
+<!-- محتوى الصفحة جنب القائمة الجانبية (أو فوق الشريط السفلي على الهاتف) -->
+<main class="app-main" id="appMain">
 <div class="status-strip">
   <span class="spinner" aria-hidden="true"></span>
   <span id="tConnectTitle" class="sr-only" data-i18n="status.title">حالة الاتصال</span>
@@ -930,7 +1004,8 @@
     </span>
   </div>
 
-  <div id="viewAds" role="tabpanel" aria-labelledby="tabAds">
+  <!-- صفحتا «الملخص» و«الإعلانات» بيشتركوا في شاشة البداية وكروت الحالة وفترة البيانات — بيستخبوا مع «التنبيهات» و«الإعدادات» -->
+  <div id="dataViews">
 
     <section class="hero hidden" id="emptyHero">
       <h2 data-i18n="hero.title">اعرف لماذا تغيّرت مبيعات متجرك من الإعلانات، ومن أين تبدأ</h2>
@@ -975,6 +1050,8 @@
         <span class="last-updated" id="lastUpdated"></span>
       </div>
 
+      <!-- صفحة «الملخص» (الرئيسية جوه الأداة) -->
+      <div id="viewSummary" class="view-page" role="region" aria-labelledby="secStore">
       <!-- ليه الأرقام ممكن تختلف عن لوحة المنصة — مقفولة افتراضياً عشان متزحمش الصفحة -->
       <details class="numbers-note">
         <summary data-i18n="diff.title">لماذا تختلف الأرقام عن لوحة المنصة؟</summary>
@@ -1013,9 +1090,10 @@
         <div class="top-alerts" id="topAlerts"></div>
         <div class="dx-more" id="dxMore"></div>
       </section>
+      </div>
 
-      <!-- كل قسم في الصفحة ليه عنوان بعلامة خضرا (.sec-title) — عشان العين تفرّق بين الملخص والإعلانات -->
-
+      <!-- صفحة «الإعلانات»: الإعلانات والحملات بفلاترها -->
+      <div id="viewAds" class="view-page hidden" role="region" aria-labelledby="secAds">
       <section class="app-sec app-sec-ads" aria-labelledby="secAds">
       <h2 class="sec-title" id="secAds" data-i18n="sec.ads">الإعلانات والحملات</h2>
       <div class="toolbar">
@@ -1048,10 +1126,12 @@
 
       <div class="card-grid" id="cardGrid"></div>
       </section>
+      </div>
     </div>
   </div>
 
-  <section id="viewAlerts" class="hidden" role="tabpanel" aria-labelledby="tabAlerts">
+  <!-- صفحة «التنبيهات» -->
+  <section id="viewAlerts" class="view-page hidden" aria-labelledby="alertsHeading">
     <div class="alerts-head">
       <div>
         <h2 class="alerts-heading" id="alertsHeading" data-i18n="alerts.title">التنبيهات المهمة</h2>
@@ -1061,6 +1141,50 @@
     </div>
     <div id="alertsSummary"></div>
     <div class="alerts-list" id="alertsList"></div>
+  </section>
+
+  <!-- صفحة «الإعدادات» (مراجعة المرحلة ١): الربط والتنبيهات والمظهر واللغة والتثبيت والمساعدة والخروج في مكان واحد —
+       زي Stripe (إعدادات شخصية وإعدادات الحساب). الملخص التلقائي بالبريد لسه في «الملخص» لحد الخطوة ٢ (الإعدادات لكل عميل) -->
+  <section id="viewSettings" class="view-page hidden" aria-labelledby="settingsPageTitle">
+    <h2 class="sec-title" id="settingsPageTitle" data-i18n="set.page.title">الإعدادات</h2>
+    <div class="set-cards">
+      <div class="set-card">
+        <h3 class="set-card-title" data-i18n="set.page.accounts">الحسابات الإعلانية</h3>
+        <p class="set-card-text" data-i18n="set.page.accountsText">اربط منصاتك الإعلانية أو افصلها. وللتنقل بين حساباتك استخدم قائمة الحساب أعلى الصفحة.</p>
+        <button type="button" class="stop-btn" id="loginMenuBtn" data-i18n="btn.login">ربط حساب إعلاني</button>
+      </div>
+      <div class="set-card">
+        <h3 class="set-card-title" data-i18n="set.page.alerts">التنبيهات</h3>
+        <p class="set-card-text" data-i18n="set.page.alertsText">هدف الربح وحد الخسارة وحساسية التنبيهات.</p>
+        <button type="button" class="ghost-btn" data-open-settings data-i18n="alerts.settingsBtn">⚙ إعدادات التنبيهات</button>
+      </div>
+      <div class="set-card">
+        <h3 class="set-card-title" data-i18n="set.page.look">المظهر واللغة</h3>
+        <div class="set-card-row">
+          <span class="set-card-label" data-i18n="set.page.theme">الوضع الداكن</span>
+          <button type="button" class="icon-toggle" id="themeToggle" aria-label="المظهر" data-i18n-aria="theme.aria">☀️</button>
+        </div>
+        <div class="set-card-row">
+          <span class="set-card-label" data-i18n="set.page.lang">اللغة</span>
+          <button type="button" class="lang-toggle" id="langToggle" data-i18n="lang.toggle">EN</button>
+        </div>
+      </div>
+      <!-- بيظهر على الموبايل بس، ولو الأداة مش مثبّتة — installBtn في ui.js -->
+      <div class="set-card" id="installCard" hidden>
+        <h3 class="set-card-title" data-i18n="set.page.install">التثبيت على الهاتف</h3>
+        <p class="set-card-text" data-i18n="install.btnTitle">أضف Ads Center إلى الشاشة الرئيسية لهاتفك لتفتحه بلمسة واحدة</p>
+        <button type="button" class="lang-toggle install-btn" id="installBtn" data-i18n="install.btn" hidden>ثبّت الأداة</button>
+      </div>
+      <div class="set-card">
+        <h3 class="set-card-title" data-i18n="set.page.help">المساعدة والدعم</h3>
+        <p class="set-card-text"><a href="/help" data-i18n="footer.help">دليل البدء</a> · <a href="mailto:support@adscenter.online" dir="ltr">support@adscenter.online</a></p>
+      </div>
+      <div class="set-card">
+        <h3 class="set-card-title" data-i18n="set.page.signin">الدخول إلى الأداة</h3>
+        <!-- خروج من الأداة نفسها (js/auth.js بيظهّره بعد ما يتأكد من الدخول، وعنوانه فيه البريد) -->
+        <button type="button" class="lang-toggle" id="logoutBtn" data-i18n="auth.logout" hidden>خروج</button>
+      </div>
+    </div>
   </section>
 
   <footer class="site-footer">
@@ -1076,6 +1200,7 @@
   </footer>
 
 </div>
+</main>
 
 <!-- زرار الرجوع لأعلى: بيظهر بعد ما تنزل في قائمة إعلانات طويلة (syncAppbar في ui.js) -->
 <button type="button" class="to-top" id="toTopBtn" tabindex="-1" aria-label="العودة إلى أعلى الصفحة" title="العودة إلى أعلى الصفحة" data-i18n-aria="btn.toTop" data-i18n-title="btn.toTop"><span aria-hidden="true">↑</span></button>

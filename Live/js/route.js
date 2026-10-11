@@ -30,9 +30,11 @@
   // الرابط → الحالة المطلوبة. أي قيمة مش مفهومة بتتشال بهدوء (رابط منسوخ غلط ميكسرش الأداة)
   function parseRoute(search, today) {
     var q = new URLSearchParams(search || '');
-    var r = { accounts: {}, view: 'ads', list: null, campaign: null, ad: null, period: null };
+    // الصفحة: الملخص افتراضياً (من غير ?view=) — والروابط القديمة (?view=alerts من رسايل البريد) بتفضل شغّالة
+    var r = { accounts: {}, view: 'summary', list: null, campaign: null, ad: null, period: null };
     PLATFORMS.forEach(function (p) { var v = q.get(p); if (v && ROUTE_ACCOUNT_RE[p].test(v)) r.accounts[p] = v; });
-    if (q.get('view') === 'alerts') r.view = 'alerts';
+    var view = q.get('view');
+    if (view === 'ads' || view === 'alerts' || view === 'settings') r.view = view;
     var list = q.get('list');
     if (list === 'campaigns' || list === 'ads') r.list = list;
     var camp = q.get('campaign');
@@ -60,7 +62,7 @@
     var q = new URLSearchParams(search || '');
     ROUTE_KEYS.forEach(function (k) { q.delete(k); });
     PLATFORMS.forEach(function (p) { if (parts.accounts[p]) q.set(p, parts.accounts[p]); });
-    if (parts.view === 'alerts') q.set('view', 'alerts');
+    if (parts.view && parts.view !== 'summary') q.set('view', parts.view);
     if (parts.list === 'campaigns') q.set('list', 'campaigns');
     if (parts.campaign) q.set('campaign', parts.campaign);
     if (parts.ad) q.set('ad', parts.ad);
@@ -119,9 +121,8 @@
     return candidates.filter(function (x) { return campaignKey(x) === v || (x.campaignId != null && String(x.campaignId) === v); })[0];
   }
   function routeParts() {
-    var parts = { accounts: {}, view: 'ads', list: viewMode === 'campaigns' ? 'campaigns' : null, campaign: null, ad: null, period: routePeriodText(period), overlay: null };
+    var parts = { accounts: {}, view: currentView, list: viewMode === 'campaigns' ? 'campaigns' : null, campaign: null, ad: null, period: routePeriodText(period), overlay: null };
     PLATFORMS.forEach(function (p) { var id = routePending.accounts[p] || activeSources[p]; if (id) parts.accounts[p] = id; });
-    if (!document.getElementById('viewAlerts').classList.contains('hidden')) parts.view = 'alerts';
     parts.campaign = filters.campaign ? routeCampaignParam(filters.campaign) : routePending.campaign;
     var adOpen = !expandOverlay.classList.contains('hidden') && expandOverlay.dataset.adId;
     parts.ad = adOpen || routePending.ad;
@@ -220,7 +221,8 @@
     viewMode = r.list === 'campaigns' && !r.campaign ? 'campaigns' : 'ads';
     filters.campaign = null; filters.campaignName = null; routePending.campaign = r.campaign;
     routeBeforeRender();
-    showView(r.view);
+    // الحملة بتتعرض في صفحة «الإعلانات»
+    showView(r.campaign && r.view === 'summary' ? 'ads' : r.view);
     routeCloseOverlays();
     routePending.ad = null;
     if (r.ad) {
@@ -247,7 +249,9 @@
       if (r.campaign || r.ad) viewMode = 'ads'; else if (r.list) viewMode = r.list;
       routePending.campaign = r.campaign;
       routePending.ad = r.ad;
-      if (r.view === 'alerts') showView('alerts');
+      // الحملة بتتعرض في صفحة «الإعلانات»
+      var view = r.campaign && r.view === 'summary' ? 'ads' : r.view;
+      if (view !== 'summary') showView(view);
     })();
     ['click', 'change', 'keydown'].forEach(function (type) { document.addEventListener(type, routeMark, true); });
     window.addEventListener('popstate', function () {
