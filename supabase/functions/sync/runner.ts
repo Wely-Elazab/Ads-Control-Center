@@ -365,8 +365,13 @@ function countPhrase(n: number, en: boolean): string {
   if (n === 2) return 'أمران يحتاجان إلى إجراء';
   return g.ar(n) + (n <= 10 ? ' أمور تحتاج' : ' أمراً يحتاج') + ' إلى إجراء';
 }
-function urgentMail(name: string, fresh: any[], remind: { a: any; m: Mark }[], tz: string, en: boolean, stop: string) {
-  const n = esc(name), app = '<a href="' + SITE + '/app">Ads Center</a>';
+// رابط الأداة على الحساب نفسه (Live/js/route.js) — قبل كده /app لوحدها، فكانت بتفتح آخر حساب اتفتح على الجهاز
+// (مسؤول الإعلانات عنده كذا عميل). العاجل بيفتح تبويب التنبيهات على طول
+function appLink(account: string, view = ''): string {
+  return '<a href="' + SITE + '/app?meta=' + encodeURIComponent(account) + (view ? '&amp;view=' + view : '') + '">Ads Center</a>';
+}
+function urgentMail(account: string, name: string, fresh: any[], remind: { a: any; m: Mark }[], tz: string, en: boolean, stop: string) {
+  const n = esc(name), app = appLink(account, 'alerts');
   const subject = fresh.length
     ? (en ? 'Urgent: ' + (fresh.length === 1 ? fresh[0].title : countPhrase(fresh.length, true)) + ' — ' + name
       : 'عاجل: ' + (fresh.length === 1 ? fresh[0].title : countPhrase(fresh.length, false)) + ' — ' + name)
@@ -389,8 +394,8 @@ function urgentMail(name: string, fresh: any[], remind: { a: any; m: Mark }[], t
   lines.push(en ? 'To stop the summary and alerts: <a href="' + stop + '">Stop</a>' : 'لإيقاف الملخص والتنبيهات: <a href="' + stop + '">إيقاف</a>');
   return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
 }
-function connectionMail(name: string, en: boolean, stop: string) {
-  const n = esc(name), app = '<a href="' + SITE + '/app">Ads Center</a>';
+function connectionMail(account: string, name: string, en: boolean, stop: string) {
+  const n = esc(name), app = appLink(account);
   const subject = en ? 'We lost access to ' + name + ' — open Ads Center to restore it' : 'توقف وصولنا إلى حساب ' + name + ' — افتح الأداة لإعادته';
   const lines = en ? [
     'Hello,',
@@ -405,8 +410,8 @@ function connectionMail(name: string, en: boolean, stop: string) {
   ];
   return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
 }
-function expiryMail(name: string, expiresAt: string, tz: string, en: boolean, stop: string) {
-  const n = esc(name), app = '<a href="' + SITE + '/app">Ads Center</a>';
+function expiryMail(account: string, name: string, expiresAt: string, tz: string, en: boolean, stop: string) {
+  const n = esc(name), app = appLink(account);
   const subject = en ? 'Open Ads Center to keep alerts for ' + name + ' running' : 'افتح Ads Center ليستمر الملخص والتنبيهات لحساب ' + name;
   const lines = en ? [
     'Hello,',
@@ -549,8 +554,8 @@ function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: strin
   return '<div style="border-inline-start:4px solid #b91c1c;padding:2px 12px;margin:0 0 20px">' +
     P(esc(en ? 'Urgent alerts since the previous summary' : 'التنبيهات العاجلة منذ الملخص السابق'), 'font-weight:700') + rows.join('') + '</div>';
 }
-function summaryMail(name: string, since: string, until: string, sum: { composed: any; actions: any }, alerts: string | null, s: Settings, en: boolean, stop: string, monthly = false) {
-  const o = sum.composed, t = g.I18N.t, n = esc(name), app = '<a href="' + SITE + '/app">Ads Center</a>';
+function summaryMail(account: string, name: string, since: string, until: string, sum: { composed: any; actions: any }, alerts: string | null, s: Settings, en: boolean, stop: string, monthly = false) {
+  const o = sum.composed, t = g.I18N.t, n = esc(name), app = appLink(account);
   const range = g.fmtRange(since, until);
   // الشهري: «الملخص الشهري لـ X (سبتمبر): …»
   const monthName = g.I18N.months()[Number(since.slice(5, 7)) - 1];
@@ -615,7 +620,7 @@ async function checkAccount(s: Settings): Promise<string> {
     const due = !m || m.resolved_at || (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS);
     if (!due) { await saveMarks(account, [{ ...m, last_seen_at: iso }]); return 'lost'; }
     const name = (await accountName(account)) || account;
-    if (await send(account, 'urgent', s.email, connectionMail(name, en, stop))) {
+    if (await send(account, 'urgent', s.email, connectionMail(account, name, en, stop))) {
       await saveMarks(account, [m && !m.resolved_at ? { ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1 } : newMark('connection', '', iso)]);
     }
     return 'lost';
@@ -645,7 +650,7 @@ async function checkAccount(s: Settings): Promise<string> {
     if (isFinite(expiresAt) && expiresAt - now < EXPIRY_WARN_MS) {
       if (doUrgent && (!exp || exp.resolved_at)) {
         const name = acct.name || account;
-        if (await send(account, 'expiry', s.email, expiryMail(name, t.expires_at, acct.timezone_name || tz, en, stop))) keep.push(newMark('expiry', '', iso));
+        if (await send(account, 'expiry', s.email, expiryMail(account, name, t.expires_at, acct.timezone_name || tz, en, stop))) keep.push(newMark('expiry', '', iso));
       }
     } else if (exp && !exp.resolved_at) keep.push({ ...exp, resolved_at: iso });
 
@@ -677,7 +682,7 @@ async function checkAccount(s: Settings): Promise<string> {
       }
       // الرسالة الأول، والبصمات بعدها: لو الإرسال فشل، الساعة الجاية بتحاول تاني
       if (fresh.length || remind.length) {
-        const sent = await send(account, fresh.length ? 'urgent' : 'reminder', s.email, urgentMail(acct.name || account, fresh, remind, acct.timezone_name || tz, en, stop));
+        const sent = await send(account, fresh.length ? 'urgent' : 'reminder', s.email, urgentMail(account, acct.name || account, fresh, remind, acct.timezone_name || tz, en, stop));
         if (sent) keep.push(...sentRows);
         outcome = sent ? (fresh.length ? 'sent' : 'reminded') : 'send-failed';
       }
@@ -690,7 +695,7 @@ async function checkAccount(s: Settings): Promise<string> {
       keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });   // «حُلّت/مستمرة» بحالة الساعة دي
       const sum = await buildSummary(account, acct, due.since, due.until, targetOf(s));
       const alerts = alertStatusHtml(marks, cands, due.since, acct.timezone_name || tz, en, targetOf(s));
-      if (await send(account, 'summary', s.email, summaryMail(acct.name || account, due.since, due.until, sum, alerts, s, en, stop))) {
+      if (await send(account, 'summary', s.email, summaryMail(account, acct.name || account, due.since, due.until, sum, alerts, s, en, stop))) {
         await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_summary_until: due.until }) });
         outcome += '+summary';
       } else outcome += '+summary-failed';
@@ -700,7 +705,7 @@ async function checkAccount(s: Settings): Promise<string> {
       keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });
       const sum = await buildSummary(account, acct, monthly.since, monthly.until, targetOf(s));
       const alerts = alertStatusHtml(marks, cands, monthly.since, acct.timezone_name || tz, en, targetOf(s));
-      if (await send(account, 'monthly', s.email, summaryMail(acct.name || account, monthly.since, monthly.until, sum, alerts, s, en, stop, true))) {
+      if (await send(account, 'monthly', s.email, summaryMail(account, acct.name || account, monthly.since, monthly.until, sum, alerts, s, en, stop, true))) {
         await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_monthly: monthly.month }) });
         outcome += '+monthly';
       } else outcome += '+monthly-failed';
@@ -768,7 +773,7 @@ export async function previewSummary(token: string, accountId: string, lang: str
       const cands = (await loadCandidates(accountId, acct)) || [];
       const sum = await buildSummary(accountId, acct, win.since, win.until, await storedTarget(accountId));
       const alerts = alertStatusHtml(await marksOf(accountId), cands, win.since, tz, en, await storedTarget(accountId));
-      const mail = summaryMail(acct.name || accountId, win.since, win.until, sum, alerts, s, en, await stopUrl(accountId), monthly);
+      const mail = summaryMail(accountId, acct.name || accountId, win.since, win.until, sum, alerts, s, en, await stopUrl(accountId), monthly);
       return { engineCommit: ENGINE_COMMIT, engineOutdated: outdated, since: win.since, until: win.until, subject: mail.subject, html: mail.html, text: mail.text };
     } finally {
       metaToken = '';
@@ -791,7 +796,7 @@ export async function preview(token: string, accountId: string, lang: string): P
       if (!cands) return { error: 'retry' };
       // المعاينة: التعديلات الكبيرة من آخر ٢٤ ساعة (عشان تبان أمثلة)
       const urgent = await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, await storedTarget(accountId));
-      const mail = urgentMail(acct.name || accountId, urgent, [], acct.timezone_name || 'UTC', en, await stopUrl(accountId));
+      const mail = urgentMail(accountId, acct.name || accountId, urgent, [], acct.timezone_name || 'UTC', en, await stopUrl(accountId));
       return {
         engineCommit: ENGINE_COMMIT, engineOutdated: outdated, ads: cands.length,
         urgent: urgent.map((a: any) => ({ code: a.code || null, adId: a.adId || null, objectId: a.objectId || null, title: a.title, detail: a.detail })),

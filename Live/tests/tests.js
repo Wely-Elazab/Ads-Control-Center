@@ -5313,6 +5313,188 @@
     });
   });
 
+  // ---------- الروابط وزرار الرجوع (js/route.js — مراجعة المرحلة ١، ف٣) ----------
+  describe('الروابط وزرار الرجوع', function () {
+    test('قراءة الرابط: أرقام الحسابات بشكلها الصحيح بس، والقيم الغريبة بتتشال', function () {
+      var r = parseRoute('?meta=act_123&google=1234567890&snapchat=0a1b2c3d-0000-4000-8000-1234567890ab&tiktok=7012345678901234567' +
+        '&view=alerts&list=campaigns&campaign=c9&ad=120210&period=last30', '2026-10-11');
+      eq(r, { accounts: { meta: 'act_123', google: '1234567890', snapchat: '0a1b2c3d-0000-4000-8000-1234567890ab', tiktok: '7012345678901234567' },
+        view: 'alerts', list: 'campaigns', campaign: 'c9', ad: '120210', period: { preset: 'last30' } });
+      eq(parseRoute('?meta=123&google=12-34&snapchat=x&tiktok=abc&view=x&list=x&ad=%3Cscript%3E&period=forever', '2026-10-11'),
+        { accounts: {}, view: 'ads', list: null, campaign: null, ad: null, period: null });
+      eq(parseRoute('?campaign=' + new Array(302).join('x'), '2026-10-11').campaign, null, 'very long campaign value');
+    });
+    test('الفترة المخصصة في الرابط: مترتبة، مش في المستقبل، وأقصاها ٩٣ يوم — زي زرار «تطبيق»', function () {
+      eq(parseRoute('?period=custom&since=2026-10-09&until=2026-10-01', '2026-10-11').period, { preset: 'custom', since: '2026-10-01', until: '2026-10-09' }, 'reversed');
+      eq(parseRoute('?period=custom&since=2026-10-01&until=2026-12-01', '2026-10-11').period, { preset: 'custom', since: '2026-10-01', until: '2026-10-11' }, 'future end');
+      eq(parseRoute('?period=custom&since=2026-01-01&until=2026-10-11', '2026-10-11').period.since, shiftKey('2026-10-11', -92), 'trimmed to 93 days');
+      eq(parseRoute('?period=custom&since=2026-10-01', '2026-10-11').period, null, 'missing end');
+    });
+    test('كتابة الرابط: المعاملات التانية (digest وdx) بتفضل، والقديمة بتتشال', function () {
+      var parts = { accounts: { meta: 'act_1' }, view: 'alerts', list: null, campaign: null, ad: '55', period: 'last7', overlay: null };
+      eq(routeSearch(parts, '?digest=1&ad=99&campaign=old&list=campaigns&dx=0'), '?digest=1&dx=0&meta=act_1&view=alerts&ad=55&period=last7');
+      parts.period = 'custom:2026-10-01:2026-10-07'; parts.ad = null; parts.view = 'ads';
+      eq(routeSearch(parts, ''), '?meta=act_1&period=custom&since=2026-10-01&until=2026-10-07');
+    });
+    test('زرار الرجوع: فعل المستخدم خطوة، وقفل اللي فتحه رجوع، والتلقائي استبدال', function () {
+      var base = { accounts: { meta: 'act_1' }, view: 'ads', list: null, campaign: null, ad: null, period: 'last7', overlay: null };
+      var withAd = Object.assign({}, base, { ad: '5' }), hs = { key: 'A', parts: base, from: null };
+      eq(routeStep(hs, base, 'A', true), 'none', 'same page');
+      eq(routeStep(hs, withAd, 'B', false), 'replace', 'automatic change');
+      eq(routeStep(null, base, 'A', true), 'replace', 'first entry');
+      eq(routeStep(hs, withAd, 'B', true), 'push', 'user opens an ad');
+      eq(routeStep({ key: 'B', parts: withAd, from: 'A' }, base, 'A', true), 'back', 'user closes what they opened');
+      eq(routeStep({ key: 'B', parts: withAd, from: null }, base, 'A', true), 'replace', 'closing an ad opened from a link');
+      eq(routeStep(hs, Object.assign({}, base, { view: 'alerts' }), 'C', true), 'push', 'tab');
+      eq(routeStep({ key: 'A', parts: Object.assign({}, base, { accounts: {} }), from: null }, base, 'D', true), 'replace', 'account loaded');
+      eq(routeStep(hs, Object.assign({}, base, { accounts: { meta: 'act_2' } }), 'E', true), 'push', 'account switched');
+      eq(routeStep(hs, Object.assign({}, base, { accounts: {} }), 'F', true), 'replace', 'account disconnected');
+    });
+
+    // الأداة الحقيقية في إطار (الروابط شغّالة على /pauseproof-live.html في الإطار زي /app على الموقع)
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    function frame(query) {
+      var f = document.createElement('iframe');
+      f.style.cssText = 'position:fixed;left:0;top:0;width:800px;height:600px;opacity:0;pointer-events:none';
+      f.src = '/pauseproof-live.html?t=' + Date.now() + (query || '');
+      var loaded = new Promise(function (r) { f.onload = r; });
+      document.body.appendChild(f);
+      return loaded.then(function () { return sleep(100); }).then(function () { return f; });
+    }
+    // رجوع أو تقديم في الإطار وبنستنى popstate نفسه — بيتنادى بس بعد خطوة اتضافت في الإطار (غير كده كان هيرجّع صفحة الاختبارات)
+    function go(w, dir) {
+      return new Promise(function (r) {
+        w.addEventListener('popstate', function () { setTimeout(r, 0); }, { once: true });
+        w.history[dir]();
+      });
+    }
+    function param(w, k) { return new URLSearchParams(w.location.search).get(k); }
+
+    testAsync('رابط فيه التبويب والعرض والفترة بيفتح عليهم، من غير ما يغيّر الاختيارات المحفوظة', function () {
+      var saved = [localStorage.getItem('acc.period.v1'), localStorage.getItem('acc.view.v1')];
+      return frame('&view=alerts&list=campaigns&period=last30&digest=1').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        eq([d.getElementById('viewAlerts').classList.contains('hidden'), d.getElementById('viewAds').classList.contains('hidden')], [false, true], 'alerts tab');
+        eq([w.viewMode, d.getElementById('periodSelect').value], ['campaigns', 'last30']);
+        eq([localStorage.getItem('acc.period.v1'), localStorage.getItem('acc.view.v1')], saved, 'saved choices untouched');
+        eq([param(w, 'view'), param(w, 'list'), param(w, 'period'), param(w, 'digest')], ['alerts', 'campaigns', 'last30', '1'], 'the address keeps them (refresh = same page)');
+        f.remove();
+      });
+    });
+    testAsync('زرار الرجوع بيقفل تفاصيل الإعلان، وزرار القفل بيرجع خطوة بدل ما يزوّد واحدة', function () {
+      return frame().then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, ov = d.getElementById('expandOverlay');
+        w.candidates = [ad('r1', { daily: steady(10), res: steady(1) })];
+        w.render();
+        // عدد خطوات السجل نفسه مشترك مع صفحة الاختبارات (وفيه بقايا تشغيل قبل كده) — فبنتأكد من «الخطوة جت منين» (from)
+        var start = w.history.state && w.history.state.key;
+        ok(start && w.history.state.from === null, 'the first step is recorded');
+        d.querySelector('.candidate-card').click();
+        return sleep(30).then(function () {
+          eq([ov.classList.contains('hidden'), param(w, 'ad'), w.history.state.from], [false, 'r1', start], 'opening adds a step with ?ad=');
+          return go(w, 'back');
+        }).then(function () {
+          eq([ov.classList.contains('hidden'), param(w, 'ad')], [true, null], 'Back closes it');
+          return go(w, 'forward');
+        }).then(function () {
+          eq(ov.classList.contains('hidden'), false, 'Forward reopens it');
+          d.getElementById('expandClose').click();
+          return sleep(80);
+        }).then(function () {
+          // لو القفل كان زوّد خطوة، كانت هتبقى جاية من خطوة الإعلان (from مش null)
+          eq([ov.classList.contains('hidden'), w.history.state.key, w.history.state.from], [true, start, null], 'the close button went back to the first step');
+          f.remove();
+        });
+      });
+    });
+    testAsync('زرار الرجوع بيقفل نافذة الإعدادات، وتبويب التنبيهات خطوة يرجع منها للإعلانات', function () {
+      return frame().then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        w.candidates = [ad('t1', { daily: steady(10), res: steady(1) })];
+        w.render();
+        d.getElementById('tabAlerts').click();
+        return sleep(30).then(function () {
+          eq(param(w, 'view'), 'alerts');
+          d.getElementById('openSettingsBtn').click();
+          return sleep(30);
+        }).then(function () {
+          eq(d.getElementById('settingsOverlay').classList.contains('hidden'), false, 'settings open');
+          return go(w, 'back');
+        }).then(function () {
+          eq([d.getElementById('settingsOverlay').classList.contains('hidden'), param(w, 'view')], [true, 'alerts'], 'Back closed the settings only');
+          return go(w, 'back');
+        }).then(function () {
+          eq([d.getElementById('viewAds').classList.contains('hidden'), param(w, 'view')], [false, null], 'Back again returns to the ads tab');
+          f.remove();
+        });
+      });
+    });
+    testAsync('فتح حملة من عرض الحملات خطوة: الرابط فيه رقم الحملة، والرجوع بيرجّع قايمة الحملات', function () {
+      return frame('&list=campaigns').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        w.candidates = [ad('k1', { daily: steady(10), res: steady(1), cid: '777', camp: 'Spring' })];
+        w.render();
+        d.querySelector('.campaign-card').click();
+        return sleep(30).then(function () {
+          eq([w.viewMode, !!w.filters.campaign, param(w, 'campaign'), param(w, 'list')], ['ads', true, '777', null]);
+          return go(w, 'back');
+        }).then(function () {
+          eq([w.viewMode, w.filters.campaign, param(w, 'list')], ['campaigns', null, 'campaigns']);
+          f.remove();
+        });
+      });
+    });
+    testAsync('رابط إعلان (من البريد مثلاً) بيفتح تفاصيله أول ما يوصل، وقفلها مبيسيبش خطوة ترجّعها', function () {
+      return frame('&ad=d1').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, ov = d.getElementById('expandOverlay');
+        eq(param(w, 'ad'), 'd1', 'still waiting for the ad, the address keeps it');
+        w.candidates = [ad('d1', { daily: steady(10), res: steady(1) })];
+        w.render();
+        eq([ov.classList.contains('hidden'), ov.dataset.adId], [false, 'd1'], 'opened from the link');
+        d.getElementById('expandClose').click();
+        return sleep(30).then(function () {
+          // نفس الخطوة اتعدّلت (from لسه null) — مفيش خطوة فيها الإعلان يرجعلها الرجوع
+          eq([ov.classList.contains('hidden'), param(w, 'ad'), w.history.state.from], [true, null, null], 'closed in place');
+          f.remove();
+        });
+      });
+    });
+    testAsync('رابط حملة بيفتح إعلاناتها أول ما توصل', function () {
+      return frame('&campaign=888').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        w.candidates = [ad('m1', { daily: steady(10), res: steady(1), cid: '888', camp: 'Autumn' }), ad('m2', { daily: steady(10), res: steady(1), cid: '999', camp: 'Other' })];
+        w.render();
+        eq([w.viewMode, d.querySelectorAll('.candidate-card').length, param(w, 'campaign')], ['ads', 1, '888']);
+        ok(d.getElementById('activeFilters').textContent.indexOf('Autumn') !== -1, 'the campaign chip names it');
+        f.remove();
+      });
+    });
+    testAsync('رابط لإعلان أو حملة أو حساب مش موجودين: رسالة واضحة، والجزء ده بيتشال من الرابط', function () {
+      return frame('&ad=nope').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        w.candidates = [ad('x1', { daily: steady(10), res: steady(1) })];
+        w.render();
+        eq([d.getElementById('connectStatus').textContent, param(w, 'ad')], [w.t('route.noAd'), null], 'ad');
+        f.remove();
+        return frame('&campaign=nope');
+      }).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        w.candidates = [ad('x2', { daily: steady(10), res: steady(1) })];
+        w.render();
+        eq([d.getElementById('connectStatus').textContent, param(w, 'campaign')], [w.t('route.noCampaign'), null], 'campaign');
+        f.remove();
+        return frame('&meta=act_999');
+      }).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        eq(param(w, 'meta'), 'act_999', 'waiting for the account list');
+        w.setPlatformOptions('meta', [{ value: 'act_1', label: 'Meta — A' }]);
+        w.render();
+        eq([d.getElementById('connectStatus').textContent, param(w, 'meta')], [w.t('route.noAccount', { platform: 'Meta' }), null], 'account');
+        f.remove();
+      });
+    });
+  });
+
   // ---------- التقرير ----------
   runAsync().then(finish);
   function finish() {

@@ -3,7 +3,7 @@
 // =====================================================================
 // تسجيل الدخول (Google Identity Services)، الحسابات (بما فيها MCC)، تحميل الإعلانات وحالة التشغيل.
 // الملفات بتتحمّل بالترتيب ده وبتتشارك نفس النطاق العام (من غير bundler):
-//   i18n → alerts → core → meta → google → snapchat → tiktok → ui → main
+//   i18n → alerts → core → meta → google → snapchat → tiktok → ui → route → main
 // أي كود بيتنفّذ وقت التحميل مسموحله يستخدم اللي في الملفات اللي قبله بس — الباقي جوه دوال.
 
   // ---------- Google Identity Services SDK ----------

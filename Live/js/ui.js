@@ -4,7 +4,7 @@
 // المظهر واللغة، نافذة اختيار المنصة، الكروت (إعلانات وحملات)، الفلاتر، الأرقام، أهم التنبيهات،
 // تفاصيل الإعلان، صفحة التنبيهات، والإعدادات.
 // الملفات بتتحمّل بالترتيب ده وبتتشارك نفس النطاق العام (من غير bundler):
-//   i18n → alerts → core → meta → google → snapchat → tiktok → ui → main
+//   i18n → alerts → core → meta → google → snapchat → tiktok → ui → route → main
 // أي كود بيتنفّذ وقت التحميل مسموحله يستخدم اللي في الملفات اللي قبله بس — الباقي جوه دوال.
 
   // الوضع الداكن: الافتراضي زي الجهاز، والاختيار من الزرار بيتحفظ ويتطبّق على كل الصفحات (js/theme.js).
@@ -623,6 +623,8 @@
 
   function render() {
     runAnalysis();
+    // الحملة اللي في الرابط (js/route.js) بتتطبّق أول ما إعلاناتها توصل — قبل السطر اللي تحت ما يشيلها
+    if (typeof routeBeforeRender === 'function') routeBeforeRender();
     // لو الحملة اللي كنت فاتحها مش موجودة تاني (بدّلت الحساب مثلاً) الفلتر بيتشال لوحده
     if (filters.campaign && !candidates.some(function (c) { return campaignKey(c) === filters.campaign; })) filters.campaign = null;
     var visible = sortCandidates(visibleCandidates(), filters.sort);
@@ -666,6 +668,8 @@
     // ملخص المتجر كله: الحكم والأرقام وسطر النهارده و«يحتاج انتباهك الآن» (renderKpis وrenderTopAlerts جواه)
     renderDiagnosis();
     maybeShowWelcome();
+    // الرابط وزرار الرجوع (js/route.js): بعد الرسم عشان يشوف الحالة النهائية
+    if (typeof routeAfterRender === 'function') routeAfterRender();
   }
 
   // ---------- ملخص المتجر (js/diagnosis.js) ----------
@@ -1897,6 +1901,8 @@
 
   var expandSeq = 0;
   function openExpand(c) {
+    // رقم الإعلان المفتوح — للرابط (?ad=) وزرار الرجوع في js/route.js
+    expandOverlay.dataset.adId = c.id;
     var a = adAnalysis(c);
     var h = HEALTH[a.health];
     document.getElementById('expandTitle').textContent = c.offer;
