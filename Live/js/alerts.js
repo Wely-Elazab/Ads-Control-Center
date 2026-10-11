@@ -608,15 +608,23 @@
     // ولا لأ. quiet: على الكارت وفي التفاصيل بس، مش في قائمة التنبيهات ولا «يحتاج انتباهك الآن» (حسابات الميزانية على
     // مستوى الحملة فيها إعلانات كتير بإنفاق صغير — كانت هتغرق القائمة)
     var underspend = c.active && !learning && age != null && age > s.learningDays && c.results != null && !!avgCpr && spendW > 0 && spendW < avgCpr;
+    // إعلان مبيعات بيكسب على القليل اللي بياخده (طلبين أو أكتر وعائده عند المستهدف): «فرصة» وقراءة مبدئية، مش «يحتاج إلى تحسين» —
+    // حساب Snapchat حقيقي ١١ أكتوبر: طلبين بـ١٧$ (×٩٫٣) كان عليه «لا يأخذ إنفاقاً كافياً» بالأصفر كأن المشكلة فيه. ومش «جيد»: الإنفاق
+    // أقل من تكلفة نتيجة واحدة، فالدليل لسه مبدئي. لغير إعلان المبيعات «التكلفة أقل من المتوسط» مضمونة تلقائياً لأي إعلان صرف أقل من
+    // تكلفة نتيجة وجاب نتيجة، فقاعدة صاحب المنتج زي ما هي
+    var starvedWin = underspend && profitAd && resW >= 2 && roasW >= s.roasTarget;
     if (underspend) {
-      var usVars = { name: name, age: daysText(age, fmt), spend: money(spendW), count: countText(resW, c.resultKey, fmt), label: label, one: one, avg: money(avgCpr) };
-      var us = makeIssue('warning', ['spend'], t('al.underspend.t'), t(resW > 0 ? 'al.underspend.d' : 'al.underspend.dZero', usVars), t('al.underspend.a'), 0, 'underspend');
+      var usVars = { name: name, age: daysText(age, fmt), spend: money(spendW), count: countText(resW, c.resultKey, fmt), label: label, one: one, avg: money(avgCpr),
+        cpr: resW > 0 ? money(spendW / resW) : '' };
+      var us = starvedWin
+        ? makeIssue('opportunity', ['spend'], t('al.underspendWin.t'), t('al.underspendWin.d', usVars), t('al.underspendWin.a'), 0, 'underspend-win')
+        : makeIssue('warning', ['spend'], t('al.underspend.t'), t(resW > 0 ? 'al.underspend.d' : 'al.underspend.dZero', usVars), t('al.underspend.a'), 0, 'underspend');
       us.quiet = true;
       issues.push(us);
     }
 
     var pend = null;
-    if (underspend) pend = null;
+    if (underspend) pend = starvedWin ? 'prelimAbove' : null;
     else if (learning) pend = 'learning';
     else if (!any(daily)) pend = 'noSpend';   // ولا مليم في النافذة كلها (حتى النهارده) — c.spend للأيام المكتملة بس
     else if (c.results == null) pend = 'noGoal';
@@ -631,7 +639,7 @@
 
     // سطر «على أي أساس الحكم» في تفاصيل الإعلان — حتى الإعلان «الجيد» بيقول ليه
     var basis = null;
-    if (underspend) basis = t('basis.underspend', { spend: money(spendW), one: one, avg: money(avgCpr) });
+    if (underspend && !starvedWin) basis = t('basis.underspend', { spend: money(spendW), one: one, avg: money(avgCpr) });
     else if (pend) basis = pendText(pend);
     else if (profitAd && weekEvidence) {
       basis = t('basis.profit', { roas: fmt.num(roasW), target: fmt.num(s.roasTarget) }) + (acc.roasW != null && !selfAcc ? t('basis.vsAcc', { acc: fmt.num(acc.roasW) }) : '');

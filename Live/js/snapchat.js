@@ -279,6 +279,8 @@
         headline: (cr && cr.headline) || ad.name || ('Snapchat #' + ad.id), desc: (cr && cr.brand) || '',
         offer: ad.name || id, caption: (cr && cr.headline) || '',
         cta: (cr && cr.cta) || null,
+        // إعلانات من غير وسيط واحد: مجموعة منتجات (COLLECTION) أو قصة من كذا لقطة (COMPOSITE) — مش «صورة ثابتة»
+        badgeKey: cr && cr.type === 'COLLECTION' ? 'card.snapCollection' : (cr && cr.type === 'COMPOSITE' ? 'card.snapStory' : null),
         landing: landing || '—', landingKind: landing ? 'website' : null,
         daysAgo: ad.created_at ? daysBetween(ad.created_at) : null,
         updatedDaysAgo: ad.updated_at ? daysBetween(ad.updated_at) : null,

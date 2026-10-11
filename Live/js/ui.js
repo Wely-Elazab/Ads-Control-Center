@@ -328,7 +328,7 @@
     }
     if (c.format === 'image') {
       if (thumb) { return '<div class="preview"' + bgStyle + '></div>'; }
-      return '<div class="preview preview-image ' + c.themeClass + '"><span class="format-badge">' + t('card.staticDesign') + '</span></div>';
+      return '<div class="preview preview-image ' + c.themeClass + '"><span class="format-badge">' + t(c.badgeKey || 'card.staticDesign') + '</span></div>';
     }
     return '<div class="preview preview-text"><span class="text-url">' + esc(c.landing !== '—' ? c.landing : '') + '</span><span class="text-headline">' + esc(c.headline) + '</span><span class="text-desc">' + esc(c.desc) + '</span></div>';
   }

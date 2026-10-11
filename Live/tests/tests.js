@@ -928,6 +928,16 @@
       var fresh = ad('fresh', { daily: [0, 0, 0, 0, 2, 2, 0], res: [0, 0, 0, 0, 1, 0, 0], age: 2 });
       eq(engine(baseAccount().concat([fresh])).byAd.fresh.health, 'pending', 'still learning');
     });
+    test('إعلان مبيعات بيكسب على إنفاق قليل (طلبين وعائد فوق المستهدف) = «فرصة» وقراءة مبدئية، مش «يحتاج إلى تحسين»', function () {
+      // حساب Snapchat حقيقي ١١ أكتوبر: طلبين بـ١٧$ وعائد ×٩٫٣ كان عليه «لا يأخذ إنفاقاً كافياً» بالأصفر
+      var win = ad('win', { daily: [3, 3, 3, 3, 3, 3, 0], res: [0, 1, 0, 1, 0, 0, 0], sales: [0, 80, 0, 80, 0, 0, 0], cid: 'kw' });
+      var base = [ad('sa', { daily: steady(100), res: [2, 2, 2, 2, 2, 2, 1], sales: steady(400), cid: 'ka' }), ad('sb', { daily: steady(100), res: [2, 2, 2, 2, 2, 2, 1], sales: steady(400), cid: 'kb' })];
+      var r = withLang('ar', function () { return engine(base.concat([win])); });
+      var w = issuesOf(r, 'win').filter(function (i) { return i.code === 'underspend-win'; })[0];
+      ok(w && w.level === 'opportunity' && w.quiet && /نتائج جيدة بإنفاق قليل/.test(w.title), w ? w.title : list(r, 'win'));
+      eq([r.byAd.win.health, r.byAd.win.pending], ['pending', 'prelimAbove']);
+      ok(!issuesOf(r, 'win').some(function (i) { return i.code === 'underspend'; }), 'not «needs improvement»');
+    });
     // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «لا يتم اعتبار إجراءات التحسين في الإعلان»
     var editOn = function (i, kind, extra) { return [Object.assign({ kind: kind, level: 'campaign', date: KEYS[i], time: KEYS[i] + 'T10:00:00+0000' }, extra || {})]; };
     test('تعديل من أقل من ٣ أيام: الحكم بيستنى «عُدّل مؤخراً» والملاحظات المهمة للعلم — والعاجل بيفضل عاجل', function () {
