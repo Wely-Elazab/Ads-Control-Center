@@ -107,7 +107,7 @@
   }
   function routeParts() {
     var parts = { accounts: {}, view: 'ads', list: viewMode === 'campaigns' ? 'campaigns' : null, campaign: null, ad: null, period: routePeriodText(period), overlay: null };
-    PLATFORMS.forEach(function (p) { var id = activeSources[p] || routePending.accounts[p]; if (id) parts.accounts[p] = id; });
+    PLATFORMS.forEach(function (p) { var id = routePending.accounts[p] || activeSources[p]; if (id) parts.accounts[p] = id; });
     if (!document.getElementById('viewAlerts').classList.contains('hidden')) parts.view = 'alerts';
     parts.campaign = filters.campaign ? routeCampaignParam(filters.campaign) : routePending.campaign;
     var adOpen = !expandOverlay.classList.contains('hidden') && expandOverlay.dataset.adId;
@@ -156,25 +156,36 @@
     filters.campaignName = c.campaignName || null;
     routePending.campaign = null;
   }
+  // رسايل «اللي في الرابط مش موجود» بتستنى لحد ما التحميل يخلص: لو اتكتبت بدري، رسايل التحميل اللي بعدها كانت بتغطيها
+  // في نفس اللحظة (اتجرّب على الموقع ١١ أكتوبر ٢٠٢٦ — الرسالة ظهرت واختفت قبل ما تتقري)
+  var routeNotices = [];
   // بعد كل رسم: اللي لسه مستني من الرابط، وبعدين الرابط نفسه
   function routeAfterRender() {
     if (!routeOn) return;
     Object.keys(routePending.accounts).forEach(function (p) {
       var id = routePending.accounts[p], opts = platformOptions[p] || [];
       if (activeSources[p] === id) { delete routePending.accounts[p]; return; }
-      if (!opts.length || loadingPlatforms[p]) return; // قايمة الحسابات لسه متحمّلتش
+      // نحكم بعد ما المنصة نفسها تحمّل في الصفحة دي (إعلاناتها وصلت أو ليها حالة) — القايمة المحفوظة من قبل التحديث لوحدها مش كفاية
+      var loaded = candidates.some(function (c) { return platformOfSource(c.source) === p; }) || platformState[p];
+      if (!opts.length || loadingPlatforms[p] || !loaded) return;
       delete routePending.accounts[p];
       // الحساب مش من حسابات المستخدم: بنقول كده بدل ما يفتكر إن ده حساب الرابط
-      if (!opts.some(function (o) { return o.value === id; })) setStatus(msg('route.noAccount', { platform: PLATFORM_NAMES[p] }));
+      if (!opts.some(function (o) { return o.value === id; })) routeNotices.push(msg('route.noAccount', { platform: PLATFORM_NAMES[p] }));
     });
-    // «خلص التحميل» = فيه إعلانات، ومفيش منصة بتحمّل، وكل حسابات الرابط اتحسمت
-    var settled = candidates.length && !anyLoading() && !Object.keys(routePending.accounts).length;
+    // «خلص التحميل» = مفيش منصة بتحمّل، وكل حسابات الرابط اتحسمت، وفيه إعلانات أو حالة واضحة (حساب فاضي أو خطأ)
+    var settled = !anyLoading() && !Object.keys(routePending.accounts).length &&
+      (candidates.length || PLATFORMS.some(function (p) { return platformState[p]; }));
     if (routePending.ad) {
       var a = findCandidate(routePending.ad);
       if (a) { routePending.ad = null; openExpand(a); }
-      else if (settled) { routePending.ad = null; setStatus(msg('route.noAd')); }
+      else if (settled && candidates.length) { routePending.ad = null; routeNotices.push(msg('route.noAd')); }
     }
-    if (routePending.campaign && settled) { routePending.campaign = null; setStatus(msg('route.noCampaign')); }
+    if (routePending.campaign && settled && candidates.length) { routePending.campaign = null; routeNotices.push(msg('route.noCampaign')); }
+    if (settled && routeNotices.length) {
+      var notes = routeNotices;
+      routeNotices = [];
+      setStatus(function () { return notes.map(function (m) { return m(); }).join(' '); });
+    }
     routeSync(false);
   }
   function routeCloseOverlays() {

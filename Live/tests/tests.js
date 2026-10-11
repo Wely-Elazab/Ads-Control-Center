@@ -5487,9 +5487,22 @@
       }).then(function (f) {
         var w = f.contentWindow, d = f.contentDocument;
         eq(param(w, 'meta'), 'act_999', 'waiting for the account list');
+        // زي تحديث الصفحة على الموقع: القايمة المحفوظة رجعت وحساب تاني مفتوح، والتحميل لسه مبدأش — لسه منحكمش
+        // (قبل كده الحكم كان بيتكتب هنا، ورسالة التحميل اللي بعده بتغطيه في نفس اللحظة — اتجرّب على الموقع ١١ أكتوبر)
         w.setPlatformOptions('meta', [{ value: 'act_1', label: 'Meta — A' }]);
+        w.activeSources.meta = 'act_1';
         w.render();
-        eq([d.getElementById('connectStatus').textContent, param(w, 'meta')], [w.t('route.noAccount', { platform: 'Meta' }), null], 'account');
+        eq(param(w, 'meta'), 'act_999', 'no verdict before the platform loads on this page');
+        w.loadingPlatforms.meta = true;
+        w.setStatus('loading');
+        w.render();
+        eq(param(w, 'meta'), 'act_999', 'no verdict while it loads');
+        // التحميل خلص برسالته: رسالة الرابط بتيجي بعدها فبتفضل ظاهرة
+        w.candidates = [ad('a1', { daily: steady(10), res: steady(1) })];
+        w.loadingPlatforms.meta = false;
+        w.setStatus('loaded');
+        w.render();
+        eq([d.getElementById('connectStatus').textContent, param(w, 'meta')], [w.t('route.noAccount', { platform: 'Meta' }), 'act_1'], 'account');
         f.remove();
       });
     });
