@@ -3452,6 +3452,25 @@
       }).then(restore, function (e) { restore(); throw e; });
     });
 
+    testAsync('زرار عرض الملخص في الصفحة العربية: مسافة بين اسم المنصة واسم الحساب (كانوا لازقين «Store OneMeta»)', function () {
+      var restore = keepStorage(['acc.lang']);
+      localStorage.setItem('acc.lang', 'ar');
+      return toolFrame(800, 600).then(function (f) {
+        var d = f.contentDocument, box = d.createElement('div');
+        // نفس الشكل اللي renderDiagnosis بيبنيه
+        box.className = 'dx-views';
+        box.innerHTML = '<button type="button" class="chip">Meta<span class="dx-view-acct" dir="auto">Store One</span></button>';
+        d.body.appendChild(box);
+        var btn = box.firstChild, range = d.createRange();
+        range.selectNodeContents(btn.firstChild);
+        var label = range.getBoundingClientRect(), acct = btn.querySelector('.dx-view-acct').getBoundingClientRect();
+        // بالعربي: المنصة يمين واسم الحساب شمالها
+        ok(acct.right <= label.left, 'account name sits to the left of the platform');
+        ok(label.left - acct.right >= 4, 'gap between them: ' + Math.round(label.left - acct.right) + 'px');
+        f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
     // فيديو Snapchat في نافذة التفاصيل (حساب حقيقي ١١ أكتوبر ٢٠٢٦)
     function snapVideoAd(src) {
       var eight = function (n) { return [n, n, n, n, n, n, n, n]; };

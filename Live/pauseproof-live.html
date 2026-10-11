@@ -732,8 +732,10 @@
   .dx-auto-on strong { color: var(--verified); }
   .dx-period { margin: 4px 0 12px; font-size: 12.5px; color: var(--ink-soft); }
   .dx-views { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
-  /* اسم الحساب جنب المنصة في زرار العرض (ui.js renderDiagnosis) — مقصوص لو طويل، والاسم كامل في التلميح */
-  .dx-view-acct { display: inline-block; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; margin-inline-start: 6px; font-weight: 400; opacity: .8; }
+  /* اسم الحساب جنب المنصة في زرار العرض (ui.js renderDiagnosis) — مقصوص لو طويل، والاسم كامل في التلميح.
+     المسافة بـ gap مش margin: الاسم اتجاهه حسب حروفه (dir=auto)، فـ margin-inline-start كانت بتيجي في الناحية الغلط بالعربي («Store OneMeta» لازقين) */
+  .dx-views .chip { display: inline-flex; align-items: center; gap: 6px; }
+  .dx-view-acct { display: inline-block; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; opacity: .8; }
   .dx-views + .dx-notes { margin: -4px 2px 10px; }
   .dx-wait { margin: 0; padding: 16px 18px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px; color: var(--ink-soft); }
   .dx-head { background: var(--card); border: 1px solid var(--line); border-inline-start: 4px solid var(--ink-faint); border-radius: var(--radius); padding: 16px 18px; }
