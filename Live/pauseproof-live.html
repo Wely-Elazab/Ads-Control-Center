@@ -507,6 +507,8 @@
   .set-card-text a { color: var(--verified); }
   .set-card-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
   .set-card-label { font-size: 13.5px; color: var(--ink); }
+  .set-card-wide { grid-column: 1 / -1; }
+  .set-card .dx-auto { margin: 0; width: 100%; }
 
   /* شريط الحالة تحت الشريط العلوي + مؤشر تحميل */
   .status-strip { position: relative; max-width: 1100px; margin: 0 auto; padding: 8px 16px 0; font-size: 12.5px; color: var(--ink-soft); display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 30px; }
@@ -1072,12 +1074,11 @@
         <div class="dx-top">
           <h2 class="sec-title" id="secStore" data-i18n="dx.title">ملخص المتجر</h2>
           <span class="dx-top-actions">
-            <button type="button" class="ghost-btn" id="dxAutoBtn" data-i18n="dx.auto.btn" aria-expanded="false" aria-controls="dxAuto" hidden>الملخص التلقائي</button>
             <button type="button" class="ghost-btn" id="dxCopy" data-i18n="dx.copy" hidden>انسخ الملخص</button>
           </span>
         </div>
+        <!-- تلميح التفعيل بيفضل هنا في سياقه (NN/g)، و«فعّلها الآن» بيفتح بطاقته في «الإعدادات» — الصندوق نفسه اتنقل هناك -->
         <div class="dx-auto-hint" id="dxAutoHint" hidden></div>
-        <div class="dx-auto" id="dxAuto" hidden></div>
         <p class="dx-period" id="dxPeriod"></p>
         <div id="dxBody" aria-live="polite"></div>
         <div class="kpi-strip" id="kpiStrip"></div>
@@ -1153,6 +1154,13 @@
         <p class="set-card-text" data-i18n="set.page.accountsText">اربط منصاتك الإعلانية أو افصلها. وللتنقل بين حساباتك استخدم قائمة الحساب أعلى الصفحة.</p>
         <button type="button" class="stop-btn" id="loginMenuBtn" data-i18n="btn.login">ربط حساب إعلاني</button>
       </div>
+      <!-- الملخص التلقائي بالبريد (اتنقل من «ملخص المتجر» — كل الإعدادات في مكان واحد): لحساب Meta المفتوح أياً كان العرض.
+           قبل كده كان بيظهر بس لو اخترت عرض Meta لوحده جوه الملخص. renderDigest في ui.js -->
+      <div class="set-card set-card-wide" id="digestCard">
+        <h3 class="set-card-title" data-i18n="dx.auto.title">الملخص التلقائي بالبريد</h3>
+        <p class="set-card-text" id="digestCardNote"></p>
+        <div class="dx-auto" id="dxAuto" hidden></div>
+      </div>
       <div class="set-card">
         <h3 class="set-card-title" data-i18n="set.page.alerts">التنبيهات</h3>
         <p class="set-card-text" data-i18n="set.page.alertsText">هدف الربح وحد الخسارة وحساسية التنبيهات.</p>
@@ -1195,6 +1203,8 @@
       <a href="/privacy" data-i18n="footer.privacy">سياسة الخصوصية</a>
       <a href="/terms" data-i18n="footer.terms">شروط الاستخدام</a>
       <a href="/data-deletion" data-i18n="footer.deletion">حذف البيانات</a>
+      <!-- الدعم كان في كل الصفحات إلا الأداة نفسها — أكتر مكان بيحتاجه فيه العميل (ف١٠، WCAG 3.2.6) -->
+      <a href="mailto:support@adscenter.online" dir="ltr">support@adscenter.online</a>
       <a href="/pricing" data-i18n="footer.pricing" hidden>الأسعار</a>
     </nav>
   </footer>

@@ -582,8 +582,8 @@ function summaryMail(account: string, name: string, since: string, until: string
     ? (en ? 'You receive this monthly summary for <strong>' + n + '</strong> on the first Sunday of each month, alongside your summary on ' + days + '. Full details are in ' + app + '.'
       : 'يصلك هذا الملخص الشهري لحساب <strong>' + n + '</strong> في أول أحد من كل شهر، إلى جانب ملخصك ' + days + '. التفاصيل الكاملة في ' + app + '.')
     : (en
-      ? 'You receive this summary for <strong>' + n + '</strong> on ' + days + ' at ' + hour + ' account time. Full details are in ' + app + '; to change the schedule open the tool, then "Store summary", then "Automatic summary".'
-      : 'يصلك هذا الملخص لحساب <strong>' + n + '</strong> ' + days + ' الساعة ' + hour + ' بتوقيت الحساب. التفاصيل الكاملة في ' + app + '، ولتعديل المواعيد: افتح الأداة، ثم «ملخص المتجر»، ثم «الملخص التلقائي».'));
+      ? 'You receive this summary for <strong>' + n + '</strong> on ' + days + ' at ' + hour + ' account time. Full details are in ' + app + '; to change the schedule open the tool, then "Settings", then "Automatic summary by email".'
+      : 'يصلك هذا الملخص لحساب <strong>' + n + '</strong> ' + days + ' الساعة ' + hour + ' بتوقيت الحساب. التفاصيل الكاملة في ' + app + '، ولتعديل المواعيد: افتح الأداة، ثم «الإعدادات»، ثم «الملخص التلقائي بالبريد».'));
   parts.push(en ? 'To stop the summary and alerts: <a href="' + stop + '">Stop</a>' : 'لإيقاف الملخص والتنبيهات: <a href="' + stop + '">إيقاف</a>');
   const heading = esc(monthly ? (en ? 'Monthly summary — ' + name + ', ' + monthName : 'الملخص الشهري — ' + name + '، ' + monthName)
     : (en ? 'Store summary — ' + name : 'ملخص المتجر — ' + name));

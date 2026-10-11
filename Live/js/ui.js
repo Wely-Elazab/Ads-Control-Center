@@ -849,7 +849,8 @@
       localStorage.setItem(DIGEST_HINT_KEY, JSON.stringify(all));
     } catch (e) { /* التلميح هيرجع في الجلسة الجاية — مش مشكلة */ }
   }
-  function digestAccount() { var m = /^meta:(act_\d{1,30})$/.exec(dxState.accountId || ''); return m ? m[1] : null; }
+  // حساب Meta المفتوح أياً كان عرض الملخص (من ١١ أكتوبر ٢٠٢٦ البطاقة في «الإعدادات» — قبل كده عرض Meta لوحده في الملخص بس)
+  function digestAccount() { var id = activeSources.meta; return /^act_\d{1,30}$/.test(id || '') ? id : null; }
   // المستهدف وحد الخسارة من إعدادات التنبيهات (قرار ٧ أكتوبر ٢٠٢٦): بيتبعتوا مع الملخص التلقائي عشان رسالة الملخص فيها نفس
   // سطر «العائد أقل من المستهدف…» اللي هنا، والتنبيهات العاجلة بالبريد بنفس حد الخسارة (digest.ts cleanTarget)
   function digestTarget() {
@@ -885,7 +886,7 @@
   }
   function digestPanelHtml() {
     var u = digestUi, d = u.data || {}, s = d.settings, tz = d.timezone || (s && s.timezone) || '';
-    var head = '<h3>' + esc(t('dx.auto.title')) + '</h3>';
+    var head = '';   // العنوان في البطاقة نفسها (صفحة الإعدادات)
     var msg = u.msg ? '<p class="dx-auto-msg' + (u.msgErr ? ' err' : '') + '" role="status">' + esc(u.msg) + '</p>' : '';
     if (u.status === 'loading') return head + '<p>' + esc(t('dx.auto.loading')) + '</p>';
     if (u.status === 'error') {
@@ -928,21 +929,27 @@
       (u.editing ? '<button type="button" class="ghost-btn" data-digest-cancel>' + esc(t('dx.auto.cancel')) + '</button>' : '') + '</div>';
     return form + msg;
   }
-  // الزرار والصندوق: بيتنادى مع كل رسم للملخص. الصندوق نفسه مش بيتعاد رسمه هنا (عشان ميمسحش اللي العميل بيكتبه)
+  // البطاقة في «الإعدادات» وتلميح التفعيل في الملخص: بيتنادى مع كل رسم للملخص ومع فتح صفحة الإعدادات.
+  // الصندوق نفسه مش بيتعاد رسمه هنا (عشان ميمسحش اللي العميل بيكتبه)، وحالته بتتجاب من السيرفر أول ما الصفحة تتفتح بس
   function renderDigest() {
-    var btn = document.getElementById('dxAutoBtn'), panel = document.getElementById('dxAuto'), hint = document.getElementById('dxAutoHint');
-    if (!btn || !panel) return;
+    var card = document.getElementById('digestCard'), panel = document.getElementById('dxAuto'), hint = document.getElementById('dxAutoHint');
+    if (!card || !panel) return;
     var account = digestAccount();
-    var show = DIGEST_ON && dxState.status === 'ready' && !!account && !!metaAccessToken();
+    var show = DIGEST_ON && !!account && !!metaAccessToken();
     if (digestUi.account !== account) digestUi = digestFresh(account);
-    btn.hidden = !show;
-    var visible = show && digestUi.open;
-    btn.setAttribute('aria-expanded', visible ? 'true' : 'false');
-    panel.hidden = !visible;
-    if (!visible) panel.innerHTML = '';
-    // تلميح التفعيل: الحساب مش مفعّل له الملخص (أكيد)، والصندوق مقفول، ومحدش ضغط «لاحقاً» قريب
+    // ?digest=0 بيخفيها على الجهاز ده (DIGEST_ON في core.js)
+    card.hidden = !DIGEST_ON;
+    var note = document.getElementById('digestCardNote');
+    if (note) note.textContent = show ? t('set.page.digestFor', { name: accountLabel('meta') }) : t('set.page.digestNoMeta');
+    panel.hidden = !show;
+    if (!show) panel.innerHTML = '';
+    else if (currentView === 'settings') {
+      if (digestUi.status === 'idle') digestLoad();
+      else if (!panel.firstChild) renderDigestPanel();
+    }
+    // تلميح التفعيل: الحساب مش مفعّل له الملخص (أكيد)، ومحدش ضغط «لاحقاً» قريب
     if (hint) {
-      var showHint = show && !digestUi.open && digestKnown[account] === false && !digestHintSnoozed(account);
+      var showHint = show && digestKnown[account] === false && !digestHintSnoozed(account);
       var key = showHint ? (isAr() ? 'ar' : 'en') : '';   // بيتعاد رسمه لما يظهر أو يختفي أو اللغة تتغير بس (مش مع كل رسم للملخص)
       if (hint.getAttribute('data-k') !== key) {
         hint.setAttribute('data-k', key);
@@ -957,6 +964,15 @@
     var panel = document.getElementById('dxAuto');
     if (panel && !panel.hidden) panel.innerHTML = digestPanelHtml();
   }
+  // بعد «فعّلها الآن»: البطاقة قدامك والمؤشر في خانة البريد — أول ما النموذج يجهز (الحالة بتيجي من السيرفر).
+  // لو الملخص مفعّل أصلاً مفيش خانة، فبنكتفي بالبطاقة
+  function digestFocus() {
+    if (!digestUi.wantFocus) return;
+    var card = document.getElementById('digestCard'), field = document.getElementById('dxAutoEmail');
+    if (card && card.scrollIntoView) card.scrollIntoView({ block: 'start' });
+    if (field) field.focus({ preventScroll: true });
+    if (field || digestUi.status === 'ready' || digestUi.status === 'error') digestUi.wantFocus = false;
+  }
   function digestLoad() {
     digestUi.status = 'loading';
     digestUi.msg = null;
@@ -968,6 +984,7 @@
       digestUi.data = res;
       digestUi.status = 'ready';
       renderDigestPanel();
+      digestFocus();
     }, function (e) {
       if (digestUi.account !== account) return;
       digestUi.status = 'error';
@@ -1053,13 +1070,12 @@
   document.addEventListener('click', function (e) {
     if (!e.target.closest) return;
     var el;
-    var hintOn = e.target.closest('[data-digest-hint-on]');
-    if (e.target.closest('#dxAutoBtn') || hintOn) {
-      digestUi.open = hintOn ? true : !digestUi.open;
-      digestUi.msg = null;
-      renderDigest();
-      if (digestUi.open) { if (digestUi.status === 'idle' || digestUi.status === 'error') digestLoad(); else renderDigestPanel(); }
-      if (hintOn) { var p = document.getElementById('dxAuto'), f = p && p.querySelector('#dxAutoEmail'); if (f) f.focus(); else if (p) p.scrollIntoView({ block: 'nearest' }); }
+    // «فعّلها الآن» في الملخص: صفحة «الإعدادات» على بطاقة الملخص التلقائي، والمؤشر في خانة البريد
+    if (e.target.closest('[data-digest-hint-on]')) {
+      digestUi.wantFocus = true;
+      goView('settings');
+      if (digestUi.status === 'error') digestLoad();
+      digestFocus();
       return;
     }
     if (e.target.closest('[data-digest-hint-later]')) {
@@ -2212,6 +2228,8 @@
     document.getElementById('viewAds').classList.toggle('hidden', view !== 'ads');
     document.getElementById('viewAlerts').classList.toggle('hidden', view !== 'alerts');
     document.getElementById('viewSettings').classList.toggle('hidden', view !== 'settings');
+    // بطاقة الملخص التلقائي بتجيب حالتها من السيرفر أول ما الصفحة تتفتح (مش مع كل فتح للأداة)
+    if (view === 'settings') renderDigest();
   }
   // فتح صفحة جديدة من القائمة = أول الصفحة. التنبيهات بترجع للعرض العادي (العاجل + المهم) حتى لو كانت متفلترة قبل كده
   function goView(view) {

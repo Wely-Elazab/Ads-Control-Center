@@ -223,8 +223,8 @@ function activationMail(r: Req) {
   if (has('meta')) {
     lines.push(h(en ? 'Last step: get alerts by email' : 'الخطوة الأخيرة: التنبيهات على بريدك'));
     lines.push(en
-      ? 'Once your Meta account is connected and your "Store summary" appears, press <strong>"Automatic summary"</strong>, choose the days and time, then press "Turn on the automatic summary". From then on you\'ll get an immediate email if what brings you sales stops or an ad spends without orders, plus a summary of what you spent and what came back on the days you choose — without opening the tool.'
-      : 'بعد ربط حساب Meta وظهور «ملخص المتجر»، اضغط <strong>«الملخص التلقائي»</strong>، واختر الأيام والساعة، ثم اضغط «تفعيل الملخص التلقائي». بعدها يصلك بريد فوري إذا توقف ما يجلب لك المبيعات أو صرف إعلان دون طلبات، وملخص لما صرفته وما عاد عليك في الأيام التي تختارها، دون أن تفتح الأداة.');
+      ? 'Once your Meta account is connected, open "Settings" and the <strong>"Automatic summary by email"</strong> card, choose the days and time, then press "Turn on the automatic summary". From then on you\'ll get an immediate email if what brings you sales stops or an ad spends without orders, plus a summary of what you spent and what came back on the days you choose — without opening the tool.'
+      : 'بعد ربط حساب Meta، افتح «الإعدادات» ثم بطاقة <strong>«الملخص التلقائي بالبريد»</strong>، واختر الأيام والساعة، ثم اضغط «تفعيل الملخص التلقائي». بعدها يصلك بريد فوري إذا توقف ما يجلب لك المبيعات أو صرف إعلان دون طلبات، وملخص لما صرفته وما عاد عليك في الأيام التي تختارها، دون أن تفتح الأداة.');
   }
   lines.push('<div style="margin:22px 0 14px;line-height:1.8">' + (en
     ? 'Every step is explained in the ' + link(SITE + '/help', 'getting-started guide') + '. Your password and sign-in code are typed only on the sign-in page at adscenter.online/login — we will never ask you for them by email or by phone.'

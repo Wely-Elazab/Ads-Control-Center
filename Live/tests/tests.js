@@ -1767,6 +1767,21 @@
         eq(currentView, 'summary');
       } finally { showView('summary'); }
     });
+    // قبل المراجعة: ٥ صيغ تذييل وأسماء مختلفة لنفس الرابط («دليل البدء/البداية»، «الرجوع/العودة/دخول الأداة»)، والدعم في كل
+    // الصفحات إلا الأداة (ف١٠). المساعدة لازم تبقى بنفس الترتيب في كل الصفحات (WCAG 3.2.6)
+    testAsync('التذييل: نفس الروابط بنفس الترتيب في كل الصفحات وفيها الدعم، من غير رابط الصفحة نفسها', function () {
+      var ORDER = ['/app', '/', '/help', '/privacy', '/terms', '/data-deletion', 'mailto:support@adscenter.online'];
+      var pages = { '/home.html': '/', '/help.html': '/help', '/join.html': null, '/login.html': '/app', '/terms.html': '/terms', '/privacy.html': '/privacy',
+        '/data-deletion.html': '/data-deletion', '/404.html': null, '/stop.html': null, '/pauseproof-live.html': '/app' };
+      return Promise.all(Object.keys(pages).map(function (u) {
+        return fetch(u + '?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (html) {
+          var f = new DOMParser().parseFromString(html, 'text/html').querySelector('footer');
+          return [u, f ? Array.prototype.filter.call(f.querySelectorAll('a'), function (a) { return !a.hasAttribute('hidden'); }).map(function (a) { return a.getAttribute('href'); }) : null];
+        });
+      })).then(function (rows) {
+        rows.forEach(function (row) { eq(row[1], ORDER.filter(function (h) { return h !== pages[row[0]]; }), row[0]); });
+      });
+    });
     testAsync('النوافذ: التركيز بيدخل جوه النافذة وبيرجع للزرار اللي فتحها', function () {
       // زرار الحسابات بقى في صفحة «الإعدادات»
       showView('settings');
@@ -4964,28 +4979,35 @@
       localStorage.removeItem(DIGEST_HINT_KEY);
       DIGEST_ON = true; digestUi = digestFresh(); digestRefreshed = {}; digestKnown = {};
       dxState = dxFresh(); dxState.status = 'ready'; dxState.accountId = 'meta:act_1';
+      // البطاقة بقت في «الإعدادات» لحساب Meta المفتوح (activeSources) أياً كان عرض الملخص
+      var realMeta = activeSources.meta;
+      activeSources.meta = 'act_1';
       var restore = function () {
         window.fetch = realFetch;
         if (hadFB) window.FB = realFB; else delete window.FB;
         if (realHint === null) localStorage.removeItem(DIGEST_HINT_KEY); else localStorage.setItem(DIGEST_HINT_KEY, realHint);
-        DIGEST_ON = realOn; digestUi = digestFresh(); digestRefreshed = {}; digestKnown = {}; dxReset(); renderDigest();
+        if (realMeta == null) delete activeSources.meta; else activeSources.meta = realMeta;
+        DIGEST_ON = realOn; digestUi = digestFresh(); digestRefreshed = {}; digestKnown = {}; dxReset(); showView('summary'); renderDigest();
       };
       return Promise.resolve().then(function () { return fn(calls); }).then(function (v) { restore(); return v; }, function (e) { restore(); throw e; });
     };
-    var btn = function () { return document.getElementById('dxAutoBtn'); };
     var panel = function () { return document.getElementById('dxAuto'); };
-    var openPanel = function () { renderDigest(); btn().click(); return tick2(); };
+    // فتح صفحة «الإعدادات» = البطاقة بتجيب حالتها من السيرفر
+    var openPanel = function () { showView('settings'); return tick2(); };
 
-    testAsync('الزرار بيظهر في عرض حساب Meta لوحده مع جلسة Meta، ومخفي لو الميزة مقفولة', function () {
-      return withDigest(function () { return ok200({}); }, function () {
+    testAsync('بطاقة الملخص التلقائي في «الإعدادات» لحساب Meta المفتوح أياً كان عرض الملخص، وبتشرح لو مفيش Meta، ومخفية لو الميزة مقفولة', function () {
+      return withDigest(function () { return ok200({ settings: null }); }, function (calls) {
         renderDigest();
-        ok(!btn().hidden, 'meta view');
+        ok(!panel().hidden, 'meta account open');
+        eq(calls.length, 0, 'nothing asked from the server before Settings opens');
+        // قبل كده كانت بتظهر بس في عرض Meta لوحده جوه الملخص
         dxState.accountId = 'all:meta:act_1,google:1'; renderDigest();
-        ok(btn().hidden, 'not on «all platforms»');
-        dxState.accountId = 'google:123'; renderDigest();
-        ok(btn().hidden, 'not on Google');
-        dxState.accountId = 'meta:act_1'; DIGEST_ON = false; renderDigest();
-        ok(btn().hidden, 'hidden while the feature is off');
+        ok(!panel().hidden, 'also while the summary shows all platforms');
+        delete activeSources.meta; renderDigest();
+        eq([panel().hidden, document.getElementById('digestCardNote').textContent], [true, t('set.page.digestNoMeta')], 'no Meta account: says how to get it');
+        activeSources.meta = 'act_1'; DIGEST_ON = false; renderDigest();
+        ok(document.getElementById('digestCard').hidden, 'hidden while the feature is off');
+        ok(!document.getElementById('dxAutoBtn'), 'the old button in the summary is gone');
       });
     });
     testAsync('فتح الصندوق: بيجيب الحالة من السيرفر، والنموذج بالأحد والأربعاء ٩ صباحاً افتراضياً', function () {
@@ -5077,7 +5099,7 @@
       });
     });
     var hintEl = function () { return document.getElementById('dxAutoHint'); };
-    testAsync('تلميح التفعيل: بيظهر بس لما نكون متأكدين إن الملخص مش مفعّل للحساب، وفي عرض Meta لوحده', function () {
+    testAsync('تلميح التفعيل: بيظهر بس لما نكون متأكدين إن الملخص مش مفعّل لحساب Meta المفتوح', function () {
       return withDigest(function (b) { return ok200({ ok: true, enabled: b.accountId === 'act_2' }); }, function () {
         renderDigest();
         ok(hintEl().hidden, 'unknown → hidden');
@@ -5085,16 +5107,17 @@
         return tick2().then(function () {
           ok(!hintEl().hidden && hintEl().querySelector('[data-digest-hint-on]'), 'not enabled → shown');
           withLang('ar', function () { renderDigest(); ok(hintEl().textContent.indexOf(t('dx.auto.hint')) > -1, 'text in the current language'); });
-          dxState.accountId = 'all:meta:act_1,google:1'; renderDigest();
-          ok(hintEl().hidden, 'not on «all platforms»');
-          dxState.accountId = 'meta:act_2'; digestAutoRefresh('act_2');
+          delete activeSources.meta; renderDigest();
+          ok(hintEl().hidden, 'no Meta account open → hidden');
+          activeSources.meta = 'act_2'; digestAutoRefresh('act_2');
           return tick2();
         }).then(function () {
+          renderDigest();
           ok(hintEl().hidden, 'enabled → hidden');
         });
       });
     });
-    testAsync('تلميح التفعيل: «فعّلها الآن» بيفتح نموذج التفعيل، و«لاحقاً» بيخفيه على الجهاز ده', function () {
+    testAsync('تلميح التفعيل: «فعّلها الآن» بيفتح «الإعدادات» على نموذج التفعيل والمؤشر في البريد، و«لاحقاً» بيخفيه على الجهاز ده', function () {
       return withDigest(function (b) {
         if (b.action === 'digest.get') return ok200({ settings: null, timezone: 'Asia/Kuwait' });
         return ok200({ ok: true, enabled: false });
@@ -5104,11 +5127,12 @@
           hintEl().querySelector('[data-digest-hint-on]').click();
           return tick2();
         }).then(function () {
+          eq(currentView, 'settings', 'Settings page');
           ok(!panel().hidden && panel().querySelector('#dxAutoEmail'), 'form open');
-          ok(hintEl().hidden, 'hint hidden while the form is open');
+          eq(document.activeElement && document.activeElement.id, 'dxAutoEmail', 'ready to type the email');
           eq(calls[calls.length - 1].action, 'digest.get');
-          btn().click();
-          ok(!hintEl().hidden, 'back after closing the form');
+          showView('summary'); renderDigest();
+          ok(!hintEl().hidden, 'still offered in the summary until answered');
           hintEl().querySelector('[data-digest-hint-later]').click();
           ok(hintEl().hidden, '«later» hides it');
           renderDigest();
@@ -5133,16 +5157,13 @@
           panel().querySelector('[data-digest-save]').click();
           return tick2();
         }).then(function () {
-          btn().click();
+          renderDigest();
           ok(hintEl().hidden, 'enabled → no hint');
-          btn().click();
-          return tick2();
-        }).then(function () {
           panel().querySelector('[data-digest-off]').click();
           panel().querySelector('[data-digest-off-yes]').click();
           return tick2();
         }).then(function () {
-          btn().click();
+          renderDigest();
           ok(hintEl().hidden, 'just turned off → no hint right away');
         });
       });

@@ -52,6 +52,8 @@
       'set.page.install': 'التثبيت على الهاتف',
       'set.page.help': 'المساعدة والدعم',
       'set.page.signin': 'الدخول إلى الأداة',
+      'set.page.digestFor': 'لحساب Meta المفتوح الآن: {name}. ولتفعيله لحساب آخر، اختر الحساب من القائمة أعلى الصفحة.',
+      'set.page.digestNoMeta': 'يتوفر الملخص التلقائي لحسابات Meta. اختر حساب Meta من القائمة أعلى الصفحة، أو اربط Meta من «الحسابات الإعلانية».',
       'btn.login': 'ربط حساب إعلاني',
       // تسجيل الخروج من الأداة نفسها (auth.js) — غير ربط المنصات
       'auth.logout': 'خروج', 'auth.logoutTitle': 'تسجيل الخروج من {email}',
@@ -1414,6 +1416,8 @@
       'set.page.install': 'Install on your phone',
       'set.page.help': 'Help and support',
       'set.page.signin': 'Signing in to the tool',
+      'set.page.digestFor': 'For the Meta account open now: {name}. To set it up for another account, pick that account from the list at the top of the page.',
+      'set.page.digestNoMeta': 'The automatic summary is available for Meta accounts. Pick a Meta account from the list at the top of the page, or connect Meta under "Ad accounts".',
       'btn.login': 'Connect an ad account',
       'auth.logout': 'Sign out', 'auth.logoutTitle': 'Sign out of {email}',
       'btn.refresh': 'Refresh data',
