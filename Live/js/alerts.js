@@ -209,7 +209,7 @@
     return {
       byLabel: byLabel, hasSales: hasSales, spendByDay: spendByDay, resultsByDay: resultsByDay,
       total7: total7, activeCount: activeCount, avgAdSpend2: avgAdSpend2, byCampaign: byCampaign,
-      roasW: hasSales && purchSpendW > 0 ? purchSalesW / purchSpendW : null
+      roasW: hasSales && purchSpendW > 0 ? purchSalesW / purchSpendW : null, purchSpendW: purchSpendW
     };
   }
 
@@ -282,6 +282,9 @@
     // إعلان مبيعات بيسجّل قيمة الطلبات: الحكم بالربح الأول (العائد مقابل المستهدف وحد الخسارة)، والمقارنة بإعلانات
     // الحساب في الفترة نفسها شرح جنبه مش أساس الحكم (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦ — الفترات بتختلف: عروض، رواتب، موسم)
     var profitAd = acc.hasSales && any(sales);
+    // الإعلان ده هو أغلب إنفاق إعلانات المبيعات في الحساب (٩٠٪ أو أكتر): «متوسط حسابك» هو تقريباً الإعلان نفسه — المقارنة بيه
+    // كانت بتطلع «×٧٫٦ ومتوسط حسابك ×٧٫٦» و«أفضل من متوسط حسابك» لإعلان بيقارَن بنفسه (حساب فيه إعلان مبيعات واحد)
+    var selfAcc = profitAd && acc.purchSpendW > 0 && sum(daily, 0, YESTERDAY) >= acc.purchSpendW * 0.9;
     var evidenceCpr = ownCpr || avgCpr;
     // كفاية نحكم على الأسبوع: ٣ نتائج، أو إنفاق يكفي لـ٣ بمتوسط الحساب
     var weekEvidence = resW >= 3 || !!(avgCpr && spendW >= 3 * avgCpr);
@@ -453,7 +456,7 @@
       if (profitAd) {
         var roas3 = spend3 > 0 ? sales3 / spend3 : null;
         var recentEvidence = spend3 > 0 && (!evidenceCpr || spend3 >= evidenceCpr * 3);
-        var cmp = acc.roasW == null ? '' : (fmt.currencyLabel(cur)
+        var cmp = acc.roasW == null || selfAcc ? '' : (fmt.currencyLabel(cur)
           ? t('al.vsAcc', { one: fmt.int(1), cur: fmt.currencyLabel(cur), acc: fmt.num(acc.roasW) })
           : t('al.vsAccNoCur', { acc: fmt.num(acc.roasW) })) + (roasW != null && roasW < s.roasTarget && roasW >= acc.roasW ? t('al.vsAccBetter') : '');
         var wkVars = { name: name, spend: money(spendW), sales: money(salesW), roasText: roasW != null ? roasLabel(roasW) : '', target: fmt.num(s.roasTarget), cmp: cmp };
@@ -611,7 +614,7 @@
     if (underspend) basis = t('basis.underspend', { spend: money(spendW), one: one, avg: money(avgCpr) });
     else if (pend) basis = pendText(pend);
     else if (profitAd && weekEvidence) {
-      basis = t('basis.profit', { roas: fmt.num(roasW), target: fmt.num(s.roasTarget) }) + (acc.roasW != null ? t('basis.vsAcc', { acc: fmt.num(acc.roasW) }) : '');
+      basis = t('basis.profit', { roas: fmt.num(roasW), target: fmt.num(s.roasTarget) }) + (acc.roasW != null && !selfAcc ? t('basis.vsAcc', { acc: fmt.num(acc.roasW) }) : '');
     } else if (avgCpr && c.cpr != null) {
       basis = t('basis.cpr', { one: one, cpr: money(weekStart && resW > 0 ? spendW / resW : c.cpr), avg: money(avgCpr) });
     }

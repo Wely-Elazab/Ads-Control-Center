@@ -1933,7 +1933,6 @@
     // السلسلة الثانية: مبيعات فعلية لو موجودة، وإلا عدد النتائج (حسب هدف الإعلان نفسه) كبديل مفيد
     var secondSeries = hasSales ? c.dailySales : c.dailyResults;
     var secondRowLabel = hasSales ? (currencyLabel(cur) ? t('x.salesRow', { cur: currencyLabel(cur) }) : t('x.sales')) : (t('x.results') + (c.resultKey ? ' — ' + esc(resultLabelOf(c)) : ''));
-    document.getElementById('legendSalesLabel').textContent = hasSales ? t('x.salesLegend') : t('x.resultsLegend');
     // عمود "أمس" متعلّم — أغلب التنبيهات مبنية عليه، وعمود النهارده يوم لسه مخلصش
     // آخر عمود = النهارده واللي قبله = أمس (النافذة ٨ أيام من ١٠ أكتوبر ٢٠٢٦ — مش أرقام ثابتة)
     var lastCol = c.dailyDates.length - 1;
@@ -1957,6 +1956,10 @@
 
     expandOverlay.classList.remove('hidden');
     expandOverlay.querySelector('.expand-card').scrollTop = 0;
+    // الهاتف: الجدول أعرض من الشاشة وأهم أعمدته في الآخر (أمس والإجمالي واليوم) — نفتحه عليها، والأيام الأقدم بالتمرير.
+    // بعد ما النافذة تظهر (وهي مخفية العرض = صفر). بالعربي الآخر = scrollLeft بالسالب (المتصفح بيقصّ القيمة على الحد)
+    var wrapEl = document.querySelector('#expandChart .daily-table-wrap');
+    if (wrapEl.scrollWidth > wrapEl.clientWidth) wrapEl.scrollLeft = (getComputedStyle(wrapEl).direction === 'rtl' ? -1 : 1) * wrapEl.scrollWidth;
 
     showMedia(c);
   }

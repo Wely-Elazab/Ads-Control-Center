@@ -1098,6 +1098,19 @@
       var i = engine(weak).byAd.mid.issues.filter(function (x) { return x.code === 'low-roas'; })[0];
       ok(i && i.detail.indexOf(t('al.vsAccBetter').trim().slice(0, 20)) > -1, i ? i.detail : 'no low-roas');
     });
+    test('إعلان المبيعات الوحيد (أو ٩٠٪+ من إنفاقها) مبيتقارنش بـ«متوسط حسابك» — اللي هو نفسه', function () {
+      var solo = engine([ad('solo', { daily: steady(100), res: steady(4), sales: steady(800), cid: 'ks' })]);
+      var g = solo.byAd.solo.issues.filter(function (x) { return x.code === 'roas-great'; })[0];
+      ok(g && !/متوسط|حسابك/.test(g.detail) && g.advice && !/حسابك|إعلاناتك/.test(g.advice), g ? g.detail + ' | ' + g.advice : list(solo, 'solo'));
+      ok(/×٨/.test(solo.byAd.solo.basis) && !/متوسط عائد إعلانات حسابك/.test(solo.byAd.solo.basis), solo.byAd.solo.basis);
+      // عائد ضعيف لإعلان وحيد: كان بيقول «أفضل من متوسط حسابك، فالسبب ممكن الفترة» وهو بيقارن نفسه بنفسه
+      var weakSolo = engine([ad('ws', { daily: steady(100), res: steady(2), sales: steady(150), cid: 'kw' })]);
+      var lw = weakSolo.byAd.ws.issues.filter(function (x) { return x.code === 'low-roas'; })[0];
+      ok(lw && lw.detail.indexOf(t('al.vsAccBetter').trim().slice(0, 20)) === -1 && !/في الفترة نفسها/.test(lw.detail), lw ? lw.detail : list(weakSolo, 'ws'));
+      // إعلانين بنص الإنفاق: المقارنة فاضلة
+      var two = engine([ad('p1', { daily: steady(100), res: steady(4), sales: steady(800), cid: 'k1' }), ad('p2', { daily: steady(100), res: steady(2), sales: steady(300), cid: 'k2' })]);
+      ok(/متوسط عائد إعلانات حسابك/.test(two.byAd.p1.basis), two.byAd.p1.basis);
+    });
     test('المنصة نقلت إنفاقه لإعلان تاني في نفس الحملة = «للعلم»، والإعلان المربح بيفضل «جيد»', function () {
       var r = engine([ad('x', { daily: [100, 100, 100, 100, 100, 0, 0], res: [2, 2, 2, 2, 2, 0, 0], sales: [400, 400, 400, 400, 400, 0, 0], cid: 'k' }),
         ad('y', { daily: [100, 100, 100, 100, 100, 200, 150], res: [2, 2, 2, 2, 2, 4, 3], sales: [400, 400, 400, 400, 400, 800, 600], cid: 'k' }),
@@ -3271,6 +3284,36 @@
         widths.filterChips = extra();
         eq(widths, { ads: 0, campaigns: 0, filterChips: 0 }, 'extra width in px');
         f.remove();
+      });
+    });
+
+    // الشكل لازم يتقاس في الأداة الحقيقية (بالستايل بتاعها) — صفحة الاختبارات نفسها من غير ستايل الأداة
+    [['ar', ''], ['en', '&lang=en']].forEach(function (lc) {
+      testAsync('جدول الأيام على الهاتف (' + lc[0] + '): تحت عنوانه، وبيفتح على أمس والإجمالي واليوم، واسم الصف ظاهر', function () {
+        var restore = keepStorage(['acc.lang']);
+        return toolFrame(360, 780, lc[1]).then(function (f) {
+          var w = f.contentWindow, d = f.contentDocument;
+          var eight = function (n) { return [n, n, n, n, n, n, n, n]; };
+          var c = ad('dm', { daily: eight(10), res: eight(1) });
+          c.dailyDates = last7Days(TODAY).map(function (x) { return x.key; });
+          c.dailySales = eight(0);
+          w.candidates = [c];
+          w.render();
+          w.openExpand(c);
+          var box = d.getElementById('expandChart'), table = box.querySelector('table'), label = box.previousElementSibling;
+          var wrap = box.querySelector('.daily-table-wrap'), wr = wrap.getBoundingClientRect();
+          var inView = function (el) { var r = el.getBoundingClientRect(); return r.left >= wr.left - 1 && r.right <= wr.right + 1; };
+          // الحاوية كانت بارتفاع ثابت ٥٨px والجدول أطول منها، فكان بيطلع لفوق ويغطي العنوان ومفتاح الألوان
+          ok(label && label.classList.contains('chart-section-label'), 'the title sits right above the table');
+          ok(table.getBoundingClientRect().top >= label.getBoundingClientRect().bottom - 1, 'the table starts below its title');
+          ok(!d.querySelector('.chart-legend'), 'no colour key that repeats the row names');
+          ok(wrap.scrollWidth > wrap.clientWidth, 'phone width: the table scrolls');
+          ok(['col-yesterday', 'col-total', 'col-today'].every(function (k) { return inView(box.querySelector('thead th.' + k)); }), 'yesterday, total and today in view');
+          ok(inView(box.querySelector('tbody td:first-child')), 'the row name stays in view');
+          ok(!inView(box.querySelector('thead th:nth-child(2)')), 'the oldest day is behind the scroll');
+          eq(d.documentElement.scrollWidth - d.documentElement.clientWidth, 0, 'the page itself does not get wider');
+          f.remove();
+        }).then(restore, function (e) { restore(); throw e; });
       });
     });
 

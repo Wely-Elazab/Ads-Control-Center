@@ -208,17 +208,8 @@
   .attr-more { display: inline-block; margin-top: 6px; font-size: 12.5px; font-weight: 600; color: var(--verified); text-decoration: none; }
   .attr-more:hover { text-decoration: underline; }
   .chart-section-label { font-size: 11.5px; color: var(--ink-faint); margin-bottom: 8px; }
-  .chart-legend { display: flex; gap: 16px; margin-bottom: 10px; }
-  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-soft); }
-  .legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
-  .legend-dot.legend-spend { background: var(--pending); }
-  .legend-dot.legend-sales { background: var(--verified); }
-  .daily-chart { display: flex; align-items: flex-end; gap: 7px; height: 58px; }
-  .chart-day-group { flex: 1; display: flex; align-items: flex-end; gap: 3px; height: 58px; }
-  .chart-bar-wrap { flex: 1; display: flex; align-items: flex-end; height: 58px; }
-  .chart-bar { width: 100%; border-radius: 3px 3px 0 0; opacity: .85; }
-  .chart-bar.chart-bar-spend { background: var(--pending); }
-  .chart-bar.chart-bar-sales { background: var(--verified); }
+  /* كانت حاوية أعمدة بارتفاع ثابت ٥٨px — الجدول أطول منها فكان بيطلع لفوق ويغطي اللي فوقه */
+  .daily-chart { margin-top: 2px; }
   .daily-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .daily-table { border-collapse: collapse; width: 100%; min-width: 420px; font-size: 11.5px; }
   .daily-table th, .daily-table td { padding: 6px 4px; text-align: center; white-space: nowrap; }
@@ -228,6 +219,8 @@
   .daily-table tbody tr:last-child td { color: var(--verified); font-weight: 600; }
   .daily-table tbody tr:last-child td:first-child { color: var(--ink-soft); }
   .daily-table tbody tr:first-child td:first-child { color: var(--ink-soft); }
+  /* على الهاتف الجدول أعرض من الشاشة: اسم الصف ثابت وانت بتحرّك الأيام (ui.js بيفتحه على آخر الأعمدة: أمس والإجمالي واليوم) */
+  .daily-table th:first-child, .daily-table td:first-child { position: sticky; inset-inline-start: 0; z-index: 1; background: var(--card); padding-inline-end: 8px; }
 
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -1211,10 +1204,6 @@
       <div id="expandLanding"></div>
       <div class="expand-metrics" id="expandMetrics"></div>
       <div class="chart-section-label" data-i18n="x.dailyTitle">الإنفاق اليومي — آخر ٧ أيام</div>
-      <div class="chart-legend">
-        <span class="legend-item"><span class="legend-dot legend-spend"></span><span data-i18n="x.spendLegend">الإنفاق</span></span>
-        <span class="legend-item"><span class="legend-dot legend-sales"></span><span id="legendSalesLabel">المبيعات</span></span>
-      </div>
       <div class="daily-chart" id="expandChart"></div>
     </div>
   </div>
