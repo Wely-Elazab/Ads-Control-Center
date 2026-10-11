@@ -177,6 +177,8 @@
   .video-embed-wrap iframe { max-width: none; border: 0; display: block; flex-shrink: 0; }
   .video-embed-wrap iframe[style*="aspect-ratio"] { flex-shrink: 1; }
   .real-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  /* فيديو Snapchat طولي (٩:١٦): ارتفاع ثابت عشان المشغّل يبان قبل ما يتحمّل */
+  .snap-video-wrap { height: min(62vh, 560px); background: #000; border-radius: 10px; overflow: hidden; }
   .video-fallback-link { position: absolute; bottom: 10px; inset-inline-start: 10px; z-index: 2; background: rgba(22,26,31,0.72); color: #fff; font-size: 12px; padding: 7px 12px; border-radius: 8px; text-decoration: none; }
   .video-fallback-note { position: absolute; bottom: 10px; inset-inline-start: 10px; inset-inline-end: 10px; z-index: 2; background: rgba(22,26,31,0.72); color: #fff; font-size: 11.5px; padding: 7px 12px; border-radius: 8px; text-align: center; }
   .expand-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
@@ -966,7 +968,7 @@
 
       <!-- ليه الأرقام ممكن تختلف عن لوحة المنصة — مقفولة افتراضياً عشان متزحمش الصفحة -->
       <details class="numbers-note">
-        <summary data-i18n="diff.title">لماذا قد تختلف الأرقام قليلاً عن لوحة المنصة؟</summary>
+        <summary data-i18n="diff.title">لماذا تختلف الأرقام عن لوحة المنصة؟</summary>
         <ul>
           <li data-i18n="diff.today">أرقام اليوم ما زالت تتحدّث، إذ تحتسب المنصة الإنفاق والنتائج على مدار اليوم.</li>
           <li data-i18n="diff.late">قد تُسجَّل بعض التحويلات متأخرة (حتى ٧ أيام بعد النقرة)، لذا قد ترتفع أرقام الأيام الأخيرة قليلاً عند التحديث.</li>

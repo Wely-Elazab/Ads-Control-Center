@@ -246,15 +246,7 @@ export default async function handler(req, res) {
       const media = {};
       (results[8] || []).forEach(function (m) { if (m && usedMedia[m.id]) media[m.id] = snapMedia(m); });
 
-      // مؤقت للمراجعة: شكل المحتوى والوسيط الخام من حساب حقيقي (بيتشال بعد ما الحقول تتأكد)
-      const probe = body.probe === true ? {
-        creative: (results[7] || []).filter(function (c) { return c && usedCreatives[c.id]; })[0] || null,
-        media: (results[8] || []).filter(function (m) { return m && usedMedia[m.id]; })[0] || (results[8] || [])[0] || null,
-        counts: { creatives: (results[7] || []).length, media: (results[8] || []).length, usedMedia: Object.keys(usedMedia).length, matchedMedia: Object.keys(media).length }
-      } : undefined;
-
       res.status(200).json({
-        ...(probe ? { _probe: probe } : {}),
         ads: ads,
         creatives: results[7] ? creatives : null,
         media: results[8] ? media : null,

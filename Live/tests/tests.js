@@ -299,6 +299,19 @@
       var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], null, null, null)[0];
       eq([c.results, c.plat, platOf(c)], [14, null, null]);
     });
+    test('المحتوى من السيرفر: فيديو بيتعرض فيديو (مش «صورة ثابتة»)، والعنوان ورابط الصفحة الحقيقيين', function () {
+      // حساب حقيقي ١١ أكتوبر: كل الإعلانات «صورة ثابتة» ووجهتها «—» حتى إعلانات الفيديو
+      var two = [{ ad: { id: 'v1', name: 'SingleVideo-EGC-1', status: 'ACTIVE', creative_id: 'cv' } }, { ad: { id: 'i1', name: 'SingleImage-1', status: 'ACTIVE', creative_id: 'ci' } },
+        { ad: { id: 'n1', name: 'No creative', status: 'ACTIVE' } }];
+      var crs = { cv: { type: 'WEB_VIEW', headline: 'اطلب الآن', brand: 'Shop', cta: 'ORDER_NOW', mediaId: 'mv', url: 'https://shop.example/p' },
+        ci: { type: 'WEB_VIEW', headline: 'Sale', mediaId: 'mi', url: 'javascript:alert(1)' } };
+      var med = { mv: { type: 'VIDEO', url: 'https://cdn.example/v.mp4' }, mi: { type: 'IMAGE', url: 'https://cdn.example/i.jpg' } };
+      var list = transformSnapchatAds(two, plat, days, 'SAR', [], [], null, store, null, crs, med);
+      var v = list[0], i = list[1], n = list[2];
+      eq([v.format, v.videoSrc, v.thumbUrl, v.headline, v.caption, v.landing, v.landingKind, v.cta], ['video', 'https://cdn.example/v.mp4', null, 'اطلب الآن', 'اطلب الآن', 'https://shop.example/p', 'website', 'ORDER_NOW']);
+      eq([i.format, i.thumbUrl, i.videoSrc, i.landing, i.landingKind], ['image', 'https://cdn.example/i.jpg', null, '—', null], 'image; an unsafe link is dropped');
+      eq([n.format, n.thumbUrl, n.headline, n.landing], ['image', null, 'No creative', '—'], 'no creative = as before');
+    });
     test('حساب مش بيسجّل مشتريات (النتيجة سوايب): مفيش مقارنة', function () {
       var c = transformSnapchatAds(ads, series({ a1: [[5, { spend: 100 * M, swipes: 40 }]] }), days, 'SAR', [], [], null, series({ a1: [] }), null)[0];
       eq([c.resultKey, c.results, c.plat], ['swipe', 40, null]);
@@ -1783,7 +1796,7 @@
         if (/\/adsquads/.test(u)) return json({ adsquads: [{ adsquad: { id: 'sq1', campaign_id: 'c1' } }, { adsquad: { id: 'sq2', campaign_id: 'c2' } }, { adsquad: { id: 'sq9', campaign_id: 'c9' } }] });
         if (/\/campaigns/.test(u)) return json({ campaigns: [{ campaign: { id: 'c1' } }, { campaign: { id: 'c2' } }, { campaign: { id: 'c9' } }] });
         if (/\/creatives/.test(u)) return json({ creatives: [
-          { creative: { id: 'cr1', type: 'WEB_VIEW', headline: 'Summer sale', brand_name: 'Belvoir', call_to_action: 'SHOP_NOW', top_snap_media_id: 'm1', web_view_properties: { url: 'https://shop.example/p' } } },
+          { creative: { id: 'cr1', type: 'WEB_VIEW', headline: 'Summer sale', brand_name: 'Shop', call_to_action: 'SHOP_NOW', top_snap_media_id: 'm1', web_view_properties: { url: 'https://shop.example/p' } } },
           { creative: { id: 'cr9', type: 'SNAP_AD', top_snap_media_id: 'm9' } }] });
         if (/\/media/.test(u)) return json({ media: [{ media: { id: 'm1', type: 'VIDEO', download_link: 'https://cdn.example/v.mp4', duration_in_seconds: 15 } }, { media: { id: 'm9', type: 'IMAGE' } }] });
         if (/\/stats/.test(u)) return json({ timeseries_stats: [{ timeseries_stat: { breakdown_stats: { ad: [{ id: 'spent', timeseries: [] }] } } }] });
@@ -1797,7 +1810,7 @@
         window.fetch = realFetch;
         eq(out.ads.map(function (a) { return a.id; }), ['spent', 'live'], 'dead and not-delivering ads dropped');
         eq([out.squads.map(function (s) { return s.id; }), out.campaigns.map(function (c) { return c.id; })], [['sq1', 'sq2'], ['c1', 'c2']], 'only the squads and campaigns in use');
-        eq(out.creatives, { cr1: { type: 'WEB_VIEW', headline: 'Summer sale', brand: 'Belvoir', cta: 'SHOP_NOW', mediaId: 'm1', url: 'https://shop.example/p' } });
+        eq(out.creatives, { cr1: { type: 'WEB_VIEW', headline: 'Summer sale', brand: 'Shop', cta: 'SHOP_NOW', mediaId: 'm1', url: 'https://shop.example/p' } });
         eq(out.media, { m1: { type: 'VIDEO', url: 'https://cdn.example/v.mp4', w: null, h: null, duration: 15 } });
         ok(!('_probe' in out), 'no debug data unless asked');
       }, function (e) { window.fetch = realFetch; throw e; });
@@ -4534,6 +4547,22 @@
       eq(o.kpis.map(function (k) { return k.id; }), ['spend', 'orders', 'revenue', 'aov', 'roas', 'cpa']);
       var aov = o.kpis[3];
       ok(aov.value && aov.value !== '—' && aov.prev !== '—', 'aov shown with the previous period');
+    });
+    test('سطر المقارنة برقم المنصة تحت أرقام الملخص: بيظهر لما المنصة بتنسب طلبات أكتر، وبيختفي لو متساويين', function () {
+      // حساب حقيقي ١١ أكتوبر: Meta بتنسب ٥١ طلباً بعائد ×٤٫٩ والملخص ٢٣ بعائد ×٢ من غير ولا كلمة
+      var saved = dxState.sources.meta, savedC = candidates;
+      try {
+        var row = function (d, ppur) { return { date: d, spend: 100, pur: 2, rev: 400, ppur: ppur, prev: ppur * 200 }; };
+        dxState.sources.meta = { input: { since: '2026-10-04', until: '2026-10-05', currency: 'SAR', daily: [row('2026-10-03', 9), row('2026-10-04', 5), row('2026-10-05', 5)] } };
+        candidates = [];
+        var line = withLang('ar', function () { return platCompare(['meta']); });
+        ok(line && /تنسب Meta لهذه الفترة ١٠ طلبات بمبيعات ٢٬٠٠٠ ر\.س \(عائد ×١٠\)/.test(line.text), line ? line.text : 'no line');
+        dxState.sources.meta.input.daily = [row('2026-10-04', 2), row('2026-10-05', 2)];
+        eq(platCompare(['meta']), null, 'same numbers = no line');
+        dxState.sources.meta.input.daily = [{ date: '2026-10-04', spend: 100, pur: 2, rev: 400, ppur: null, prev: null }];
+        eq(platCompare(['meta']), null, 'no attribution windows = no line');
+        eq(platCompare(['meta', 'snapchat']), null, 'combined view = no line');
+      } finally { dxState.sources.meta = saved; candidates = savedC; }
     });
     test('جدول الأيام في التفاصيل: الأيام المكتملة وآخرها «أمس»، وبعدها «الإجمالي» (bold) وبعده «اليوم» منفصل', function () {
       var c = ad8('d1', s8(10), s8(1));

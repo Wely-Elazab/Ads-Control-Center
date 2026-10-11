@@ -112,7 +112,7 @@
         return;
       }
       var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns, payload.periodStats,
-        payload.storeStats ? payload.storeStats.timeseries_stats || [] : null, payload.periodStoreStats);
+        payload.storeStats ? payload.storeStats.timeseries_stats || [] : null, payload.periodStoreStats, payload.creatives, payload.media);
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
       cacheSource('snapchat:' + adAccountId, snapCandidates);
       setPlatformState('snapchat', null);
@@ -168,7 +168,7 @@
 
   // storeList/periodStore = «الأقرب للمتجر» (٧ أيام من السوايب، من غير المشاهدة — api/snapchat-ads-fetch.js) بنفس شكل
   // statsList/periodStats. null = مفيش مقارنة، والأرقام هي أرقام المنصة زي الأول
-  function transformSnapchatAds(adsList, statsList, days, currency, squads, campaigns, periodStats, storeList, periodStore) {
+  function transformSnapchatAds(adsList, statsList, days, currency, squads, campaigns, periodStats, storeList, periodStore, creatives, media) {
     var squadsById = {}, campaignsById = {};
     (squads || []).forEach(function (s) { squadsById[s.id] = s; });
     (campaigns || []).forEach(function (c) { campaignsById[c.id] = c; });
@@ -250,6 +250,11 @@
       var spend = r2(sum(p.daily));
       var results = sum(dailyResults);
       var totalSales = sum(dailySales);
+      // المحتوى والوسيط من السيرفر (api/snapchat-ads-fetch.js): نوع الإعلان من الوسيط نفسه — نوع الإعلان في Snapchat (STORY،
+      // REMOTE_WEBPAGE…) مبيقولش صورة ولا فيديو، فكل الإعلانات كانت «صورة ثابتة» حتى الفيديو
+      var cr = creatives && ad.creative_id ? creatives[ad.creative_id] || null : null;
+      var md = cr && cr.mediaId && media ? media[cr.mediaId] || null : null;
+      var landing = (cr && safeUrl(cr.url)) || null;
       // الفترة المختارة: «الأقرب للمتجر» لو طلبه رجع، وإلا رقم المنصة من غير مقارنة (زي قبل الميزة)
       var period = null;
       if (pRow) {
@@ -267,11 +272,14 @@
         nativeId: ad.id,
         reviewStatus: /REJECT|DENY/i.test(ad.review_status || '') ? 'disapproved' : null,
         frequency: null,
-        format: ad.type && /VIDEO/i.test(ad.type) ? 'video' : (ad.type && /SNAP_AD/i.test(ad.type) ? 'video' : 'image'),
-        thumbUrl: null,
-        headline: ad.name || ('Snapchat #' + ad.id), desc: '',
-        offer: ad.name || id, caption: ad.name || '',
-        landing: '—', landingKind: null,
+        format: md && md.type === 'VIDEO' ? 'video' : 'image',
+        // الصورة رابطها مباشر. الفيديو ملف كامل (عشرات الميجا) — مبيتحمّلش على الكارت، بيشتغل في التفاصيل لما العميل يضغط
+        thumbUrl: md && md.type === 'IMAGE' ? md.url || null : null,
+        videoSrc: md && md.type === 'VIDEO' ? md.url || null : null,
+        headline: (cr && cr.headline) || ad.name || ('Snapchat #' + ad.id), desc: (cr && cr.brand) || '',
+        offer: ad.name || id, caption: (cr && cr.headline) || '',
+        cta: (cr && cr.cta) || null,
+        landing: landing || '—', landingKind: landing ? 'website' : null,
         daysAgo: ad.created_at ? daysBetween(ad.created_at) : null,
         updatedDaysAgo: ad.updated_at ? daysBetween(ad.updated_at) : null,
         daily: p.daily, dailySales: dailySales, dailyResults: dailyResults, dailyDates: days.map(function (d) { return d.key; }),

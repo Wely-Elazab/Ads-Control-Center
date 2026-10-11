@@ -1336,6 +1336,8 @@
       });
       out.push({ today: true, text: t('dx.today', { parts: DX.listText([t('dx.todaySpend', { v: moneyByCur(spend) })].concat(resultTexts(res))) }) });
     }
+    var pc = platCompare(platforms);
+    if (pc) out.push(pc);
     var other = {};
     mine.forEach(function (c) {
       var p = periodOf(c), k = c.resultKey || 'generic';
@@ -1344,6 +1346,29 @@
     var ot = resultTexts(other);
     if (ot.length) out.push({ text: t('dx.otherResults', { p: periodLabel(), list: DX.listText(ot) }) });
     return out;
+  }
+  // سطر المقارنة برقم المنصة نفسها (مراجعة ١١ أكتوبر ٢٠٢٦): الملخص على «الأقرب للمتجر»، وMeta كانت بتنسب لنفس الحساب ٥١ طلباً
+  // بعائد ×٤٫٩ والملخص ٢٣ بعائد ×٢ من غير ولا كلمة — ومسؤول الإعلانات بيقارن بـ Ads Manager على طول. Meta: أرقام الحساب نفسه من
+  // طلب الملخص (ppur/prev — مجموع الإعلانات بيزيد طلب لأن Meta بتشيل التكرار بين الإعلانات). غيرها: مجموع رقم المنصة للإعلانات
+  function platCompare(platforms) {
+    if (!platforms || platforms.length !== 1) return null;
+    var p = platforms[0], S = dxState.sources[p], inp = S && S.input;
+    if (!inp) return null;
+    var plat = { pur: 0, rev: 0 }, spend = 0, store = 0, ok = true;
+    var inPeriod = function (r) { return r.date >= inp.since && r.date <= inp.until; };
+    (inp.daily || []).forEach(function (r) {
+      if (!inPeriod(r)) return;
+      spend += r.spend || 0;
+      if (p === 'meta') { if (r.ppur == null) ok = false; plat.pur += r.ppur || 0; plat.rev += r.prev || 0; store += r.pur || 0; }
+    });
+    if (p !== 'meta') {
+      var src = candidates.filter(function (c) { return onPlatforms(c, platforms) && c.resultKey === 'purchase'; });
+      ok = src.length > 0 && src.every(function (c) { return !!platOf(c); });
+      src.forEach(function (c) { var pp = platOf(c); if (pp) { plat.pur += pp.results || 0; plat.rev += pp.sales || 0; store += periodOf(c).results || 0; } });
+    }
+    if (!ok || !(Math.round(plat.pur) > Math.round(store))) return null;
+    return { text: t('dx.platCmp', { plat: t('dx.plat.' + p), orders: DX.ordersText(Math.round(plat.pur)), sales: money(plat.rev, inp.currency || null),
+      roas: spend > 0 ? roasStr(plat.rev / spend) : '—' }) };
   }
   // البلوكات المفتوحة (في القائمة والشرح) بتفضل مفتوحة بعد إعادة الرسم — أي render بيبني القسم من الأول
   var foldOpen = {};
@@ -1899,7 +1924,7 @@
     var destLabel = DEST_LABELS[c.landingKind] || t('dest.default');
     // الرابط بيبقى قابل للضغط بس لو http/https — غير كده بيتعرض كنص عادي
     var landingHref = safeUrl(c.landing);
-    // النص: النطاق والمسار مقروءين («belvoirgulf.com/products/نظارة-…» بدل %D9%86…) من غير باراميترات التتبّع — الرابط
+    // النص: النطاق والمسار مقروءين («store.com/products/نظارة-…» بدل %D9%86…) من غير باراميترات التتبّع — الرابط
     // الكامل في الرابط نفسه وفي التلميح
     var landingInner = landingHref
       ? '<a href="' + esc(landingHref) + '" target="_blank" rel="noopener noreferrer" class="expand-landing-value mono" dir="ltr" title="' + esc(c.landing) + '">' + esc(landingText(landingHref)) + '</a>'
@@ -2010,6 +2035,14 @@
     var el = document.getElementById('expandPreview');
     el.innerHTML = previewMarkup(c);
     el.onclick = null;
+    // Snapchat: الفيديو نفسه من رابط ملفه — preload="none" لأن الملف عشرات الميجا (حساب حقيقي: ٤٣ ميجا لفيديو ٢٣ ثانية)،
+    // فمبيتحمّلش غير لما العميل يضغط تشغيل
+    var vsrc = c.videoSrc && safeUrl(c.videoSrc);
+    if (vsrc) {
+      el.innerHTML = '<div class="snap-video-wrap"><video class="real-video" controls playsinline preload="none" src="' + esc(vsrc) + '"></video></div>' +
+        '<p class="pv-hint">' + esc(t('x.pv.snapVideo')) + '</p>';
+      return;
+    }
     if (c.platform !== 'Meta' || !(c.videoId || c.catalog)) return;
     var order = c.igPreview ? ['ig', 'reels', 'fb'] : ['fb', 'ig', 'reels'], poster = el.innerHTML;
     var hint = '<p class="pv-hint">' + esc(t('x.pv.hint') + (c.catalog ? ' ' + t('x.pv.catalog') : '')) + '</p>';

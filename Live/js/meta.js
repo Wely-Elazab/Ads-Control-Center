@@ -1109,7 +1109,13 @@
   }
   function dxBundle(row) {
     return { spend: num(row.spend), imp: num(row.impressions), clicks: num(row.inline_link_clicks),
-      atc: dxFirst(row.actions, DX_ATC), ic: dxFirst(row.actions, DX_IC), pur: dxFirst(row.actions, DX_PUR), rev: dxFirst(row.action_values, DX_PUR) };
+      atc: dxFirst(row.actions, DX_ATC), ic: dxFirst(row.actions, DX_IC), pur: dxFirst(row.actions, DX_PUR), rev: dxFirst(row.action_values, DX_PUR),
+      // رقم Meta نفسه (بالمشاهدة كمان) جنب «الأقرب للمتجر» — لسطر المقارنة تحت أرقام الملخص (ui.js platCompare). null = مفيش نوافذ
+      ppur: rowHasWindows(row) ? dxFirstP(row.actions, DX_PUR) : null, prev: rowHasWindows(row) ? dxFirstP(row.action_values, DX_PUR) : null };
+  }
+  function dxFirstP(arr, types) {
+    for (var i = 0; i < types.length; i++) { var v = valueForType(arr, types[i], true); if (v != null) return v; }
+    return 0;
   }
   // consecutive: الفترة السابقة مباشرةً (الملخص التلقائي بالبريد) بدل نفس أيام الأسبوع اللي قبله
   function metaDiagnosisInput(accountId, since, until, consecutive) {
