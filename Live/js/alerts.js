@@ -801,7 +801,8 @@
     // أكبر مصدر مبيعات في الحساب وقف (لأي سبب، حتى لو بقصد): «عاجل» — لو مش مقصود كل ساعة بتفرق، ولو مقصود
     // فالرسالة بتتأكد إن فيه بديل. «أكبر» = ربع مبيعات الحساب في آخر ٧ أيام أو أكتر (أو نتائجه لو مفيش قيمة مبيعات)،
     // وكان بيصرف لحد امبارح (وقف قريب — مش إعلان واقف من أسبوع). الحملة كلها لو كل إعلاناتها وقفت، وإلا الإعلان لوحده
-    var valueOf = function (c) { return acc.hasSales ? sum(c.dailySales || [], 0, TODAY) : (c.results || 0); };
+    // أيام مكتملة (لحد امبارح) زي «مبيعاته في ٧ أيام» جنب التنبيه (ui.js alertMoneyHtml) — النهارده كان داخل في الرقم اللي في النص
+    var valueOf = function (c) { return acc.hasSales ? sum(c.dailySales || [], 0, YESTERDAY) : (c.results || 0); };
     var totalValue = ads.reduce(function (s0, c) { return s0 + valueOf(c); }, 0);
     // الحساب كله واقف (مفيش ولا إعلان شغّال) = صاحبه وقّف كل حاجة بنفسه، والوقوف غير المقصود للحساب كله
     // (دفع، حد إنفاق، حالة الحساب) ليه تنبيهاته فوق
@@ -878,7 +879,9 @@
   function compareText(c, fmt) {
     var pl = c && c.plat;
     if (!pl || pl.results == null || c.results == null) return null;
-    var sales = (c.dailySales || []).reduce(function (a, b) { return a + b; }, 0);
+    // أيام مكتملة بس زي الإنفاق والطلبات ورقم المنصة (c.sales — meta.js وsnapchat.js وgoogle.js): مبيعات النهارده كانت
+    // بتتجمع هنا لوحدها، فالعائد في السطر بيعلى والسطر بيظهر والرقمين متساويين
+    var sales = c.sales != null ? c.sales : sum(c.dailySales || [], 0, YESTERDAY);
     var platSales = pl.sales || 0;
     if (pl.results === c.results && Math.abs(platSales - sales) <= Math.max(0.01 * platSales, 0.01)) return null;
     var roas = function (s) { return c.spend > 0 && s > 0 ? t('al.cmpRoas', { r: fmt.num(s / c.spend) }) : ''; };

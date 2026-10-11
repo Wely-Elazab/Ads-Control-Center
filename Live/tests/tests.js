@@ -1026,6 +1026,20 @@
       delete w.plat;
       ok(!engine(baseAccount().concat([w])).alerts.some(function (x) { return x.compare; }), 'no platform number = no line');
     });
+    test('المقارنة في التنبيه: مبيعات النهارده مش داخلة (زي الإنفاق والطلبات ورقم المنصة)', function () {
+      // نفس شكل الإنتاج: c.sales = الأيام المكتملة (meta.js)، والخانة الأخيرة = النهارده وفيها مبيعات
+      var w = ad('waste', { daily: [100, 100, 100, 100, 100, 100, 20], res: [5, 5, 5, 5, 0, 0, 0], sales: [500, 500, 500, 500, 0, 0, 900] });
+      w.sales = 2000;
+      w.plat = { results: 20, sales: 2000 };
+      ok(!engine(baseAccount().concat([w])).alerts.some(function (x) { return x.compare; }), 'same numbers on complete days = no line');
+      w.plat = { results: 31, sales: 3100 };
+      var a = engine(baseAccount().concat([w])).alerts.filter(function (x) { return x.adId === 'waste' && x.compare; })[0];
+      ok(a && a.compare.indexOf(t('al.cmpRoas', { r: numAr(2000 / 620) })) > -1, 'store-closest return uses complete days: ' + (a && a.compare));
+      // من غير c.sales (منصة مالهاش الحقل): الأيام لحد امبارح
+      delete w.sales;
+      a = engine(baseAccount().concat([w])).alerts.filter(function (x) { return x.adId === 'waste' && x.compare; })[0];
+      ok(a && a.compare.indexOf(t('al.cmpRoas', { r: numAr(2000 / 620) })) > -1, 'fallback without c.sales: ' + (a && a.compare));
+    });
     test('حجم المشكلة: أقل من ١٪ بيتكتب كده، وتنبيه الحساب بيوضّح إنه بيشمل الحساب كله', function () {
       var ads = [ad('huge', { daily: steady(10000), res: steady(100) }), ad('tiny', { daily: steady(10), res: steady(0), freq: 9 }), ad('g2', { daily: steady(10000), res: steady(100) })];
       var r = engine(ads);
@@ -1241,7 +1255,8 @@
       var star = ad('star', { daily: [100, 100, 100, 100, 100, 100, 0], res: steady(3), sales: [900, 900, 900, 900, 900, 900, 0], active: false, pausedLevel: 'ad' });
       var other = ad('s1', { daily: steady(100), res: steady(2), sales: steady(200) });
       var a = codes(engine([star, other]).alerts, 'top-stopped');
-      ok(a.length === 1 && a[0].adId === 'star' && a[0].level === 'critical' && /٧٩٪/.test(a[0].detail) && /متوقف/.test(a[0].detail), JSON.stringify(a.map(function (x) { return x.detail; })));
+      // أيام مكتملة بس (آخر خانة = النهارده): ٥٬٤٠٠ من ٦٬٦٠٠ = ٨٢٪ (كان ٧٩٪ لما مبيعات النهارده كانت داخلة في الحساب)
+      ok(a.length === 1 && a[0].adId === 'star' && a[0].level === 'critical' && /٨٢٪/.test(a[0].detail) && /متوقف/.test(a[0].detail), JSON.stringify(a.map(function (x) { return x.detail; })));
       var inCamp = ad('star', { daily: [100, 100, 100, 100, 100, 100, 0], res: steady(3), sales: [900, 900, 900, 900, 900, 900, 0], active: false, pausedLevel: 'campaign', cid: 'c9', camp: 'Big' });
       var c = codes(engine([inCamp, other]).alerts, 'top-stopped');
       ok(c.length === 1 && c[0].objectId === 'c:c9' && !c[0].adId && /حملة «Big»/.test(c[0].detail), JSON.stringify(c));
@@ -3427,6 +3442,89 @@
       });
     });
 
+    testAsync('قائمة الحسابات في الصفحة العربية: الاسم الطويل بيتقص من آخره مش من أوله (كان «pchat — …» واسم المنصة ضايع)', function () {
+      var restore = keepStorage(['acc.lang']);
+      localStorage.setItem('acc.lang', 'ar');
+      return toolFrame(800, 600).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        eq([w.getComputedStyle(d.body).direction, w.getComputedStyle(d.getElementById('accountSelect')).direction], ['rtl', 'ltr']);
+        f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
+    // فيديو Snapchat في نافذة التفاصيل (حساب حقيقي ١١ أكتوبر ٢٠٢٦)
+    function snapVideoAd(src) {
+      var eight = function (n) { return [n, n, n, n, n, n, n, n]; };
+      var c = ad('sv', { daily: eight(10), res: eight(1) });
+      c.platform = 'Snapchat'; c.source = 'snapchat:acct-1'; c.format = 'video'; c.videoSrc = src;
+      c.dailyDates = last7Days(TODAY).map(function (x) { return x.key; });
+      c.dailySales = eight(0);
+      return c;
+    }
+    testAsync('قفل نافذة التفاصيل بيوقف الفيديو (كان بيكمّل بصوته وهي مخفية) — بكل طرق القفل', function () {
+      return toolFrame(800, 600).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, c = snapVideoAd('https://cdn.example/v.mp4');
+        w.candidates = [c];
+        w.render();
+        var ways = {
+          button: function () { d.getElementById('expandClose').click(); },
+          outside: function () { d.getElementById('expandOverlay').click(); },
+          escape: function () { w.closeOverlays(); }
+        };
+        var res = {};
+        return Object.keys(ways).reduce(function (p, k) {
+          return p.then(function () {
+            w.openExpand(c);
+            var v = d.querySelector('#expandPreview video');
+            ok(v, k + ': the video is there while the window is open');
+            ways[k]();
+            return sleep(0).then(function () { res[k] = { detached: !d.contains(v), empty: !d.getElementById('expandPreview').firstChild }; });
+          });
+        }, Promise.resolve()).then(function () {
+          eq(res, { button: { detached: true, empty: true }, outside: { detached: true, empty: true }, escape: { detached: true, empty: true } });
+          // فتح تاني بعد القفل: الفيديو راجع
+          w.openExpand(c);
+          ok(d.querySelector('#expandPreview video'), 'reopening shows the video again');
+          f.remove();
+        });
+      });
+    });
+    testAsync('فيديو Snapchat مقدرش يشتغل: السبب ورابط الملف بدل مشغّل واقف على ٠:٠٠ — ومن غير ما يكتب فوق إعلان تاني', function () {
+      return toolFrame(800, 600).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        // صفحة HTML مش فيديو = نفس خطأ المتصفح لما الصيغة مش مدعومة
+        var bad = location.origin + '/tests/index.html?not-a-video=' + Date.now(), c = snapVideoAd(bad);
+        w.candidates = [c];
+        w.render();
+        w.openExpand(c);
+        var v = d.querySelector('#expandPreview video');
+        v.muted = true;
+        v.play().catch(function () {});
+        var wait = function (n) {
+          var box = d.querySelector('#expandPreview .snap-video-failed');
+          return box || n <= 0 ? Promise.resolve(box) : sleep(100).then(function () { return wait(n - 1); });
+        };
+        return wait(50).then(function (box) {
+          ok(box, 'the failure box replaces the frozen player');
+          eq(box && box.querySelector('p').textContent, w.t('x.pv.snapVideoFailed'));
+          var a = box && box.querySelector('a');
+          eq(a && [a.href, a.target, a.rel], [bad, '_blank', 'noopener noreferrer'], 'link to the file itself');
+          // خطأ متأخر بعد ما النافذة اتقفلت وفتحت على إعلان تاني مبيكتبش فوقه
+          w.openExpand(c);
+          var v2 = d.querySelector('#expandPreview video');
+          d.getElementById('expandClose').click();
+          return sleep(0).then(function () {
+            var other = ad('other', { daily: [1, 1, 1, 1, 1, 1, 1, 1], res: [0, 0, 0, 0, 0, 0, 0, 0] });
+            other.dailyDates = c.dailyDates; other.dailySales = c.dailySales;
+            w.openExpand(other);
+            v2.dispatchEvent(new Event('error'));
+            ok(!d.querySelector('#expandPreview .snap-video-failed'), 'a late error from the closed video stays out of the next ad');
+            f.remove();
+          });
+        });
+      });
+    });
+
     testAsync('أرقام العرض التوضيحي في الرئيسية بصيغة اللغة من أول لحظة', function () {
       var restore = keepStorage(['acc.lang']);
       var f = document.createElement('iframe');
@@ -4494,21 +4592,32 @@
     });
     test('العروض: «كل المنصات» الأول لو العملة والفترة واحدة، والأزرار بتبدّل العرض', function () {
       var a = src('meta', 21), b = src('google', 23);
+      var oldOpts = { meta: platformOptions.meta, google: platformOptions.google };
       DX_ON = true; activeSources.meta = 'act_1'; activeSources.google = '123';
+      platformOptions.meta = [{ value: 'act_1', label: 'Meta — Store One' }];
+      platformOptions.google = [{ value: '123', label: 'Google Ads — G Store' }];
       try {
         dxState.sources = { meta: { status: 'ready', key: 'm', input: a.input, report: DX.analyze(a.input), account: 'M', accountId: 'meta:1' },
           google: { status: 'ready', key: 'g', input: b.input, report: DX.analyze(b.input), account: 'G', accountId: 'google:1' } };
         dxRecompute();
         eq(dxState.views.map(function (v) { return v.id; }), ['all', 'meta', 'google']);
         ok(document.querySelector('#dxBody [data-dx-view="google"]'), 'tabs shown');
-        document.querySelector('#dxBody [data-dx-view="google"]').click();
+        // اسم الحساب جنب المنصة (القائمة فوق بتقول حساب منصة واحدة بس)
+        var chip = document.querySelector('#dxBody [data-dx-view="meta"]'), name = chip.querySelector('.dx-view-acct');
+        eq([name && name.textContent, chip.title], ['Store One', 'Store One'], 'the chip names its account');
+        ok(!document.querySelector('#dxBody [data-dx-view="all"] .dx-view-acct'), '«all platforms» has no single account');
+        // الضغط على اسم الحساب نفسه (جوه الزرار) بيبدّل العرض
+        document.querySelector('#dxBody [data-dx-view="google"] .dx-view-acct').click();
         eq([dxState.view, dxState.accountId], ['google', 'google:1']);
         // عملة مختلفة = مفيش «كل المنصات»
         b.input.currency = 'USD';
         dxState.sources.google.input = b.input;
         dxRecompute();
         eq(dxState.views.map(function (v) { return v.id; }), ['meta', 'google']);
-      } finally { DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true; }
+      } finally {
+        platformOptions.meta = oldOpts.meta; platformOptions.google = oldOpts.google;
+        DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
+      }
     });
   });
 

@@ -179,6 +179,9 @@
   .real-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
   /* فيديو Snapchat طولي (٩:١٦): ارتفاع ثابت عشان المشغّل يبان قبل ما يتحمّل */
   .snap-video-wrap { height: min(62vh, 560px); background: #000; border-radius: 10px; overflow: hidden; }
+  /* الفيديو مقدرش يشتغل (ui.js showMedia): السبب + زرار الملف نفسه */
+  .snap-video-failed { padding: 18px 16px; border: 1px dashed var(--line); border-radius: 10px; text-align: center; font-size: 13px; line-height: 1.8; color: var(--ink-soft); }
+  .snap-video-failed p { margin: 0 0 12px; }
   .video-fallback-link { position: absolute; bottom: 10px; inset-inline-start: 10px; z-index: 2; background: rgba(22,26,31,0.72); color: #fff; font-size: 12px; padding: 7px 12px; border-radius: 8px; text-decoration: none; }
   .video-fallback-note { position: absolute; bottom: 10px; inset-inline-start: 10px; inset-inline-end: 10px; z-index: 2; background: rgba(22,26,31,0.72); color: #fff; font-size: 11.5px; padding: 7px 12px; border-radius: 8px; text-align: center; }
   .expand-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
@@ -420,7 +423,9 @@
   .appbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .icon-toggle { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--paper); cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; }
   .lang-toggle { border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 7px 13px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
-  .account-select { max-width: 230px; }
+  /* الأسماء «Snapchat — اسم الحساب»: بالعربي النص الطويل كان بيتقص من أوله («pchat — Store Self Service» — حساب حقيقي ١١ أكتوبر ٢٠٢٦)
+     فاسم المنصة نفسه بيضيع. من الشمال لليمين = القص من آخر الاسم */
+  .account-select { max-width: 230px; direction: ltr; }
   .appbar-icons { display: flex; align-items: center; gap: 8px; }
   .install-btn { border-color: var(--verified); color: var(--verified); }
   .install-btn[hidden] { display: none; }
@@ -727,6 +732,8 @@
   .dx-auto-on strong { color: var(--verified); }
   .dx-period { margin: 4px 0 12px; font-size: 12.5px; color: var(--ink-soft); }
   .dx-views { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+  /* اسم الحساب جنب المنصة في زرار العرض (ui.js renderDiagnosis) — مقصوص لو طويل، والاسم كامل في التلميح */
+  .dx-view-acct { display: inline-block; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; margin-inline-start: 6px; font-weight: 400; opacity: .8; }
   .dx-views + .dx-notes { margin: -4px 2px 10px; }
   .dx-wait { margin: 0; padding: 16px 18px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px; color: var(--ink-soft); }
   .dx-head { background: var(--card); border: 1px solid var(--line); border-inline-start: 4px solid var(--ink-faint); border-radius: var(--radius); padding: 16px 18px; }

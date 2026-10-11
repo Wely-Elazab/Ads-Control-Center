@@ -1272,10 +1272,13 @@
     // أكتر من عرض: أزرار «كل المنصات / Meta / Google Ads / Snapchat»
     var views = dxState.views || [], tabs = '';
     if (views.length > 1) {
+      // اسم الحساب جنب المنصة: قائمة الحسابات فوق بتقول حساب منصة واحدة بس، والإعلانات والملخص فيهم حساب من كل منصة متصلة
+      // (حساب حقيقي ١١ أكتوبر ٢٠٢٦: القائمة على Snapchat والصفحة فيها إعلانات Meta ومفيش أي مكان بيقول أنهي حساب Meta)
       tabs = '<div class="dx-views" role="group" aria-label="' + esc(t('dx.view.aria')) + '">' + views.map(function (v) {
-        var on = v.id === dxState.view;
-        return '<button type="button" class="chip' + (on ? ' active' : '') + '" data-dx-view="' + esc(v.id) + '" aria-pressed="' + on + '">' +
-          esc(t(v.id === 'all' ? 'dx.view.all' : 'dx.plat.' + v.id)) + '</button>';
+        var on = v.id === dxState.view, acct = v.id === 'all' ? '' : accountLabel(v.id);
+        return '<button type="button" class="chip' + (on ? ' active' : '') + '" data-dx-view="' + esc(v.id) + '" aria-pressed="' + on + '"' +
+          (acct ? ' title="' + esc(acct) + '"' : '') + '>' + esc(t(v.id === 'all' ? 'dx.view.all' : 'dx.plat.' + v.id)) +
+          (acct ? '<span class="dx-view-acct" dir="auto">' + esc(acct) + '</span>' : '') + '</button>';
       }).join('') + '</div>';
     }
     // منصة لسه بتتحمّل بعد ما التانية خلصت
@@ -2041,6 +2044,13 @@
     if (vsrc) {
       el.innerHTML = '<div class="snap-video-wrap"><video class="real-video" controls playsinline preload="none" src="' + esc(vsrc) + '"></video></div>' +
         '<p class="pv-hint">' + esc(t('x.pv.snapVideo')) + '</p>';
+      // الفيديو مفشلش بصوت: المشغّل كان بيفضل واقف على ٠:٠٠ من غير أي تفسير (حساب حقيقي ١١ أكتوبر ٢٠٢٦: ٤ من ١٣ فيديو
+      // مرفوعين HEVC من الآيفون، ومش كل متصفح بيشغّله — وفيديو منهم فشل مرة في التحميل نفسه). لو فشل: السبب + الملف نفسه
+      el.querySelector('video').addEventListener('error', function () {
+        if (openSeq !== expandSeq) return;
+        el.innerHTML = '<div class="snap-video-failed"><p>' + esc(t('x.pv.snapVideoFailed')) + '</p>' +
+          '<a class="open-platform" href="' + esc(vsrc) + '" target="_blank" rel="noopener noreferrer">' + esc(t('x.pv.snapVideoFile')) + ' ↗</a></div>';
+      });
       return;
     }
     if (c.platform !== 'Meta' || !(c.videoId || c.catalog)) return;
@@ -2118,6 +2128,15 @@
     });
   }
 
+  // النافذة بتتقفل بالكلاس hidden بس (display:none)، والفيديو أو معاينة Meta جوّاها كان بيكمّل يشتغل بصوته في الخلفية (اتجرّب
+  // على حساب حقيقي ١١ أكتوبر ٢٠٢٦). القفل بيفضّي المعاينة — openExpand بيبنيها من جديد كل فتح — ويلغي أي طلب معاينة لسه راجع.
+  // بنراقب الكلاس نفسه زي التركيز تحت، فبيشتغل مع كل طرق القفل (الزرار، برّه النافذة، Esc)
+  if (window.MutationObserver) new MutationObserver(function () {
+    var pv = document.getElementById('expandPreview');
+    if (!expandOverlay.classList.contains('hidden') || !pv.firstChild) return;
+    expandSeq++;
+    pv.innerHTML = '';
+  }).observe(expandOverlay, { attributes: true, attributeFilter: ['class'] });
   expandClose.addEventListener('click', function () { expandOverlay.classList.add('hidden'); });
   expandOverlay.addEventListener('click', function (e) { if (e.target === expandOverlay) expandOverlay.classList.add('hidden'); });
   function closeOverlays() {
