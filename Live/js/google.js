@@ -349,7 +349,7 @@
     var pRes = split(function (c) { return c._raw.period; }, pPlat.map(inf));
     rows.forEach(function (c, i) {
       c.results = res[i];
-      c.dailyResults = wholeShares(c._raw.days, res[i]);
+      c.dailyResults = googleDayShares(c._raw.days, res[i]);
       c.cpr = (c.results && c.spend > 0) ? c.spend / c.results : null;
       if (c.plat && plat[i] != null) c.plat.results = plat[i];
       if (c.period && pRes[i] != null) {
@@ -363,24 +363,31 @@
   }
 
   // يوم بيوم: الصرف، والنتائج والمبيعات = «الأقرب للمتجر» لو موجود (ومش أكبر من رقم المنصة في أي يوم)، وإلا رقم المنصة.
-  // الأيام بالأرقام الأصلية (rawDays)، والأعداد الصحيحة بتتوزّع منها (wholeShares) — مجموع الأيام = إجمالي الإعلان
+  // الأيام بالأرقام الأصلية (rawDays)، والأعداد الصحيحة بتتوزّع منها (wholeShares) — مجموع الأيام المكتملة = إجمالي الإعلان.
+  // الإجماليات (raw وplatRaw وplatSales) للأيام المكتملة بس، والنهارده (آخر خانة) لوحده — زي meta.js
   function googleDays(days, perDay, storeDay) {
     var o = { daily: [], dailyResults: [], dailySales: [], rawDays: [], raw: 0, platRaw: 0, platSales: 0 };
-    days.forEach(function (day) {
+    var lastIdx = days.length - 1;
+    days.forEach(function (day, di) {
       var r = perDay[day.key], res = r ? r.results : 0, sales = r ? r.sales : 0;
-      o.platRaw += res; o.platSales += sales;
+      if (di < lastIdx) { o.platRaw += res; o.platSales += sales; }
       if (storeDay) {
         var s = storeDay[day.key];
         res = Math.min(s ? s.results : 0, res);
         sales = Math.min(s ? r2(s.sales) : 0, sales);
       }
       o.daily.push(r ? r.spend : 0);
-      o.raw += res;
+      if (di < lastIdx) o.raw += res;
       o.rawDays.push(res);
       o.dailySales.push(sales);
     });
-    o.dailyResults = wholeShares(o.rawDays, Math.round(o.raw));
+    o.dailyResults = googleDayShares(o.rawDays, Math.round(o.raw));
     return o;
+  }
+  // الإجمالي الصحيح بيتقسم على الأيام المكتملة، والنهارده رقمه لوحده (مقرّب)
+  function googleDayShares(rawDays, total) {
+    var n = rawDays.length - 1;
+    return n < 0 ? [] : wholeShares(rawDays.slice(0, n), total).concat([Math.round(rawDays[n] || 0)]);
   }
   // الأرقام الأصلية (بالكسور) اللي googleWholeOrders بتقسم منها على مستوى الحساب — بتتشال بعدها
   function googleRaw(g, compared, pRow, ps) {
@@ -438,9 +445,9 @@
       var delivery = googleCampaignDelivery(camp);
       var g = googleDays(days, e.perDay, storeByDate && (storeByDate[campId] || {}));
       var daily = g.daily, dailyResults = g.dailyResults, dailySales = g.dailySales;
-      var spend = daily.reduce(function (a, b) { return a + b; }, 0);
+      var spend = r2(daily.slice(0, daily.length - 1).reduce(function (a, b) { return a + b; }, 0));
       var totalResults = Math.round(g.raw);
-      var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
+      var totalSales = dailySales.slice(0, dailySales.length - 1).reduce(function (a, b) { return a + b; }, 0);
       var pRow = Array.isArray(periodRows) ? (e.period || { spend: 0, results: 0, sales: 0 }) : null;
       var name = camp.name || ('Performance Max #' + campId);
       return {
@@ -459,7 +466,7 @@
         results: totalResults > 0 ? totalResults : 0,
         resultKey: 'conversion',
         cpr: (totalResults && spend > 0) ? (spend / totalResults) : null,
-        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null,
+        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null, sales: r2(totalSales),
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active,
         pausedLevel: delivery.level,
@@ -520,9 +527,9 @@
       var delivery = googleDelivery(row, adStatus, agStatus, campStatus, approval);
       var g = googleDays(days, byDate[key] || {}, storeByDate && (storeByDate[key] || {}));
       var daily = g.daily, dailyResults = g.dailyResults, dailySales = g.dailySales;
-      var spend = daily.reduce(function (a, b) { return a + b; }, 0);
+      var spend = r2(daily.slice(0, daily.length - 1).reduce(function (a, b) { return a + b; }, 0));
       var totalResults = Math.round(g.raw);
-      var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
+      var totalSales = dailySales.slice(0, dailySales.length - 1).reduce(function (a, b) { return a + b; }, 0);
       return {
         id: id, platform: 'Google Ads', currency: currency || null,
         reviewStatus: approval === 'DISAPPROVED' ? 'disapproved' : ((approval === 'APPROVED_LIMITED' || approval === 'AREA_OF_INTEREST_ONLY') ? 'limited' : null),
@@ -544,7 +551,7 @@
         results: totalResults > 0 ? totalResults : 0,
         resultKey: 'conversion',
         cpr: (totalResults && spend > 0) ? (spend / totalResults) : null,
-        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null,
+        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null, sales: r2(totalSales),
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active,
         pausedLevel: delivery.level,

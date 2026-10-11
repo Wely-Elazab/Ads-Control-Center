@@ -50,6 +50,9 @@
   // الاختبارات القديمة مبنية على ٧ خانات (٦ أيام مكتملة + النهارده) — المحرك بيحسب الأيام من آخر النافذة فبيشتغل بيها،
   // ونافذة الأداة الحقيقية (٨ خانات = ٧ مكتملة + النهارده) ليها اختبارات لوحدها تحت
   var DAYS = last7Days(TODAY).slice(-7);
+  // ملفات المنصات بتعتبر آخر خانة «النهارده» (مبتدخلش الإجماليات — مراجعة ١١ أكتوبر). بيانات الاختبارات على DAYS كلها أيام مكتملة،
+  // فبنديها نافذة الأداة الحقيقية (٨ خانات): DAYS وبعدها يوم «النهارده»
+  var DAYS_X = DAYS.concat([{ key: shiftKey(TODAY, 1) }]);
   var KEYS = DAYS.map(function (d) { return d.key; });
   function sumArr(a) { return a.reduce(function (x, y) { return x + y; }, 0); }
   // إعلان بنفس الشكل اللي ملفات المنصات بتبنيه
@@ -264,7 +267,8 @@
 
   // «الأقرب للمتجر» في Snapchat (قرار ٦ أكتوبر ٢٠٢٦): ٧ أيام من السوايب ومن غير المشاهدة، بطلب منفصل جنب رقم المنصة
   describe('أرقام Snapchat — الأقرب للمتجر', function () {
-    var days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07'].map(function (k) { return { key: k }; });
+    // آخر خانة (٨ أكتوبر) = «النهارده» — مبتدخلش الإجماليات، والبيانات على الأيام المكتملة قبلها
+    var days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08'].map(function (k) { return { key: k }; });
     var M = 1000000;
     var series = function (rows) {
       return [{ timeseries_stat: { breakdown_stats: { ad: Object.keys(rows).map(function (id) {
@@ -440,36 +444,36 @@
     var json = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
 
     test('الأرقام الأساسية = «الأقرب للمتجر»، ورقم المنصة جنبها', function () {
-      var c = transformGoogleRows(adRows, plat, DAYS, 'SAR', null, store, null)[0];
+      var c = transformGoogleRows(adRows, plat, DAYS_X, 'SAR', null, store, null)[0];
       eq([c.results, c.dailySales[5] + c.dailySales[6], c.spend, c.resultKey], [9, 900, 150, 'conversion']);
       eq(c.plat, { results: 14, sales: 1400 });
       var pp = platOf(c);
       eq([pp.results, pp.sales, pp.spend], [14, 1400, 150]);
     });
     test('«الأقرب للمتجر» مبيطلعش أكبر من رقم المنصة، والكسور بتتجمع قبل التقريب', function () {
-      var c = transformGoogleRows(adRows, plat, DAYS, 'SAR', null, [day(5, { conversions: 12, conversionsValue: 1200 }), day(6, { conversions: 0.6, conversionsValue: 60 })], null)[0];
+      var c = transformGoogleRows(adRows, plat, DAYS_X, 'SAR', null, [day(5, { conversions: 12, conversionsValue: 1200 }), day(6, { conversions: 0.6, conversionsValue: 60 })], null)[0];
       eq([c.dailyResults[5], c.dailySales[5], c.dailyResults[6], c.results], [10, 1000, 1, 11]);
     });
     test('طلب «الأقرب للمتجر» فشل = أرقام المنصة زي الأول ومن غير مقارنة', function () {
-      var c = transformGoogleRows(adRows, plat, DAYS, 'SAR', null, null, null)[0];
+      var c = transformGoogleRows(adRows, plat, DAYS_X, 'SAR', null, null, null)[0];
       eq([c.results, c.plat, platOf(c)], [14, null, null]);
     });
     test('الفترة المختارة: «الأقرب للمتجر» ورقم المنصة جنبه، ولو طلبها فشل رقم المنصة من غير مقارنة', function () {
       var pPlat = [Object.assign({ metrics: { costMicros: String(300 * M), conversions: 20, conversionsValue: 2000 } }, who)];
       var pStore = [Object.assign({ metrics: { conversions: 15, conversionsValue: 1500 } }, who)];
-      var c = transformGoogleRows(adRows, plat, DAYS, 'SAR', pPlat, store, pStore)[0];
+      var c = transformGoogleRows(adRows, plat, DAYS_X, 'SAR', pPlat, store, pStore)[0];
       eq([c.period.results, c.period.sales, c.period.spend], [15, 1500, 300]);
       var pp = platOf(c);
       eq([pp.results, pp.sales], [20, 2000]);
-      var c2 = transformGoogleRows(adRows, plat, DAYS, 'SAR', pPlat, store, null)[0];
+      var c2 = transformGoogleRows(adRows, plat, DAYS_X, 'SAR', pPlat, store, null)[0];
       eq([c2.period.results, c2.period.plat, platOf(c2)], [20, undefined, null]);
     });
     test('حملات Performance Max: نفس المقارنة', function () {
       var camp = { id: '21', name: 'PMax', status: 'ENABLED', primaryStatus: 'ELIGIBLE' };
       var rows = [{ campaign: camp, segments: { date: KEYS[5] }, metrics: { costMicros: String(80 * M), conversions: 8, conversionsValue: 800 } }];
-      var p = transformGooglePmax(rows, null, DAYS, 'SAR', [{ campaign: { id: '21' }, segments: { date: KEYS[5] }, metrics: { conversions: 5, conversionsValue: 500 } }], null)[0];
+      var p = transformGooglePmax(rows, null, DAYS_X, 'SAR', [{ campaign: { id: '21' }, segments: { date: KEYS[5] }, metrics: { conversions: 5, conversionsValue: 500 } }], null)[0];
       eq([p.results, p.dailySales[5], p.plat], [5, 500, { results: 8, sales: 800 }]);
-      eq(transformGooglePmax(rows, null, DAYS, 'SAR', null, null)[0].plat, null);
+      eq(transformGooglePmax(rows, null, DAYS_X, 'SAR', null, null)[0].plat, null);
     });
 
     // عدد الطلبات صحيح دايماً (قرار ٦ أكتوبر ٢٠٢٦): Google بيرجّع كسور، والأداة بتقسم الإجمالي المقرّب على الإعلانات والأيام
@@ -479,7 +483,7 @@
       eq(wholeShares([0.4, 0.4, 0.4], 1), [1, 0, 0]);
       eq(wholeShares([0.45, 0.55], 1, [0, 1]), [0, 1], 'the cap is respected');
       var ids = []; for (var i = 0; i < 30; i++) ids.push(i);
-      var list = googleWholeOrders(transformGoogleRows(ids.map(adN), ids.map(function (i) { return rowN(i, 5, 0.4); }), DAYS, 'SAR', null, null, null));
+      var list = googleWholeOrders(transformGoogleRows(ids.map(adN), ids.map(function (i) { return rowN(i, 5, 0.4); }), DAYS_X, 'SAR', null, null, null));
       var total = list.reduce(function (s, c) { return s + c.results; }, 0);
       eq(total, 12, '30 × 0.4 = 12 orders, not 0');
       ok(list.every(function (c) { return c.results === Math.floor(c.results) && c._raw === undefined; }), 'whole numbers, raw values removed');
@@ -487,11 +491,11 @@
     });
     test('أيام الإعلان مجموعها = إجمالي الإعلان، و«الأقرب للمتجر» مبيعدّيش رقم المنصة بعد التقريب', function () {
       var days7 = [0, 1, 2, 3, 4, 5, 6].map(function (d) { return rowN(1, d, 0.4); });
-      var one = googleWholeOrders(transformGoogleRows([adN(1)], days7, DAYS, 'SAR', null, null, null))[0];
+      var one = googleWholeOrders(transformGoogleRows([adN(1)], days7, DAYS_X, 'SAR', null, null, null))[0];
       eq([one.results, one.dailyResults.reduce(function (a, b) { return a + b; }, 0)], [3, 3], '7 × 0.4 → 3, not 0 per day');
       var pl = [rowN(1, 5, 0.45), rowN(2, 5, 0.55)];
       var st = [rowN(1, 5, 0.45), rowN(2, 5, 0.3)];
-      var two = googleWholeOrders(transformGoogleRows([adN(1), adN(2)], pl, DAYS, 'SAR', null, st, null));
+      var two = googleWholeOrders(transformGoogleRows([adN(1), adN(2)], pl, DAYS_X, 'SAR', null, st, null));
       eq(two.map(function (c) { return [c.plat.results, c.results]; }), [[0, 0], [1, 1]]);
       ok(two.every(function (c) { return c.results <= c.plat.results; }), 'ours never above the platform');
       eq(two[1].cpr, 10, 'cost per order from the whole number');
@@ -631,9 +635,20 @@
         { date_start: KEYS[5], spend: '50', actions: [{ action_type: 'omni_purchase', value: '2' }], action_values: [{ action_type: 'omni_purchase', value: '200' }] },
         { date_start: KEYS[6], spend: '50', actions: [{ action_type: 'omni_purchase', value: '1' }], action_values: [{ action_type: 'omni_purchase', value: '100' }] }
       ];
-      var c = transformRealAd(baseAd(), rows, {}, DAYS, null, 'SAR', null, null);
+      var c = transformRealAd(baseAd(), rows, {}, DAYS_X, null, 'SAR', null, null);
       eq([c.resultKey, c.results, c.spend, c.roas], ['purchase', 3, 100, 3]);
       eq([c.campaignName, c.adsetName, c.placement], ['Camp C', 'Set S', 'Camp C']);
+    });
+    test('النهارده (آخر خانة) مبيدخلش الإجمالي: «آخر ٧ أيام» = الأيام المكتملة، واليوم في الجدول لوحده (مراجعة ١١ أكتوبر)', function () {
+      var today = DAYS_X[DAYS_X.length - 1].key;
+      var rows = [
+        { date_start: KEYS[5], spend: '100', actions: [{ action_type: 'omni_purchase', value: '2' }], action_values: [{ action_type: 'omni_purchase', value: '300' }] },
+        { date_start: today, spend: '40', actions: [{ action_type: 'omni_purchase', value: '1' }], action_values: [{ action_type: 'omni_purchase', value: '150' }] }
+      ];
+      var c = transformRealAd(baseAd(), rows, {}, DAYS_X, null, 'SAR', null, null);
+      var last = c.daily.length - 1;
+      eq([c.spend, c.results, c.sales, c.roas, periodOf(c).sales], [100, 2, 300, 3, 300], 'totals = complete days');
+      eq([c.daily[last], c.dailyResults[last], c.dailySales[last]], [40, 1, 150], 'today still shown on its own');
     });
     test('رقم Meta نفسه (results) له الأولوية — والأيام من غيره = صفر', function () {
       var rows = [
@@ -641,12 +656,12 @@
           actions: [{ action_type: 'omni_purchase', value: '9' }] },
         { date_start: KEYS[6], spend: '50', actions: [{ action_type: 'omni_purchase', value: '1' }] }
       ];
-      var c = transformRealAd(baseAd(), rows, {}, DAYS, null, 'SAR', null, null);
+      var c = transformRealAd(baseAd(), rows, {}, DAYS_X, null, 'SAR', null, null);
       eq([c.resultKey, c.results, c.dailyResults[5], c.dailyResults[6]], ['lead', 4, 4, 0]);
     });
     test('شكل results غير متوقع = نرجع لطريقتنا من غير ما نقع', function () {
       var rows = [{ date_start: KEYS[6], spend: '10', results: [{ weird: true }], actions: [{ action_type: 'omni_purchase', value: '2' }] }];
-      var c = transformRealAd(baseAd(), rows, {}, DAYS, null, 'SAR', null, null);
+      var c = transformRealAd(baseAd(), rows, {}, DAYS_X, null, 'SAR', null, null);
       eq([c.resultKey, c.results], ['purchase', 2]);
     });
     test('أنواع النتائج', function () {
@@ -661,8 +676,8 @@
     });
     test('إعلان عليه ملاحظة بس صرف النهارده = شغّال', function () {
       var a = baseAd(); a.issues_info = [{ level: 'AD', error_summary: 'x' }];
-      var rows = [{ date_start: KEYS[6], spend: '10', actions: [] }];
-      eq(transformRealAd(a, rows, {}, DAYS, null, 'SAR', null, null).active, true);
+      var rows = [{ date_start: DAYS_X[DAYS_X.length - 1].key, spend: '10', actions: [] }];   // آخر خانة في النافذة = النهارده
+      eq(transformRealAd(a, rows, {}, DAYS_X, null, 'SAR', null, null).active, true);
     });
 
     // «الأقرب للمتجر» (قرار ٦ أكتوبر ٢٠٢٦): الأساس = نقرة خلال ٧ أيام، ورقم المنصة (value) للمقارنة بس.
@@ -674,15 +689,15 @@
         { date_start: KEYS[6], spend: '50', actions: [{ action_type: 'omni_purchase', value: '2', '1d_view': '2' }],
           action_values: [{ action_type: 'omni_purchase', value: '200', '1d_view': '200' }] }
       ];
-      var c = transformRealAd(baseAd(), rows, {}, DAYS, null, 'SAR', null, null);
+      var c = transformRealAd(baseAd(), rows, {}, DAYS_X, null, 'SAR', null, null);
       eq([c.results, c.dailyResults[5], c.dailyResults[6], sumArr(c.dailySales), c.roas], [3, 3, 0, 300, 3]);
       eq(c.plat, { results: 7, sales: 700 });
     });
     test('الأقرب للمتجر مش أكتر من رقم المنصة، ومن غير نوافذ = رقم المنصة ومفيش مقارنة', function () {
       var narrow = [{ date_start: KEYS[6], spend: '30', actions: [{ action_type: 'omni_purchase', value: '1', '7d_click': '2' }] }];
-      eq(transformRealAd(baseAd(), narrow, {}, DAYS, null, 'SAR', null, null).results, 1, 'ad set uses a narrower window');
+      eq(transformRealAd(baseAd(), narrow, {}, DAYS_X, null, 'SAR', null, null).results, 1, 'ad set uses a narrower window');
       var old = [{ date_start: KEYS[6], spend: '30', actions: [{ action_type: 'omni_purchase', value: '4' }] }];
-      var c = transformRealAd(baseAd(), old, {}, DAYS, null, 'SAR', null, null);
+      var c = transformRealAd(baseAd(), old, {}, DAYS_X, null, 'SAR', null, null);
       eq([c.results, c.plat], [4, null], 'no windows returned');
       eq(platOf(c), null);
     });
@@ -690,13 +705,13 @@
       var rows = [{ date_start: KEYS[6], spend: '40',
         results: [{ indicator: 'actions:offsite_conversion.fb_pixel_purchase', values: [{ value: '4', attribution_windows: ['7d_click'] }, { value: '6', attribution_windows: ['default'] }] }],
         actions: [{ action_type: 'offsite_conversion.fb_pixel_purchase', value: '6', '7d_click': '4', '1d_view': '2' }] }];
-      var c = transformRealAd(baseAd(), rows, {}, DAYS, null, 'SAR', null, null);
+      var c = transformRealAd(baseAd(), rows, {}, DAYS_X, null, 'SAR', null, null);
       eq([c.resultKey, c.results, c.plat.results], ['purchase', 4, 6]);
     });
     test('الفترة المختارة: الأقرب للمتجر في الكارت، ورقم المنصة في platOf بنفس الإنفاق', function () {
       var periodRow = { spend: '200', actions: [{ action_type: 'omni_purchase', value: '10', '7d_click': '8', '1d_view': '2' }],
         action_values: [{ action_type: 'omni_purchase', value: '1000', '7d_click': '800', '1d_view': '200' }] };
-      var c = transformRealAd(baseAd(), [], {}, DAYS, null, 'SAR', null, periodRow);
+      var c = transformRealAd(baseAd(), [], {}, DAYS_X, null, 'SAR', null, periodRow);
       var p = periodOf(c), pp = platOf(c);
       eq([p.results, p.sales, p.cpr, p.roas], [8, 800, 25, 4]);
       eq([pp.spend, pp.results, pp.sales, pp.cpr, pp.roas], [200, 10, 1000, 20, 5]);
@@ -863,7 +878,8 @@
     test('إعلان وصول بـ٥ في الأسبوع (٠٫٤٪ من الحساب) = «للعلم» بس حتى لو صرفه أكبر من تكلفة نتيجة واحدة (حالة حقيقية)', function () {
       var reach = ad('rc', { daily: [0.06, 2.01, 2.36, 0.41, 0.4, 0, 0.05], res: [66, 3021, 3532, 639, 597, 0, 94], key: 'reach' });
       var list = issuesOf(engine(baseAccount().concat([reach])), 'rc');
-      ok(list.length && list.every(function (i) { return i.level === 'info' && i.minor; }), list.map(function (i) { return i.level + ':' + i.code; }).join(' '));
+      // من ١١ أكتوبر: إعلان بيصرف أقل من ١٪ من إنفاق الحساب اليومي مبيطلعش عليه ملاحظات توصيل خالص (ولا «للعلم»)
+      ok(list.every(function (i) { return i.level === 'info' && i.minor; }), list.map(function (i) { return i.level + ':' + i.code; }).join(' '));
     });
     test('صرف أعلى من المعتاد: بس لو تكلفة النتيجة أمس أعلى بوضوح، مش أعلى من المتوسط بقليل', function () {
       var fine = ad('sf', { daily: [100, 100, 100, 100, 100, 250, 50], res: [5, 5, 5, 5, 5, 10, 2] });
@@ -918,7 +934,8 @@
       c.edits = editOn(1, 'budget', { from: 10000, to: 5000 });
       var r = withLang('ar', function () { return engine(baseAccount().concat([c])); });
       ok(/والحكم هنا على الأيام التي تلت خفض ميزانية الحملة من ١٠٠ ر\.س إلى ٥٠ ر\.س \(منذ ٥ أيام\) فقط\./.test(r.byAd.a1.basis), r.byAd.a1.basis);
-      ok(/تكلفة كل عملية شراء بعده ١٠ ر\.س مقابل ١٠٠ ر\.س قبله/.test(r.byAd.a1.basis), r.byAd.a1.basis);
+      // قبل التعديل يوم واحد بس جوه النافذة: بنقول كده بدل «قبله» كأنه زي اللي بعده
+      ok(/تكلفة كل عملية شراء بعده ١٠ ر.س مقابل ١٠٠ ر.س في اليوم الوحيد قبله داخل الفترة، فالمقارنة تقريبية/.test(r.byAd.a1.basis), r.byAd.a1.basis);
       eq(r.byAd.a1.health, 'good');
     });
     test('ألوان أرقام الكارت: تكلفة النتيجة أرخص من متوسط الحساب = أخضر، وأغلى = أحمر، والإعلان اللي لم يُحكم عليه من غير لون', function () {
@@ -1097,6 +1114,42 @@
         ad('mid', { daily: steady(100), res: steady(2), sales: steady(200), cid: 'k3' })];
       var i = engine(weak).byAd.mid.issues.filter(function (x) { return x.code === 'low-roas'; })[0];
       ok(i && i.detail.indexOf(t('al.vsAccBetter').trim().slice(0, 20)) > -1, i ? i.detail : 'no low-roas');
+    });
+    test('حد الخسارة أعلى من ١ (×٥): «أقل من حد الخسارة» مش «أقل من التكلفة»، والمبلغ الناقص عن الحد ومش هدر', function () {
+      // حساب حقيقي ١١ أكتوبر: «كل ١ ر.س عاد بـ ١٫٨ ر.س، أي أقل من التكلفة» — والحد ×٥ من إعدادات العميل
+      var x = ad('be', { daily: steady(100), res: steady(2), sales: steady(200), cid: 'kx' });
+      var r = withLang('ar', function () { return engine(salesBase().concat([x]), {}, { roasBreakEven: 5, roasTarget: 5 }); });
+      var i = r.byAd.be.issues.filter(function (j) { return j.code === 'loss'; })[0];
+      ok(i && i.title === t('al.lossBE.t') && /×٥/.test(i.detail) && !/أقل من التكلفة/.test(i.detail), i ? i.title + ' | ' + i.detail : list(r, 'be'));
+      ok(i && i.money.kind === 'belowBE' && i.amount > 0 && !i.atRisk, i && JSON.stringify([i.money, i.amount, i.atRisk]));
+      // الحد ١ (الافتراضي): زي الأول — المبيعات أقل من الإنفاق فعلاً، وده هدر
+      var y = ad('l1', { daily: steady(100), res: steady(1), sales: steady(50), cid: 'ky' });
+      var j = engine(salesBase().concat([y])).byAd.l1.issues.filter(function (k) { return k.code === 'loss'; })[0];
+      ok(j && j.title === t('al.loss.t') && j.money.kind === 'loss' && j.atRisk, j ? j.title + ' ' + j.money.kind : 'no loss');
+    });
+    test('أسبوع فيه مبيعات بس آخر ٣ أيام من غير ولا بيعة: سطر صريح بدل ما متوسط الأسبوع يخبّيه', function () {
+      var z = ad('z3', { daily: steady(100), res: [2, 2, 2, 0, 0, 0, 0], sales: [150, 150, 150, 0, 0, 0, 0], cid: 'kz' });
+      var i = withLang('ar', function () { return engine(salesBase().concat([z])); }).byAd.z3.issues.filter(function (k) { return k.code === 'loss'; })[0];
+      ok(i && /ولم يحقق أي مبيعات في آخر ٣ أيام رغم إنفاق ٣٠٠ ر\.س/.test(i.detail), i ? i.detail : 'no loss');
+    });
+    test('الحساب كله نزل أمس: نزول الإعلان «للعلم» بسبب الحساب، مش «وصول ضعيف» على كل إعلان لوحده', function () {
+      var mk = function (id, cid) { return ad(id, { daily: [100, 100, 100, 100, 100, 10, 10], res: [5, 5, 5, 5, 5, 1, 1], cid: cid }); };
+      var r = engine([mk('w1', 'c1'), mk('w2', 'c2')]);
+      ['w1', 'w2'].forEach(function (id) {
+        var codes = r.byAd[id].issues.map(function (i) { return i.code; });
+        ok(codes.indexOf('weak-delivery') < 0 && codes.indexOf('weak-acct') > -1, id + ': ' + codes.join(' '));
+      });
+      ok(r.alerts.some(function (a) { return a.code === 'acct-drop'; }), 'the account drop itself is the alert');
+    });
+    test('إنفاق الحساب نازل من يومين: «في آخر يومين» والمتوسط من الأيام اللي قبلهم، مش «أمس فقط»', function () {
+      var mk = function (id, cid) { return ad(id, { daily: [100, 100, 100, 100, 20, 20, 5], res: steady(1), cid: cid }); };
+      var a = withLang('ar', function () { return engine([mk('d1', 'c1'), mk('d2', 'c2')]); }).alerts.filter(function (x) { return x.code === 'acct-drop'; })[0];
+      ok(a && /في آخر يومين إلى نحو ٤٠ ر\.س يومياً، مقابل متوسط ٢٠٠ ر\.س/.test(a.detail) && /−٨٠٪/.test(a.detail), a ? a.detail : 'no acct-drop');
+    });
+    test('إعلان كان بيصرف أقل من ١٪ من إنفاق الحساب يومياً: مفيش «كان ينفق نحو ٠ ر.س» ولا «وصول ضعيف»', function () {
+      var tiny = ad('tn', { daily: [0.4, 0.4, 0.4, 0.4, 0.4, 0, 0], cid: 'c9' });
+      var codes = engine(baseAccount().concat([tiny])).byAd.tn.issues.map(function (i) { return i.code; });
+      ok(['shift', 'weak-delivery', 'no-spend-y', 'weak-acct'].every(function (k) { return codes.indexOf(k) < 0; }), codes.join(' '));
     });
     test('إعلان المبيعات الوحيد (أو ٩٠٪+ من إنفاقها) مبيتقارنش بـ«متوسط حسابك» — اللي هو نفسه', function () {
       var solo = engine([ad('solo', { daily: steady(100), res: steady(4), sales: steady(800), cid: 'ks' })]);
@@ -1335,7 +1388,7 @@
       { campaign: { id: '12', name: 'PMax B', status: 'PAUSED', primaryStatus: 'PAUSED', primaryStatusReasons: ['CAMPAIGN_PAUSED'] }, segments: { date: KEYS[0] }, metrics: { costMicros: '10000000' } }
     ];
     test('كل حملة PMax بتبقى كارت واحد بأرقام الحملة', function () {
-      var list = transformGooglePmax(rows, null, DAYS, 'EGP');
+      var list = transformGooglePmax(rows, null, DAYS_X, 'EGP');
       eq(list.length, 2);
       var a = list[0];
       eq([a.id, a.campaignLevel, a.active, a.spend, a.results, a.resultKey, a.currency], ['gp-11', true, true, 80, 4, 'conversion', 'EGP']);
@@ -1343,7 +1396,7 @@
       eq([list[1].active, list[1].pausedLevel], [false, 'campaign']);
     });
     test('حملة صرفت في الفترة المختارة بس بتظهر برضه', function () {
-      var list = transformGooglePmax([], [{ campaign: { id: '13', name: 'Old', status: 'ENABLED', primaryStatus: 'ELIGIBLE' }, metrics: { costMicros: '120000000', conversions: 3, conversionsValue: 0 } }], DAYS, 'EGP');
+      var list = transformGooglePmax([], [{ campaign: { id: '13', name: 'Old', status: 'ENABLED', primaryStatus: 'ELIGIBLE' }, metrics: { costMicros: '120000000', conversions: 3, conversionsValue: 0 } }], DAYS_X, 'EGP');
       eq(list.length, 1);
       eq([list[0].spend, list[0].period.spend, list[0].period.results], [0, 120, 3]);
     });
@@ -1353,7 +1406,7 @@
       eq(googleCampaignDelivery({ primaryStatus: 'LEARNING' }).active, true);
     });
     test('كارت PMax: شارة واضحة، ورابط الحملة، وعرض الحملات', function () {
-      var p = transformGooglePmax(rows, null, DAYS, 'EGP')[0];
+      var p = transformGooglePmax(rows, null, DAYS_X, 'EGP')[0];
       p.source = 'google:1234567890';
       ok(previewMarkup(p).indexOf('Performance Max') > -1, 'badge');
       eq(platformLink(p).url, 'https://ads.google.com/aw/overview?campaignId=11');
@@ -1362,7 +1415,7 @@
       ok(campaignMarkup(groupCampaigns(candidates)[0]).indexOf(t('camp.pmax')) > -1, 'campaign card says PMax, not "1 ad"');
     });
     test('حملة PMax واخدة أغلب الصرف مش بتطلّع تنبيه «الميزانية متركزة في إعلان»', function () {
-      var p = transformGooglePmax([{ campaign: { id: '14', name: 'Big', status: 'ENABLED', primaryStatus: 'ELIGIBLE' }, segments: { date: KEYS[5] }, metrics: { costMicros: '900000000', conversions: 0 } }], null, DAYS, 'EGP')[0];
+      var p = transformGooglePmax([{ campaign: { id: '14', name: 'Big', status: 'ENABLED', primaryStatus: 'ELIGIBLE' }, segments: { date: KEYS[5] }, metrics: { costMicros: '900000000', conversions: 0 } }], null, DAYS_X, 'EGP')[0];
       p.source = 'google:1';
       var other = ad('g1', { daily: steady(5), res: steady(1), source: 'google:1', platform: 'Google Ads', key: 'conversion' });
       var r = engine([p, other]);
@@ -1697,7 +1750,7 @@
       window.fetch = function (url) {
         var u = String(url);
         if (/\/adaccounts\/[^/?]+$/.test(u)) { order.push('account'); return json({ adaccounts: [{ adaccount: { timezone: 'Africa/Cairo', currency: 'EGP' } }] }, 40).then(function (r) { order.push('account-done'); return r; }); }
-        if (/\/ads\?/.test(u)) { order.push('ads'); return json({ ads: [{ ad: { id: 'a1' } }] }); }
+        if (/\/ads\?/.test(u)) { order.push('ads'); return json({ ads: [{ ad: { id: 'a1', status: 'ACTIVE' } }] }); }
         if (/\/adsquads/.test(u)) { order.push('squads'); return json({ adsquads: [] }); }
         if (/\/campaigns/.test(u)) { order.push('campaigns'); return json({ campaigns: [] }); }
         if (/\/stats/.test(u)) { order.push('stats'); return json({ timeseries_stats: [] }); }
@@ -1713,6 +1766,40 @@
         eq([out.ads.length, out.account.currency], [1, 'EGP']);
         ok(order.indexOf('ads') < order.indexOf('account-done'), 'ads started before the account answered: ' + order.join(','));
         ok(order.indexOf('stats') > order.indexOf('account-done'), 'stats wait for the account time zone');
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+    testAsync('Snapchat: الإعلانات اللي صرفت أو شغّالة فعلاً بس، ومعاها الفيديو أو الصورة ورابط الصفحة', function () {
+      // حساب حقيقي ١١ أكتوبر: ١٢٣٦ إعلان من أول ما الحساب اتعمل (٤٠ صرفوا و١٨ شغّالين)، وكلها «صورة ثابتة» من غير وجهة
+      var realFetch = window.fetch;
+      var json = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
+      window.fetch = function (url) {
+        var u = String(url);
+        if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'Asia/Riyadh', currency: 'USD' } }] });
+        if (/\/ads\?/.test(u)) return json({ ads: [
+          { ad: { id: 'dead', status: 'PAUSED', ad_squad_id: 'sq1' } },
+          { ad: { id: 'idle', status: 'ACTIVE', ad_squad_id: 'sq1', delivery_status: ['INVALID_NOT_EFFECTIVE_ACTIVE', 'INVALID_EFFECTIVE_INVALID'] } },
+          { ad: { id: 'spent', status: 'PAUSED', ad_squad_id: 'sq1' } },
+          { ad: { id: 'live', status: 'ACTIVE', ad_squad_id: 'sq2', creative_id: 'cr1', delivery_status: ['VALID'] } }] });
+        if (/\/adsquads/.test(u)) return json({ adsquads: [{ adsquad: { id: 'sq1', campaign_id: 'c1' } }, { adsquad: { id: 'sq2', campaign_id: 'c2' } }, { adsquad: { id: 'sq9', campaign_id: 'c9' } }] });
+        if (/\/campaigns/.test(u)) return json({ campaigns: [{ campaign: { id: 'c1' } }, { campaign: { id: 'c2' } }, { campaign: { id: 'c9' } }] });
+        if (/\/creatives/.test(u)) return json({ creatives: [
+          { creative: { id: 'cr1', type: 'WEB_VIEW', headline: 'Summer sale', brand_name: 'Belvoir', call_to_action: 'SHOP_NOW', top_snap_media_id: 'm1', web_view_properties: { url: 'https://shop.example/p' } } },
+          { creative: { id: 'cr9', type: 'SNAP_AD', top_snap_media_id: 'm9' } }] });
+        if (/\/media/.test(u)) return json({ media: [{ media: { id: 'm1', type: 'VIDEO', download_link: 'https://cdn.example/v.mp4', duration_in_seconds: 15 } }, { media: { id: 'm9', type: 'IMAGE' } }] });
+        if (/\/stats/.test(u)) return json({ timeseries_stats: [{ timeseries_stat: { breakdown_stats: { ad: [{ id: 'spent', timeseries: [] }] } } }] });
+        return json({});
+      };
+      var out = null;
+      var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1', period: { preset: 'last7' } } }, res);
+      }).then(function () {
+        window.fetch = realFetch;
+        eq(out.ads.map(function (a) { return a.id; }), ['spent', 'live'], 'dead and not-delivering ads dropped');
+        eq([out.squads.map(function (s) { return s.id; }), out.campaigns.map(function (c) { return c.id; })], [['sq1', 'sq2'], ['c1', 'c2']], 'only the squads and campaigns in use');
+        eq(out.creatives, { cr1: { type: 'WEB_VIEW', headline: 'Summer sale', brand: 'Belvoir', cta: 'SHOP_NOW', mediaId: 'm1', url: 'https://shop.example/p' } });
+        eq(out.media, { m1: { type: 'VIDEO', url: 'https://cdn.example/v.mp4', w: null, h: null, duration: 15 } });
+        ok(!('_probe' in out), 'no debug data unless asked');
       }, function (e) { window.fetch = realFetch; throw e; });
     });
   });
@@ -4968,11 +5055,17 @@
       if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'Asia/Riyadh', currency: 'SAR' } }] });
       if (/\/campaigns\?/.test(u)) return json({ campaigns: [{ campaign: { id: 'c1', name: 'Story ads', objective: 'BRAND_AWARENESS' } }] });
       if (/granularity=DAY/.test(u)) {
-        // الأيام بتتطلب على دفعات — اليوم بيرجع بس في الدفعة اللي مداها فيه (زي Snapchat نفسه)
+        // زي Snapchat الحقيقي (حساب حقيقي ١١ أكتوبر): الحساب من غير تقسيم بيرفض أي حقل غير spend — والملخص كان بيفشل دايماً
+        if (!/breakdown=campaign/.test(u) && /conversion_|swipes|impressions/.test(u)) {
+          return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ request_status: 'ERROR', debug_message: "Unsupported Stats Query: Only field 'spend' should be used when querying AdAccount stats." }); } });
+        }
+        // الأيام بتتطلب على دفعات — اليوم بيرجع بس في الدفعة اللي مداها فيه، وموزّع على حملتين بيتجمعوا
         var from = decodeURIComponent((u.match(/start_time=([^&]+)/) || [])[1] || '').slice(0, 10);
         var to = decodeURIComponent((u.match(/end_time=([^&]+)/) || [])[1] || '').slice(0, 10);
         var inRange = '2026-09-25' >= from && '2026-09-25' < to;
-        return json({ timeseries_stats: [{ timeseries_stat: { timeseries: inRange ? [{ start_time: '2026-09-25T00:00:00.000+03:00', stats: st }] : [] } }] });
+        var half = {}; Object.keys(st).forEach(function (k) { half[k] = st[k] / 2; });
+        var tsOf = function () { return inRange ? [{ start_time: '2026-09-25T00:00:00.000+03:00', stats: half }] : []; };
+        return json({ timeseries_stats: [{ timeseries_stat: { breakdown_stats: { campaign: [{ id: 'c1', timeseries: tsOf() }, { id: 'c2', timeseries: tsOf() }] } } }] });
       }
       if (/breakdown=campaign/.test(u)) return json({ total_stats: [{ total_stat: { breakdown_stats: { campaign: [{ id: 'c1', stats: st }] } } }] });
       if (/report_dimension=country/.test(u)) return json({ total_stats: [{ total_stat: { dimension_stats: [{ country: 'sa', stats: st }] } }] });

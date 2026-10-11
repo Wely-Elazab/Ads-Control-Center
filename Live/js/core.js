@@ -451,7 +451,8 @@
   // أرقام الإعلان في الفترة المختارة — لو الفترة هي آخر ٧ أيام بتتحسب من البيانات الأسبوعية نفسها
   function periodOf(c) {
     if (c.period) return c.period;
-    var sales = (c.dailySales || []).reduce(function (a, b) { return a + b; }, 0);
+    // c.sales من ملفات المنصات = الأيام المكتملة بس (زي c.spend) — والجمع احتياطي لبيانات قديمة
+    var sales = c.sales != null ? c.sales : (c.dailySales || []).reduce(function (a, b) { return a + b; }, 0);
     return { spend: c.spend || 0, results: c.results, sales: sales, cpr: c.cpr, roas: c.roas };
   }
   function buildPeriod(spend, results, sales) {

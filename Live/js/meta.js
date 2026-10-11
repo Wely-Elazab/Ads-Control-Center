@@ -881,7 +881,12 @@
     };
     // رقم المنصة للأسبوع (للمقارنة في التفاصيل والتنبيهات بس — كل الحسابات على «الأقرب للمتجر»)
     var platResults = 0, platSales = 0, compared = false;
-    days.forEach(function (day) {
+    // الإجماليات (الإنفاق والنتائج والمبيعات ورقم المنصة) = الأيام المكتملة بس، والنهارده (آخر خانة) في الجدول لوحده.
+    // قبل كده كانت شاملة النهارده وهي مكتوب عليها «آخر ٧ أيام»: حساب حقيقي ١١ أكتوبر — «١٬٠١٨ ر.س خلال آخر ٧ أيام»
+    // في التنبيه و«إجمالي ٧ أيام ١٬٠٠٢» في الجدول تحته لنفس الإعلان، وتلات أرقام عائد مختلفة في نفس الشاشة
+    var lastIdx = days.length - 1;
+    days.forEach(function (day, di) {
+      var full = di < lastIdx;
       var row = byDate[day.key];
       var spendVal = row ? r2(num(row.spend)) : 0;
       daily.push(spendVal);
@@ -889,20 +894,19 @@
         if (rowHasWindows(row)) compared = true;
         var found = resultOfRow(row);
         if (found) {
-          totalResultsVal += found.value;
-          platResults += found.platform || 0;
+          if (full) { totalResultsVal += found.value; platResults += found.platform || 0; }
           resultKey = found.key; resultType = found.type; matchedGoal = found.matchedGoal;
           dailyResultsArr.push(Math.round(found.value));
         } else { dailyResultsArr.push(0); }
         var salesVal = resultType ? valueForType(row.action_values, resultType) : null;
         dailySales.push(salesVal != null ? r2(salesVal) : 0);
-        platSales += (resultType ? valueForType(row.action_values, resultType, true) : 0) || 0;
+        if (full) platSales += (resultType ? valueForType(row.action_values, resultType, true) : 0) || 0;
       } else {
         dailyResultsArr.push(0); dailySales.push(0);
       }
     });
     var dailyDates = days.map(function (d) { return d.key; });
-    var spend = daily.reduce(function (a, b) { return a + b; }, 0);
+    var spend = r2(daily.slice(0, lastIdx).reduce(function (a, b) { return a + b; }, 0));
     // تحقق أخير: لو الإعلان صرف النهارده فهو بيظهر فعلاً، مهما كانت الملاحظة اللي رجعت من المنصة —
     // الصرف دليل عملي أقوى من أي وصف. الملاحظة بتفضل ظاهرة في التفاصيل
     var ISSUE_LEVELS = { issue: 1, 'ad-issue': 1, 'adset-issue': 1, 'campaign-issue': 1, budget: 1 };
@@ -911,7 +915,7 @@
     }
     // مصدر واحد بس لقيمة المبيعات: مجموع نفس الأرقام اليومية الظاهرة في الجدول تحت —
     // عشان أي رقم إجمالي معروض يطابق دايماً تفصيله اليومي، من غير أي مصدر ثانٍ يختلف معاه
-    var totalSales = dailySales.reduce(function (a, b) { return a + b; }, 0);
+    var totalSales = dailySales.slice(0, lastIdx).reduce(function (a, b) { return a + b; }, 0);
     var results = (goal || firstMeta) ? Math.round(totalResultsVal) : (totalResultsVal > 0 ? Math.round(totalResultsVal) : null);
     var cpr = (results && spend > 0) ? (spend / results) : null;
     var roas = (totalSales > 0 && spend > 0) ? (totalSales / spend) : null;
@@ -977,7 +981,7 @@
       resultKey: resultKey,
       resultMatchedGoal: matchedGoal,
       cpr: cpr,
-      roas: roas,
+      roas: roas, sales: r2(totalSales),
       themeClass: 'pv-t' + (hashCode(ad.id) % 4),
       active: delivery.active,
       pausedLevel: delivery.level,

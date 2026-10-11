@@ -148,13 +148,14 @@
       var pRow = periodByAd && (periodByAd[ad.ad_id] || { spend: 0, results: 0, sales: 0 });
       var byDay = statsByAd[ad.ad_id] || {};
       var daily = [], dailyResults = [], rawResults = 0;
-      days.forEach(function (day) {
+      days.forEach(function (day, di) {
         var m = byDay[day.key];
         daily.push(m ? r2(parseFloat(m.spend || 0)) : 0);
-        rawResults += m ? (parseFloat(m.conversion) || 0) : 0;
+        // الإجمالي للأيام المكتملة بس (آخر خانة = النهارده) — زي meta.js
+        if (di < days.length - 1) rawResults += m ? (parseFloat(m.conversion) || 0) : 0;
         dailyResults.push(m ? Math.round(parseFloat(m.conversion || 0)) : 0);
       });
-      var spend = daily.reduce(function (a, b) { return a + b; }, 0);
+      var spend = r2(daily.slice(0, daily.length - 1).reduce(function (a, b) { return a + b; }, 0));
       var results = Math.round(rawResults);
       return {
         id: id, platform: 'TikTok', currency: currency || null,

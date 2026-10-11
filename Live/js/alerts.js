@@ -379,14 +379,24 @@
     var shiftNote = function () {
       return makeIssue('info', ['delivery'], t('al.shift.t'), t(spendY > 0 ? 'al.shift.d' : 'al.shift.dZero', { name: name, spend: money(spendY), avg: money(prevSpendAvg) }), t('al.shift.a'), 0, 'shift');
     };
-    if (age == null || age >= 2) {
+    // إنفاق الحساب كله أمس مقابل متوسطه: لو الحساب نفسه نزل للنص أو أقل، نزول الإعلان جزء منه (ميزانية، دفع، إيقاف) —
+    // حساب Snapchat حقيقي ١١ أكتوبر: الحساب نزل ٥٨٪ فطلع «وصول ضعيف» على كل إعلان لوحده بنفس السبب
+    var accPrevDaily = sum(acc.spendByDay, 0, DAY_BEFORE) / (DAY_BEFORE + 1), accY = acc.spendByDay[YESTERDAY] || 0;
+    var accShrank = accPrevDaily > 0 && accY <= accPrevDaily * s.accountDropRatio;
+    var acctNote = function () {
+      return makeIssue('info', ['delivery'], t('al.weakAcct.t'), t('al.weakAcct.d', { name: name, spend: money(spendY), avg: money(prevSpendAvg),
+        pct: fmt.int((1 - accY / accPrevDaily) * 100) }), t('al.weakAcct.a'), 0, 'weak-acct');
+    };
+    // إعلان كان بيصرف أقل من ١٪ من إنفاق الحساب اليومي: نزوله مش معلومة — «كان ينفق نحو ٠ ر.س يومياً» كانت بتطلع
+    var tinyAd = prevSpendAvg > 0 && prevSpendAvg < accPrevDaily * 0.01;
+    if ((age == null || age >= 2) && !tinyAd) {
       if (spendY === 0 && prevSpendAvg > 0) {
-        issues.push(spendShifted(c, acc, prevSpendAvg) ? shiftNote() : makeIssue('warning', ['delivery', 'spend'], t('al.noSpendY.t'),
-          t('al.noSpendY.d', { name: name, avg: money(prevSpendAvg) }), t('al.noSpendY.a'), 0, 'no-spend-y'));
+        issues.push(spendShifted(c, acc, prevSpendAvg) ? shiftNote() : (accShrank ? acctNote() : makeIssue('warning', ['delivery', 'spend'], t('al.noSpendY.t'),
+          t('al.noSpendY.d', { name: name, avg: money(prevSpendAvg) }), t('al.noSpendY.a'), 0, 'no-spend-y')));
       } else if (spendY > 0 && prevSpendAvg > 0 && spendY < prevSpendAvg * s.lowDeliveryRatio) {
-        issues.push(spendShifted(c, acc, prevSpendAvg) ? shiftNote() : makeIssue('warning', ['delivery', 'spend'], t('al.weak.t'),
-          t('al.weak.d', { name: name, spend: money(spendY), avg: money(prevSpendAvg) }), t('al.weak.a'), 0, 'weak-delivery'));
-      } else if (c.spend === 0 && prevSpendAvg === 0) {
+        issues.push(spendShifted(c, acc, prevSpendAvg) ? shiftNote() : (accShrank ? acctNote() : makeIssue('warning', ['delivery', 'spend'], t('al.weak.t'),
+          t('al.weak.d', { name: name, spend: money(spendY), avg: money(prevSpendAvg) }), t('al.weak.a'), 0, 'weak-delivery')));
+      } else if (!any(daily) && prevSpendAvg === 0) {
         // مفيش إنفاق = مفيش حاجة نحكم عليها: حالته «لم يُحكم بعد»، والملاحظة للعلم
         issues.push(makeIssue('info', ['delivery'], t('al.noSpend7.t'),
           t('al.noSpend7.d', { name: name }), t('al.noSpend7.a'), 0, 'no-spend-7'));
@@ -459,16 +469,26 @@
         var cmp = acc.roasW == null || selfAcc ? '' : (fmt.currencyLabel(cur)
           ? t('al.vsAcc', { one: fmt.int(1), cur: fmt.currencyLabel(cur), acc: fmt.num(acc.roasW) })
           : t('al.vsAccNoCur', { acc: fmt.num(acc.roasW) })) + (roasW != null && roasW < s.roasTarget && roasW >= acc.roasW ? t('al.vsAccBetter') : '');
-        var wkVars = { name: name, spend: money(spendW), sales: money(salesW), roasText: roasW != null ? roasLabel(roasW) : '', target: fmt.num(s.roasTarget), cmp: cmp };
+        // الأسبوع فيه مبيعات بس آخر ٣ أيام مفيهاش ولا طلب: سطر لوحده — متوسط الأسبوع كان بيخبّي إن الإعلان وقف يبيع
+        // (حساب حقيقي ١١ أكتوبر: «×١٫٨ خلال ٥ أيام» وآخر ٣ أيام صفر مبيعات بإنفاق ٢٦٠ ر.س)
+        var zero3 = sales3 === 0 && spend3 > 0 && salesW > 0 ? t('al.zero3', { spend: money(spend3) }) : '';
+        var wkVars = { name: name, spend: money(spendW), sales: money(salesW), roasText: roasW != null ? roasLabel(roasW) : '', target: fmt.num(s.roasTarget),
+          be: fmt.num(s.roasBreakEven), cmp: zero3 + cmp };
         var lossRecent = recentEvidence && roas3 < s.roasBreakEven && !(sales3 === 0 && wasteRaised);
+        // حد الخسارة أعلى من ١: العائد ×١٫٨ مش «أقل من التكلفة» (كل ريال رجّع ١٫٨) — أقل من حد الخسارة اللي العميل حطه.
+        // والمبلغ: الناقص عن حد الخسارة (الإنفاق أكبر من المبيعات بس لو الحد ١)
+        var beOver = s.roasBreakEven > 1, lossK = beOver ? 'BE' : '';
+        var lossAmt = function (sp, sa) { return beOver ? sp * s.roasBreakEven - sa : sp - sa; };
+        // تحت حد الخسارة مش «هدر»: مبيدخلش في المعرّض للهدر ولا لوحة الهدر
+        var lossMoney = function (i, sp, sa) { i.amount = lossAmt(sp, sa); i.atRisk = !beOver; return withMoney(i, beOver ? 'belowBE' : 'loss', beOver ? 0 : (spend3 - sales3) / 3); };
         if (weekEvidence && roasW < s.roasBreakEven) {
-          issues.push(withMoney(makeIssue('critical', ['roas', 'spend'], t('al.loss.t'), t('al.lossWeek.d', wkVars), t('al.loss.a'), spendW - salesW, 'loss', true), 'loss', (spend3 - sales3) / 3));
+          issues.push(lossMoney(makeIssue('critical', ['roas', 'spend'], t('al.loss' + lossK + '.t'), t('al.lossWeek' + lossK + '.d', wkVars), t('al.loss.a'), 0, 'loss', true), spendW, salesW));
         } else if (lossRecent && (!weekEvidence || roasW < s.roasTarget)) {
           // آخر ٣ أيام بخسارة، والأسبوع نفسه مش قوي: عاجل
-          issues.push(withMoney(makeIssue('critical', ['roas', 'spend'], t('al.loss.t'),
-            t('al.loss.d', { name: name, spend: money(spend3), sales: money(sales3), roasText: roasLabel(roas3) }) +
+          issues.push(lossMoney(makeIssue('critical', ['roas', 'spend'], t('al.loss' + lossK + '.t'),
+            t('al.loss' + lossK + '.d', { name: name, spend: money(spend3), sales: money(sales3), roasText: roasLabel(roas3), be: wkVars.be }) +
               (weekEvidence ? t('al.weekCtx', { roas: fmt.num(roasW) }) : '') + cmp,
-            t('al.loss.a'), spend3 - sales3, 'loss', true), 'loss', (spend3 - sales3) / 3));
+            t('al.loss.a'), 0, 'loss', true), spend3, sales3));
         } else if (lossRecent) {
           // أسبوع قوي وآخر ٣ أيام بخسارة: تراجع يتابَع («مهم») — ممكن مبيعات اتأخر تسجيلها
           issues.push(withMoney(makeIssue('warning', ['roas'], t('al.roasDrop.t'),
@@ -598,7 +618,7 @@
     var pend = null;
     if (underspend) pend = null;
     else if (learning) pend = 'learning';
-    else if (c.spend === 0) pend = 'noSpend';
+    else if (!any(daily)) pend = 'noSpend';   // ولا مليم في النافذة كلها (حتى النهارده) — c.spend للأيام المكتملة بس
     else if (c.results == null) pend = 'noGoal';
     else if (profitAd) { if (!weekEvidence) pend = 'little'; }
     else if (!avgCpr || !othersHave) pend = 'noRef';
@@ -632,8 +652,10 @@
         // «بعده مقابل قبله» بس لو كل جانب صرف تكلفة نتيجة على الأقل وفيه نتائج — حساب حقيقي: «×٠ مقابل ×٠» و«×١٫٤ مقابل
         // ×٢٤٫٤» على ١٠ ريال قبل التعديل كانوا بيظهروا
         var cmp = '', floor = evidenceCpr || 0, enough = pre.s >= floor && spendW >= floor && pre.s > 0 && spendW > 0;
-        if (enough && profitAd && pre.v + salesW > 0 && pre.r + resW >= 2) cmp = t('basis.edit.roas', { after: fmt.num(salesW / spendW), before: fmt.num(pre.v / pre.s) });
-        else if (enough && !profitAd && pre.r > 0 && resW > 0) cmp = t('basis.edit.cpr', { one: one, after: money(spendW / resW), before: money(pre.s / pre.r) });
+        // «قبله» = الأيام اللي قبل التعديل جوه النافذة بس — لو يوم واحد بنقول كده (كان «×٤٫١ قبله» وهو يوم واحد قصاد ٥)
+        var preTxt = edit.idx === 1 ? t('basis.edit.pre1') : t('basis.edit.preN', { n: daysText(edit.idx, fmt) });
+        if (enough && profitAd && pre.v + salesW > 0 && pre.r + resW >= 2) cmp = t('basis.edit.roas', { after: fmt.num(salesW / spendW), before: fmt.num(pre.v / pre.s), pre: preTxt });
+        else if (enough && !profitAd && pre.r > 0 && resW > 0) cmp = t('basis.edit.cpr', { one: one, after: money(spendW / resW), before: money(pre.s / pre.r), pre: preTxt });
         basis += t('basis.edit.window', { what: what, when: when }) + cmp;
       }
     }
@@ -741,9 +763,19 @@
             t('al.acctSpike.a'), spendY - prevAvg, 'acct-spike'));
         }
       } else if (spendY <= prevAvg * s.accountDropRatio) {
-        alerts.push(makeIssue('warning', ['account'], t('al.acctDrop.t'),
-          t('al.acctDrop.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), pct: fmt.int((1 - spendY / prevAvg) * 100) }),
-          t('al.acctDrop.a'), 0, 'acct-drop'));
+        // النزول بدأ من أول امبارح (اليومين تحت النص): المتوسط من الأيام اللي قبلهم، والنص بيقول «في آخر يومين» —
+        // كان بيقول «أمس فقط مقابل متوسط ٥٧» والمتوسط نفسه فيه يوم النزول الأول (حساب Snapchat حقيقي ١١ أكتوبر)
+        var dayB = acc.spendByDay[DAY_BEFORE] || 0, base = DAY_BEFORE > 0 ? sum(acc.spendByDay, 0, DAY_BEFORE - 1) / DAY_BEFORE : 0;
+        if (base > 0 && dayB <= base * s.accountDropRatio) {
+          var two = (dayB + spendY) / 2;
+          alerts.push(makeIssue('warning', ['account'], t('al.acctDrop.t'),
+            t('al.acctDrop.d2', { acc: accName, spend: money(two), avg: money(base), pct: fmt.int((1 - two / base) * 100) }),
+            t('al.acctDrop.a'), 0, 'acct-drop'));
+        } else {
+          alerts.push(makeIssue('warning', ['account'], t('al.acctDrop.t'),
+            t('al.acctDrop.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), pct: fmt.int((1 - spendY / prevAvg) * 100) }),
+            t('al.acctDrop.a'), 0, 'acct-drop'));
+        }
       }
     }
 

@@ -236,7 +236,8 @@
     var periodStoreByAd = compared && periodByAd && periodStore ? totalsByAd(periodStore, function (st) {
       return { results: parseFloat(st.conversion_purchases || 0), sales: parseFloat(st.conversion_purchases_value || 0) / 1000000 };
     }) : null;
-    var sum = function (a) { return a.reduce(function (x, y) { return x + y; }, 0); };
+    // الإجماليات = الأيام المكتملة بس (آخر خانة = النهارده، بتظهر لوحدها في الجدول) — زي meta.js
+    var sum = function (a) { return a.slice(0, a.length - 1).reduce(function (x, y) { return x + y; }, 0); };
     return parsed.map(function (p) {
       var ad = p.ad;
       var delivery = snapchatDelivery(ad, squadsById, campaignsById);
@@ -276,7 +277,7 @@
         daily: p.daily, dailySales: dailySales, dailyResults: dailyResults, dailyDates: days.map(function (d) { return d.key; }),
         spend: spend, results: results, resultKey: tracksPurchases ? 'purchase' : 'swipe',
         cpr: (results && spend) ? (spend / results) : null,
-        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null,
+        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null, sales: r2(totalSales),
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active, pausedLevel: delivery.level,
         deliveryReason: null, platformStatus: ad.status || null,
