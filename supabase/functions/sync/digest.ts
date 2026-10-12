@@ -22,8 +22,9 @@ const EMAIL = /^[^@\s<>"',;]{1,64}@[^@\s<>"',;]{1,190}\.[A-Za-z]{2,24}$/;
 // ---------- التشفير ----------
 const enc = new TextEncoder();
 function b64(bytes: Uint8Array): string { let s = ''; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return btoa(s); }
-function unb64(s: string): Uint8Array { const bin = atob(s); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
-function rawKey(): Uint8Array {
+// Uint8Array<ArrayBuffer> مش Uint8Array بس: الأنواع الحديثة في TypeScript مبتقبلش غيره في crypto.subtle (deno check — مراجعة المرحلة ٢)
+function unb64(s: string): Uint8Array<ArrayBuffer> { const bin = atob(s); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
+function rawKey(): Uint8Array<ArrayBuffer> {
   const raw = unb64((Deno.env.get('TOKEN_ENC_KEY') || '').trim());
   if (raw.length !== 32) throw new Error('token key invalid');
   return raw;

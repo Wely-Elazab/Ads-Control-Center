@@ -26,7 +26,7 @@ const VERIFIED_DAYS = 30;            // نفس session_ok في قاعدة الب
 
 // ---------- مفتاح الدخول ----------
 const dec = new TextDecoder();
-function b64url(s: string): Uint8Array {
+function b64url(s: string): Uint8Array<ArrayBuffer> {   // نفس سبب digest.ts unb64
   const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
   const out = new Uint8Array(b.length);
   for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i);

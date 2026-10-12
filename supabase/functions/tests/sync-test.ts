@@ -9,6 +9,7 @@ import { corsHeaders, esc, reply } from '../sync/lib.ts';
 import { cleanEmail, cleanTarget, daysText, hourText, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
+import { freshUsage, readUsage } from '../sync/runner.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
 Deno.env.set('TOKEN_ENC_KEY', btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))));
@@ -167,4 +168,17 @@ Deno.test('ربط Meta المحفوظ على الجهاز: بيرجع لنفس �
     me = 'down';
     assertEquals((await renew(j.sealed, 'user-a')).status, 502, 'Meta unreachable is not the same as rejected');
   } finally { restoreFetch(); }
+});
+
+// ---------- runner.ts ----------
+Deno.test('حدود Meta: مستوى الوصول وأعلى استهلاك من ترويسات الرد (من غير أي بيانات حساب)', () => {
+  const u = freshUsage();
+  readUsage(new Headers({ 'x-ad-account-usage': JSON.stringify({ acc_id_util_pct: 42, reset_time_duration: 120, ads_api_access_tier: 'development_access' }) }), u);
+  readUsage(new Headers({ 'x-business-use-case-usage': JSON.stringify({ '123': [{ type: 'ads_insights', call_count: 7, total_cputime: 55, total_time: 3, estimated_time_to_regain_access: 0 }] }) }), u);
+  readUsage(new Headers({ 'x-ad-account-usage': 'not json' }), u);
+  readUsage(new Headers(), u);
+  assertEquals(u, { tier: 'development_access', accPct: 42, bucPct: 55, regainMin: 0, calls: 4 });
+  // الاسم اللي في الصفحة الرسمية، والحجب
+  readUsage(new Headers({ 'x-business-use-case': JSON.stringify({ '1': [{ call_count: 100, estimated_time_to_regain_access: 5 }] }) }), u);
+  assertEquals([u.bucPct, u.regainMin, u.calls], [100, 5, 5]);
 });

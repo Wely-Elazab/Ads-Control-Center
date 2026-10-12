@@ -62,6 +62,41 @@ function installShims() {
   define('FB', { api: fbApi, init: noop, login: noop });
 }
 
+// استهلاك حدود Meta (Marketing API — Rate Limiting، مراجعة المرحلة ٢): الترويسات دي مبتتقريش من المتصفح (CORS)، فبنقراها هنا.
+// tier = مستوى الوصول (development_access = المحدود: ~٦٠ نقطة لكل حساب إعلاني كل ٥ دقايق، والقراءة بنقطة)،
+// والنِّسب = أعلى استهلاك شفناه، وregainMin = دقايق الحجب لو اتحجبنا. أرقام استهلاك بس — من غير أي بيانات حساب
+export type MetaUsage = { tier: string | null; accPct: number; bucPct: number; regainMin: number; calls: number };
+export function freshUsage(): MetaUsage { return { tier: null, accPct: 0, bucPct: 0, regainMin: 0, calls: 0 }; }
+export function readUsage(h: Headers, u: MetaUsage): MetaUsage {
+  const parse = (s: string | null): any => { try { return s ? JSON.parse(s) : null; } catch (_) { return null; } };
+  u.calls++;
+  for (const name of ['x-ad-account-usage', 'x-fb-ads-insights-throttle']) {
+    const j = parse(h.get(name));
+    if (!j) continue;
+    if (typeof j.ads_api_access_tier === 'string') u.tier = j.ads_api_access_tier;
+    u.accPct = Math.max(u.accPct, Number(j.acc_id_util_pct) || 0);
+  }
+  // بيتسمّى x-business-use-case-usage في الردود (والصفحة الرسمية بتكتبه X-Business-Use-Case) — بنقرا الاتنين
+  for (const name of ['x-business-use-case-usage', 'x-business-use-case']) {
+    const j = parse(h.get(name));
+    if (!j || typeof j !== 'object') continue;
+    Object.keys(j).forEach((k) => (Array.isArray(j[k]) ? j[k] : []).forEach((x: any) => {
+      u.bucPct = Math.max(u.bucPct, Number(x && x.call_count) || 0, Number(x && x.total_cputime) || 0, Number(x && x.total_time) || 0);
+      u.regainMin = Math.max(u.regainMin, Number(x && x.estimated_time_to_regain_access) || 0);
+    }));
+  }
+  return u;
+}
+function mergeUsage(into: MetaUsage, u: MetaUsage): void {
+  into.tier = into.tier || u.tier;
+  into.accPct = Math.max(into.accPct, u.accPct);
+  into.bucPct = Math.max(into.bucPct, u.bucPct);
+  into.regainMin = Math.max(into.regainMin, u.regainMin);
+  into.calls += u.calls;
+}
+let usage = freshUsage();      // الحساب اللي بنفحصه دلوقتي
+let runUsage = freshUsage();   // التشغيل كله (بيطلع في سطر «runner» في السجل)
+
 // FB.api بتاع المتصفح → Graph API بمفتاح الحساب اللي بنفحصه دلوقتي (حساب واحد في المرة — exclusive تحت)
 let metaToken = '';
 function fbApi(path: string, a?: any, b?: any, c?: any) {
@@ -82,6 +117,7 @@ async function graph(path: string, method: string, params: Record<string, unknow
   Object.keys(params).forEach((k) => put(k, params[k]));
   put('access_token', metaToken);
   const r = await fetch(url, method === 'GET' ? undefined : { method, body: form });
+  readUsage(r.headers, usage);
   return await r.json().catch(() => ({ error: { message: 'http ' + r.status } }));
 }
 
@@ -633,6 +669,7 @@ async function checkAccount(s: Settings): Promise<string> {
     return 'decrypt-failed';
   }
   metaToken = token;
+  usage = freshUsage();
   try {
     const { acct, fail } = await accountOrFail(account);
     if (fail === 'retry') return 'meta-retry';
@@ -713,12 +750,14 @@ async function checkAccount(s: Settings): Promise<string> {
     return outcome;
   } finally {
     metaToken = '';
+    mergeUsage(runUsage, usage);
   }
 }
 
 // ---------- نقاط الدخول ----------
 export async function runAll(): Promise<Record<string, unknown>> {
   const started = Date.now();
+  runUsage = freshUsage();
   // تذكير طلبات الانضمام المتأخرة (join.ts) — قبل المحرك، عشان لو GitHub وقع التذكير ميتأخرش
   let joinReminded = 0;
   try { joinReminded = await joinReminders(); } catch (e) { console.error('join reminders failed', String((e as Error).message || e).slice(0, 200)); }
@@ -743,7 +782,8 @@ export async function runAll(): Promise<Record<string, unknown>> {
     outcomes[out] = (outcomes[out] || 0) + 1;
   }
   await rpc('beat', { p_source: 'runner' }).catch(() => {});
-  return { accounts: all.length, due: list.length, outcomes, engineOutdated: outdated, joinReminded };
+  // meta = مستوى الوصول وأعلى استهلاك لحدود Meta في التشغيل ده (من غير أي بيانات حساب)
+  return { accounts: all.length, due: list.length, outcomes, engineOutdated: outdated, joinReminded, meta: runUsage };
 }
 async function markChecked(account: string): Promise<void> {
   await db('digest_settings?account_id=eq.' + account, {
@@ -758,6 +798,7 @@ export async function previewSummary(token: string, accountId: string, lang: str
   const outdated = await loadEngine();
   return await exclusive(async () => {
     metaToken = token;
+    usage = freshUsage();
     try {
       const en = lang === 'en';
       g.I18N.setLang(en ? 'en' : 'ar');
@@ -774,7 +815,7 @@ export async function previewSummary(token: string, accountId: string, lang: str
       const sum = await buildSummary(accountId, acct, win.since, win.until, await storedTarget(accountId));
       const alerts = alertStatusHtml(await marksOf(accountId), cands, win.since, tz, en, await storedTarget(accountId));
       const mail = summaryMail(accountId, acct.name || accountId, win.since, win.until, sum, alerts, s, en, await stopUrl(accountId), monthly);
-      return { engineCommit: ENGINE_COMMIT, engineOutdated: outdated, since: win.since, until: win.until, subject: mail.subject, html: mail.html, text: mail.text };
+      return { engineCommit: ENGINE_COMMIT, engineOutdated: outdated, metaUsage: usage, since: win.since, until: win.until, subject: mail.subject, html: mail.html, text: mail.text };
     } finally {
       metaToken = '';
     }
@@ -787,6 +828,7 @@ export async function preview(token: string, accountId: string, lang: string): P
   const outdated = await loadEngine();
   return await exclusive(async () => {
     metaToken = token;
+    usage = freshUsage();
     try {
       const en = lang === 'en';
       g.I18N.setLang(en ? 'en' : 'ar');
@@ -798,7 +840,7 @@ export async function preview(token: string, accountId: string, lang: string): P
       const urgent = await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, await storedTarget(accountId));
       const mail = urgentMail(accountId, acct.name || accountId, urgent, [], acct.timezone_name || 'UTC', en, await stopUrl(accountId));
       return {
-        engineCommit: ENGINE_COMMIT, engineOutdated: outdated, ads: cands.length,
+        engineCommit: ENGINE_COMMIT, engineOutdated: outdated, metaUsage: usage, ads: cands.length,
         urgent: urgent.map((a: any) => ({ code: a.code || null, adId: a.adId || null, objectId: a.objectId || null, title: a.title, detail: a.detail })),
         subject: urgent.length ? mail.subject : null, html: urgent.length ? mail.html : null
       };
