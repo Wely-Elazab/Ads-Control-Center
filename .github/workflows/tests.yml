@@ -50,8 +50,28 @@ jobs:
           for i in $(seq 1 20); do curl -sf http://127.0.0.1:8765/tests/index.html > /dev/null && break; sleep 0.5; done
           node .github/scripts/run_tests.mjs
 
+  # دالة sync في Supabase (Deno): الدخول والتشفير والروابط الموقّعة وربط Meta المحفوظ — من غير شبكة ولا قاعدة بيانات
+  server-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Run the sync function tests
+        run: |
+          set -o pipefail
+          # باسم الملف: Deno لوحده بيدوّر على *_test.ts بس، واسم Supabase المقترح (sync-test.ts) مش منهم
+          deno test --allow-env --no-check supabase/functions/tests/sync-test.ts 2>&1 | tee deno-test.txt
+          echo "::notice title=sync tests::$(grep -E '^(ok|FAILED) \|' deno-test.txt | tail -1)"
+      # فحص الأنواع للتقرير بس: Supabase بتنشر من غيره، فأخطاؤه مش أعطال تشغيل — بس بتتسجّل عشان تتصلّح
+      - name: Type-check the sync function (report only)
+        continue-on-error: true
+        run: deno check supabase/functions/sync/index.ts || { echo "::warning title=sync types::deno check found type errors (see the log)"; exit 1; }
+
   release:
-    needs: browser-tests
+    needs: [browser-tests, server-tests]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

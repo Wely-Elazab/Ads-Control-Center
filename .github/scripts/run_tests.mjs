@@ -20,9 +20,14 @@ const r = await page.evaluate(() => ({
   failures: (window.__tests.failures || []).map((f) => ({ group: f.group || '', name: f.name, msg: String(f.msg || '') }))
 }));
 
+const oneLine = (s) => String(s).replace(/[\r\n]+/g, ' ').slice(0, 400);
 console.log(`tests: ${r.passed} passed, ${r.failed} failed (${Math.round((Date.now() - started) / 1000)}s)`);
 for (const f of r.failures) console.log(`FAIL [${f.group}] ${f.name}\n     ${f.msg}`);
 if (popups.length) console.log('windows opened during the tests:', popups.map((p) => p.url()));
+// ملاحظات GitHub (annotations): بتبان على صفحة التشغيل، وبتتقري من الـ API العام من غير دخول (السجل نفسه محتاج دخول)
+console.log(`::notice title=browser tests::${r.passed} passed, ${r.failed} failed`);
+for (const f of r.failures) console.log(`::error title=test failed::${oneLine('[' + f.group + '] ' + f.name + ' — ' + f.msg)}`);
+for (const p of popups) console.log(`::error title=window opened during the tests::${oneLine(p.url())}`);
 
 await browser.close();
 process.exit(r.failed || popups.length ? 1 : 0);
