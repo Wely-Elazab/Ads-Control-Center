@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -35,7 +35,7 @@ jobs:
           fi
           echo "engine pin $pin matches"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -55,20 +55,33 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
       - name: Run the sync function tests
+        env:
+          NO_COLOR: '1'
         run: |
           set -o pipefail
           # باسم الملف: Deno لوحده بيدوّر على *_test.ts بس، واسم Supabase المقترح (sync-test.ts) مش منهم
           deno test --allow-env --no-check supabase/functions/tests/sync-test.ts 2>&1 | tee deno-test.txt
           echo "::notice title=sync tests::$(grep -E '^(ok|FAILED) \|' deno-test.txt | tail -1)"
-      # فحص الأنواع للتقرير بس: Supabase بتنشر من غيره، فأخطاؤه مش أعطال تشغيل — بس بتتسجّل عشان تتصلّح
+      # فحص الأنواع للتقرير بس: Supabase بتنشر من غيره، فأخطاؤه مش أعطال تشغيل — بس بتتسجّل عشان تتصلّح.
+      # كل خطأ بيطلع ملاحظة (annotation) بمكانه، عشان يتقري من غير دخول للسجل
       - name: Type-check the sync function (report only)
         continue-on-error: true
-        run: deno check supabase/functions/sync/index.ts || { echo "::warning title=sync types::deno check found type errors (see the log)"; exit 1; }
+        env:
+          NO_COLOR: '1'
+        run: |
+          set +e
+          deno check supabase/functions/sync/index.ts > deno-check.txt 2>&1
+          status=$?
+          cat deno-check.txt
+          grep -E 'TS[0-9]+ \[ERROR\]|^ +at file://' deno-check.txt | paste - - | head -20 | sed -E 's#file://[^ ]*/supabase/#supabase/#' |
+            while IFS= read -r line; do echo "::warning title=sync types::$line"; done
+          grep -E '^(Found|error:)' deno-check.txt | tail -1 | while IFS= read -r line; do echo "::warning title=sync types::$line"; done
+          exit $status
 
   release:
     needs: [browser-tests, server-tests]
@@ -80,7 +93,7 @@ jobs:
       group: release
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       # إيداع أحدث اتدفع على main أثناء الاختبارات؟ هو اللي هيتنشر بعد اختباراته — منرجّعش release لورا
