@@ -138,8 +138,22 @@
   // رابطها ميتغيرش — غير كده تحديثها كان هيفتح الأداة على حالة اختبار قديمة
   var routeOn = location.pathname === '/app' || location.pathname === '/pauseproof-live.html';
   var routeApplying = false, routeGesture = false;
+
+  // ---------- الخروج من الصفحة لتسجيل الدخول (Google وSnapchat وTikTok) ----------
+  // المنصات دي بتسجّل الدخول بنقل الصفحة كلها لموقعها (مش نافذة زي Meta). أي رجوع في السجل بعد ما النقل يبدأ بيلغيه
+  // (HTML Living Standard: «apply the history step» بيخلّي ongoing navigation = "traversal"، و«set the ongoing navigation»
+  // بيوقف التنقّل اللي كان شغّال). وده اللي حصل من ١١ أكتوبر (0ee6206): اختيار المنصة بيقفل نافذة المنصات، والقفل كان
+  // بيرجّع خطوة في السجل — فالنقل لـ Snapchat وGoogle كان بيتلغي والصفحة بتفضل مكانها من غير أي رسالة.
+  // من هنا: أول ما الصفحة تبدأ تسيبنا، الرابط والسجل بيقفوا خالص
+  var pageLeaving = false;
+  // replace = من غير خطوة في السجل (الخروج من الأداة لصفحة الدخول)
+  function leavePage(url, replace) { pageLeaving = true; goTo(url, replace); }
+  function goTo(url, replace) { if (replace) window.location.replace(url); else window.location.href = url; }
+  // رجع للصفحة بزرار الرجوع من صفحة الدخول (المتصفح بيرجّعها من الذاكرة زي ما هي): الرابط يشتغل تاني
+  window.addEventListener('pageshow', function () { pageLeaving = false; });
+
   function routeSync(user) {
-    if (!routeOn || routeApplying) return;
+    if (!routeOn || routeApplying || pageLeaving) return;
     // فعل المستخدم لسه بيتنفّذ: routeMark هيسجّله كخطوة لما يخلص
     if (!user && routeGesture) return;
     var parts = routeParts();

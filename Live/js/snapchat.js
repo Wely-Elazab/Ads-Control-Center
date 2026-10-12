@@ -20,7 +20,7 @@
       '&redirect_uri=' + encodeURIComponent(redirectUri) +
       '&response_type=code&scope=snapchat-marketing-api&state=' + encodeURIComponent(newOauthState('snapchat'));
     saveSession(); // احتياطي قبل ما الصفحة تتقفل — المنصات المحمّلة هترجع بعد الرجوع من Snapchat
-    window.location.href = authUrl; // توجيه كامل الصفحة، مش نافذة منبثقة — طبيعة تدفّق Snapchat نفسه
+    leavePage(authUrl); // توجيه كامل الصفحة، مش نافذة منبثقة — طبيعة تدفّق Snapchat نفسه. leavePage (route.js) بيوقف الرابط عشان ميلغيش النقل
   }
 
   function exchangeSnapchatCode(code) {

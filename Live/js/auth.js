@@ -114,14 +114,19 @@
   var DEVICE_KEYS = ['acc.renew.v1', 'acc.lastAccount.v1'];
   function signOut() {
     try { DEVICE_KEYS.forEach(function (k) { localStorage.removeItem(k); }); sessionStorage.clear(); } catch (e) { /* التخزين مقفول */ }
-    var done = function () { location.replace('/login'); };
+    var done = function () { goLogin('/login'); };
     forget().then(done, done);
+  }
+  // النقل لصفحة الدخول بييجي بعد رد من الشبكة: في الأداة بيعدّي على leavePage (route.js) اللي بيوقف رابط الأداة،
+  // عشان أي تحديث للرابط بعدها ميلغيش النقل (نفس خلل ربط Google وSnapchat ١٢ أكتوبر). باقي الصفحات مفيهاش route.js
+  function goLogin(url) {
+    if (typeof global.leavePage === 'function') global.leavePage(url, true); else location.replace(url);
   }
 
   // صفحة الدخول، والرجوع بعدها لنفس المكان (الأداة بس — مش أي رابط برّه الموقع)
   function toLogin() {
     var here = location.pathname + location.search + location.hash;
-    location.replace('/login' + (here && here !== '/' ? '?next=' + encodeURIComponent(here) : ''));
+    goLogin('/login' + (here && here !== '/' ? '?next=' + encodeURIComponent(here) : ''));
   }
   function safeNext(v) {
     return typeof v === 'string' && /^\/app(?:[?#].*)?$/.test(v) ? v : APP_PATH;

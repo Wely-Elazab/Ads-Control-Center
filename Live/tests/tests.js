@@ -5421,6 +5421,36 @@
     }
     function param(w, k) { return new URLSearchParams(w.location.search).get(k); }
 
+    // ربط Google وSnapchat (عطل ١١–١٢ أكتوبر ٢٠٢٦): اختيار المنصة بيقفل نافذة المنصات، وقفلها كان بيرجّع خطوة في السجل —
+    // والرجوع في السجل بيلغي نقل الصفحة لصفحة دخول المنصة (HTML Living Standard: apply the history step → ongoing navigation
+    // = "traversal"). Meta مكانتش بتتأثر (نافذة منفصلة). goTo متبدّلة عشان الإطار ميسيبش صفحة الاختبارات
+    ['snapchat', 'google'].forEach(function (p) {
+      testAsync('ربط ' + PLATFORM_NAMES[p] + ' من نافذة المنصات: الصفحة بتتنقل لصفحة الدخول عند المنصة، والرابط ميلغيش النقل', function () {
+        return frame().then(function (f) {
+          var w = f.contentWindow, d = f.contentDocument, went = [], hist = [];
+          w.goTo = function (url) { went.push(url); };
+          w.showView('settings');
+          d.getElementById('loginMenuBtn').click();
+          return sleep(30).then(function () {
+            eq(w.history.state && w.history.state.parts && w.history.state.parts.overlay, 'platformOverlay', 'opening the window is a step');
+            // بعد فحص Google عند فتح الأداة (probeGoogleCodeFlow) عشان ميرجّعهاش false
+            if (p === 'google') w.googleCodeFlow = true;
+            ['back', 'go', 'pushState', 'replaceState'].forEach(function (k) {
+              var orig = w.history[k];
+              w.history[k] = function () { hist.push(k); return orig.apply(w.history, arguments); };
+            });
+            d.getElementById(p === 'google' ? 'platformGoogle' : 'platformSnapchat').click();
+            return sleep(50);
+          }).then(function () {
+            var host = p === 'google' ? 'https://accounts.google.com/' : 'https://accounts.snapchat.com/';
+            eq([went.length, (went[0] || '').indexOf(host)], [1, 0], 'the page leaves for the sign-in page');
+            eq(hist, [], 'no history change after leaving (a step back cancels the navigation)');
+            f.remove();
+          }, function (e) { f.remove(); throw e; });
+        });
+      });
+    });
+
     // ---------- أقسام الأداة: قائمة جانبية / شريط ضيق / شريط سفلي (مراجعة المرحلة ١ — ق٢) ----------
     function sized(width, height, query) {
       var f = document.createElement('iframe');
