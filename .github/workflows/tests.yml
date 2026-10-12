@@ -1,0 +1,71 @@
+# التكامل المستمر (مراجعة المرحلة ٢، ١٢ أكتوبر ٢٠٢٦ — ب١): كل دفع بيشغّل الاختبارات نفسها اللي بتتشغّل محلياً
+# (Live/tests/index.html) في Chromium من غير واجهة، والنتيجة بتظهر جنب كل إيداع على GitHub.
+# لو نجحت على main، الإيداع بيتدفع لفرع release — Cloudflare بينشر منه (لما فرع النشر في Cloudflare يتغيّر لـ release)،
+# فأي إيداع اختباراته فشلت مبيوصلش للعملاء.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # المُشغّل في Supabase بيحمّل محرك الأداة من GitHub على إيداع ثابت (ENGINE_COMMIT في runner.ts).
+      # لو ملفات المحرك اتغيّرت بعده من غير ما الرقم يتحدّث، الرسائل بتتبعت بمحرك أقدم من اللي في الأداة
+      - name: Engine pin matches the engine files
+        run: |
+          pin=$(grep -oE "ENGINE_COMMIT = '[0-9a-f]{40}'" supabase/functions/sync/runner.ts | grep -oE '[0-9a-f]{40}')
+          files="Live/js/i18n.js Live/js/alerts.js Live/js/core.js Live/js/diagnosis.js Live/js/meta.js"
+          if ! git diff --quiet "$pin" HEAD -- $files; then
+            echo "::error file=supabase/functions/sync/runner.ts::ENGINE_COMMIT ($pin) is older than the engine files. Pin the latest engine commit and redeploy sync."
+            git diff --stat "$pin" HEAD -- $files
+            exit 1
+          fi
+          echo "engine pin $pin matches"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Chromium (Playwright)
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.52.0
+          npx playwright install --with-deps chromium
+
+      - name: Run the tests
+        run: |
+          python3 .github/scripts/serve_tests.py &
+          for i in $(seq 1 20); do curl -sf http://127.0.0.1:8765/tests/index.html > /dev/null && break; sleep 0.5; done
+          node .github/scripts/run_tests.mjs
+
+  release:
+    needs: browser-tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # إيداع أحدث اتدفع على main أثناء الاختبارات؟ هو اللي هيتنشر بعد اختباراته — منرجّعش release لورا
+      - name: Move release to this commit
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then echo "main moved on; the newer run releases"; exit 0; fi
+          git push --force origin "$GITHUB_SHA:refs/heads/release"

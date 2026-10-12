@@ -6,16 +6,34 @@
 // 3) بيمنع تحميل مكتبات Meta وGoogle (مش محتاجينها، والاختبارات بتشتغل من غير نت)
 // 4) بيحمّل ملفات الأداة بنفس ترتيب الموقع، وبعدين tests.js
 (function () {
-  var KEYS_LOCAL = ['acc.lang', 'acc.theme', 'acc.period.v1', 'acc.view.v1', 'acc.lastAccount.v1', 'pauseproof.alertSettings.v1', 'acc.welcome.v1', 'acc.install.v1'];
-  var KEYS_SESSION = ['pauseproof.session.v1', 'pauseproof.oauthState'];
-  var backup = { local: {}, session: {} };
-  KEYS_LOCAL.forEach(function (k) { backup.local[k] = localStorage.getItem(k); localStorage.removeItem(k); });
-  KEYS_SESSION.forEach(function (k) { backup.session[k] = sessionStorage.getItem(k); sessionStorage.removeItem(k); });
+  // كل مفاتيح الأداة بتبدأ بواحدة من دول (ac.login جلسة الدخول، acc.* الإعدادات، pauseproof.* القديمة).
+  // قبل كده كانت قايمة ثابتة بـ ١٠ مفاتيح، فـ ٩ مفاتيح زي ac.login وacc.renew.v1 كانت بتتغيّر في متصفحك من غير ما ترجع
+  // (اختبار «الاختبارات مبتغيّرش تخزين المتصفح» في tests.js بيقارن القايمة دي بكل مفتاح مكتوب في الكود)
+  var PREFIXES = ['ac.', 'acc.', 'pauseproof.'];
+  function ours(k) { return typeof k === 'string' && PREFIXES.some(function (p) { return k.indexOf(p) === 0; }); }
+  function keysIn(store) {
+    var out = [];
+    for (var i = 0; i < store.length; i++) { var k = store.key(i); if (ours(k)) out.push(k); }
+    return out;
+  }
+  // بيحفظ مفاتيحنا ويشيلها — الاختبارات بتبدأ من تخزين نضيف
+  function take(store) {
+    var saved = {};
+    keysIn(store).forEach(function (k) { saved[k] = store.getItem(k); });
+    Object.keys(saved).forEach(function (k) { store.removeItem(k); });
+    return saved;
+  }
+  // بيشيل أي مفتاح من بتوعنا اتعمل أثناء الاختبارات، ويرجّع اللي كان موجود قبلها بالظبط
+  function putBack(store, saved) {
+    keysIn(store).forEach(function (k) { store.removeItem(k); });
+    Object.keys(saved).forEach(function (k) { store.setItem(k, saved[k]); });
+  }
+  var backup = { local: take(localStorage), session: take(sessionStorage) };
   // نافذة أول مرة (ضبط التنبيهات) متظهرش في نص الاختبارات — اختبارها بيشيل العلامة دي بنفسه
   localStorage.setItem('acc.welcome.v1', '1');
   window.__restoreStorage = function () {
-    KEYS_LOCAL.forEach(function (k) { if (backup.local[k] == null) localStorage.removeItem(k); else localStorage.setItem(k, backup.local[k]); });
-    KEYS_SESSION.forEach(function (k) { if (backup.session[k] == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, backup.session[k]); });
+    putBack(localStorage, backup.local);
+    putBack(sessionStorage, backup.session);
   };
 
   // عناصر وهمية بنفس id سكربتات المكتبات — الكود بيشوفها موجودة فمبيحمّلش المكتبة الحقيقية
@@ -25,6 +43,9 @@
 
   var SCRIPTS = ['/js/theme.js', '/js/i18n.js', '/js/auth.js', '/js/alerts.js', '/js/core.js', '/js/diagnosis.js', '/js/meta.js', '/js/google.js', '/js/snapchat.js',
     '/js/tiktok.js', '/js/ui.js', '/js/route.js', '/js/main.js', '/js/pricing.js', '/tests/dx-sim.js', '/tests/tests.js'];
+  // لاختبارات «البنية التقنية» في tests.js
+  window.__testScripts = SCRIPTS.slice();
+  window.__storageCovered = ours;
 
   function loadScript(src) {
     return new Promise(function (resolve, reject) {

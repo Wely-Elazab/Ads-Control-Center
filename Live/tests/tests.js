@@ -3544,13 +3544,18 @@
         w.render();
         w.openExpand(c);
         var v = d.querySelector('#expandPreview video');
+        // بنستنى خطأ الفيديو نفسه (أو ٢٠ ثانية) مش عدد ثابت من الدورات: في Chrome بلا واجهة (التكامل المستمر)
+        // المؤقتات بتعدّي أسرع من الشبكة، فالانتظار بالعدّ كان بيخلص قبل ما الخطأ يوصل
+        var failed = new Promise(function (resolve) {
+          if (v.error) { resolve(); return; }
+          v.addEventListener('error', function () { resolve(); }, { once: true });
+          setTimeout(resolve, 20000);
+        });
         v.muted = true;
         v.play().catch(function () {});
-        var wait = function (n) {
-          var box = d.querySelector('#expandPreview .snap-video-failed');
-          return box || n <= 0 ? Promise.resolve(box) : sleep(100).then(function () { return wait(n - 1); });
-        };
-        return wait(50).then(function (box) {
+        return failed.then(function () { return sleep(0); }).then(function () {
+          return d.querySelector('#expandPreview .snap-video-failed');
+        }).then(function (box) {
           ok(box, 'the failure box replaces the frozen player');
           eq(box && box.querySelector('p').textContent, w.t('x.pv.snapVideoFailed'));
           var a = box && box.querySelector('a');
@@ -5671,6 +5676,71 @@
         w.render();
         eq([d.getElementById('connectStatus').textContent, param(w, 'meta')], [w.t('route.noAccount', { platform: 'Meta' }), 'act_1'], 'account');
         f.remove();
+      });
+    });
+  });
+
+  // ---------- البنية التقنية (المرحلة ٢ من المراجعة، ١٢ أكتوبر ٢٠٢٦) ----------
+  describe('البنية التقنية', function () {
+    // كل ملف بتحمّله صفحة الاختبارات (من غير ملفات الاختبارات نفسها)
+    function appSources() {
+      return Promise.all(window.__testScripts.filter(function (s) { return s.indexOf('/tests/') !== 0; }).map(function (s) {
+        return fetch(s).then(function (r) { return r.text(); }).then(function (text) { return { file: s, text: text }; });
+      }));
+    }
+    // مفاتيح التخزين المكتوبة في الكود: localStorage.getItem('…') وثوابت *_KEY / KEY / STORE و*_KEYS = [...]
+    // مفتاح التخزين عندنا دايماً فيه نقطة (acc.lang) — ده بيستبعد ثوابت تانية اسمها KEY (المفتاح العام، أسماء الروابط)
+    function storageKeys(text) {
+      var keys = {};
+      var add = function (k) { if (/^[a-z][\w-]*\.[\w.-]+$/i.test(k)) keys[k] = 1; };
+      text.replace(/(?:localStorage|sessionStorage)\.(?:getItem|setItem|removeItem)\(\s*'([^']+)'/g, function (_, k) { add(k); });
+      text.replace(/\b(?:[A-Z_]*_KEY|KEY|STORE)\s*=\s*'([^']+)'/g, function (_, k) { add(k); });
+      text.replace(/\b[A-Z_]*_KEYS\s*=\s*\[([^\]]*)\]/g, function (_, list) { list.replace(/'([^']+)'/g, function (__, k) { add(k); }); });
+      return Object.keys(keys);
+    }
+    testAsync('الاختبارات مبتغيّرش تخزين المتصفح: المشغّل بيحفظ ويرجّع كل مفتاح بتستخدمه الأداة', function () {
+      return appSources().then(function (files) {
+        var all = {};
+        files.forEach(function (f) { storageKeys(f.text).forEach(function (k) { all[k] = f.file; }); });
+        ok(Object.keys(all).length >= 15, 'found the keys (' + Object.keys(all).length + ')');
+        eq(Object.keys(all).filter(function (k) { return !window.__storageCovered(k); }).sort(), [], 'keys the runner does not restore');
+      });
+    });
+    // المُشغّل في Supabase (runner.ts) بيحمّل ٥ ملفات بس من الأداة (ENGINE_FILES) وبيستخدم أسماءها العامة (g.اسم).
+    // تغيير اسم دالة في core.js مثلاً كان بيكسر البريد من غير ما أي اختبار هنا يفشل (المرحلة ٢، ب٣)
+    testAsync('عقد المُشغّل: الملفات الخمسة اللي بيحمّلها runner.ts لوحدها فيها كل اسم بيستخدمه', function () {
+      return fetch('/__repo/supabase/functions/sync/runner.ts').then(function (r) {
+        if (!r.ok) throw new Error('runner.ts is not served (' + r.status + ') — run the tests with Live/tests/serve.ps1');
+        return r.text();
+      }).then(function (src) {
+        var files = JSON.parse(/const ENGINE_FILES = (\[[^\]]*\])/.exec(src)[1].replace(/'/g, '"'));
+        // الأسماء دي المُشغّل نفسه بيعرّفها (بدائل المتصفح) — مش من الأداة
+        var own = ['window', 'document', 'localStorage', 'sessionStorage', 'location', 'history', 'FB'];
+        var names = {};
+        src.replace(/\bg\.([A-Za-z_$][\w$]*)/g, function (_, n) { if (own.indexOf(n) < 0) names[n] = 1; });
+        ok(Object.keys(names).length >= 20, 'found the names (' + Object.keys(names).length + ')');
+        // إطار فاضي من غير صفحة الأداة، والملفات الخمسة بس بنفس الترتيب — زي المُشغّل بالظبط
+        var f = document.createElement('iframe');
+        f.style.display = 'none';
+        document.body.appendChild(f);
+        var w = f.contentWindow, d = w.document;
+        var stub = d.createElement('script'); stub.id = 'facebook-jssdk'; stub.type = 'text/plain'; d.head.appendChild(stub);
+        w.FB = { api: function () {}, init: function () {}, login: function () {} };
+        var load = function (file) {
+          return new Promise(function (resolve, reject) {
+            var s = d.createElement('script');
+            s.src = location.origin + '/js/' + file + '?t=' + Date.now();
+            s.onload = resolve;
+            s.onerror = function () { reject(new Error('failed to load ' + file)); };
+            d.head.appendChild(s);
+          });
+        };
+        return files.reduce(function (p, file) { return p.then(function () { return load(file); }); }, Promise.resolve()).then(function () {
+          var missing = Object.keys(names).filter(function (n) { return typeof w[n] === 'undefined'; });
+          f.remove();
+          eq(files, ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'], 'engine files');
+          eq(missing, [], 'names runner.ts uses that the engine files do not define');
+        }, function (e) { f.remove(); throw e; });
       });
     });
   });
