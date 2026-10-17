@@ -68,8 +68,9 @@ function installShims() {
 }
 
 // استهلاك حدود Meta (Marketing API — Rate Limiting، مراجعة المرحلة ٢): الترويسات دي مبتتقريش من المتصفح (CORS)، فبنقراها هنا.
-// tier = مستوى الوصول (development_access = المحدود: ~٦٠ نقطة لكل حساب إعلاني كل ٥ دقايق، والقراءة بنقطة)،
-// والنِّسب = أعلى استهلاك شفناه، وregainMin = دقايق الحجب لو اتحجبنا. أرقام استهلاك بس — من غير أي بيانات حساب
+// tier = مستوى الوصول (development_access = المحدود). accPct = حصة «Ad Account Level» (عندنا ٠٪ دايماً)، وbucPct = حصة
+// الحساب في الساعة اللي بتحكم طلبات الأرقام: أعلى نسبة بين العدد ووقت المعالجة والوقت الكلي (تصحيح مراجعة ١٧ أكتوبر —
+// الوقت هو اللي بيحدّد عندنا مش العدد). regainMin = دقايق الحجب لو اتحجبنا. أرقام استهلاك بس — من غير أي بيانات حساب
 export type MetaUsage = { tier: string | null; accPct: number; bucPct: number; regainMin: number; calls: number };
 export function freshUsage(): MetaUsage { return { tier: null, accPct: 0, bucPct: 0, regainMin: 0, calls: 0 }; }
 export function readUsage(h: Headers, u: MetaUsage): MetaUsage {
