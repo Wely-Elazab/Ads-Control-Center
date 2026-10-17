@@ -1,12 +1,14 @@
 # التكامل المستمر (مراجعة المرحلة ٢، ١٢ أكتوبر ٢٠٢٦ — ب١): كل دفع بيشغّل الاختبارات نفسها اللي بتتشغّل محلياً
 # (Live/tests/index.html) في Chromium من غير واجهة، والنتيجة بتظهر جنب كل إيداع على GitHub.
-# لو نجحت على main، الإيداع بيتدفع لفرع release — Cloudflare بينشر منه (لما فرع النشر في Cloudflare يتغيّر لـ release)،
-# فأي إيداع اختباراته فشلت مبيوصلش للعملاء.
+# البوابة قبل النشر (Software Engineering at Google، فصل ٢٣ — الاختبار قبل الدمج «presubmit»): كل تغيير بيتدفع لفرع staging
+# الأول، ولما الاختبارات تنجح على نفس الإيداع بالظبط بيتدفع لـ main — وCloudflare بينشر من main.
+# (فرع release اتجرّب ١٢ أكتوبر كفرع نشر من Cloudflare، وبناء إيداع الإصلاح b6b624b فشل عليه من غير سبب ظاهر — فرجعنا
+# لـ main، والبوابة بقت من ناحيتنا من غير ما نعتمد على إعداد في Cloudflare. audit/postmortem-2026-10-12-connect.md)
 name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
   workflow_dispatch:
 
@@ -82,23 +84,3 @@ jobs:
             while IFS= read -r line; do echo "::warning title=sync types::$line"; done
           grep -E '^(Found|error:)' deno-check.txt | tail -1 | while IFS= read -r line; do echo "::warning title=sync types::$line"; done
           exit $status
-
-  release:
-    needs: [browser-tests, server-tests]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    concurrency:
-      group: release
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      # إيداع أحدث اتدفع على main أثناء الاختبارات؟ هو اللي هيتنشر بعد اختباراته — منرجّعش release لورا
-      - name: Move release to this commit
-        run: |
-          git fetch origin main
-          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then echo "main moved on; the newer run releases"; exit 0; fi
-          git push --force origin "$GITHUB_SHA:refs/heads/release"

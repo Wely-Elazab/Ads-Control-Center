@@ -24,19 +24,22 @@ pg_cron كل ١٠ دقايق ← sync (action: run) ← المُشغّل: بيق
 3. **مفيش اسم عام جديد** في سكربتات المتصفح: الكود الجديد وحدة مقفولة باسم واحد زي `DX` و`PauseProofAlerts` (Google JS Style Guide §3 و§5.11.6).
    الملفات القديمة (`core.js` و`ui.js` …) بتتقسّم بالتدريج لما نلمسها، مش مرة واحدة.
 4. **الأسرار في Cloudflare وSupabase بس** — المستودع عام.
-5. **كل تغيير بيعدّي على الاختبارات** قبل ما يوصل للعملاء (تحت).
+5. **كل تغيير بيعدّي على الاختبارات** قبل ما يوصل للعملاء (تحت)، ومحدش يقول «اتنشر» غير لما الموقع نفسه يطابق الإيداع.
+6. **أي تغيير بيلمس كل الصفحة** (مستمع على كل ضغطة، الروابط والسجل، النوافذ، النشر) = نفحص حياً ربط كل منصة لحد صفحة الدخول عندها
+   (Meta وGoogle وSnapchat). عطل ١١–١٢ أكتوبر: الروابط كانت بتلغي نقل الصفحة لـ Google وSnapchat ومحدش لاحظ.
+   وأي حاجة بتنقل الصفحة لبرّه بتعدّي على `leavePage` (route.js) — مش `location.href` مباشرة.
 
 ## الاختبارات
 | إيه | فين | بتتشغّل إزاي |
 |---|---|---|
 | الأداة كلها (منطق الحكم، التنبيهات، الملخص، الأرقام، الترجمة، الواجهة والتنقل، خادم Cloudflare و`/api`) | `Live/tests/tests.js` | محلياً: `Live/tests/serve.ps1` وافتح `http://localhost:8765/tests/index.html` |
 | دالة `sync` (الدخول، التشفير، الروابط الموقّعة، ربط Meta) | `supabase/functions/tests/sync-test.ts` | `deno test --allow-env --no-check supabase/functions/tests/sync-test.ts` |
-| الاتنين + تثبيت المحرك | `.github/workflows/tests.yml` | مع كل push وpull request. لو نجحت على `main`، الإيداع بيتدفع لفرع `release` |
+| الاتنين + تثبيت المحرك | `.github/workflows/tests.yml` | مع كل push على `staging` و`main`، وكل pull request |
 
 ## النشر
 | إيه | إزاي |
 |---|---|
-| الموقع والأداة و`/api` | Cloudflare Workers Builds من GitHub (`wrangler.jsonc`). المفروض يتنشر من فرع `release` (اللي التكامل المستمر بيحرّكه بعد ما الاختبارات تنجح) — لحد ما الإعداد ده يتغيّر في لوحة Cloudflare، النشر لسه من `main` مباشرة |
+| الموقع والأداة و`/api` | Cloudflare Workers Builds بينشر `main` تلقائياً (`wrangler.jsonc`). **البوابة:** `bash .github/scripts/ship.sh` — الإيداع لـ `staging`، ولو التكامل المستمر نجح عليه بالظبط يتدفع لـ `main`، وبعدها بيتأكد إن ملفات `Live/js` على الموقع مطابقة للإيداع. متدفعش لـ `main` مباشرة. (فرع `release` اتجرّب ١٢ أكتوبر ومبقاش مستخدم — `audit` postmortem) |
 | دالة `sync` | يدوي (Supabase MCP أو اللوحة)، الملفات السبعة، `verify_jwt = false` — التفاصيل في `supabase/README.md` |
 | القاعدة | `supabase/migrations/` — الأسماء بنفس أرقام القاعدة |
 

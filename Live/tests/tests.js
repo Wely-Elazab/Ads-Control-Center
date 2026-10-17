@@ -5736,6 +5736,24 @@
         eq(Object.keys(all).filter(function (k) { return !window.__storageCovered(k); }).sort(), [], 'keys the runner does not restore');
       });
     });
+    // عطل ١١–١٢ أكتوبر: الروابط (route.js) كانت بتعدّل السجل بعد ما الصفحة بدأت تتنقل لـ Google/Snapchat فتلغي النقل.
+    // أي نقل للصفحة لازم يعدّي على leavePage — اللي بيوقف الروابط الأول. الاختبار ده بيمنع نقل مباشر جديد في أي ملف
+    testAsync('أي نقل للصفحة بيعدّي على leavePage (route.js) — مفيش location.href/replace/assign مباشر في كود الأداة', function () {
+      // المسموح: goTo في route.js (اللي leavePage بينادي عليه)، وبديل auth.js للصفحات اللي مفيهاش route.js
+      var allowed = { '/js/route.js': 1, '/js/auth.js': 1 };
+      return appSources().then(function (files) {
+        var found = [];
+        files.forEach(function (f) {
+          var hits = f.text.split('\n').filter(function (line) {
+            var code = line.replace(/\/\/.*$/, '');
+            return /\blocation\.(href\s*=[^=]|replace\s*\(|assign\s*\()/.test(code);
+          });
+          if (hits.length && !allowed[f.file]) found.push(f.file + ': ' + hits[0].trim().slice(0, 80));
+          if (allowed[f.file]) eq(hits.length, 1, f.file + ' has only its one allowed navigation');
+        });
+        eq(found, [], 'direct navigation outside leavePage');
+      });
+    });
     // المُشغّل في Supabase (runner.ts) بيحمّل ٥ ملفات بس من الأداة (ENGINE_FILES) وبيستخدم أسماءها العامة (g.اسم).
     // تغيير اسم دالة في core.js مثلاً كان بيكسر البريد من غير ما أي اختبار هنا يفشل (المرحلة ٢، ب٣)
     testAsync('عقد المُشغّل: الملفات الخمسة اللي بيحمّلها runner.ts لوحدها فيها كل اسم بيستخدمه', function () {
