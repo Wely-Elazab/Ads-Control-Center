@@ -477,13 +477,18 @@
     // حساب حقيقي ١٧ أكتوبر: بعد رقم المنصة بيوم الظهور، إعلان متوقف اتعرض قبل الفترة واتشرى منه جواها اختفى، و«الأقرب» بقى ١٣ بدل ١٤
     testAsync('السيرفر: إعلان متوقف ليه طلبات في «الأقرب للمتجر» بس (مش في أرقام المنصة) بيفضل في القائمة', function () {
       var realFetch = window.fetch;
-      var withAds = function (ids) { return { breakdown_stats: { ad: ids.map(function (id) { return { id: id, timeseries: [], stats: {} }; }) } }; };
+      var withAds = function (ids, pur) { return { breakdown_stats: { ad: ids.map(function (id) {
+        var st = { conversion_purchases: (pur && pur[id]) || 0 };
+        return { id: id, timeseries: [{ start_time: '2026-10-05T00:00:00.000Z', stats: st }], stats: st };
+      }) } }; };
       window.fetch = function (url) {
         var u = String(url);
         if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'UTC', currency: 'USD' } }] });
-        if (/\/ads\?/.test(u)) return json({ ads: [{ ad: { id: 'live', status: 'ACTIVE', delivery_status: ['VALID'] } }, { ad: { id: 'old', status: 'PAUSED' } }, { ad: { id: 'gone', status: 'PAUSED' } }] });
+        if (/\/ads\?/.test(u)) return json({ ads: [{ ad: { id: 'live', status: 'ACTIVE', delivery_status: ['VALID'] } }, { ad: { id: 'old', status: 'PAUSED' } },
+          { ad: { id: 'zero', status: 'PAUSED' } }, { ad: { id: 'gone', status: 'PAUSED' } }] });
         if (/\/stats/.test(u) && /view_attribution_window=none/.test(u)) {
-          var st = Object.assign({ swipe_up_attribution_window: '7_DAY', view_attribution_window: 'none' }, withAds(['old']));
+          // Snapchat بيرجّع كمان إعلانات أرقامها صفر في الطلب ده (حساب حقيقي ١٧ أكتوبر) — دي مبتتضافش
+          var st = Object.assign({ swipe_up_attribution_window: '7_DAY', view_attribution_window: 'none' }, withAds(['old', 'zero'], { old: 1 }));
           return json({ timeseries_stats: [{ timeseries_stat: st }], total_stats: [{ total_stat: st }] });
         }
         if (/\/stats/.test(u)) return json({ timeseries_stats: [{ timeseries_stat: withAds(['live']) }], total_stats: [{ total_stat: withAds(['live']) }] });
@@ -495,7 +500,7 @@
         return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1' } }, res);
       }).then(function () {
         window.fetch = realFetch;
-        eq(out.ads.map(function (a) { return a.id; }), ['live', 'old'], 'the stopped ad with store orders stays; one with nothing anywhere is dropped');
+        eq(out.ads.map(function (a) { return a.id; }), ['live', 'old'], 'the stopped ad with store orders stays; all-zero and absent ones are dropped');
       }, function (e) { window.fetch = realFetch; throw e; });
     });
 

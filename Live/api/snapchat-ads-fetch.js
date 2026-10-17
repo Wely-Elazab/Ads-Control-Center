@@ -60,6 +60,21 @@ export function keptAdIds() {
   });
   return out;
 }
+// الإعلانات اللي ليها طلبات في «الأقرب للمتجر» (أي يوم أو مجموع الفترة). Snapchat بيرجّع جوه الطلب ده إعلانات أرقامها كلها صفر
+// كمان (حساب حقيقي ١٧ أكتوبر: ٧ إعلانات متوقفة)، ودي مش بتتضاف — زي Meta: اللي صرف أو اللي شغّال أو اللي جاب طلب
+export function storeOrderAdIds() {
+  const out = {};
+  const has = function (st) { return !!st && Number(st.conversion_purchases) > 0; };
+  Array.prototype.forEach.call(arguments, function (data) {
+    ((data && (data.timeseries_stats || data.total_stats)) || []).forEach(function (e) {
+      const ts = (e && (e.timeseries_stat || e.total_stat)) || e || {};
+      ((ts.breakdown_stats && ts.breakdown_stats.ad) || []).forEach(function (b) {
+        if (b && b.id && (has(b.stats) || (b.timeseries || []).some(function (p) { return has(p && p.stats); }))) out[b.id] = 1;
+      });
+    });
+  });
+  return out;
+}
 // شغّال فعلاً: ACTIVE مش كفاية — Snapchat بيرجّع delivery_status (حساب حقيقي: ٣٢٦ ACTIVE منهم ١٨ بس VALID). المرفوض
 // والمستني مراجعة بيفضلوا (زي Meta)، ولو الحقل مش موجود منخبّيش إعلان ممكن يكون شغّال
 export function snapAdLive(a) {
@@ -235,7 +250,7 @@ export default async function handler(req, res) {
       // حساب حقيقي ١١ أكتوبر ١٢٣٦ إعلان (٨٥٠ ك.ب و٥ ثواني) منهم ٤٠ صرفوا و١٨ شغّالين، و«تم تحميل ١٢٧٧ إعلاناً»
       // + اللي ليها طلبات في «الأقرب للمتجر» بس (المرحلة ٤، ١٧ أكتوبر ٢٠٢٦): رقم المنصة بقى بيوم الظهور، فإعلان اتعرض قبل الفترة
       // واتشرى منه جواها مبيرجعش في أرقام المنصة — والأداة كانت بتشيله وتشيل طلبه (حساب حقيقي: ١٤ طلب بقوا ١٣)
-      const keep = keptAdIds(stats.error ? null : stats.data, results[4], results[5], results[6]);
+      const keep = Object.assign(keptAdIds(stats.error ? null : stats.data, results[4]), storeOrderAdIds(results[5], results[6]));
       const ads = adsResult.ads.filter(function (a) { return keep[a.id] || snapAdLive(a); });
       const usedSquads = {}, usedCreatives = {};
       ads.forEach(function (a) { usedSquads[a.ad_squad_id] = 1; if (a.creative_id) usedCreatives[a.creative_id] = 1; });
