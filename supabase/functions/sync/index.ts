@@ -7,7 +7,7 @@
 //   digest.* و stop ← الملخص والتنبيهات التلقائية بالبريد (digest.ts)
 //   selfcheck ← { token } لمدير تطبيق Meta بس: الأسرار موجودة وسليمة؟ (حالة بس — عمره ما بيرجّع قيمة سر)
 //   testmail  ← { token } لمدير التطبيق بس: رسالة تجريبية لـ support@adscenter.online (العنوان ثابت — مش بياخد مستلم)
-//   run       ← pg_cron كل ساعة، بهيدر x-runner-key (مفتاح عشوائي في Vault): فحص التنبيهات العاجلة (runner.ts)
+//   run       ← pg_cron كل ١٠ دقايق (الفحص العاجل لكل حساب مرة في الساعة تقريباً)، بهيدر x-runner-key (مفتاح عشوائي في Vault): فحص التنبيهات العاجلة (runner.ts)
 //   digest.preview ← { token, accountId, lang } لمدير التطبيق بس: الرسالة العاجلة اللي كانت هتتبعت دلوقتي، من غير إرسال
 //   digest.previewSummary ← { token, accountId, lang, since?, until?, monthly? } لمدير التطبيق بس: رسالة الملخص (أو الشهري)، من غير إرسال
 //   join و join.peek و join.activate ← طلبات الانضمام للتجربة من نموذج /join، وزرار «أرسلت الدعوة» في إشعارنا (join.ts)

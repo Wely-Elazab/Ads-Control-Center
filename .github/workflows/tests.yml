@@ -19,9 +19,12 @@ permissions:
 # for GitHub Actions»: البصمة الكاملة هي الطريقة الوحيدة لنسخة متتغيّرش). اسم الإصدار ممكن يتنقل لكود تاني، وsetup-deno@v2
 # كان فرع مش وسم. لو أداة اتخرّقت كانت تقدر تخلّي الاختبارات «تنجح» فالبوابة تعدّي. التحديث: البصمة الجديدة من
 # git ls-remote <repo> refs/tags/<version> والإصدار في التعليق جنبها
+# ونفس الفكرة للجهاز: ubuntu-24.04 مش ubuntu-latest. GitHub نبّهت (ملاحظة على تشغيل ١٧ أكتوبر) إن ubuntu-latest هيبقى
+# Ubuntu 26 من ١٩ أكتوبر ٢٠٢٦، وPlaywright 1.52 أقدم منه (--with-deps بيثبّت حزم النظام بأسماء إصدارات معروفة) —
+# فالتغيير كان ممكن يوقّف البوابة كلها من غير أي تغيير عندنا. النقل لإصدار أحدث يبقى قرار بتجربة، مش لوحده
 jobs:
   browser-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -58,7 +61,7 @@ jobs:
 
   # دالة sync في Supabase (Deno): الدخول والتشفير والروابط الموقّعة وربط Meta المحفوظ — من غير شبكة ولا قاعدة بيانات
   server-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
