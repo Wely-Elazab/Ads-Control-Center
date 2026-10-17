@@ -25,7 +25,19 @@ done
 if [ "$ok" != "success" ]; then echo "CI did not pass on ${sha:0:7} (${ok:-timeout}): main NOT updated"; exit 1; fi
 
 git push -q origin "$sha:refs/heads/main"
-echo "main -> ${sha:0:7}: waiting for the site"
+# بناء Cloudflare نفسه (الدليل الأقوى): مقارنة الملفات لوحدها مبتثبتش حاجة لو الإيداع مغيّرش Live/js
+# (اتلاحظ ١٧ أكتوبر في أول تشغيل). الفروع التانية مبتتبنيش (Preview Builds مقفولة)، فأي بناء على الإيداع ده هو النشر
+echo "main -> ${sha:0:7}: waiting for the Cloudflare build"
+build=""
+for i in $(seq 1 20); do
+  sleep 15
+  cr=$(curl -s "https://api.github.com/repos/$repo/commits/$sha/check-runs?filter=all&check_name=Workers%20Builds:%20ads-center")
+  if echo "$cr" | grep -qE '"conclusion": *"success"'; then build=success; break; fi
+  if echo "$cr" | grep -qE '"conclusion": *"(failure|cancelled|timed_out)"'; then build=failure; break; fi
+  echo "  $(date +%T) build not finished"
+done
+if [ "$build" != "success" ]; then echo "Cloudflare build ${build:-did not finish}: the site may still be on the previous commit"; exit 1; fi
+echo "Cloudflare build succeeded; checking the site"
 # الملفات اللي مبتتنشرش عن قصد (Live/.assetsignore — زي js/pricing.js) مبتتقارنش
 skip=$(git show "$sha:Live/.assetsignore" | tr -d '\r' | grep -E '^js/' | sed 's#^#Live/#' || true)
 for i in $(seq 1 24); do
