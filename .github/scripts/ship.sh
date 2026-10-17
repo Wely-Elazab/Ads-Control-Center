@@ -10,13 +10,25 @@ set -euo pipefail
 repo=Wely-Elazab/Ads-Control-Center
 site=https://adscenter.online
 sha=$(git rev-parse HEAD)
+# طلب لواجهة GitHub. لو الحد خلص بنوقف ونقول كده صراحة — قبل كده الرد كان بيتقري «لسه مخلصش» لحد آخر محاولة
+# فالرسالة كانت بتقول غير اللي حصل (مراجعة ١٧ أكتوبر). الشحنة الواحدة ~١٢–١٦ طلب، فـ٣–٤ شحنات في الساعة بالكتير
+# $2 = حالة main ساعتها، عشان الرسالة تقول هو اتغيّر ولا لأ
+gh_api() {
+  local j
+  j=$(curl -s "https://api.github.com/repos/$repo/$1")
+  if echo "$j" | grep -q 'API rate limit exceeded'; then
+    echo "GitHub API limit reached (60 requests/hour without sign-in) — $2" >&2
+    return 3
+  fi
+  printf '%s\n' "$j"
+}
 
 git push -q --force origin "HEAD:refs/heads/staging"
 echo "staging -> ${sha:0:7}: waiting for CI"
 ok=""
 for i in $(seq 1 30); do
   sleep 30
-  j=$(curl -s "https://api.github.com/repos/$repo/actions/runs?head_sha=$sha&branch=staging&per_page=3")
+  j=$(gh_api "actions/runs?head_sha=$sha&branch=staging&per_page=3" "main NOT updated; run ship.sh again within the hour")
   st=$(echo "$j" | grep -oE '"status": *"[a-z_]+"' | head -1 | sed -E 's/.*"([a-z_]+)"$/\1/')
   co=$(echo "$j" | grep -oE '"conclusion": *("[a-z_]+"|null)' | head -1 | sed -E 's/.*: *//; s/"//g')
   echo "  $(date +%T) ${st:-none} ${co:-}"
@@ -31,7 +43,7 @@ echo "main -> ${sha:0:7}: waiting for the Cloudflare build"
 build=""
 for i in $(seq 1 20); do
   sleep 15
-  cr=$(curl -s "https://api.github.com/repos/$repo/commits/$sha/check-runs?filter=all&check_name=Workers%20Builds:%20ads-center")
+  cr=$(gh_api "commits/$sha/check-runs?filter=all&check_name=Workers%20Builds:%20ads-center" "main IS updated to ${sha:0:7}; confirm the Cloudflare build and the site by hand")
   if echo "$cr" | grep -qE '"conclusion": *"success"'; then build=success; break; fi
   if echo "$cr" | grep -qE '"conclusion": *"(failure|cancelled|timed_out)"'; then build=failure; break; fi
   echo "  $(date +%T) build not finished"

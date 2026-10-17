@@ -28,6 +28,11 @@ const REMIND_AFTER_MS = 48 * 3600000;     // تذكير واحد بس، لو ا�
 const RESOLVE_AFTER_MS = 24 * 3600000;    // «اتحلّت» = مظهرتش ٢٤ ساعة كاملة (اختفاء ساعة ورجوع = نفس المشكلة)
 const EXPIRY_WARN_MS = 5 * 86400000;      // صلاحية Meta هتخلص خلال ٥ أيام → رسالة واحدة تطلب فتح الأداة
 const TIME_BUDGET_MS = 110000;            // حد الدالة ١٥٠ ثانية — منبدأش حساب بعد كده، والباقي في التشغيل الجاي (بعد ١٠ دقايق)
+// مهلة لكل طلب Meta، ونهاية للتشغيل كله (مراجعة المرحلة ٢، ١٧ أكتوبر — Google SRE، فصل ٢٢: «Deadlines» و«Queries of death»).
+// من غيرهم طلب واحد معلّق كان بيخلّي Supabase تقطع التشغيل كله عند ١٥٠ ثانية من غير «نبض»، ولو نفس الحساب علّق كل مرة
+// كان هيفضل أول القايمة (checked_at مبيتسجّلش) فيوقف رسايل كل الحسابات. الطلب اللي مهلته خلصت بيفشل زي عطل الشبكة = «حاول تاني»
+const GRAPH_TIMEOUT_MS = 40000;            // الطلب العادي ثواني (قياس ١٢ أكتوبر): ٤٠ هامش واسع عشان الحسابات التقيلة متفشلش، ونهاية التشغيل هي الحماية
+const RUN_DEADLINE_MS = 140000;           // ١٠ ثواني قبل حد الدالة لتسجيل اللي حصل و«النبض»
 const URGENT_EVERY_MS = 50 * 60000;       // الفحص العاجل مرة في الساعة تقريباً لكل حساب (التشغيل نفسه كل ١٠ دقايق)
 const SYSTEM_KINDS: Record<string, boolean> = { connection: true, expiry: true };
 
@@ -99,6 +104,15 @@ let runUsage = freshUsage();   // التشغيل كله (بيطلع في سطر 
 
 // FB.api بتاع المتصفح → Graph API بمفتاح الحساب اللي بنفحصه دلوقتي (حساب واحد في المرة — exclusive تحت)
 let metaToken = '';
+// نهاية التشغيل الحالي (runAll بس — المعاينات من غير نهاية، بمهلة الطلب بس). صفر = مفيش
+let runDeadline = 0;
+// مهلة الطلب الجاي: ٤٠ ثانية، أو اللي فاضل للتشغيل لو أقل. الوقت خلص = الطلب ميتبعتش أصلاً
+export function callTimeout(deadline: number, now: number): number {
+  if (!deadline) return GRAPH_TIMEOUT_MS;
+  const left = deadline - now;
+  if (left <= 0) throw new Error('run deadline');
+  return Math.min(GRAPH_TIMEOUT_MS, left);
+}
 function fbApi(path: string, a?: any, b?: any, c?: any) {
   let method = 'GET', params: Record<string, unknown> = {}, cb: (r: any) => void = () => {};
   if (typeof a === 'string') { method = a.toUpperCase(); if (typeof b === 'function') cb = b; else { params = b || {}; cb = c || cb; } }
@@ -116,7 +130,8 @@ async function graph(path: string, method: string, params: Record<string, unknow
   };
   Object.keys(params).forEach((k) => put(k, params[k]));
   put('access_token', metaToken);
-  const r = await fetch(url, method === 'GET' ? undefined : { method, body: form });
+  const signal = AbortSignal.timeout(callTimeout(runDeadline, Date.now()));
+  const r = await fetch(url, method === 'GET' ? { signal } : { method, body: form, signal });
   readUsage(r.headers, usage);
   return await r.json().catch(() => ({ error: { message: 'http ' + r.status } }));
 }
@@ -136,7 +151,7 @@ function loadEngine(): Promise<string[]> {
   if (!engine) {
     engine = (async () => {
       const texts = await Promise.all(ENGINE_FILES.map(async (f) => {
-        const r = await fetch(ENGINE_RAW + f);
+        const r = await fetch(ENGINE_RAW + f, { signal: AbortSignal.timeout(20000) });
         if (!r.ok) throw new Error('engine ' + f + ' ' + r.status);
         return await r.text();
       }));
@@ -144,7 +159,7 @@ function loadEngine(): Promise<string[]> {
       for (const src of texts) (0, eval)(src);
       if (!g.PauseProofAlerts || !g.I18N || !g.DX || typeof g.transformRealAd !== 'function' || typeof g.adsPromise !== 'function' ||
         typeof g.metaDiagnosisInput !== 'function' || typeof g.metaActivities !== 'function') throw new Error('engine incomplete');
-      const live = await Promise.all(ENGINE_FILES.map((f) => fetch(SITE + '/js/' + f).then((r) => (r.ok ? r.text() : null)).catch(() => null)));
+      const live = await Promise.all(ENGINE_FILES.map((f) => fetch(SITE + '/js/' + f, { signal: AbortSignal.timeout(10000) }).then((r) => (r.ok ? r.text() : null)).catch(() => null)));
       const norm = (s: string) => s.replace(/\r\n/g, '\n');
       return ENGINE_FILES.filter((_f, i) => live[i] != null && norm(live[i] as string) !== norm(texts[i]));
     })().catch((e) => { engine = null; throw e; });
@@ -772,7 +787,12 @@ export async function runAll(): Promise<Record<string, unknown>> {
   for (const s of list) {
     if (Date.now() - started > TIME_BUDGET_MS) { outcomes.deferred = (outcomes.deferred || 0) + 1; continue; }
     let out = 'error';
-    try { out = await exclusive(() => checkAccount(s)); } catch (e) {
+    try {
+      out = await exclusive(() => {
+        runDeadline = started + RUN_DEADLINE_MS;
+        return checkAccount(s).finally(() => { runDeadline = 0; });
+      });
+    } catch (e) {
       // النوع والرسالة بس — من غير أي بيانات حساب. ومنعيدوش كل ١٠ دقايق لحد الساعة الجاية
       console.error('runner account failed', String((e as Error).message || e).slice(0, 200));
       await markChecked(s.account_id);

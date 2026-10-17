@@ -5457,6 +5457,34 @@
         });
       });
     });
+    // الروابط العادية جوه نافذة المنصات («اطلب الانضمام» و«خطوات الربط»): المتصفح هو اللي بينقل الصفحة، فلو أي كود بعد الضغط
+    // قفل النافذة برجوع خطوة كان هيلغي النقل زي عطل Google وSnapchat. مراجعة ١٧ أكتوبر: سليمة بقراءة الكود — والاختبار ده بيحميها
+    testAsync('الروابط العادية جوه نافذة المنصات: الضغط عليها مبيرجّعش خطوة في السجل (كان هيلغي النقل)', function () {
+      return frame().then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, hist = [];
+        d.getElementById('tabSettings').click();
+        return sleep(30).then(function () {
+          d.getElementById('loginMenuBtn').click();
+          return sleep(30);
+        }).then(function () {
+          var links = Array.prototype.filter.call(d.querySelectorAll('#platformOverlay a[href]'), function (a) {
+            return a.target !== '_blank' && a.getAttribute('href').indexOf('mailto:') !== 0;
+          });
+          ok(links.length >= 2, 'same-tab links in the window (' + links.length + ')');
+          ['back', 'go'].forEach(function (k) {
+            var orig = w.history[k];
+            w.history[k] = function () { hist.push(k); return orig.apply(w.history, arguments); };
+          });
+          // الإطار ميسيبش صفحة الاختبارات: بنمنع النقل نفسه بس، وكل مستمعات الأداة بتشتغل عادي
+          w.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('a[href]')) e.preventDefault(); }, true);
+          links.forEach(function (a) { a.click(); });
+          return sleep(50);
+        }).then(function () {
+          eq(hist, [], 'no step back after a link click');
+          f.remove();
+        }, function (e) { f.remove(); throw e; });
+      });
+    });
 
     // ---------- أقسام الأداة: قائمة جانبية / شريط ضيق / شريط سفلي (مراجعة المرحلة ١ — ق٢) ----------
     function sized(width, height, query) {

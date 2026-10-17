@@ -5,7 +5,7 @@
 
 ## الأجزاء
 ```
-المتصفح (Live/js — ١٣ سكربت من غير bundler)
+المتصفح (الأداة: ١٣ سكربت من Live/js من غير bundler — المجلد فيه ٢١ ملف للموقع كله)
   ├── Meta ← مباشرة من المتصفح بمكتبة فيسبوك (FB.api / graph.facebook.com)
   ├── /api/* ← خادم Cloudflare (Live/cloudflare/worker.js + Live/api/*.js): Google وSnapchat وTikTok
   │             لأنها محتاجة سر من الخادم. مفيش أرقام بتتحفظ — الخادم بيعدّي الطلب بس
@@ -34,7 +34,7 @@ pg_cron كل ١٠ دقايق ← sync (action: run) ← المُشغّل: بيق
 |---|---|---|
 | الأداة كلها (منطق الحكم، التنبيهات، الملخص، الأرقام، الترجمة، الواجهة والتنقل، خادم Cloudflare و`/api`) | `Live/tests/tests.js` | محلياً: `Live/tests/serve.ps1` وافتح `http://localhost:8765/tests/index.html` |
 | دالة `sync` (الدخول، التشفير، الروابط الموقّعة، ربط Meta) | `supabase/functions/tests/sync-test.ts` | `deno test --allow-env --no-check supabase/functions/tests/sync-test.ts` |
-| الاتنين + تثبيت المحرك | `.github/workflows/tests.yml` | مع كل push على `staging` و`main`، وكل pull request |
+| الاتنين + تثبيت المحرك | `.github/workflows/tests.yml` (الأدوات متثبّتة ببصمة إيداع) | مع كل push على `staging` و`main`، وكل pull request |
 
 ## النشر
 | إيه | إزاي |

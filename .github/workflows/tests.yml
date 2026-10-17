@@ -15,12 +15,16 @@ on:
 permissions:
   contents: read
 
+# الأدوات (actions) متثبّتة على بصمة إيداع مش على اسم إصدار (مراجعة المرحلة ٢، ١٧ أكتوبر — GitHub Docs، «Security hardening
+# for GitHub Actions»: البصمة الكاملة هي الطريقة الوحيدة لنسخة متتغيّرش). اسم الإصدار ممكن يتنقل لكود تاني، وsetup-deno@v2
+# كان فرع مش وسم. لو أداة اتخرّقت كانت تقدر تخلّي الاختبارات «تنجح» فالبوابة تعدّي. التحديث: البصمة الجديدة من
+# git ls-remote <repo> refs/tags/<version> والإصدار في التعليق جنبها
 jobs:
   browser-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
 
@@ -37,7 +41,7 @@ jobs:
           fi
           echo "engine pin $pin matches"
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
 
@@ -57,8 +61,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: denoland/setup-deno@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: v2.x
       - name: Run the sync function tests

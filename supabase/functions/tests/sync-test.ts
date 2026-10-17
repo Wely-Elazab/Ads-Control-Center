@@ -9,7 +9,7 @@ import { corsHeaders, esc, reply } from '../sync/lib.ts';
 import { cleanEmail, cleanTarget, daysText, hourText, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
-import { freshUsage, readUsage } from '../sync/runner.ts';
+import { callTimeout, freshUsage, readUsage } from '../sync/runner.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
 Deno.env.set('TOKEN_ENC_KEY', btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))));
@@ -181,4 +181,15 @@ Deno.test('حدود Meta: مستوى الوصول وأعلى استهلاك من
   // الاسم اللي في الصفحة الرسمية، والحجب
   readUsage(new Headers({ 'x-business-use-case': JSON.stringify({ '1': [{ call_count: 100, estimated_time_to_regain_access: 5 }] }) }), u);
   assertEquals([u.bucPct, u.regainMin, u.calls], [100, 5, 5]);
+});
+
+// مراجعة المرحلة ٢ (١٧ أكتوبر — Google SRE، فصل ٢٢): كل طلب Meta في المُشغّل له مهلة، ومفيش طلب بيتبعت بعد نهاية التشغيل
+Deno.test('مهلة طلبات Meta في المُشغّل: ٤٠ ثانية، أو اللي فاضل للتشغيل، ومفيش طلب بعد النهاية', () => {
+  const now = 1_000_000;
+  assertEquals(callTimeout(0, now), 40000, 'previews: no run deadline, the per-call timeout only');
+  assertEquals(callTimeout(now + 100000, now), 40000, 'plenty of time left');
+  assertEquals(callTimeout(now + 4000, now), 4000, 'only what is left of the run');
+  let threw = '';
+  try { callTimeout(now, now); } catch (e) { threw = String((e as Error).message); }
+  assertEquals(threw, 'run deadline', 'no call after the run deadline');
 });

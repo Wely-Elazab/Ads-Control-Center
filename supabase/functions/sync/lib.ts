@@ -96,13 +96,15 @@ export const MAIL_FROM = 'Ads Center <support@adscenter.online>';
 export const MAIL_REPLY_TO = 'support@adscenter.online';
 // بيرجّع رقم الرسالة عند Resend، أو بيرمي خطأ فيه حالة Resend بس (من غير محتوى الرسالة).
 // replyTo: إشعار طلب الانضمام بس — الرد عليه بيروح للعميل نفسه (الباقي الرد بيرجع لـ support@)
+// مهلة ١٥ ثانية (مراجعة ١٧ أكتوبر — مع مهلة طلبات Meta في runner.ts): بعدها بيرمي زي أي فشل، والمُشغّل بيحاول الساعة الجاية
 export async function sendEmail(to: string, subject: string, html: string, text: string, replyTo = MAIL_REPLY_TO): Promise<string> {
   const key = Deno.env.get('RESEND_API_KEY');
   if (!key) throw new Error('resend key missing');
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'authorization': 'Bearer ' + key, 'content-type': 'application/json' },
-    body: JSON.stringify({ from: MAIL_FROM, to: [to], reply_to: replyTo, subject, html, text })
+    body: JSON.stringify({ from: MAIL_FROM, to: [to], reply_to: replyTo, subject, html, text }),
+    signal: AbortSignal.timeout(15000)
   });
   const j = await r.json().catch(() => null);
   if (!r.ok || !j || !j.id) throw new Error('resend ' + r.status + ' ' + String((j && (j.name || j.message)) || '').slice(0, 80));
