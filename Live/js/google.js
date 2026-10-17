@@ -374,7 +374,7 @@
       if (storeDay) {
         var s = storeDay[day.key];
         res = Math.min(s ? s.results : 0, res);
-        sales = Math.min(s ? r2(s.sales) : 0, sales);
+        sales = Math.min(s ? s.sales : 0, sales);
       }
       o.daily.push(r ? r.spend : 0);
       if (di < lastIdx) o.raw += res;
@@ -402,7 +402,7 @@
     if (!pRow) return null;
     if (!ps) return buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales);
     var p = buildPeriod(pRow.spend, Math.round(Math.min(ps.results, pRow.results)), Math.min(ps.sales, pRow.sales));
-    p.plat = { results: Math.round(pRow.results), sales: r2(pRow.sales) };
+    p.plat = { results: Math.round(pRow.results), sales: pRow.sales };
     return p;
   }
 
@@ -417,14 +417,16 @@
       if (!byCamp[camp.id]) { byCamp[camp.id] = { camp: camp, perDay: {}, period: null }; order.push(camp.id); }
       return byCamp[camp.id];
     };
+    // التكلفة بالمايكرو (÷ 1,000,000) والقيمة بدقتها الكاملة — التقريب وقت العرض بس (money). المرحلة ٤: التقريب لأقرب سنت
+    // لكل يوم قبل الجمع كان بيتراكم ويبعد الإجمالي سنتات عن رقم المنصة (نفس الخلل اتقاس في Snapchat: ٥١٠٫٠٠ قصاد ٥٠٩٫٩٨)
     (dailyRows || []).forEach(function (row) {
       var camp = row.campaign || {}, date = ggPick(row, 'segments.date');
       if (!camp.id || !date) return;
       var m = row.metrics || {};
       entry(camp).perDay[date] = {
-        spend: r2(parseInt(m.costMicros || 0, 10) / 1000000),
+        spend: parseInt(m.costMicros || 0, 10) / 1000000,
         results: parseFloat(m.conversions || 0),
-        sales: r2(parseFloat(m.conversionsValue || 0))
+        sales: parseFloat(m.conversionsValue || 0)
       };
     });
     // حملة صرفت في الفترة المختارة بس (مش في آخر ٧ أيام) لازم تظهر برضه — وإلا إجمالي الفترة يقل
@@ -445,7 +447,7 @@
       var delivery = googleCampaignDelivery(camp);
       var g = googleDays(days, e.perDay, storeByDate && (storeByDate[campId] || {}));
       var daily = g.daily, dailyResults = g.dailyResults, dailySales = g.dailySales;
-      var spend = r2(daily.slice(0, daily.length - 1).reduce(function (a, b) { return a + b; }, 0));
+      var spend = daily.slice(0, daily.length - 1).reduce(function (a, b) { return a + b; }, 0);
       var totalResults = Math.round(g.raw);
       var totalSales = dailySales.slice(0, dailySales.length - 1).reduce(function (a, b) { return a + b; }, 0);
       var pRow = Array.isArray(periodRows) ? (e.period || { spend: 0, results: 0, sales: 0 }) : null;
@@ -466,14 +468,14 @@
         results: totalResults > 0 ? totalResults : 0,
         resultKey: 'conversion',
         cpr: (totalResults && spend > 0) ? (spend / totalResults) : null,
-        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null, sales: r2(totalSales),
+        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null, sales: totalSales,
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active,
         pausedLevel: delivery.level,
         deliveryReason: delivery.reason || null,
         platformStatus: camp.primaryStatus || camp.status || null,
         period: googlePeriod(pRow, storeTotals && (storeTotals[campId] || { results: 0, sales: 0 })),
-        plat: storeByDate ? { results: Math.round(g.platRaw), sales: r2(g.platSales) } : null,
+        plat: storeByDate ? { results: Math.round(g.platRaw), sales: g.platSales } : null,
         _raw: googleRaw(g, !!storeByDate, pRow, storeTotals && (storeTotals[campId] || { results: 0, sales: 0 })),
         fail: false
       };
@@ -495,9 +497,9 @@
       var m = row.metrics || {};
       if (!byDate[key]) byDate[key] = {};
       byDate[key][date] = {
-        spend: r2(parseInt(m.costMicros || 0, 10) / 1000000),
+        spend: parseInt(m.costMicros || 0, 10) / 1000000,
         results: parseFloat(m.conversions || 0),
-        sales: r2(parseFloat(m.conversionsValue || 0))
+        sales: parseFloat(m.conversionsValue || 0)
       };
     });
     // مجاميع الفترة المختارة (لو مش آخر ٧ أيام) — صف واحد لكل إعلان، ممكن يتكرر لو فيه أكتر من صفحة
@@ -527,7 +529,7 @@
       var delivery = googleDelivery(row, adStatus, agStatus, campStatus, approval);
       var g = googleDays(days, byDate[key] || {}, storeByDate && (storeByDate[key] || {}));
       var daily = g.daily, dailyResults = g.dailyResults, dailySales = g.dailySales;
-      var spend = r2(daily.slice(0, daily.length - 1).reduce(function (a, b) { return a + b; }, 0));
+      var spend = daily.slice(0, daily.length - 1).reduce(function (a, b) { return a + b; }, 0);
       var totalResults = Math.round(g.raw);
       var totalSales = dailySales.slice(0, dailySales.length - 1).reduce(function (a, b) { return a + b; }, 0);
       return {
@@ -551,14 +553,14 @@
         results: totalResults > 0 ? totalResults : 0,
         resultKey: 'conversion',
         cpr: (totalResults && spend > 0) ? (spend / totalResults) : null,
-        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null, sales: r2(totalSales),
+        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null, sales: totalSales,
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active,
         pausedLevel: delivery.level,
         deliveryReason: delivery.reason || null,
         platformStatus: ggPick(row, 'adGroupAd.primaryStatus') || adStatus || null,
         period: googlePeriod(pRow, storeTotals && (storeTotals[key] || { results: 0, sales: 0 })),
-        plat: storeByDate ? { results: Math.round(g.platRaw), sales: r2(g.platSales) } : null,
+        plat: storeByDate ? { results: Math.round(g.platRaw), sales: g.platSales } : null,
         _raw: googleRaw(g, !!storeByDate, pRow, storeTotals && (storeTotals[key] || { results: 0, sales: 0 })),
         _resourceName: row.adGroupAd && row.adGroupAd.resourceName,
         fail: false

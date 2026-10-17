@@ -291,6 +291,17 @@
       var pp = platOf(c);
       eq([pp.results, pp.sales, pp.spend], [14, 1400, 150]);
     });
+    // المرحلة ٤ (دقة الأرقام): ٥٥ إعلان × ٧ أيام بتقريب كل يوم لأقرب سنت طلّعوا إجمالي ٥١٠٫٠٠ وSnapchat ٥٠٩٫٩٨.
+    // المبالغ بدقة المايكرو لحد العرض: مجموع الإعلانات = مجموع المنصة نفسه (إلى جزء من المليون)
+    test('مبالغ Snapchat بدقتها الكاملة: مجموع الإعلانات = مجموع المنصة (من غير تقريب كل يوم)', function () {
+      var rows = {}, three = ['b1', 'b2', 'b3'].map(function (id) { return { ad: { id: id, name: id, status: 'ACTIVE' } }; });
+      three.forEach(function (a) { rows[a.ad.id] = [0, 1, 2, 3, 4, 5, 6].map(function (d) { return [d, { spend: 1004999, conversion_purchases: 0, conversion_purchases_value: 2004999 }]; }); });
+      var list = transformSnapchatAds(three, series(rows), days, 'USD', [], [], null, null, null);
+      var spend = list.reduce(function (s, c) { return s + c.spend; }, 0);
+      var exact = 3 * 7 * 1004999 / M;   // ٢١٫١٠٤٩٧٩ — بالتقريب اليومي كانت ٢١٫٠٠
+      ok(Math.abs(spend - exact) < 1e-9, 'total spend ' + spend + ' = ' + exact);
+      ok(Math.abs(list[0].spend - 7 * 1004999 / M) < 1e-9, 'per ad, no daily rounding');
+    });
     test('«الأقرب للمتجر» مبيطلعش أكبر من رقم المنصة في أي يوم', function () {
       var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], null, series({ a1: [[5, { conversion_purchases: 12, conversion_purchases_value: 1200 * M }]] }), null)[0];
       eq([c.dailyResults[5], c.dailySales[5], c.dailyResults[6]], [10, 1000, 0]);
@@ -3652,12 +3663,12 @@
         w.render();
         w.openExpand(c);
         var v = d.querySelector('#expandPreview video');
-        // بنستنى خطأ الفيديو نفسه (أو ٢٠ ثانية) مش عدد ثابت من الدورات: في Chrome بلا واجهة (التكامل المستمر)
-        // المؤقتات بتعدّي أسرع من الشبكة، فالانتظار بالعدّ كان بيخلص قبل ما الخطأ يوصل
+        // بنستنى خطأ الفيديو نفسه، من غير مؤقت: في Chrome بلا واجهة بالوقت الافتراضي (المشغّل المحلي) المؤقتات بتعدّي
+        // أسرع من الشبكة، فمؤقت ٢٠ ثانية كان بيخلص قبل ما الخطأ يوصل (فشل متقطع اتقاس ١٧ أكتوبر — SWE at Google فصل ١١:
+        // الاختبار المتقطع بيفقد قيمته). لو الخطأ مجاش خالص فده عطل حقيقي، والتشغيل بيبان فاشل
         var failed = new Promise(function (resolve) {
           if (v.error) { resolve(); return; }
           v.addEventListener('error', function () { resolve(); }, { once: true });
-          setTimeout(resolve, 20000);
         });
         v.muted = true;
         v.play().catch(function () {});

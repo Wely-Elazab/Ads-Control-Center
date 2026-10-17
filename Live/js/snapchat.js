@@ -190,24 +190,25 @@
       (series || []).forEach(function (r) { byDay[(r.start_time || '').slice(0, 10)] = r.stats || r; });
       return byDay;
     };
-    // القيم المالية في Snapchat بالمايكرو (÷ 1,000,000)
+    // القيم المالية في Snapchat بالمايكرو (÷ 1,000,000) — بدقتها الكاملة من غير تقريب لحد العرض (money). المرحلة ٤:
+    // التقريب لأقرب سنت لكل إعلان في كل يوم (٥٥ إعلان × ٧ أيام) كان بيتراكم: إجمالي ٥١٠٫٠٠ قصاد ٥٠٩٫٩٨ عند Snapchat
     var parsed = adsList.map(function (item) {
       var ad = item.ad || item;
       var byDay = dayMap(statsByAd[ad.id]), storeDay = storeByAd ? dayMap(storeByAd[ad.id]) : null;
       var p = { ad: ad, daily: [], swipes: [], purchases: [], sales: [], storePurchases: [], storeSales: [] };
       days.forEach(function (day) {
         var st = byDay[day.key];
-        p.daily.push(st ? r2(parseFloat(st.spend || 0) / 1000000) : 0);
+        p.daily.push(st ? parseFloat(st.spend || 0) / 1000000 : 0);
         p.swipes.push(st ? Math.round(parseFloat(st.swipes || 0)) : 0);
         var pur = st ? Math.round(parseFloat(st.conversion_purchases || 0)) : 0;
-        var sales = st ? r2(parseFloat(st.conversion_purchases_value || 0) / 1000000) : 0;
+        var sales = st ? parseFloat(st.conversion_purchases_value || 0) / 1000000 : 0;
         p.purchases.push(pur);
         p.sales.push(sales);
         if (storeDay) {
           // النافذة الأضيق جزء من نافذة المنصة، فمش منطقي تطلع أكبر منها — لو حصل (اختلاف تقريب مثلاً) بناخد رقم المنصة
           var sd = storeDay[day.key];
           p.storePurchases.push(Math.min(sd ? Math.round(parseFloat(sd.conversion_purchases || 0)) : 0, pur));
-          p.storeSales.push(Math.min(sd ? r2(parseFloat(sd.conversion_purchases_value || 0) / 1000000) : 0, sales));
+          p.storeSales.push(Math.min(sd ? parseFloat(sd.conversion_purchases_value || 0) / 1000000 : 0, sales));
         }
       });
       return p;
@@ -247,7 +248,7 @@
       var campaign = squad ? (campaignsById[squad.campaign_id] || null) : null;
       var dailyResults = compared ? p.storePurchases : (tracksPurchases ? p.purchases : p.swipes);
       var dailySales = compared ? p.storeSales : (tracksPurchases ? p.sales : p.daily.map(function () { return 0; }));
-      var spend = r2(sum(p.daily));
+      var spend = sum(p.daily);
       var results = sum(dailyResults);
       var totalSales = sum(dailySales);
       // المحتوى والوسيط من السيرفر (api/snapchat-ads-fetch.js): نوع الإعلان من الوسيط نفسه — نوع الإعلان في Snapchat (STORY،
@@ -261,7 +262,7 @@
         var ps = periodStoreByAd && (periodStoreByAd[ad.id] || { results: 0, sales: 0 });
         period = ps ? buildPeriod(pRow.spend, Math.round(Math.min(ps.results, pRow.results)), Math.min(ps.sales, pRow.sales))
           : buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales);
-        if (ps) period.plat = { results: Math.round(pRow.results), sales: r2(pRow.sales) };
+        if (ps) period.plat = { results: Math.round(pRow.results), sales: pRow.sales };
       }
       return {
         id: id, platform: 'Snapchat', currency: currency || null,
@@ -287,13 +288,13 @@
         daily: p.daily, dailySales: dailySales, dailyResults: dailyResults, dailyDates: days.map(function (d) { return d.key; }),
         spend: spend, results: results, resultKey: tracksPurchases ? 'purchase' : 'swipe',
         cpr: (results && spend) ? (spend / results) : null,
-        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null, sales: r2(totalSales),
+        roas: (totalSales > 0 && spend > 0) ? (totalSales / spend) : null, sales: totalSales,
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active, pausedLevel: delivery.level,
         deliveryReason: null, platformStatus: ad.status || null,
         period: period,
         // رقم المنصة جنب «الأقرب للمتجر» (core.js platOf) — زي Meta
-        plat: compared ? { results: sum(p.purchases), sales: r2(sum(p.sales)) } : null,
+        plat: compared ? { results: sum(p.purchases), sales: sum(p.sales) } : null,
         fail: false
       };
     });
