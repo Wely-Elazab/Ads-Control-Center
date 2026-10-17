@@ -41,6 +41,8 @@ export default async function handler(req, res) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const body = req.body || {};
+  // صاحب الدخول للأداة (cloudflare/worker.js): النسخة المقفولة بتتربط بيه ومتتفتحش لغيره (_seal.js v2)
+  const userId = req.user && req.user.id;
   if (body.probe === true) { res.status(200).json({ codeFlow: !!(clientId && clientSecret) }); return; }
   if (!clientId || !clientSecret) {
     res.status(500).json({ error: 'المتغيران GOOGLE_CLIENT_ID وGOOGLE_CLIENT_SECRET غير مضبوطين في إعدادات الخادم.', code: 'CONFIG' });
@@ -51,7 +53,7 @@ export default async function handler(req, res) {
     if (body.sealed !== undefined) {
       const sealed = text(body.sealed, SEALED_MAX);
       if (!sealed) { badRequest(res, 'الحقل sealed غير صالح.'); return; }
-      const refreshToken = await unsealToken('google', clientSecret, sealed);
+      const refreshToken = await unsealToken('google', clientSecret, sealed, undefined, userId);
 
       // ---- «فصل»: إلغاء الصلاحية عند Google (أحسن جهد — الجهاز بيمسح نسخته في كل الأحوال) ----
       if (body.revoke === true) {
@@ -71,7 +73,7 @@ export default async function handler(req, res) {
       }
       res.status(200).json({
         access_token: r.data.access_token, expires_in: r.data.expires_in, token_type: r.data.token_type,
-        sealed: await sealToken('google', clientSecret, r.data.refresh_token || refreshToken)
+        sealed: await sealToken('google', clientSecret, r.data.refresh_token || refreshToken, undefined, userId)
       });
       return;
     }
@@ -90,9 +92,10 @@ export default async function handler(req, res) {
     // العميل شال العلامة من على صلاحية Google Ads في شاشة الموافقة — نفس رسالة الطريقة القديمة
     if (!hasAdsScope(r.data)) { res.status(403).json({ error: 'رمز الدخول هذا لا يملك صلاحية Google Ads.', code: 'NO_SCOPE' }); return; }
     const out = { access_token: r.data.access_token, expires_in: r.data.expires_in, token_type: r.data.token_type };
-    if (r.data.refresh_token) out.sealed = await sealToken('google', clientSecret, r.data.refresh_token);
+    if (r.data.refresh_token) out.sealed = await sealToken('google', clientSecret, r.data.refresh_token, undefined, userId);
     res.status(200).json(out);
   } catch (err) {
-    res.status(500).json({ error: String(err && err.message ? err.message : err) });
+    // من غير نص الخطأ الداخلي في الرد (المرحلة ٣، أ٦ — OWASP ASVS: معالجة الأخطاء) — زي حارس الـ Worker
+    res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم.', code: 'SERVER' });
   }
 }

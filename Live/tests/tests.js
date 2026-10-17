@@ -525,6 +525,35 @@
       });
     });
 
+    // المرحلة ٣، أ٤ (OWASP ASVS — الفشل الآمن): لو Google مردّتش على سؤال «الرمز ده لتطبيقنا؟» الطلب بيترفض (٥٠٢) —
+    // قبل كده كان بيعدّي من غير تحقق. ومحدش بيحفظ الفشل ده: أول ما Google ترد الرمز نفسه بيتقبل
+    testAsync('التحقق من رمز Google: تعذّر سؤال Google = رفض مؤقت (٥٠٢) مش تمرير، والمحاولة الجاية بتتحقق من الأول', function () {
+      var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process, down = true, asked = 0;
+      window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
+      window.fetch = function (url) {
+        if (String(url).indexOf('tokeninfo') > -1) {
+          asked++;
+          if (down) return Promise.reject(new TypeError('Failed to fetch'));
+          return json({ aud: 'cid', scope: 'https://www.googleapis.com/auth/adwords' });
+        }
+        return realFetch.apply(window, arguments);
+      };
+      var restore = function () { window.fetch = realFetch; if (hadProcess) window.process = prevProcess; else delete window.process; };
+      var token = 'tok-net-' + Date.now(), status = null, body = null;
+      var res = { status: function (s) { status = s; return this; }, json: function (b) { body = b; return this; } };
+      return import('/api/_verify.js').then(function (v) {
+        return v.verifyGoogleToken(token).then(function (r) {
+          eq([r.ok, r.code], [false, 'NETWORK'], 'Google unreachable = not verified');
+          v.sendVerifyFailure(res, r);
+          eq([status, body.code], [502, 'NETWORK']);
+          down = false;
+          return v.verifyGoogleToken(token);
+        }).then(function (r) {
+          eq([r.ok, asked], [true, 2], 'the failure was not cached');
+        });
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
     testAsync('السيرفر: استعلامات «الأقرب للمتجر» بالنقرة وخلال ٧ أيام، وأي صف بنوع تاني بيتشال، وفشلها مبيوقفش الإعلانات', function () {
       var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process, queries = [], failStore = false;
       window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
@@ -2883,23 +2912,54 @@
     }
     var json = function (res) { return res.json().then(function (d) { return { status: res.status, data: d }; }); };
 
-    testAsync('القفل: النسخة بتتفتح بنفس السر والمنصة بس، وأي تعديل أو ٦٠ يوم من غير استخدام = مرفوضة', function () {
+    testAsync('القفل: النسخة بتتفتح بنفس السر والمنصة وصاحب الدخول بس، وأي تعديل أو ٦٠ يوم من غير استخدام = مرفوضة', function () {
       return import('/api/_seal.js').then(function (s) {
         var now = Date.parse('2026-10-03T00:00:00Z');
-        return s.sealToken('snapchat', 'secret-1', 'refresh-abc', now).then(function (sealed) {
-          ok(/^v1\./.test(sealed) && sealed.indexOf('refresh-abc') < 0, 'no plain token inside');
+        return s.sealToken('snapchat', 'secret-1', 'refresh-abc', now, 'user-a').then(function (sealed) {
+          ok(/^v2\./.test(sealed) && sealed.indexOf('refresh-abc') < 0, 'v2, no plain token inside');
           var i = sealed.length - 12, bad = sealed.slice(0, i) + (sealed.charAt(i) === 'A' ? 'B' : 'A') + sealed.slice(i + 1);
           return Promise.all([
-            s.unsealToken('snapchat', 'secret-1', sealed, now + 86400000),
-            s.unsealToken('google', 'secret-1', sealed, now),
-            s.unsealToken('snapchat', 'secret-2', sealed, now),
-            s.unsealToken('snapchat', 'secret-1', bad, now),
-            s.unsealToken('snapchat', 'secret-1', sealed, now + 61 * 86400000),
-            s.unsealToken('snapchat', 'secret-1', 'not-a-sealed-token', now)
+            s.unsealToken('snapchat', 'secret-1', sealed, now + 86400000, 'user-a'),
+            s.unsealToken('google', 'secret-1', sealed, now, 'user-a'),
+            s.unsealToken('snapchat', 'secret-2', sealed, now, 'user-a'),
+            s.unsealToken('snapchat', 'secret-1', bad, now, 'user-a'),
+            s.unsealToken('snapchat', 'secret-1', sealed, now + 61 * 86400000, 'user-a'),
+            s.unsealToken('snapchat', 'secret-1', 'not-a-sealed-token', now, 'user-a'),
+            // المرحلة ٣، أ١: نسخة صاحب دخول تاني، أو من غير صاحب دخول خالص
+            s.unsealToken('snapchat', 'secret-1', sealed, now, 'user-b'),
+            s.unsealToken('snapchat', 'secret-1', sealed, now),
+            // نسخة مزوّرة بتقول v1 لنفس المحتوى (تخطّي الربط بصاحب الدخول)
+            s.unsealToken('snapchat', 'secret-1', 'v1' + sealed.slice(2), now, 'user-b')
           ]);
         }).then(function (r) {
-          eq(r, ['refresh-abc', null, null, null, null, null], 'same secret and platform within 60 days only');
+          eq(r, ['refresh-abc', null, null, null, null, null, null, null, null], 'same secret, platform and sign-in user within 60 days only');
+          return s.sealToken('snapchat', 'secret-1', 'x', now).then(function () { return 'sealed'; }, function () { return 'refused'; });
+        }).then(function (r) {
+          eq(r, 'refused', 'no new copy without a sign-in user');
         });
+      });
+    });
+    // النسخ القديمة (v1، قبل ١٧ أكتوبر ٢٠٢٦ — المنصة بس جوه التشفير) بتتفتح لحد أول تجديد أو ٦٠ يوم، عشان العملاء ميربطوش من الأول
+    testAsync('النسخ القديمة v1 (من غير صاحب دخول) بتتفتح لحد ٦٠ يوم، وبنفس المنصة والسر بس', function () {
+      var enc = new TextEncoder(), now = Date.parse('2026-10-17T00:00:00Z');
+      var b64u = function (bytes) { var s = ''; new Uint8Array(bytes).forEach(function (b) { s += String.fromCharCode(b); }); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+      var iv = crypto.getRandomValues(new Uint8Array(12));
+      return crypto.subtle.digest('SHA-256', enc.encode('ads-center/seal/snapchat/v1:secret-1')).then(function (raw) {
+        return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
+      }).then(function (key) {
+        return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv, additionalData: enc.encode('snapchat') }, key, enc.encode(JSON.stringify({ rt: 'refresh-old', at: now })));
+      }).then(function (ct) {
+        var v1 = 'v1.' + b64u(iv) + '.' + b64u(ct);
+        return import('/api/_seal.js').then(function (s) {
+          return Promise.all([
+            s.unsealToken('snapchat', 'secret-1', v1, now + 86400000, 'user-a'),
+            s.unsealToken('google', 'secret-1', v1, now, 'user-a'),
+            s.unsealToken('snapchat', 'secret-1', v1, now + 61 * 86400000, 'user-a'),
+            s.unsealToken('snapchat', 'secret-1', 'v2' + v1.slice(2), now, 'user-a')
+          ]);
+        });
+      }).then(function (r) {
+        eq(r, ['refresh-old', null, null, null]);
       });
     });
 
@@ -2922,6 +2982,21 @@
           eq([r.status, r.data.access_token], [200, 'acc-2'], 'renewed without logging in');
           eq([sent[1].params.grant_type, sent[1].params.refresh_token, sent[1].params.client_secret], ['refresh_token', 'ref-1', 'secret']);
           ok(r.data.sealed && r.data.sealed !== first, 'a fresh sealed copy (Snapchat rotated the refresh token)');
+          ok(/^v2\./.test(first) && /^v2\./.test(r.data.sealed), 'copies are bound to the sign-in user (v2)');
+          // المرحلة ٣، أ١: مستخدم تاني داخل للأداة ومعاه النسخة دي (من جهاز أو نسخ احتياطي) — متتفتحش له، ومفيش طلب لـ Snapchat
+          var copy = r.data.sealed, before = sent.length, platformFetch = window.fetch;
+          // مفاتيح Supabase العامة وسؤال session_ok للمستخدم التاني من غير شبكة (loginFetch)، والباقي لـ Snapchat الوهمية
+          window.fetch = loginFetch(platformFetch);
+          return signJwt(TEST_LOGIN.key, { alg: 'ES256', kid: 'test-kid', typ: 'JWT' }, loginClaims({ sub: 'u-other', session_id: 's-other' })).then(function (other) {
+            return w.default.fetch(new Request(location.origin + '/api/snapchat-token', { method: 'POST',
+              headers: { 'Content-Type': 'application/json', authorization: 'Bearer ' + other }, body: JSON.stringify({ sealed: copy }) }),
+            Object.assign({ ASSETS: { fetch: function (req) { return fetch(new URL(req.url).pathname); } } }, env));
+          }).then(json).then(function (o) {
+            window.fetch = platformFetch;
+            eq([o.status, o.data.code, sent.length - before], [401, 'AUTH', 0], 'another sign-in user cannot renew this copy');
+            return { status: 200, data: { sealed: copy } };
+          }, function (e) { window.fetch = platformFetch; throw e; });
+        }).then(function (r) {
           return post(w, '/api/snapchat-token', { sealed: r.data.sealed }, env).then(json);
         }).then(function (r) {
           eq([r.status, r.data.code], [401, 'AUTH'], 'Snapchat rejected the refresh token = log in again');

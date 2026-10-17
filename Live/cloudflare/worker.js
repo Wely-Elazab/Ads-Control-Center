@@ -19,7 +19,7 @@ import snapchatToken from '../api/snapchat-token.js';
 import snapchatAdsFetch from '../api/snapchat-ads-fetch.js';
 import tiktokToken from '../api/tiktok-token.js';
 import tiktokAdsFetch from '../api/tiktok-ads-fetch.js';
-import { checkLogin } from '../api/_login.js';
+import { loginUser } from '../api/_login.js';
 
 // الـ endpoints المنشورة — discount متشال عن قصد مع صفحة الأسعار المخفية،
 // والملفات اللي بتبدأ بـ "_" مش endpoints أصلاً
@@ -114,7 +114,8 @@ function exposeEnv(env) {
 }
 
 // طبقة التحويل: Request → req/res بشكل Vercel → Response
-export async function runVercelHandler(handler, request, env) {
+// user = صاحب الدخول ({ id }) من حارس /api — بيوصل للدالة كـ req.user
+export async function runVercelHandler(handler, request, env, user) {
   const url = new URL(request.url);
   const headers = {};
   request.headers.forEach(function (v, k) { headers[k] = v; });
@@ -133,7 +134,7 @@ export async function runVercelHandler(handler, request, env) {
   }
   const query = {};
   url.searchParams.forEach(function (v, k) { query[k] = v; });
-  const req = { method: request.method, headers: headers, body: body, query: query, url: url.pathname + url.search };
+  const req = { method: request.method, headers: headers, body: body, query: query, url: url.pathname + url.search, user: user || null };
 
   const out = { status: 200, headers: new Headers(), body: null, sent: false };
   const res = {
@@ -212,8 +213,10 @@ export default {
       if (Object.prototype.hasOwnProperty.call(HANDLERS, name)) {
         // دخول مكتمل للأداة (كلمة المرور + الرمز — api/_login.js) قبل أي طلب. code: LOGIN = الواجهة بتروح لصفحة الدخول.
         // OPTIONS (فحص المتصفح المسبق) مبيبقاش فيه دخول أصلاً — بيكمّل للدالة وguardRequest بترفض أي موقع تاني
-        if (request.method !== 'OPTIONS' && !(await checkLogin(request))) return withSecurityHeaders(jsonError(401, 'سجّل الدخول إلى الأداة أولاً.', 'LOGIN'));
-        return withSecurityHeaders(await runVercelHandler(HANDLERS[name], request, env));
+        // صاحب الدخول بيوصل للدالة (req.user) — نسخ الربط المقفولة بتتربط بيه (api/_seal.js)
+        const user = request.method === 'OPTIONS' ? null : await loginUser(request);
+        if (request.method !== 'OPTIONS' && !user) return withSecurityHeaders(jsonError(401, 'سجّل الدخول إلى الأداة أولاً.', 'LOGIN'));
+        return withSecurityHeaders(await runVercelHandler(HANDLERS[name], request, env, user));
       }
       // مسار API مش موجود: رد JSON (مش صفحة 404 بتاعة الزوار) — عشان أي كود بيستدعيه يفهم الرد
       return withSecurityHeaders(jsonError(404, 'Not found', 'NOT_FOUND'));

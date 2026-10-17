@@ -93,6 +93,7 @@ export default async function handler(req, res) {
     }
     res.status(200).json({ accounts: accounts, errors: errors, inactive: inactiveIds });
   } catch (err) {
-    res.status(500).json({ error: String(err && err.message ? err.message : err) });
+    // من غير نص الخطأ الداخلي في الرد (المرحلة ٣، أ٦ — OWASP ASVS: معالجة الأخطاء) — زي حارس الـ Worker
+    res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم.', code: 'SERVER' });
   }
 }

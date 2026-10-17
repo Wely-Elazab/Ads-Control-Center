@@ -1,6 +1,6 @@
 // المسار: https://adscenter.online/api/snapchat-token (بيشتغل جوه cloudflare/worker.js)
 //   { code, redirectUri } ← أول دخول: كود Snapchat → جلسة (access_token) + نسخة مقفولة من مفتاح التجديد (sealed)
-//   { sealed }            ← الجلسة خلصت (بعد نص ساعة) أو الأداة اتفتحت من جديد: تجديد من غير تسجيل دخول
+//   { sealed }            ← الجلسة خلصت (بعد ساعة — توثيق Snapchat: ٣٦٠٠ ثانية) أو الأداة اتفتحت من جديد: تجديد من غير تسجيل دخول
 //
 // محتاج سرّين في إعدادات الـ Worker على Cloudflare (Settings → Variables and Secrets، نوع Secret):
 //   SNAPCHAT_CLIENT_ID     = الـ Client ID بتاعك من Snapchat Business Manager
@@ -43,12 +43,14 @@ export default async function handler(req, res) {
   }
 
   const body = req.body || {};
+  // صاحب الدخول للأداة (cloudflare/worker.js): النسخة المقفولة بتتربط بيه ومتتفتحش لغيره (_seal.js v2)
+  const userId = req.user && req.user.id;
   try {
     // ---- تجديد بالنسخة المقفولة ----
     if (body.sealed !== undefined) {
       const sealed = text(body.sealed, SEALED_MAX);
       if (!sealed) { badRequest(res, 'الحقل sealed غير صالح.'); return; }
-      const refreshToken = await unsealToken('snapchat', clientSecret, sealed);
+      const refreshToken = await unsealToken('snapchat', clientSecret, sealed, undefined, userId);
       if (!refreshToken) { sealedExpired(res); return; }
       const r = await tokenRequest({ grant_type: 'refresh_token', client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken });
       if (!r.response.ok || !r.data || !r.data.access_token) {
@@ -60,7 +62,7 @@ export default async function handler(req, res) {
       // Snapchat ممكن ترجّع مفتاح تجديد جديد — بنقفل الجديد، وإلا القديم بتاريخ جديد (الـ ٦٠ يوم بتبدأ من النهارده)
       res.status(200).json({
         access_token: r.data.access_token, expires_in: r.data.expires_in, token_type: r.data.token_type,
-        sealed: await sealToken('snapchat', clientSecret, r.data.refresh_token || refreshToken)
+        sealed: await sealToken('snapchat', clientSecret, r.data.refresh_token || refreshToken, undefined, userId)
       });
       return;
     }
@@ -78,9 +80,10 @@ export default async function handler(req, res) {
     }
     const out = { access_token: r.data.access_token, expires_in: r.data.expires_in, token_type: r.data.token_type };
     // مفتاح التجديد نفسه عمره ما بيطلع للمتصفح — النسخة المقفولة بس
-    if (r.data.refresh_token) out.sealed = await sealToken('snapchat', clientSecret, r.data.refresh_token);
+    if (r.data.refresh_token) out.sealed = await sealToken('snapchat', clientSecret, r.data.refresh_token, undefined, userId);
     res.status(200).json(out);
   } catch (err) {
-    res.status(500).json({ error: String(err && err.message ? err.message : err) });
+    // من غير نص الخطأ الداخلي في الرد (المرحلة ٣، أ٦ — OWASP ASVS: معالجة الأخطاء) — زي حارس الـ Worker
+    res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم.', code: 'SERVER' });
   }
 }

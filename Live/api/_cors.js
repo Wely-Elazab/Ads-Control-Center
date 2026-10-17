@@ -8,8 +8,8 @@
 // الـ host بييجي من رابط الطلب نفسه (الـ Worker بيحطه ومبيسمحش بـ X-Forwarded-Host من المتصفح)
 //
 // ملاحظة صريحة: ده بيمنع المواقع التانية من استخدام الـ API من المتصفح، لكنه مش بيمنع حد بيبعت
-// طلبات مباشرة من سكربت (يقدر يزوّر Origin). الحماية الكاملة محتاجة جلسات مستخدمين — خطوة لاحقة.
-// لحد وقتها: Google بيتحقق إن التوكن لتطبيقنا (_verify.js)، وكل المدخلات بتتراجع (_input.js)
+// طلبات مباشرة من سكربت (يقدر يزوّر Origin). الحماية من ده هي الدخول: من ٦ أكتوبر ٢٠٢٦ كل /api محتاج دخول مكتمل
+// للأداة (_login.js — حارس cloudflare/worker.js). وكمان: Google بيتحقق إن التوكن لتطبيقنا (_verify.js)، وكل المدخلات بتتراجع (_input.js)
 
 function allowedOrigins() {
   return (process.env.ALLOWED_ORIGINS || '').split(',').map(function (s) { return s.trim().replace(/\/$/, ''); }).filter(Boolean);

@@ -35,9 +35,9 @@ export async function verifyGoogleToken(accessToken) {
       result = { ok: true };
     }
   } catch (err) {
-    // فشل شبكة مؤقت بين Cloudflare وGoogle (مش حاجة المستخدم يقدر يتحكم فيها) — منقفلش الباب في وش
-    // المستخدم الحقيقي، ومنحفظش النتيجة عشان الطلب الجاي يتحقق من الأول
-    return { ok: true, skipped: true };
+    // فشل شبكة مؤقت بين Cloudflare وGoogle: الطلب بيترفض («حاول تاني») ومنحفظش النتيجة، فالطلب الجاي يتحقق من الأول.
+    // قبل كده كان بيعدّي من غير تحقق (المرحلة ٣، أ٤ — OWASP ASVS: الفشل الآمن). وGoogle Ads نفسها غالباً مش هترد ساعتها
+    return { ok: false, code: 'NETWORK', error: 'تعذّر التحقق من رمز Google الآن — حاول مرة أخرى بعد قليل.' };
   }
 
   if (cache.size > MAX_CACHE) cache.clear();
@@ -46,8 +46,8 @@ export async function verifyGoogleToken(accessToken) {
 }
 
 // رد الرفض بالحالة الصح: توكن منتهي = 401 (الواجهة بتعرض «ربط تاني»)، إعداد ناقص عندنا = 500،
-// توكن مش لتطبيقنا أو من غير صلاحية = 403
+// توكن مش لتطبيقنا أو من غير صلاحية = 403، وتعذّر سؤال Google = 502 (الواجهة بتعرض رسالة الشبكة)
 export function sendVerifyFailure(res, verified) {
-  const status = verified.auth ? 401 : (verified.code === 'CONFIG' ? 500 : 403);
+  const status = verified.auth ? 401 : (verified.code === 'CONFIG' ? 500 : (verified.code === 'NETWORK' ? 502 : 403));
   res.status(status).json({ error: verified.error, code: verified.auth ? 'AUTH' : (verified.code || 'FORBIDDEN') });
 }

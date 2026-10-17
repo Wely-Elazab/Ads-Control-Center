@@ -85,7 +85,7 @@
 
   function loadSnapchatAdsForAccount(adAccountId) {
     selectSource('snapchat', adAccountId);
-    // الربط مع Snapchat بيخلص بعد حوالي نص ساعة — بنقول كده بوضوح بدل رسالة خطأ تقنية
+    // الربط مع Snapchat بيخلص بعد ساعة (توثيق Snapchat: ٣٦٠٠ ثانية) — بنقول كده بوضوح بدل رسالة خطأ تقنية
     if (!validToken(sessionTokens.snapchat)) { markExpired('snapchat'); return; }
     var token = beginLoad('snapchat');
     var fail = function (m) {

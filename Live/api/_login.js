@@ -75,15 +75,17 @@ async function sessionOk(p) {
   return ok;
 }
 
-// true = الطلب ده من دخول مكتمل
-export async function checkLogin(request) {
+// صاحب الطلب لو الدخول مكتمل ({ id })، وإلا null. الـ id بيربط نسخ الربط المقفولة بصاحبها (_seal.js — المرحلة ٣، أ١)
+export async function loginUser(request) {
   const h = request.headers.get('authorization') || '';
   const token = /^Bearer\s+/i.test(h) ? h.replace(/^Bearer\s+/i, '').trim() : null;
   try {
     const p = await verifyJwt(token);
-    return p ? await sessionOk(p) : false;
-  } catch (e) { return false; }
+    return p && (await sessionOk(p)) ? { id: p.sub } : null;
+  } catch (e) { return null; }
 }
+// true = الطلب ده من دخول مكتمل
+export async function checkLogin(request) { return !!(await loginUser(request)); }
 
 // للاختبارات: يبدأ من غير مفاتيح ولا إجابات محفوظة
 export function resetLoginCache() { keysP = null; keysAt = 0; okUntil.clear(); }
