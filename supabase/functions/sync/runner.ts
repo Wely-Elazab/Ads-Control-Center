@@ -191,8 +191,9 @@ async function loadCandidates(accountId: string, acct: Acct): Promise<any[] | nu
   const dailyP = g.insightsPromise(accountId, {
     level: 'ad', time_increment: 1, time_range: timeRange, fields: 'ad_id,date_start,spend,actions,action_values', limit: 500
   });
+  // التكرار على الأيام المكتملة بس — زي الأداة (js/meta.js loadAdsForAccount، مراجعة المرحلة ٤)
   const reachP = g.fbPagesPromise('/' + accountId + '/insights', {
-    level: 'ad', time_range: timeRange, fields: 'ad_id,frequency,reach,impressions', limit: 500
+    level: 'ad', time_range: JSON.stringify({ since: days[0].key, until: days[days.length - 2].key }), fields: 'ad_id,frequency,reach,impressions', limit: 500
   }, g.FULL_SCAN_CAP);
   const [ads, adsets, daily, reach] = await Promise.all([adsP, adsetsP, dailyP, reachP]) as any[];
   if (ads.err || daily.err || daily.truncated) return null;

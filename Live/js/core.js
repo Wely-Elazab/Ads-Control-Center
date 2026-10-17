@@ -451,12 +451,15 @@
   // أرقام الإعلان في الفترة المختارة — لو الفترة هي آخر ٧ أيام بتتحسب من البيانات الأسبوعية نفسها
   function periodOf(c) {
     if (c.period) return c.period;
-    // c.sales من ملفات المنصات = الأيام المكتملة بس (زي c.spend) — والجمع احتياطي لبيانات قديمة
+    // c.sales من ملفات المنصات = الأيام المكتملة بس (زي c.spend) — والجمع احتياطي لبيانات قديمة.
+    // مفيش c.period = طلب الفترة فشل: الأرقام دي للأسبوع، ورسالة الحالة بتقول ده (note.periodFailed — meta.js وsnapchat.js وgoogle.js)
     var sales = c.sales != null ? c.sales : (c.dailySales || []).reduce(function (a, b) { return a + b; }, 0);
     return { spend: c.spend || 0, results: c.results, sales: sales, cpr: c.cpr, roas: c.roas };
   }
+  // بدقتها الكاملة لحد العرض (money): التقريب لأقرب سنت لكل إعلان قبل الجمع كان بيبعد مجموع الفترة سنت عن المنصة —
+  // حساب Snapchat حقيقي (مراجعة المرحلة ٤، ١٧ أكتوبر ٢٠٢٦): ٥٠٩٫٩٧ و١٬١٦٧٫٦٤ قصاد ٥٠٩٫٩٨ و١٬١٦٧٫٦٥ (نفس خلل الأيام — ebc0eef)
   function buildPeriod(spend, results, sales) {
-    spend = r2(spend || 0); sales = r2(sales || 0);
+    spend = spend || 0; sales = sales || 0;
     return {
       spend: spend, results: results, sales: sales,
       cpr: (results && spend > 0) ? spend / results : null,

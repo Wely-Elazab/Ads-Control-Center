@@ -1560,8 +1560,8 @@
   });
 
   // ---------- شريط الإنفاق والنتائج (جوه ملخص المتجر) ----------
-  // بيظهر بس لما أرقام الملخص مش متاحة (الحساب مفيهوش مشتريات، الملخص فشل، ?dx=0) — ساعتها هو أرقام الفترة
-  // (شاملة النهارده، زي كروت الإعلانات). «معرّض للهدر» و«تحتاج مراجعة» بقوا شارات في «يحتاج انتباهك الآن»
+  // بيظهر بس لما أرقام الملخص مش متاحة (الحساب مفيهوش مشتريات، الملخص فشل، ?dx=0) — ساعتها هو أرقام الفترة المختارة
+  // (نفس أرقام كروت الإعلانات — core.js periodOf). «معرّض للهدر» و«تحتاج مراجعة» بقوا شارات في «يحتاج انتباهك الآن»
   function renderKpis(show) {
     var strip = document.getElementById('kpiStrip');
     if (!show || !candidates.length) { strip.innerHTML = ''; return; }
@@ -1944,7 +1944,8 @@
     // الحكم + أساسه («عائده ×٤ والمستهدف ×٣…» أو سبب «لم يُحكم بعد») + الفترة اللي اتبنى عليها
     document.getElementById('expandHealth').innerHTML = '<span class="health-badge ' + h.cls + '"><span class="health-dot-inline"></span>' + h.label + '</span>' +
       (a.basis ? '<p class="health-basis">' + esc(a.basis) + '</p>' : '') +
-      (c.active ? '<p class="health-period">' + esc(t('x.basisPeriod')) + '</p>' : '');
+      // الإعلان المتعدَّل بيتحكم عليه بالأيام اللي بعد التعديل بس (alerts.js days) — كان مكتوب «آخر ٧ أيام» تحت سطر بيقول «آخر ٣ أيام»
+      (c.active ? '<p class="health-period">' + esc(a.days ? t('x.basisPeriodEdit', { n: ar(a.days) + ' ' + noun(a.days, 'n.day') }) : t('x.basisPeriod')) + '</p>' : '');
     // سطر "حالة الظهور": التقييم بتاعنا + سبب المنصة نفسه لو موجود + الحالة الخام —
     // ده اللي بيخلّيك تقارن بسطر واحد مع عمود Delivery في لوحة المنصة
     var statusBits = [statusLabelOf(c)];

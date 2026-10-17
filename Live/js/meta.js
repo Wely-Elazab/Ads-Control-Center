@@ -415,9 +415,10 @@
       fields: 'ad_id,date_start,spend,actions,action_values', limit: 500
     });
     // تكرار الظهور لازم يتحسب على الأسبوع كله مرة واحدة — مينفعش نجمعه من أرقام يومية،
-    // لأن نفس الشخص ممكن يتكرر في أكتر من يوم. فشل الطلب ده مش بيوقف التحميل
+    // لأن نفس الشخص ممكن يتكرر في أكتر من يوم. فشل الطلب ده مش بيوقف التحميل.
+    // الأيام المكتملة بس (آخر ٧ أيام زي اسمه في التفاصيل ونص التنبيه): كان شامل النهارده = ٨ أيام (مراجعة المرحلة ٤)
     var reachP = fbPagesPromise('/' + accountId + '/insights', {
-      level: 'ad', time_range: timeRange, fields: 'ad_id,frequency,reach,impressions', limit: 500
+      level: 'ad', time_range: JSON.stringify({ since: days[0].key, until: days[days.length - 2].key }), fields: 'ad_id,frequency,reach,impressions', limit: 500
     }, FULL_SCAN_CAP);
     // مجاميع الفترة المختارة (صف واحد لكل إعلان) — بيتبعت بالتوازي مع الباقي، ومش محتاج لو الفترة آخر ٧ أيام
     var pr = resolvePeriodFor(info.timeZone || BROWSER_TZ);

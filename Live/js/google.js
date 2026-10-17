@@ -204,7 +204,10 @@
       mergeCandidates(googleCandidates, 'google:' + customerId);
       cacheSource('google:' + customerId, googleCandidates);
       setPlatformState('google', null);
-      setLoading('google', false, connectedText(payload.pmaxError ? [msg('note.pmaxFailed', { msg: payload.pmaxError })] : []));
+      // طلب الفترة المختارة فشل (periodMetrics = null): الكروت بأرقام آخر ٧ أيام — بنقول ده زي Meta (مراجعة المرحلة ٤، ١٧ أكتوبر ٢٠٢٦)
+      var gNotes = payload.pmaxError ? [msg('note.pmaxFailed', { msg: payload.pmaxError })] : [];
+      if (!Array.isArray(payload.periodMetrics)) gNotes.push(msg('note.periodFailed'));
+      setLoading('google', false, connectedText(gNotes));
       render();
       loadGoogleDiagnosis(customerId, info, token);
     }).catch(function (err) {

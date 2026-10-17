@@ -116,7 +116,10 @@
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
       cacheSource('snapchat:' + adAccountId, snapCandidates);
       setPlatformState('snapchat', null);
-      setLoading('snapchat', false, connectedText(payload.statsError ? [msg('note.spendFailed', { msg: payload.statsError })] : []));
+      // طلب الفترة المختارة فشل: الكروت بأرقام آخر ٧ أيام — بنقول ده زي Meta (مراجعة المرحلة ٤، ١٧ أكتوبر ٢٠٢٦: كانت بتظهر من غير إشارة
+      // تحت اسم الفترة المختارة)
+      var snapNotes = payload.statsError ? [msg('note.spendFailed', { msg: payload.statsError })] : (payload.periodStats ? [] : [msg('note.periodFailed')]);
+      setLoading('snapchat', false, connectedText(snapNotes));
       render();
       loadSnapchatDiagnosis(adAccountId, payload.account || {}, token);
     }).catch(function (err) {

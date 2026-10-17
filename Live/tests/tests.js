@@ -1310,7 +1310,7 @@
       ok(!has(r, 'a', 'cpr'), 'profit ads are judged by profit, not by the cheapest ad: ' + list(r, 'a'));
       ok(has(r, 'best', 'fatigue', 'info'), list(r, 'best'));
       // السبب مكتوب: عائده ومستهدفه، ومتوسط عائد الحساب في الفترة نفسها
-      ok(/×٤/.test(r.byAd.a.basis) && /متوسط عائد إعلانات حسابك/.test(r.byAd.a.basis), r.byAd.a.basis);
+      ok(/×٤/.test(r.byAd.a.basis) && /متوسط عائد إعلانات المبيعات في حسابك/.test(r.byAd.a.basis), r.byAd.a.basis);
     });
     test('خسارة طول الأسبوع (عائد ×٠٫٧) = عاجل «عائد أقل من التكلفة»، ومعاه عائد الحساب في الفترة نفسها', function () {
       var r = engine(salesBase().concat([ad('lose', { daily: steady(100), res: [1, 0, 1, 0, 1, 0, 0], sales: [140, 0, 140, 0, 140, 0, 0], cid: 'kd' })]));
@@ -1363,14 +1363,14 @@
       var solo = engine([ad('solo', { daily: steady(100), res: steady(4), sales: steady(800), cid: 'ks' })]);
       var g = solo.byAd.solo.issues.filter(function (x) { return x.code === 'roas-great'; })[0];
       ok(g && !/متوسط|حسابك/.test(g.detail) && g.advice && !/حسابك|إعلاناتك/.test(g.advice), g ? g.detail + ' | ' + g.advice : list(solo, 'solo'));
-      ok(/×٨/.test(solo.byAd.solo.basis) && !/متوسط عائد إعلانات حسابك/.test(solo.byAd.solo.basis), solo.byAd.solo.basis);
+      ok(/×٨/.test(solo.byAd.solo.basis) && !/متوسط عائد إعلانات المبيعات في حسابك/.test(solo.byAd.solo.basis), solo.byAd.solo.basis);
       // عائد ضعيف لإعلان وحيد: كان بيقول «أفضل من متوسط حسابك، فالسبب ممكن الفترة» وهو بيقارن نفسه بنفسه
       var weakSolo = engine([ad('ws', { daily: steady(100), res: steady(2), sales: steady(150), cid: 'kw' })]);
       var lw = weakSolo.byAd.ws.issues.filter(function (x) { return x.code === 'low-roas'; })[0];
       ok(lw && lw.detail.indexOf(t('al.vsAccBetter').trim().slice(0, 20)) === -1 && !/في الفترة نفسها/.test(lw.detail), lw ? lw.detail : list(weakSolo, 'ws'));
       // إعلانين بنص الإنفاق: المقارنة فاضلة
       var two = engine([ad('p1', { daily: steady(100), res: steady(4), sales: steady(800), cid: 'k1' }), ad('p2', { daily: steady(100), res: steady(2), sales: steady(300), cid: 'k2' })]);
-      ok(/متوسط عائد إعلانات حسابك/.test(two.byAd.p1.basis), two.byAd.p1.basis);
+      ok(/متوسط عائد إعلانات المبيعات في حسابك/.test(two.byAd.p1.basis), two.byAd.p1.basis);
     });
     test('المنصة نقلت إنفاقه لإعلان تاني في نفس الحملة = «للعلم»، والإعلان المربح بيفضل «جيد»', function () {
       var r = engine([ad('x', { daily: [100, 100, 100, 100, 100, 0, 0], res: [2, 2, 2, 2, 2, 0, 0], sales: [400, 400, 400, 400, 400, 0, 0], cid: 'k' }),
@@ -4961,6 +4961,162 @@
       var tot = document.querySelector('#expandChart tbody tr td.col-total');
       eq(tot.textContent, fmtNum(70, true), 'total = the 7 complete days without today');
       expandOverlay.classList.add('hidden');
+    });
+  });
+
+  // مراجعة المرحلة ٤ العميقة (١٧ أكتوبر ٢٠٢٦): كل رقم ليه تعريف واحد في كل مكان بيظهر فيه (Kimball & Ross،
+  // «The Data Warehouse Toolkit» — conformed facts). كل اختبار هنا اتبنى من محاكاة أثبتت التناقض على المحرك نفسه قبل الإصلاح
+  describe('أرقام متسقة في كل مكان (مراجعة المرحلة ٤)', function () {
+    var K8 = last7Days(TODAY).map(function (d) { return d.key; });
+    var z8 = function () { return [0, 0, 0, 0, 0, 0, 0, 0]; };
+    // إعلان بنافذة الأداة الحقيقية: ٧ أيام مكتملة + النهارده (آخر خانة مبتدخلش الإجماليات)
+    var a8 = function (id, o) {
+      var daily = o.daily, res = o.res || z8(), sales = o.sales || z8();
+      var c = ad(id, { daily: daily.slice(0, 7), res: res.slice(0, 7), sales: sales.slice(0, 7), key: o.key, cid: o.cid || ('c-' + id) });
+      c.daily = daily; c.dailyResults = res; c.dailySales = sales; c.dailyDates = K8;
+      if (o.edits) c.edits = o.edits;
+      return c;
+    };
+    var issuesOf = function (r, id) { return r.byAd[id].issues.map(function (i) { return i.code + ':' + i.level; }); };
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+    test('حد الإنفاق: إنفاق ٧ أيام ÷ ٧ (مش ÷ ٨ خانات) — ٦٥٠ باقية و١٠٠ يومياً = «عاجل» ونحو ٦ أيام', function () {
+      var ads = [a8('x', { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: [2, 2, 2, 2, 2, 2, 2, 1] }), a8('y', { daily: z8() })];
+      var meta = { 'meta:act_1': { label: 'Meta — T', currency: 'SAR', timeZone: 'UTC', metaAccountStatus: 1, spendCapReached: false, spendCap: 1000000, amountSpent: 935000 } };
+      var a = withLang('ar', function () { return engine(ads, meta); }).alerts.filter(function (x) { return x.code === 'spend-cap-near'; })[0];
+      ok(a && a.level === 'critical' && /نحو ٦ أيام/.test(a.detail), a ? a.level + ' | ' + a.detail : 'no alert');
+    });
+
+    test('بعد تعديل: تكلفة النتيجة ومتوسط الحساب وسبب الحكم كلهم على الأيام اللي بعده — مفيش «تكلفة مرتفعة» من الأسبوع كله', function () {
+      var peers = [a8('b', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [2, 2, 2, 2, 2, 2, 2, 1] }),
+        a8('c', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [2, 2, 2, 2, 2, 2, 2, 1] })];
+      var ed = a8('e', { key: 'lead', daily: [300, 300, 300, 100, 100, 100, 100, 50], res: [1, 1, 1, 0, 2, 2, 2, 1],
+        edits: [{ date: K8[3], level: 'ad', kind: 'budget', from: 30000, to: 10000 }] });
+      var r = withLang('ar', function () { return engine(peers.concat([ed])); });
+      var e = r.byAd.e;
+      ok(issuesOf(r, 'e').every(function (x) { return x.indexOf('cpr:') !== 0; }), 'no full-week cost alert: ' + issuesOf(r, 'e'));
+      ok(e.health !== 'improve' && e.health !== 'review', e.health);
+      // تكلفته بعد التعديل ٥٠، ومتوسط الحساب في نفس الأيام ٥٠ (مش ٧٣ من الأسبوع كله)
+      ok(/٥٠ ر\.س، ومتوسط حسابك في الفترة نفسها ٥٠ ر\.س/.test(e.basis), e.basis);
+      eq([e.days, JSON.stringify(e.tones)], [3, '{}'], 'judged days, and no colour on the full-week numbers');
+      // من غير تعديل: الأسبوع كله زي ما هو
+      eq(r.byAd.b.days, null);
+    });
+
+    test('تركيز الميزانية: «أقل أداءً» = حكم الإعلان نفسه — أفضل إعلان مبيعات (×٤، «جيد») مبيطلعش عليه', function () {
+      var X = a8('X', { daily: [86, 86, 86, 86, 86, 86, 84, 40], res: [2, 1, 2, 1, 2, 1, 1, 0], sales: [343, 343, 343, 343, 343, 343, 342, 0] });
+      var Y = a8('Y', { daily: [57, 57, 57, 57, 57, 57, 58, 20], res: [2, 2, 2, 2, 2, 1, 1, 0], sales: [143, 143, 143, 143, 143, 143, 142, 0] });
+      var Z = a8('Z', { daily: [43, 43, 43, 43, 43, 43, 42, 20], res: [2, 1, 2, 1, 2, 1, 1, 0], sales: [86, 86, 86, 86, 86, 86, 84, 0] });
+      var r = engine([X, Y, Z]);
+      eq(r.byAd.X.health, 'good');
+      ok(!r.alerts.some(function (a) { return a.code === 'concentration'; }), 'no concentration alert on the best ad');
+      // إعلان خسران (×٠٫٥) واخد أغلب الإنفاق: التنبيه بيطلع ومعاه عنوان مشكلته
+      var L = a8('L', { daily: [150, 150, 150, 150, 150, 150, 150, 50], res: [1, 1, 1, 1, 1, 1, 1, 0], sales: [75, 75, 75, 75, 75, 75, 75, 0] });
+      var r2 = withLang('ar', function () { return engine([L, Y, Z]); });
+      var c = r2.alerts.filter(function (a) { return a.code === 'concentration'; })[0];
+      var lossTitle = r2.byAd.L.issues.filter(function (i) { return i.code === 'loss'; })[0];
+      ok(c && lossTitle && c.detail.indexOf(lossTitle.title) > -1, c ? c.detail : 'no concentration alert');
+    });
+
+    test('المعرّض للهدر: الإعلان مرة واحدة بأكبر مبلغ عليه — «دون نتائج آخر يومين» و«خسارة» مبيتجمعوش (زي لوحة الهدر)', function () {
+      var B = a8('B4', { daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [2, 2, 2, 2, 2, 2, 2, 1], sales: [300, 300, 300, 300, 300, 300, 300, 100] });
+      var W = a8('W4', { daily: [200, 200, 200, 200, 200, 200, 200, 100], res: [1, 1, 1, 1, 1, 0, 0, 0], sales: [150, 150, 150, 150, 150, 0, 0, 0] });
+      var r = engine([B, W]);
+      var codes = r.alerts.filter(function (a) { return a.adId === 'W4' && a.atRisk; }).map(function (a) { return a.code + ' ' + a.amount; });
+      ok(codes.length === 2, 'both alerts still shown: ' + codes);
+      eq(r.summary.atRisk.SAR, 650, 'the real loss (1,400 spend − 750 sales), not 1,050');
+    });
+
+    test('«متوسط إعلانات المبيعات في حسابك» في الإعلانات، و«(الحساب كله)» على عائد الملخص وتكلفة طلبه لو فيه حملات أهداف تانية', function () {
+      var s1 = a8('s1', { daily: [72, 72, 72, 71, 71, 71, 71, 30], res: [3, 3, 3, 3, 3, 3, 2, 1], sales: [215, 215, 215, 215, 215, 215, 210, 50] });
+      var s2 = a8('s2', { daily: [72, 72, 72, 71, 71, 71, 71, 30], res: [3, 3, 3, 3, 3, 3, 2, 1], sales: [215, 215, 215, 215, 215, 215, 210, 50] });
+      var r = withLang('ar', function () { return engine([s1, s2], {}, { roasTarget: 2.5, roasBreakEven: 1 }); });
+      ok(/متوسط عائد إعلانات المبيعات في حسابك/.test(r.byAd.s1.basis), r.byAd.s1.basis);
+      var since = KEYS[0], until = KEYS[6], ws = DX.windows(since, until), daily = [];
+      for (var k = ws[ws.length - 1].since; k <= until; k = shiftKey(k, 1)) daily.push({ date: k, spend: 214, imp: 20000, clicks: 300, atc: 30, ic: 12, pur: 6, rev: 428 });
+      var other = { w: ws.map(function () { return { spend: 500, imp: 50000, clicks: 100, atc: 0, ic: 0, pur: 0, rev: 0 }; }), goals: { awareness: 500 } };
+      withLang('ar', function () {
+        var o = DX.compose(DX.analyze({ since: since, until: until, currency: 'SAR', daily: daily, dims: [], other: other }), { target: { roas: 2.5, be: 1 } });
+        var lbl = function (id) { return o.kpis.filter(function (x) { return x.id === id; })[0].label; };
+        ok(/الحساب كله/.test(lbl('roas')) && /الحساب كله/.test(lbl('cpa')) && !/الحساب كله/.test(lbl('spend')), lbl('roas') + ' | ' + lbl('cpa'));
+        // مستقر وتحت المستهدف: العنوان مبيقولش «لا تغيّر يستدعي تدخّلك»
+        eq(o.title, t('dx.head.stableBelow'));
+        // من غير حملات أهداف تانية: الاسم زي ما هو
+        var o2 = DX.compose(DX.analyze({ since: since, until: until, currency: 'SAR', daily: daily, dims: [] }));
+        ok(!/الحساب كله/.test(o2.kpis.filter(function (x) { return x.id === 'roas'; })[0].label), 'plain label');
+      });
+    });
+
+    test('الملخص: «امنحها ميزانية أكبر» بس لو الطلب الأرخص مبيرجّعش أقل لكل ريال (الربح أولاً)', function () {
+      var since = KEYS[0], until = KEYS[6], ws = DX.windows(since, until), daily = [], i = 0;
+      for (var k = ws[ws.length - 1].since; k <= until; k = shiftKey(k, 1), i++) {
+        var p = 20 + ((i * 7) % 5) - 2;
+        daily.push({ date: k, spend: 1000, imp: 100000, clicks: 1500, atc: 150, ic: 60, pur: p, rev: p * 300 });
+      }
+      var W = ws.slice(0, 3).map(function (w) {
+        var t0 = { spend: 0, pur: 0, rev: 0, imp: 0, clicks: 0, atc: 0, ic: 0 };
+        daily.forEach(function (d) { if (d.date >= w.since && d.date <= w.until) ['spend', 'pur', 'rev', 'imp', 'clicks', 'atc', 'ic'].forEach(function (f) { t0[f] += d[f]; }); });
+        return t0;
+      });
+      var run = function (aovA) {
+        var A = W.map(function (t0) { var pur = Math.round(t0.pur * 0.4); return { spend: t0.spend * 0.2, pur: pur, rev: pur * aovA, imp: t0.imp * 0.2, clicks: t0.clicks * 0.2, atc: t0.atc * 0.2, ic: t0.ic * 0.2 }; });
+        var half = function (j, up) {
+          var f = {};
+          ['spend', 'imp', 'clicks', 'atc', 'ic'].forEach(function (x) { f[x] = (W[j][x] - A[j][x]) / 2; });
+          var pr = (W[j].pur - A[j].pur) / 2; f.pur = up ? Math.ceil(pr) : Math.floor(pr);
+          f.rev = f.pur * 375;
+          return f;
+        };
+        var B = W.map(function (t0, j) { return half(j, 1); }), C = W.map(function (t0, j) { return half(j, 0); });
+        var d2 = daily.map(function (d) { return Object.assign({}, d); });
+        var r = DX.analyze({ since: since, until: until, currency: 'SAR', daily: d2,
+          dims: [{ id: 'campaign', segs: [{ key: 'A', name: 'A', goal: 'sales', w: A }, { key: 'B', name: 'B', goal: 'sales', w: B }, { key: 'C', name: 'C', goal: 'sales', w: C }] }] });
+        return r.segments.filter(function (s) { return s.kind === 'over'; }).map(function (s) { return s.key; });
+      };
+      // طلب A أرخص بـ٣ مرات تقريباً: بقيمة ١٠٠ (عائد ×٤ مقابل ×٦٫٦ في الباقي) = مش فرصة، وبقيمة ٣٧٥ زي الباقي = فرصة
+      eq(run(100), [], 'cheaper orders that bring back less per riyal');
+      eq(run(375), ['A'], 'cheaper orders at the same order value');
+    });
+
+    test('أرقام الفترة بدقتها الكاملة: مجموع إعلانات Snapchat = المنصة (من غير تقريب كل إعلان لأقرب سنت)', function () {
+      var p = buildPeriod(1.004999, 1, 2.004999);
+      ok(p.spend === 1.004999 && p.sales === 2.004999, JSON.stringify(p));
+      var M = 1000000, ids = ['p1', 'p2', 'p3'];
+      var adsList = ids.map(function (id) { return { ad: { id: id, name: id, status: 'ACTIVE' } }; });
+      var totals = { total_stats: [{ total_stat: { breakdown_stats: { ad: ids.map(function (id) { return { id: id, stats: { spend: 1004999, conversion_purchases: 0, conversion_purchases_value: 0 } }; }) } } }] };
+      var list = transformSnapchatAds(adsList, [], DAYS_X, 'USD', [], [], totals, null, null);
+      var sum = list.reduce(function (s, c) { return s + periodOf(c).spend; }, 0);
+      ok(Math.abs(sum - 3 * 1004999 / M) < 1e-9, 'period sum ' + sum);
+    });
+
+    testAsync('Snapchat: طلب الفترة فشل = «تعذّر تحميل أرقام الفترة المختارة» زي Meta (كانت أرقام ٧ أيام من غير إشارة)', function () {
+      var realFetch = window.fetch;
+      window.fetch = fakeFetch({ ads: [{ id: 'sa1', name: 'S', status: 'ACTIVE' }], stats: { timeseries_stats: [] }, periodStats: null, storeStats: null,
+        periodStoreStats: null, range: { since: KEYS[0], until: KEYS[6] }, account: { currency: 'USD', timezone: 'UTC' } });
+      sessionTokens.snapchat = { token: 'tok', expiresAt: Date.now() + 3600000 };
+      snapchatAccessToken = 'tok';
+      loadSnapchatAdsForAccount('acc-p');
+      return tick().then(tick).then(tick).then(function () {
+        window.fetch = realFetch;
+        ok(document.getElementById('connectStatus').textContent.indexOf(t('note.periodFailed')) > -1, document.getElementById('connectStatus').textContent);
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+
+    testAsync('Meta: التكرار على الأيام المكتملة بس (آخر ٧ أيام زي اسمه) — مش شامل النهارده', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, reach = null;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      window.FB = { api: function (path, params, cb) {
+        if (/insights$/.test(path) && params && /frequency/.test(params.fields || '') && params.time_range) reach = JSON.parse(params.time_range);
+        var reply = /\/ads$/.test(path) ? { data: [{ id: 'f1', name: 'F', effective_status: 'ACTIVE', created_time: '2026-09-01T00:00:00+0000', adset: { id: 's', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c' }, creative: {} }] } : { data: [] };
+        setTimeout(function () { cb(reply); }, 0);
+      } };
+      accountInfo['meta:act_31'] = { timeZone: 'UTC', currency: 'SAR' };
+      loadAdsForAccount('act_31');
+      return sleep(80).then(function () {
+        restore();
+        var days = last7Days(todayKeyInTz('UTC'));
+        ok(reach && reach.since === days[0].key && reach.until === days[6].key, JSON.stringify(reach));
+      }, function (e) { restore(); throw e; });
     });
   });
 

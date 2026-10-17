@@ -548,6 +548,13 @@ var DX = (function () {
         if (test.z <= -2 && ratio <= 0.5 && Math.max(share, curShare) <= UNDER_MAX_SHARE) kind = 'under';
         else if (test.z >= Z_SEG && ratio >= 2 && curShare <= 0.6 && !NO_OVER_DIMS[dim.id]) kind = 'over';
         if (!kind) return;
+        // الربح أولاً (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦): الطلب الأرخص مش فرصة لو كل ريال فيه بيرجّع أقل من باقي الحساب، والطلب
+        // الأغلى مش مشكلة لو بيرجّع أكتر (طلبات أقل بقيمة أعلى). مراجعة المرحلة ٤ (١٧ أكتوبر ٢٠٢٦، محاكاة): حملة طلبها ٢٥ مقابل ٦٦
+        // وعائدها ×٤٫١ مقابل ×٦٫٦ كان بيتقال عنها «امنحها حصة أكبر من الميزانية». من غير قيمة مبيعات في الجانبين: بالطلبات زي الأول
+        if (S.rev > 0 && R.rev > 0) {
+          var roasS = S.rev / S.spend, roasR = R.rev / R.spend;
+          if ((kind === 'over' && roasS < roasR) || (kind === 'under' && roasS >= roasR)) return;
+        }
         var dirSign = kind === 'under' ? -1 : 1;
         // كل فترة لوحدها: الحالية لازم تأكد (وإلا المشكلة «كانت» مش «موجودة»)، واللي قبلها بتحدد الاستمرار
         var per = idx.map(function (i) {
@@ -639,6 +646,8 @@ var DX = (function () {
         var test = rateTest(A.pur, A.spend, B.pur, B.spend, Math.max(PHI_SAMPLING, phiD));
         var cpaA = cpaOf(A), cpaB = cpaOf(B);
         if (!(test.z <= -Z_CHANGE && (cpaB == null || cpaB / cpaA >= 1.4))) return;
+        // الربح أولاً: تكلفة الطلب علت بس كل ريال لسه بيرجّع زي الأول أو أكتر (طلبات أقل بقيمة أعلى) = مش تراجع بالفلوس
+        if (A.rev > 0 && B.rev > 0 && B.rev / B.spend >= A.rev / A.spend) return;
         out.push({ dim: dim.id, dimKind: dim.kind, key: s.key, name: s.name, goal: s.goal || null, share: B.spend / totB, z: test.z,
           cpaFrom: cpaA, cpaTo: cpaB, purFrom: A.pur, purTo: B.pur, spendTo: B.spend, conf: -test.z >= Z_SEG_STRONG ? 'high' : 'medium',
           why: B.pur > 0 ? explainEfficiency(stages, tr, A, B) : null });
@@ -690,7 +699,9 @@ var DX = (function () {
     var t = rateTest(pooled.pur, pooled.spend, cur.pur, cur.spend, phiH);
     // والفترة اللي قبلها كانت أحسن من المعتاد هي كمان — فرصة ميزانية مبتتبنيش على فترة واحدة
     var prevCpa = cpaOf(W[1]);
-    if (cpa <= 0.8 * medCpa && t.z >= Z_REAL && cur.spend <= 1.05 * medSpend && prevCpa && prevCpa <= 0.9 * medCpa) {
+    // الربح أولاً: طلب أرخص بقيمة أقل لدرجة إن كل ريال بيرجّع أقل من المعتاد مش فرصة زيادة ميزانية
+    var roasOk = !(cur.rev > 0 && pooled.rev > 0) || cur.rev / cur.spend >= pooled.rev / pooled.spend;
+    if (roasOk && cpa <= 0.8 * medCpa && t.z >= Z_REAL && cur.spend <= 1.05 * medSpend && prevCpa && prevCpa <= 0.9 * medCpa) {
       return { cpa: cpa, medCpa: medCpa, spend: cur.spend, medSpend: medSpend, z: t.z };
     }
     return null;
@@ -1409,6 +1420,10 @@ var DX = (function () {
     // soft = اتجاهه لو «مرجّح» (احتمال الصدفة أقل من ٥٪) ومش مؤكد — لون من غير خلفية (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦)
     var lik = function (z, pct) { return pct != null && Math.abs(pct) >= MIN_PCT && chanceTier(pFromZ(z)) === 'likely' ? sign(pct) : 0; };
     var ordPct = ch(a.pur, b.pur), roasPct = roasA && roasB ? roasB / roasA - 1 : null, cpaPct = cpaA && cpaB ? cpaB / cpaA - 1 : null, aovPct = aovA && aovB ? aovB / aovA - 1 : null;
+    // الحساب فيه حملات أهداف تانية (وعي، رسائل…) في الفترة دي: العائد وتكلفة الطلب هنا على إنفاق الحساب كله، ومقارنة كل إعلان
+    // (alerts.js — «متوسط إعلانات المبيعات في حسابك») على إعلانات المبيعات بس — اسم واضح لكل رقم بدل رقمين مختلفين بنفس الاسم
+    // (مراجعة المرحلة ٤، ١٧ أكتوبر ٢٠٢٦: الملخص ×٢ أقل من المستهدف، وكل إعلان «متوسط إعلانات حسابك ×٣»)
+    var whole = function (key) { var l = t(key); return r.other && r.other.spend > 0 ? t('dx.kpi.whole', { label: l }) : l; };
     // الترتيب بلغة الفلوس (قرار ٧ أكتوبر ٢٠٢٦): صرفت كام ← جالك كام طلب ← بمبيعات كام ← متوسط قيمة الطلب ← العائد ← تكلفة الطلب
     return [
       { id: 'spend', label: t('dx.kpi.spend'), value: M(b.spend), prev: M(a.spend), pct: ch(a.spend, b.spend), sig: 0, goodUp: null },
@@ -1419,8 +1434,8 @@ var DX = (function () {
       { id: 'aov', label: t('dx.kpi.aov'), value: aovB ? M(aovB) : '—', prev: aovA ? M(aovA) : '—', pct: aovA && aovB ? aovB / aovA - 1 : null,
         sig: h.aov && h.aov.real ? sign(h.aov.pct) : 0, soft: h.aov && !h.aov.real ? lik(h.aov.z, aovPct) : 0, goodUp: true },
       // لون العائد من اختبار العائد نفسه (مش من تكلفة الطلب): عائد نزل ٦٠٪ كان بيفضل رمادي لأن تكلفة الطلب في حدود التذبذب
-      { id: 'roas', label: t('dx.kpi.roas'), value: roasB ? roasStr(roasB) : '—', prev: roasA ? roasStr(roasA) : '—', pct: roasPct, sig: (h.roas && h.roas.dir) || 0, soft: h.roas && !h.roas.dir ? lik(h.roas.z, roasPct) : 0, goodUp: true },
-      { id: 'cpa', label: t('dx.kpi.cpa'), value: cpaB ? M(cpaB) : '—', prev: cpaA ? M(cpaA) : '—', pct: cpaPct, sig: h.dEff ? -h.dEff : 0, soft: h.dEff ? 0 : lik(h.effZ, cpaPct), goodUp: false }
+      { id: 'roas', label: whole('dx.kpi.roas'), value: roasB ? roasStr(roasB) : '—', prev: roasA ? roasStr(roasA) : '—', pct: roasPct, sig: (h.roas && h.roas.dir) || 0, soft: h.roas && !h.roas.dir ? lik(h.roas.z, roasPct) : 0, goodUp: true },
+      { id: 'cpa', label: whole('dx.kpi.cpa'), value: cpaB ? M(cpaB) : '—', prev: cpaA ? M(cpaA) : '—', pct: cpaPct, sig: h.dEff ? -h.dEff : 0, soft: h.dEff ? 0 : lik(h.effZ, cpaPct), goodUp: false }
     ];
   }
   // جدول الأدلة (للمسوّق): الفترتين جنب بعض، مرحلة مرحلة
@@ -1771,8 +1786,8 @@ var DX = (function () {
     }
     return { key: h.type, tone: h.tone };
   }
-  // العائد مقارنةً بالمستهدف وحد الخسارة (إعدادات التنبيهات — opts.target). الملخص بالبريد مبيعرفهمش (محفوظين على جهاز
-  // العميل) فمبيتبعتش فيه السطر ده
+  // العائد مقارنةً بالمستهدف وحد الخسارة (إعدادات التنبيهات — opts.target). الملخص بالبريد بيعرفهم من ٧ أكتوبر ٢٠٢٦
+  // (digest_settings — runner.ts targetOf) لو العميل بعتهم من الأداة، وإلا مبيتبعتش فيه السطر ده
   function targetLine(r, target) {
     var b = r.cur;
     if (!target || !(target.roas > 0) || !(b.spend > 0) || !(b.rev > 0) || b.pur < 5) return null;
@@ -1846,6 +1861,8 @@ var DX = (function () {
       o.basis = tl.text;
       if (tl.level === 'loss') { if (o.tone === 'good' || o.tone === 'neutral') o.title = t('dx.head.belowBE'); o.tone = 'bad'; }
       else if (tl.level === 'below' && (o.tone === 'good' || o.tone === 'neutral')) o.tone = 'mixed';
+      // «لا تغيّر يستدعي تدخّلك» وتحته «أقل من المستهدف» (مراجعة المرحلة ٤): العنوان بيقول الاتنين
+      if (tl.level === 'below' && fh.key === 'stable') o.title = t('dx.head.stableBelow');
     }
     if (calmBlock) {
       calmBlock.title = o.title;
