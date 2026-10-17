@@ -20,11 +20,17 @@ export async function verifyGoogleToken(accessToken) {
   const hit = cache.get(accessToken);
   if (hit && hit.until > Date.now()) return hit.result;
 
+  // Google مقدرتش ترد دلوقتي: رفض مؤقت («حاول تاني»)، ومنحفظوش — الطلب الجاي بيتحقق من الأول
+  const unavailable = { ok: false, code: 'NETWORK', error: 'تعذّر التحقق من رمز Google الآن — حاول مرة أخرى بعد قليل.' };
   let result;
   try {
     const r = await fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(accessToken));
+    // خطأ عند Google نفسها (5xx) أو حد الطلبات (429) مش معناه إن الرمز غلط — مراجعة المرحلة ٣ العميقة: قبل كده كان بيتقري
+    // «الجلسة انتهت» فالعميل بيتطلب منه يربط تاني، والحكم ده كان بيتحفظ ٥ دقايق. الرمز الغلط عند Google = 400
+    if (r.status >= 500 || r.status === 429) return unavailable;
     const info = await r.json().catch(function () { return null; });
-    if (!r.ok || !info) {
+    if (r.ok && !info) return unavailable;
+    if (!r.ok) {
       // auth = الجلسة انتهت (مش خطأ) — الملفات بترجّعها 401 والواجهة بتعرض «ربط تاني»
       result = { ok: false, auth: true, error: 'رمز دخول Google غير صالح أو منتهي — سجّل الدخول مرة أخرى.' };
     } else if (info.azp !== clientId && info.aud !== clientId) {
@@ -35,9 +41,9 @@ export async function verifyGoogleToken(accessToken) {
       result = { ok: true };
     }
   } catch (err) {
-    // فشل شبكة مؤقت بين Cloudflare وGoogle: الطلب بيترفض («حاول تاني») ومنحفظش النتيجة، فالطلب الجاي يتحقق من الأول.
-    // قبل كده كان بيعدّي من غير تحقق (المرحلة ٣، أ٤ — OWASP ASVS: الفشل الآمن). وGoogle Ads نفسها غالباً مش هترد ساعتها
-    return { ok: false, code: 'NETWORK', error: 'تعذّر التحقق من رمز Google الآن — حاول مرة أخرى بعد قليل.' };
+    // فشل شبكة مؤقت بين Cloudflare وGoogle: نفس الرفض المؤقت. قبل كده كان بيعدّي من غير تحقق
+    // (المرحلة ٣، أ٤ — OWASP ASVS: الفشل الآمن). وGoogle Ads نفسها غالباً مش هترد ساعتها
+    return unavailable;
   }
 
   if (cache.size > MAX_CACHE) cache.clear();

@@ -553,6 +553,39 @@
         });
       }).then(restore, function (e) { restore(); throw e; });
     });
+    // مراجعة المرحلة ٣ العميقة: خطأ عند Google نفسها (٥٠٣) أو حد الطلبات (٤٢٩) مش «رمز غلط» — قبل كده كان بيتقري «الجلسة
+    // انتهت» (٤٠١ AUTH فالعميل بيتطلب منه يربط تاني) وبيتحفظ ٥ دقايق. الرمز الغلط فعلاً (٤٠٠ من Google) بيفضل «الجلسة انتهت»
+    testAsync('التحقق من رمز Google: ٥٠٣ و٤٢٩ من Google = رفض مؤقت مش «الجلسة انتهت»، و٤٠٠ = الجلسة انتهت', function () {
+      var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process, status = 503, asked = 0;
+      window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
+      window.fetch = function (url) {
+        if (String(url).indexOf('tokeninfo') > -1) {
+          asked++;
+          if (status === 200) return json({ aud: 'cid', scope: 'https://www.googleapis.com/auth/adwords' });
+          return Promise.resolve({ ok: false, status: status, json: function () { return Promise.resolve({ error: 'x' }); } });
+        }
+        return realFetch.apply(window, arguments);
+      };
+      var restore = function () { window.fetch = realFetch; if (hadProcess) window.process = prevProcess; else delete window.process; };
+      var token = 'tok-5xx-' + Date.now();
+      return import('/api/_verify.js').then(function (v) {
+        return v.verifyGoogleToken(token).then(function (r) {
+          eq([r.ok, r.code, !!r.auth], [false, 'NETWORK', false], '503 = temporary');
+          status = 429;
+          return v.verifyGoogleToken(token);
+        }).then(function (r) {
+          eq([r.code, !!r.auth, asked], ['NETWORK', false, 2], '429 = temporary, and the 503 was not cached');
+          status = 200;
+          return v.verifyGoogleToken(token);
+        }).then(function (r) {
+          eq(r.ok, true, 'Google back = accepted');
+          status = 400;
+          return v.verifyGoogleToken('tok-bad-' + Date.now());
+        }).then(function (r) {
+          eq([r.ok, !!r.auth], [false, true], 'a really invalid token = session expired');
+        });
+      }).then(restore, function (e) { restore(); throw e; });
+    });
 
     testAsync('السيرفر: استعلامات «الأقرب للمتجر» بالنقرة وخلال ٧ أيام، وأي صف بنوع تاني بيتشال، وفشلها مبيوقفش الإعلانات', function () {
       var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process, queries = [], failStore = false;
