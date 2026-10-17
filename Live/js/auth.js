@@ -117,10 +117,11 @@
     var done = function () { goLogin('/login'); };
     forget().then(done, done);
   }
-  // النقل لصفحة الدخول بييجي بعد رد من الشبكة: في الأداة بيعدّي على leavePage (route.js) اللي بيوقف رابط الأداة،
-  // عشان أي تحديث للرابط بعدها ميلغيش النقل (نفس خلل ربط Google وSnapchat ١٢ أكتوبر). باقي الصفحات مفيهاش route.js
+  // النقل لصفحة الدخول بييجي بعد رد من الشبكة: في الأداة بيعدّي على PageExit.leave (route.js) اللي بيوقف رابط الأداة.
+  // احتياط: اللي بيلغي النقل هو الرجوع خطوة في السجل بس — replaceState وpushState لأ (تجربة ١٧ أكتوبر في Chromium) —
+  // ونفس الخلل ده هو اللي وقّف ربط Google وSnapchat ١١–١٢ أكتوبر. باقي الصفحات مفيهاش route.js
   function goLogin(url) {
-    if (typeof global.leavePage === 'function') global.leavePage(url, true); else location.replace(url);
+    if (global.PageExit) global.PageExit.leave(url, true); else location.replace(url);
   }
 
   // صفحة الدخول، والرجوع بعدها لنفس المكان (الأداة بس — مش أي رابط برّه الموقع)

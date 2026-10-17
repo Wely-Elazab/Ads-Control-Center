@@ -25,7 +25,7 @@
       '&state=' + encodeURIComponent(newOauthState('tiktok')) +
       '&redirect_uri=' + encodeURIComponent(redirectUri);
     saveSession(); // احتياطي قبل ما الصفحة تتقفل — المنصات المحمّلة هترجع بعد الرجوع من TikTok
-    leavePage(authUrl); // route.js: بيوقف الرابط والسجل عشان ميلغوش النقل لـ TikTok
+    PageExit.leave(authUrl); // route.js: بيوقف الرابط والسجل عشان ميلغوش النقل لـ TikTok
   }
 
   // نفس طريقة باقي المنصات: apiPost (مهلة ورسالة مفهومة لو النت قطع أو الرد مش JSON) وحالة المنصة

@@ -139,21 +139,30 @@
   var routeOn = location.pathname === '/app' || location.pathname === '/pauseproof-live.html';
   var routeApplying = false, routeGesture = false;
 
-  // ---------- الخروج من الصفحة لتسجيل الدخول (Google وSnapchat وTikTok) ----------
-  // المنصات دي بتسجّل الدخول بنقل الصفحة كلها لموقعها (مش نافذة زي Meta). أي رجوع في السجل بعد ما النقل يبدأ بيلغيه
+  // ---------- الخروج من الصفحة (تسجيل الدخول في Google وSnapchat وTikTok، والخروج لصفحة الدخول) ----------
+  // المنصات دي بتسجّل الدخول بنقل الصفحة كلها لموقعها (مش نافذة زي Meta). الرجوع خطوة في السجل بعد ما النقل يبدأ بيلغيه
   // (HTML Living Standard: «apply the history step» بيخلّي ongoing navigation = "traversal"، و«set the ongoing navigation»
-  // بيوقف التنقّل اللي كان شغّال). وده اللي حصل من ١١ أكتوبر (0ee6206): اختيار المنصة بيقفل نافذة المنصات، والقفل كان
-  // بيرجّع خطوة في السجل — فالنقل لـ Snapchat وGoogle كان بيتلغي والصفحة بتفضل مكانها من غير أي رسالة.
-  // من هنا: أول ما الصفحة تبدأ تسيبنا، الرابط والسجل بيقفوا خالص
-  var pageLeaving = false;
-  // replace = من غير خطوة في السجل (الخروج من الأداة لصفحة الدخول)
-  function leavePage(url, replace) { pageLeaving = true; goTo(url, replace); }
-  function goTo(url, replace) { if (replace) window.location.replace(url); else window.location.href = url; }
-  // رجع للصفحة بزرار الرجوع من صفحة الدخول (المتصفح بيرجّعها من الذاكرة زي ما هي): الرابط يشتغل تاني
-  window.addEventListener('pageshow', function () { pageLeaving = false; });
+  // بيوقف التنقّل اللي كان شغّال؛ وتجربة ١٧ أكتوبر في Chromium: back بيلغي، وreplaceState/pushState لأ).
+  // وده اللي حصل من أول نسخة للروابط (465b4c5، ١١ أكتوبر): اختيار المنصة بيقفل نافذة المنصات، والقفل كان بيرجّع خطوة
+  // في السجل — فالنقل لـ Snapchat وGoogle كان بيتلغي والصفحة بتفضل مكانها من غير أي رسالة.
+  // من هنا: أول ما الصفحة تبدأ تسيبنا، الرابط والسجل بيقفوا خالص. وحدة مقفولة باسم عام واحد (قاعدة المرحلة ٢ — ق٤)
+  var PageExit = (function () {
+    var leaving = false;
+    var api = {
+      // replace = من غير خطوة في السجل (الخروج من الأداة لصفحة الدخول)
+      leave: function (url, replace) { leaving = true; api.go(url, replace); },
+      // النقل نفسه — الاختبارات بتبدّله عشان الإطار ميسيبش صفحة الاختبارات
+      go: function (url, replace) { if (replace) window.location.replace(url); else window.location.href = url; },
+      isLeaving: function () { return leaving; },
+      reset: function () { leaving = false; }
+    };
+    // رجع للصفحة بزرار الرجوع من صفحة الدخول (المتصفح بيرجّعها من الذاكرة زي ما هي): الرابط يشتغل تاني
+    window.addEventListener('pageshow', api.reset);
+    return api;
+  })();
 
   function routeSync(user) {
-    if (!routeOn || routeApplying || pageLeaving) return;
+    if (!routeOn || routeApplying || PageExit.isLeaving()) return;
     // فعل المستخدم لسه بيتنفّذ: routeMark هيسجّله كخطوة لما يخلص
     if (!user && routeGesture) return;
     var parts = routeParts();

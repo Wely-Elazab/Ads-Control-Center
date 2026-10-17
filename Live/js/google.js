@@ -45,7 +45,7 @@
       '&scope=' + encodeURIComponent(GOOGLE_ADS_SCOPE) +
       '&state=' + encodeURIComponent(newOauthState('google'));
     saveSession(); // احتياطي قبل ما الصفحة تتقفل — المنصات المحمّلة هترجع بعد الرجوع من Google
-    leavePage(authUrl); // route.js: بيوقف الرابط والسجل عشان ميلغوش النقل لـ Google
+    PageExit.leave(authUrl); // route.js: بيوقف الرابط والسجل عشان ميلغوش النقل لـ Google
   }
   // لو رجعنا من Google بـ ?code=... في الرابط، كمّل تسجيل الدخول تلقائياً (نفس فكرة checkSnapchatRedirect)
   function checkGoogleRedirect() {

@@ -5423,15 +5423,20 @@
 
     // ربط Google وSnapchat (عطل ١١–١٢ أكتوبر ٢٠٢٦): اختيار المنصة بيقفل نافذة المنصات، وقفلها كان بيرجّع خطوة في السجل —
     // والرجوع في السجل بيلغي نقل الصفحة لصفحة دخول المنصة (HTML Living Standard: apply the history step → ongoing navigation
-    // = "traversal"). Meta مكانتش بتتأثر (نافذة منفصلة). goTo متبدّلة عشان الإطار ميسيبش صفحة الاختبارات
+    // = "traversal"). Meta مكانتش بتتأثر (نافذة منفصلة). PageExit.go متبدّلة عشان الإطار ميسيبش صفحة الاختبارات
     ['snapchat', 'google'].forEach(function (p) {
       testAsync('ربط ' + PLATFORM_NAMES[p] + ' من نافذة المنصات: الصفحة بتتنقل لصفحة الدخول عند المنصة، والرابط ميلغيش النقل', function () {
         return frame().then(function (f) {
           var w = f.contentWindow, d = f.contentDocument, went = [], hist = [];
-          w.goTo = function (url) { went.push(url); };
-          w.showView('settings');
-          d.getElementById('loginMenuBtn').click();
+          w.PageExit.go = function (url) { went.push(url); };
+          // زي المستخدم بالظبط: الضغط على «الإعدادات» في القائمة (خطوة في السجل) وبعدين «حساباتك». مراجعة ١٧ أكتوبر: لما
+          // الاختبار كان بيفتح الإعدادات بـ showView من غير ضغط، القفل كان بيعمل replaceState (مبيلغيش النقل) بدل الرجوع خطوة
+          // اللي حصل على الموقع — فالاختبار كان بيمسك الخلل بس من غير ما يعيد إنتاجه هو نفسه
+          d.getElementById('tabSettings').click();
           return sleep(30).then(function () {
+            d.getElementById('loginMenuBtn').click();
+            return sleep(30);
+          }).then(function () {
             eq(w.history.state && w.history.state.parts && w.history.state.parts.overlay, 'platformOverlay', 'opening the window is a step');
             // بعد فحص Google عند فتح الأداة (probeGoogleCodeFlow) عشان ميرجّعهاش false
             if (p === 'google') w.googleCodeFlow = true;
@@ -5444,7 +5449,9 @@
           }).then(function () {
             var host = p === 'google' ? 'https://accounts.google.com/' : 'https://accounts.snapchat.com/';
             eq([went.length, (went[0] || '').indexOf(host)], [1, 0], 'the page leaves for the sign-in page');
-            eq(hist, [], 'no history change after leaving (a step back cancels the navigation)');
+            // التجربة (١٧ أكتوبر، Chromium): الرجوع في السجل بيلغي النقل، وreplaceState/pushState لأ — بس الاتنين ممنوعين بعد الخروج
+            ok(hist.indexOf('back') === -1 && hist.indexOf('go') === -1, 'no step back after leaving: it cancels the navigation (' + hist.join(',') + ')');
+            eq(hist, [], 'no history change at all after leaving');
             f.remove();
           }, function (e) { f.remove(); throw e; });
         });
@@ -5736,30 +5743,31 @@
         eq(Object.keys(all).filter(function (k) { return !window.__storageCovered(k); }).sort(), [], 'keys the runner does not restore');
       });
     });
-    // عطل ١١–١٢ أكتوبر: الروابط (route.js) كانت بتعدّل السجل بعد ما الصفحة بدأت تتنقل لـ Google/Snapchat فتلغي النقل.
-    // أي نقل للصفحة لازم يعدّي على leavePage — اللي بيوقف الروابط الأول. الاختبار ده بيمنع نقل مباشر جديد في أي ملف
-    testAsync('أي نقل للصفحة بيعدّي على leavePage (route.js) — مفيش location.href/replace/assign مباشر في كود الأداة', function () {
-      // المسموح: goTo في route.js (اللي leavePage بينادي عليه)، وبديل auth.js للصفحات اللي مفيهاش route.js
+    // عطل ١١–١٢ أكتوبر: الروابط (route.js) كانت بترجع خطوة في السجل بعد ما الصفحة بدأت تتنقل لـ Google/Snapchat فتلغي النقل.
+    // أي نقل للصفحة لازم يعدّي على PageExit.leave — اللي بيوقف الروابط الأول. الاختبار ده بيمنع نقل مباشر جديد في أي ملف
+    testAsync('أي نقل للصفحة بيعدّي على PageExit.leave (route.js) — مفيش location.href/replace/assign مباشر في كود الأداة', function () {
+      // المسموح: PageExit.go في route.js (اللي PageExit.leave بينادي عليه)، وبديل auth.js للصفحات اللي مفيهاش route.js
       var allowed = { '/js/route.js': 1, '/js/auth.js': 1 };
       return appSources().then(function (files) {
         var found = [];
         files.forEach(function (f) {
           var hits = f.text.split('\n').filter(function (line) {
-            var code = line.replace(/\/\/.*$/, '');
+            // التعليق بس (// مش جاية بعد «:» زي https://) — غير كده سطر فيه رابط كان بيتقص ويخبّي اللي بعده
+            var code = line.replace(/(^|[^:])\/\/.*$/, '$1');
             return /\blocation\.(href\s*=[^=]|replace\s*\(|assign\s*\()/.test(code);
           });
           if (hits.length && !allowed[f.file]) found.push(f.file + ': ' + hits[0].trim().slice(0, 80));
           if (allowed[f.file]) eq(hits.length, 1, f.file + ' has only its one allowed navigation');
         });
-        eq(found, [], 'direct navigation outside leavePage');
+        eq(found, [], 'direct navigation outside PageExit.leave');
       });
     });
-    // «خروج» وانتهاء جلسة الدخول بينقلوا لصفحة الدخول بعد رد من الشبكة — لازم يعدّوا على leavePage (replace: من غير خطوة
-    // في السجل)، عشان أي تحديث للرابط بعدها ميلغيش النقل. الخروج نفسه مينفعش يتجرّب على الموقع من غير ما يخرّج صاحب الحساب
-    testAsync('«خروج» وانتهاء الجلسة بينقلوا لصفحة الدخول عن طريق leavePage، والرجوع بعد الدخول لنفس المكان', function () {
-      var went = [], realGoTo = window.goTo;
-      var restore = function () { window.goTo = realGoTo; pageLeaving = false; };
-      window.goTo = function (url, replace) { went.push([url, !!replace]); };
+    // «خروج» وانتهاء جلسة الدخول بينقلوا لصفحة الدخول بعد رد من الشبكة — بيعدّوا على PageExit.leave (replace: من غير خطوة
+    // في السجل) احتياطاً: الرجوع خطوة بعد بداية النقل بيلغيه (تجربة ١٧ أكتوبر). الخروج مينفعش يتجرّب على الموقع من غير ما يخرّج صاحب الحساب
+    testAsync('«خروج» وانتهاء الجلسة بينقلوا لصفحة الدخول عن طريق PageExit.leave، والرجوع بعد الدخول لنفس المكان', function () {
+      var went = [], realGo = PageExit.go;
+      var restore = function () { PageExit.go = realGo; PageExit.reset(); };
+      PageExit.go = function (url, replace) { went.push([url, !!replace]); };
       AuthLogin.signOut();
       return new Promise(function (r) { setTimeout(r, 50); }).then(function () {
         AuthLogin.toLogin();
