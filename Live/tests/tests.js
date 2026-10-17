@@ -474,6 +474,31 @@
       }, function (e) { window.fetch = realFetch; throw e; });
     });
 
+    // حساب حقيقي ١٧ أكتوبر: بعد رقم المنصة بيوم الظهور، إعلان متوقف اتعرض قبل الفترة واتشرى منه جواها اختفى، و«الأقرب» بقى ١٣ بدل ١٤
+    testAsync('السيرفر: إعلان متوقف ليه طلبات في «الأقرب للمتجر» بس (مش في أرقام المنصة) بيفضل في القائمة', function () {
+      var realFetch = window.fetch;
+      var withAds = function (ids) { return { breakdown_stats: { ad: ids.map(function (id) { return { id: id, timeseries: [], stats: {} }; }) } }; };
+      window.fetch = function (url) {
+        var u = String(url);
+        if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'UTC', currency: 'USD' } }] });
+        if (/\/ads\?/.test(u)) return json({ ads: [{ ad: { id: 'live', status: 'ACTIVE', delivery_status: ['VALID'] } }, { ad: { id: 'old', status: 'PAUSED' } }, { ad: { id: 'gone', status: 'PAUSED' } }] });
+        if (/\/stats/.test(u) && /view_attribution_window=none/.test(u)) {
+          var st = Object.assign({ swipe_up_attribution_window: '7_DAY', view_attribution_window: 'none' }, withAds(['old']));
+          return json({ timeseries_stats: [{ timeseries_stat: st }], total_stats: [{ total_stat: st }] });
+        }
+        if (/\/stats/.test(u)) return json({ timeseries_stats: [{ timeseries_stat: withAds(['live']) }], total_stats: [{ total_stat: withAds(['live']) }] });
+        return json({});
+      };
+      var out = null;
+      var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1' } }, res);
+      }).then(function () {
+        window.fetch = realFetch;
+        eq(out.ads.map(function (a) { return a.id; }), ['live', 'old'], 'the stopped ad with store orders stays; one with nothing anywhere is dropped');
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+
     testAsync('السيرفر: ملخص المتجر على «الأقرب للمتجر»، ولو Snapchat رفض النوافذ بيكمّل كله بنوافذ المنصة', function () {
       // reject: '' = مفيش رفض، 'store' = نوافذ «الأقرب» بس، 'all' = أي نوافذ (حتى إعداد Ads Manager)
       var realFetch = window.fetch, urls = [], reject = '';

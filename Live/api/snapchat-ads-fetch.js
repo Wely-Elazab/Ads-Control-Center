@@ -233,7 +233,9 @@ export default async function handler(req, res) {
       }
       // الإعلانات اللي ليها أرقام في الأسبوع أو الفترة، أو شغّالة فعلاً — زي Meta. قبل كده كل إعلانات الحساب من أول ما اتعمل:
       // حساب حقيقي ١١ أكتوبر ١٢٣٦ إعلان (٨٥٠ ك.ب و٥ ثواني) منهم ٤٠ صرفوا و١٨ شغّالين، و«تم تحميل ١٢٧٧ إعلاناً»
-      const keep = keptAdIds(stats.error ? null : stats.data, results[4]);
+      // + اللي ليها طلبات في «الأقرب للمتجر» بس (المرحلة ٤، ١٧ أكتوبر ٢٠٢٦): رقم المنصة بقى بيوم الظهور، فإعلان اتعرض قبل الفترة
+      // واتشرى منه جواها مبيرجعش في أرقام المنصة — والأداة كانت بتشيله وتشيل طلبه (حساب حقيقي: ١٤ طلب بقوا ١٣)
+      const keep = keptAdIds(stats.error ? null : stats.data, results[4], results[5], results[6]);
       const ads = adsResult.ads.filter(function (a) { return keep[a.id] || snapAdLive(a); });
       const usedSquads = {}, usedCreatives = {};
       ads.forEach(function (a) { usedSquads[a.ad_squad_id] = 1; if (a.creative_id) usedCreatives[a.creative_id] = 1; });
