@@ -205,10 +205,12 @@
         p.purchases.push(pur);
         p.sales.push(sales);
         if (storeDay) {
-          // النافذة الأضيق جزء من نافذة المنصة، فمش منطقي تطلع أكبر منها — لو حصل (اختلاف تقريب مثلاً) بناخد رقم المنصة
+          // من غير حد أعلى برقم المنصة (المرحلة ٤، ١٧ أكتوبر ٢٠٢٦): رقم المنصة بقى بيوم ظهور الإعلان زي Ads Manager، و«الأقرب»
+          // بيوم الشراء، فالرقمين على أساسين مختلفين وممكن «الأقرب» يزيد في يوم أو لإعلان (حساب حقيقي: إعلان إنفاقه صفر في
+          // الفترة، ليه طلب بيوم الشراء وصفر بيوم الظهور). الحد كان هيقلّل أرقام صحيحة
           var sd = storeDay[day.key];
-          p.storePurchases.push(Math.min(sd ? Math.round(parseFloat(sd.conversion_purchases || 0)) : 0, pur));
-          p.storeSales.push(Math.min(sd ? parseFloat(sd.conversion_purchases_value || 0) / 1000000 : 0, sales));
+          p.storePurchases.push(sd ? Math.round(parseFloat(sd.conversion_purchases || 0)) : 0);
+          p.storeSales.push(sd ? parseFloat(sd.conversion_purchases_value || 0) / 1000000 : 0);
         }
       });
       return p;
@@ -260,7 +262,7 @@
       var period = null;
       if (pRow) {
         var ps = periodStoreByAd && (periodStoreByAd[ad.id] || { results: 0, sales: 0 });
-        period = ps ? buildPeriod(pRow.spend, Math.round(Math.min(ps.results, pRow.results)), Math.min(ps.sales, pRow.sales))
+        period = ps ? buildPeriod(pRow.spend, Math.round(ps.results), ps.sales)
           : buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales);
         if (ps) period.plat = { results: Math.round(pRow.results), sales: pRow.sales };
       }

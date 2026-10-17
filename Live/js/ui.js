@@ -1867,8 +1867,16 @@
       return k && t(k) !== k ? t(k) : I18N.countPhrase(n, key, ar);
     };
     var gonePhrase = I18N.countPhrase(gone, key, ar);
+    // «الأقرب» أكبر من رقم المنصة: Snapchat بس (المرحلة ٤، ١٧ أكتوبر ٢٠٢٦) — رقم المنصة بيوم ظهور الإعلان زي Ads Manager، و«الأقرب»
+    // بيوم الطلب (api/snapchat-ads-fetch.js). Meta وGoogle الرقمين عندهم على نفس الأساس، و«الأقرب» مبيعداش رقم المنصة
+    if ((p.results || 0) > (pp.results || 0)) {
+      return pp.results > 0 ? t('cmp.noteMore', { head: t('cmp.head.' + (CMP_HEADS[head] ? head : 'generic')), kept: nom(p.results), kv: val(p.sales), plat: nom(pp.results) })
+        : t('cmp.noteMoreNone', { head: t('cmp.head.' + (CMP_HEADS[head] ? head : 'generic')), kept: nom(p.results), kv: val(p.sales) });
+    }
     if (!(pp.results > 0)) return t('cmp.noteNone');
-    if (!gone) return t('cmp.noteSame', { kept: nom(p.results || 0), kv: val(p.sales) });
+    // العدد نفسه والقيمة مختلفة (Snapchat: طلبات يوم العرض غير طلبات يوم الطلب) — الجملة عن اللي المنصة بتنسبه، فمن غير قيمة
+    var sameValue = Math.abs((p.sales || 0) - (pp.sales || 0)) <= Math.max(0.01 * (pp.sales || 0), 0.01);
+    if (!gone) return t('cmp.noteSame', { kept: nom(p.results || 0), kv: sameValue ? val(p.sales) : '' });
     if (!(p.results > 0)) return t('cmp.noteZero', { res: I18N.resultAny(key), gone: gonePhrase, gv: val(goneSales) });
     return t('cmp.note', { head: t('cmp.head.' + (CMP_HEADS[head] ? head : 'generic')), kept: nom(p.results), kv: val(p.sales),
       gone: gonePhrase, other: gone >= 3 ? t('cmp.other') : '', gv: val(goneSales) });

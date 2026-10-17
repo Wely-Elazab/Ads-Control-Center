@@ -302,9 +302,16 @@
       ok(Math.abs(spend - exact) < 1e-9, 'total spend ' + spend + ' = ' + exact);
       ok(Math.abs(list[0].spend - 7 * 1004999 / M) < 1e-9, 'per ad, no daily rounding');
     });
-    test('«الأقرب للمتجر» مبيطلعش أكبر من رقم المنصة في أي يوم', function () {
-      var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], null, series({ a1: [[5, { conversion_purchases: 12, conversion_purchases_value: 1200 * M }]] }), null)[0];
-      eq([c.dailyResults[5], c.dailySales[5], c.dailyResults[6]], [10, 1000, 0]);
+    // المرحلة ٤ (١٧ أكتوبر ٢٠٢٦): رقم المنصة بيوم ظهور الإعلان (زي Ads Manager) و«الأقرب» بيوم الطلب — الحد الأعلى برقم المنصة
+    // كان بيقلّل أرقام صحيحة (حساب حقيقي: إعلان إنفاقه صفر في الفترة، ليه طلب بيوم الطلب وصفر بيوم الظهور)
+    test('«الأقرب للمتجر» بيفضل زي ما Snapchat رجّعه حتى لو أكبر من رقم المنصة (أساسين مختلفين)', function () {
+      var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], null, series({ a1: [[5, { conversion_purchases: 12, conversion_purchases_value: 1200 * M }], [4, { conversion_purchases: 1, conversion_purchases_value: 19 * M }]] }), null)[0];
+      eq([c.dailyResults[5], c.dailySales[5], c.dailyResults[4], c.dailySales[4], c.dailyResults[6]], [12, 1200, 1, 19, 0]);
+      eq([c.results, c.plat.results], [13, 14]);
+      var pPlat = totals({ a1: { spend: 0, conversion_purchases: 0, conversion_purchases_value: 0 } });
+      var pStore = totals({ a1: { conversion_purchases: 1, conversion_purchases_value: 19 * M } });
+      var p = transformSnapchatAds(ads, plat, days, 'SAR', [], [], pPlat, store, pStore)[0].period;
+      eq([p.results, p.sales, p.plat.results], [1, 19, 0], 'the period too');
     });
     test('طلب «الأقرب للمتجر» فشل = أرقام المنصة زي الأول ومن غير مقارنة', function () {
       var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], null, null, null)[0];
@@ -358,7 +365,7 @@
     });
     test('شرح المقارنة من غير أي كلام تقني', function () {
       ['ar', 'en'].forEach(function (lang) {
-        var all = withLang(lang, function () { return ['cmp.note', 'cmp.noteSame', 'cmp.noteZero', 'cmp.noteNone', 'al.compare', 'diff.source'].map(function (k) { return t(k); }).join(' '); });
+        var all = withLang(lang, function () { return ['cmp.note', 'cmp.noteSame', 'cmp.noteZero', 'cmp.noteNone', 'cmp.noteMore', 'cmp.noteMoreNone', 'al.compare', 'diff.source'].map(function (k) { return t(k); }).join(' '); });
         ok(!/نقر|سوايب|مشاهدة|نسب الإحالة|\b(click|clicks|swipe|swipes|view|views|attribution)\b/i.test(all), lang + ': ' + all);
       });
     });
@@ -377,6 +384,13 @@
         eq(compareNote(c, { results: 40, sales: 0 }, { results: 40, sales: 0 }),
           'كل ما تنسبه المنصة لهذا الإعلان (٤٠ طلباً) يثبت أنه جاء منه، فلم نستبعد شيئاً.');
         eq(compareNote(c, { results: 0, sales: 0 }, { results: 0, sales: 0 }), t('cmp.noteNone'));
+        // Snapchat (المرحلة ٤): رقمنا أكبر من رقم المنصة — مش «لم نستبعد شيئاً» ولا «لم تنسب المنصة أي نتيجة»
+        eq(compareNote(c, { results: 2, sales: 0 }, { results: 1, sales: 0 }),
+          'الطلبات التي يثبت أنها جاءت من هذا الإعلان طلبان، وهي أكثر مما تنسبه له المنصة (طلب واحد)، لأن المنصة تحتسب الطلب في يوم عرض الإعلان، ونحتسبه نحن في يوم الطلب نفسه كما يظهر في متجرك.');
+        eq(compareNote(c, { results: 1, sales: 20 }, { results: 1, sales: 18 }), 'كل ما تنسبه المنصة لهذا الإعلان (طلب واحد) يثبت أنه جاء منه، فلم نستبعد شيئاً.',
+          'same count, different value: no value in the sentence');
+        eq(compareNote(c, { results: 1, sales: 0 }, { results: 0, sales: 0 }),
+          'الطلبات التي يثبت أنها جاءت من هذا الإعلان طلب واحد، بينما لا تنسب له المنصة شيئاً في هذه الفترة، لأنها تحتسب الطلب في يوم عرض الإعلان، ونحتسبه نحن في يوم الطلب نفسه كما يظهر في متجرك.');
       });
     });
 
@@ -386,7 +400,7 @@
         var u = String(url); urls.push(u);
         if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'UTC', currency: 'USD' } }] });
         if (/\/ads\?/.test(u)) return json({ ads: [{ ad: { id: 'a1' } }] });
-        if (/\/stats/.test(u) && /swipe_up_attribution_window/.test(u)) {
+        if (/\/stats/.test(u) && /view_attribution_window=none/.test(u)) {
           return json({ timeseries_stats: [{ timeseries_stat: { swipe_up_attribution_window: echo, view_attribution_window: 'none', breakdown_stats: { ad: [] } } }] });
         }
         if (/\/stats/.test(u)) return json({ timeseries_stats: [{ timeseries_stat: { breakdown_stats: { ad: [] } } }] });
@@ -400,7 +414,7 @@
         }).then(function () { return out; });
       };
       return run().then(function (out) {
-        var windowed = urls.filter(function (u) { return /swipe_up_attribution_window/.test(u); });
+        var windowed = urls.filter(function (u) { return /view_attribution_window=none/.test(u); });
         // اتنين: النافذة اليومية + مجموع الفترة (آخر ٧ أيام بقت أيام مكتملة بس وبتتجاب لوحدها — ١٠ أكتوبر ٢٠٢٦)
         eq(windowed.length, 2, 'store requests: the daily window and the period total');
         ok(/swipe_up_attribution_window=7_DAY&view_attribution_window=none&action_report_time=conversion/.test(windowed[0]), windowed[0]);
@@ -414,8 +428,55 @@
       }, function (e) { window.fetch = realFetch; throw e; });
     });
 
+    // المرحلة ٤ (١٧ أكتوبر ٢٠٢٦): الأداة كانت ٢٨ طلب والشاشة ٢٦ لنفس الحساب والأسبوع — Ads Manager بيوم الظهور وافتراضي الـ API بيوم الشراء
+    testAsync('السيرفر: رقم المنصة في Snapchat بإعداد Ads Manager (٢٨ يوم + يوم، بيوم الظهور)، ولو اترفض فبافتراضي الـ API', function () {
+      var realFetch = window.fetch, urls = [], rejectPlat = false, rejectFull = false;
+      var PLAT = 'swipe_up_attribution_window=28_DAY&view_attribution_window=1_DAY&action_report_time=impression';
+      var bad = function () { return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ request_status: 'ERROR', debug_message: 'bad param' }); } }); };
+      window.fetch = function (url) {
+        var u = String(url);
+        if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'UTC', currency: 'USD' } }] });
+        if (/\/ads\?/.test(u)) return json({ ads: [{ ad: { id: 'a1' } }] });
+        if (/\/stats/.test(u)) {
+          if (/view_attribution_window=none/.test(u)) return bad();   // «الأقرب للمتجر» مش موضوع الاختبار ده
+          urls.push(u);
+          if (rejectPlat && u.indexOf(PLAT) > -1) return bad();
+          if (rejectFull && /conversion_purchases/.test(u)) return bad();
+          return json({ timeseries_stats: [{ timeseries_stat: { breakdown_stats: { ad: [{ id: 'a1', timeseries: [] }] } } }],
+            total_stats: [{ total_stat: { breakdown_stats: { ad: [{ id: 'a1', stats: { spend: 1000000 } }] } } }] });
+        }
+        return json({});
+      };
+      var run = function () {
+        var out = null;
+        urls = [];
+        var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+        return import('/api/snapchat-ads-fetch.js').then(function (m) {
+          return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1' } }, res);
+        }).then(function () { return out; });
+      };
+      return run().then(function (out) {
+        eq(urls.length, 2, 'platform requests: the days and the period total');
+        ok(urls.every(function (u) { return u.indexOf(PLAT) > -1; }), urls.join('\n'));
+        ok(out.stats && !out.statsError && out.periodStats, 'numbers returned');
+        rejectPlat = true;
+        return run();
+      }).then(function (out) {
+        eq(urls.length, 4, 'each one rejected once, then retried');
+        eq(urls.filter(function (u) { return u.indexOf(PLAT) === -1 && /attribution_window/.test(u); }).length, 0, 'the retry has no windows (API default)');
+        ok(out.stats && !out.statsError && out.periodStats, 'numbers still load');
+        rejectFull = true;
+        return run();
+      }).then(function (out) {
+        window.fetch = realFetch;
+        ok(out.stats && !out.statsError, 'an account without purchases: spend and swipes, like before');
+        eq(urls.filter(function (u) { return /fields=spend,swipes,impressions&/.test(u); }).length, 2, urls.join('\n'));
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+
     testAsync('السيرفر: ملخص المتجر على «الأقرب للمتجر»، ولو Snapchat رفض النوافذ بيكمّل كله بنوافذ المنصة', function () {
-      var realFetch = window.fetch, urls = [], reject = false;
+      // reject: '' = مفيش رفض، 'store' = نوافذ «الأقرب» بس، 'all' = أي نوافذ (حتى إعداد Ads Manager)
+      var realFetch = window.fetch, urls = [], reject = '';
       var st = { spend: 50000000, impressions: 1000, swipes: 30, conversion_purchases: 3, conversion_purchases_value: 300000000 };
       window.fetch = function (url) {
         var u = String(url);
@@ -423,7 +484,7 @@
         if (/\/campaigns\?/.test(u)) return json({ campaigns: [] });
         if (/\/stats/.test(u)) {
           urls.push(u);
-          if (reject && /swipe_up_attribution_window/.test(u)) {
+          if ((reject === 'store' && /view_attribution_window=none/.test(u)) || (reject === 'all' && /swipe_up_attribution_window/.test(u))) {
             return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ request_status: 'ERROR', debug_message: 'bad param' }); } });
           }
           var from = decodeURIComponent((u.match(/start_time=([^&]+)/) || [])[1] || '').slice(0, 10);
@@ -444,14 +505,21 @@
         }).then(function () { return out; });
       };
       var windowed = function () { return urls.filter(function (u) { return /swipe_up_attribution_window=7_DAY&view_attribution_window=none/.test(u); }).length; };
+      var platWin = function () { return urls.filter(function (u) { return /swipe_up_attribution_window=28_DAY&view_attribution_window=1_DAY&action_report_time=impression/.test(u); }).length; };
       return run().then(function (out) {
         eq(windowed(), urls.length, 'every summary request uses the store windows');
         eq(out.daily.filter(function (d) { return d.date === '2026-09-25'; })[0].pur, 3);
-        reject = true;
+        reject = 'store';
+        return run();
+      }).then(function (out) {
+        eq(windowed(), 1, 'one rejected try');
+        eq(platWin(), urls.length - 1, 'then the platform numbers as in Ads Manager (like the ad cards) for everything');
+        eq(out.daily.filter(function (d) { return d.date === '2026-09-25'; })[0].pur, 3, 'the summary still works');
+        reject = 'all';
         return run();
       }).then(function (out) {
         window.fetch = realFetch;
-        eq(windowed(), 1, 'one rejected try, then the platform windows for everything');
+        eq([windowed(), platWin()], [1, 1], 'one try each, then the API default for everything');
         eq(out.daily.filter(function (d) { return d.date === '2026-09-25'; })[0].pur, 3, 'the summary still works');
       }, function (e) { window.fetch = realFetch; throw e; });
     });

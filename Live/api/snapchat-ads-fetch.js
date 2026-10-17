@@ -10,10 +10,15 @@ const SNAP_API = 'https://adsapi.snapchat.com/v1';
 const MAX_PAGES = 20; // حد أمان للتصفّح (1000 إعلان في الصفحة)
 
 // «الأقرب للمتجر» (قرار ٦ أكتوبر ٢٠٢٦): المشتريات اللي حصلت خلال ٧ أيام من سوايب على الإعلان، من غير المشاهدة،
-// ومحسوبة بيوم الشراء نفسه. طلب منفصل جنب طلب المنصة (الافتراضي ٢٨ يوم سوايب + يوم مشاهدة) — إعداد واحد لكل طلب.
+// ومحسوبة بيوم الشراء نفسه (زي تواريخ طلبات المتجر). طلب منفصل جنب طلب المنصة — إعداد واحد لكل طلب.
 // Snapchat بيرجّع النوافذ اللي استخدمها جوه كل timeseries_stat/total_stat، فلو مش اللي طلبناها بنتجاهل الرد.
-// لم يُختبر على حساب Snapchat حقيقي بعد
+// اتطابق مع الـ API على حساب حقيقي (المرحلة ٤، ١٧ أكتوبر ٢٠٢٦)
 const STORE_WINDOWS = '&swipe_up_attribution_window=7_DAY&view_attribution_window=none&action_report_time=conversion';
+// رقم المنصة = عمود Ads Manager الافتراضي بالظبط (المرحلة ٤، ١٧ أكتوبر ٢٠٢٦): ٢٨ يوم سوايب + يوم مشاهدة، **بيوم ظهور الإعلان**
+// (إعداد الأعمدة في Ads Manager: "28d click, 1d view, by Impression time"). افتراضي الـ API نفس النوافذ بس بيوم الشراء
+// (action_report_time=conversion — توثيق Snapchat Marketing API للقياس)، فالأداة كانت بتقول ٢٨ طلب والشاشة ٢٦ لنفس الحساب
+// والأسبوع (منهم حملة إنفاقها صفر في الفترة وليها ٣ طلبات بيوم الشراء). لو الإعداد اترفض بنرجع للافتراضي
+const PLATFORM_WINDOWS = '&swipe_up_attribution_window=28_DAY&view_attribution_window=1_DAY&action_report_time=impression';
 const STORE_FIELDS = 'conversion_purchases,conversion_purchases_value';
 export function storeWindowsOk(data) {
   const list = (data && (data.timeseries_stats || data.total_stats)) || [];
@@ -193,9 +198,12 @@ export default async function handler(req, res) {
       // لو الحساب مش بيدعمها ورفض الطلب، بنرجع للإنفاق والسوايب بس بدل ما نخسر الإنفاق كله
       const FIELDS_FULL = 'spend,swipes,impressions,conversion_purchases,conversion_purchases_value';
       const FIELDS_BASIC = 'spend,swipes,impressions';
+      // رقم المنصة بإعداد Ads Manager (PLATFORM_WINDOWS)؛ لو اترفض فبافتراضي الـ API زي الأول، ولو الحساب مش بيدعم المشتريات فالإنفاق والسوايب
       const statsSafe = async function (granularity, from, to) {
-        const first = await fetchStats(FIELDS_FULL, granularity, from, to);
-        return first.error ? fetchStats(FIELDS_BASIC, granularity, from, to) : first;
+        const first = await fetchStats(FIELDS_FULL, granularity, from, to, PLATFORM_WINDOWS);
+        if (!first.error) return first;
+        const plain = await fetchStats(FIELDS_FULL, granularity, from, to);
+        return plain.error ? fetchStats(FIELDS_BASIC, granularity, from, to) : plain;
       };
       const statsP = statsSafe('DAY', startTime, endTime).catch(function (e) { return { data: null, error: errOf(e) }; });
       // «الأقرب للمتجر»: فشله أو نوافذ غير اللي طلبناها = null، والأداة بتعرض رقم المنصة زي الأول من غير مقارنة
@@ -288,14 +296,18 @@ export default async function handler(req, res) {
         return d;
       };
       // الملخص على «الأقرب للمتجر» زي الإعلانات (STORE_WINDOWS). لو Snapchat رفض النوافذ أو رجّع غيرها بنكمّل الملخص كله
-      // بنوافذ المنصة — قرار واحد لكل الطلبات عشان الأيام والتقسيمات تفضل من نفس المصدر
+      // بأرقام المنصة زي كروت الإعلانات (PLATFORM_WINDOWS، ولو اترفض كمان فبافتراضي الـ API) — قرار واحد لكل الطلبات عشان
+      // الأيام والتقسيمات تفضل من نفس المصدر
       let windows = STORE_WINDOWS;
       const getWindowed = function (query) {
-        if (!windows) return get(query);
-        return get(query + windows).then(function (d) {
-          if (storeWindowsOk(d)) return d;
-          throw new Error('windows');
-        }).catch(function () { windows = ''; return get(query); });
+        if (windows === STORE_WINDOWS) {
+          return get(query + windows).then(function (d) {
+            if (storeWindowsOk(d)) return d;
+            throw new Error('windows');
+          }).catch(function () { windows = PLATFORM_WINDOWS; return getWindowed(query); });
+        }
+        if (windows) return get(query + windows).catch(function () { windows = ''; return get(query); });
+        return get(query);
       };
       // حساب مش بيدعم التحويلات بيرفض الطلب كله — بنرجع للإنفاق والظهور والسوايب (والمحرك هيقول «لا تُسجَّل مشتريات»)
       const getStats = function (query) { return getWindowed(query + '&fields=' + FULL).catch(function () { return get(query + '&fields=' + BASIC); }); };

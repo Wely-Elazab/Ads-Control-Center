@@ -270,6 +270,9 @@
       'cmp.noteZero': 'لا يثبت أن هذا الإعلان جلب أي {res} في هذه الفترة، لذلك استبعدنا {gone}{gv} مما تنسبه له المنصة، لتكون أرقامك أدق وأقرب لطلبات متجرك.',
       'cmp.noteSame': 'كل ما تنسبه المنصة لهذا الإعلان ({kept}{kv}) يثبت أنه جاء منه، فلم نستبعد شيئاً.',
       'cmp.noteNone': 'لم تنسب المنصة لهذا الإعلان أي نتيجة في هذه الفترة.',
+      // «الأقرب» أكبر من رقم المنصة (Snapchat بس — ui.js compareNote): المنصة بيوم عرض الإعلان، وإحنا بيوم الطلب
+      'cmp.noteMore': '{head} التي يثبت أنها جاءت من هذا الإعلان {kept}{kv}، وهي أكثر مما تنسبه له المنصة ({plat})، لأن المنصة تحتسب الطلب في يوم عرض الإعلان، ونحتسبه نحن في يوم الطلب نفسه كما يظهر في متجرك.',
+      'cmp.noteMoreNone': '{head} التي يثبت أنها جاءت من هذا الإعلان {kept}{kv}، بينما لا تنسب له المنصة شيئاً في هذه الفترة، لأنها تحتسب الطلب في يوم عرض الإعلان، ونحتسبه نحن في يوم الطلب نفسه كما يظهر في متجرك.',
       'cmp.more': 'كيف نحسب هذه الأرقام؟ ←',
       'cmp.head.purchase': 'الطلبات', 'cmp.head.conversion': 'التحويلات', 'cmp.head.message': 'المحادثات', 'cmp.head.generic': 'النتائج',
       // «طلب» بدل «عملية شراء» في جملة الشرح (كلمة صاحب المتجر — ui.js compareNote): «٤٠ طلباً»، «١٠ طلبات»، «طلبين»
@@ -1596,6 +1599,8 @@
       'cmp.noteZero': 'None of the {res} the platform credits to this ad in this period can be confirmed as coming from it, so we removed those {gone}{gv}, to keep your numbers more accurate and closer to your store\'s orders.',
       'cmp.noteSame': 'Everything the platform credits to this ad ({kept}{kv}) can be confirmed as coming from it, so we removed nothing.',
       'cmp.noteNone': 'The platform credits no results to this ad in this period.',
+      'cmp.noteMore': '{kept}{kv} can be confirmed as coming from this ad — more than the platform credits to it ({plat}) — because the platform counts an order on the day the ad was shown, while we count it on the day the order was placed, as your store does.',
+      'cmp.noteMoreNone': '{kept}{kv} can be confirmed as coming from this ad, while the platform credits nothing to it in this period, because it counts an order on the day the ad was shown, while we count it on the day the order was placed, as your store does.',
       'cmp.more': 'How do we calculate these numbers? →',
       'cmp.head.purchase': 'Orders', 'cmp.head.conversion': 'Conversions', 'cmp.head.message': 'Conversations', 'cmp.head.generic': 'Results',
       'x.salesRow': 'Sales ({cur})',
