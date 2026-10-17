@@ -5754,6 +5754,20 @@
         eq(found, [], 'direct navigation outside leavePage');
       });
     });
+    // «خروج» وانتهاء جلسة الدخول بينقلوا لصفحة الدخول بعد رد من الشبكة — لازم يعدّوا على leavePage (replace: من غير خطوة
+    // في السجل)، عشان أي تحديث للرابط بعدها ميلغيش النقل. الخروج نفسه مينفعش يتجرّب على الموقع من غير ما يخرّج صاحب الحساب
+    testAsync('«خروج» وانتهاء الجلسة بينقلوا لصفحة الدخول عن طريق leavePage، والرجوع بعد الدخول لنفس المكان', function () {
+      var went = [], realGoTo = window.goTo;
+      var restore = function () { window.goTo = realGoTo; pageLeaving = false; };
+      window.goTo = function (url, replace) { went.push([url, !!replace]); };
+      AuthLogin.signOut();
+      return new Promise(function (r) { setTimeout(r, 50); }).then(function () {
+        AuthLogin.toLogin();
+        restore();
+        eq(went[0], ['/login', true], 'sign-out');
+        ok(went[1] && went[1][0].indexOf('/login?next=') === 0 && went[1][1] === true, 'expired session: ' + JSON.stringify(went[1]));
+      }, function (e) { restore(); throw e; });
+    });
     // المُشغّل في Supabase (runner.ts) بيحمّل ٥ ملفات بس من الأداة (ENGINE_FILES) وبيستخدم أسماءها العامة (g.اسم).
     // تغيير اسم دالة في core.js مثلاً كان بيكسر البريد من غير ما أي اختبار هنا يفشل (المرحلة ٢، ب٣)
     testAsync('عقد المُشغّل: الملفات الخمسة اللي بيحمّلها runner.ts لوحدها فيها كل اسم بيستخدمه', function () {
