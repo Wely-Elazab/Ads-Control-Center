@@ -5118,6 +5118,36 @@
         ok(reach && reach.since === days[0].key && reach.until === days[6].key, JSON.stringify(reach));
       }, function (e) { restore(); throw e; });
     });
+
+    // حساب حقيقي ١٨ أكتوبر: أفضل إعلان في الحساب (×١٫٩ والحساب ×٠٫٨) تحت حد الخسارة ×٥ — الشرح كان بيقول «أفضل من متوسط
+    // حسابك» والنصيحة «تعديله أو خفض ميزانيته». خفض ميزانية الأحسن بيقلل المبيعات أكتر من غيره (متوسط الباقي أضعف منه)
+    var pair = function () {
+      return [a8('best', { daily: [75, 75, 75, 75, 75, 75, 75, 0], res: [1, 0, 1, 0, 1, 0, 0, 0], sales: [333, 0, 333, 0, 330, 0, 0, 0] }),
+        a8('weak', { daily: [215, 215, 215, 215, 215, 215, 215, 0], res: [1, 0, 0, 0, 1, 0, 0, 0], sales: [325, 0, 0, 0, 325, 0, 0, 0] })];
+    };
+    var issueOf = function (r, id, code) { return r.byAd[id].issues.filter(function (x) { return x.code === code; })[0]; };
+    test('تحت حد الخسارة وأفضل من متوسط الحساب: النصيحة مش «خفض ميزانيته» — والإعلان الأضعف نصيحته زي ما هي', function () {
+      var r = withLang('ar', function () { return engine(pair(), {}, { roasBreakEven: 5, roasTarget: 6 }); });
+      var b = issueOf(r, 'best', 'loss'), w = issueOf(r, 'weak', 'loss');
+      ok(b && b.detail.indexOf(t('al.vsAccBetter').trim().slice(0, 20)) > -1, b ? b.detail : issuesOf(r, 'best'));
+      ok(b.advice === withLang('ar', function () { return t('al.loss.aBetter'); }) && !/وتعديله أو خفض ميزانيته/.test(b.advice), b.advice);
+      ok(w && w.advice === withLang('ar', function () { return t('al.loss.a'); }), w ? w.advice : issuesOf(r, 'weak'));
+    });
+    test('عائد أقل من المستهدف وأفضل من متوسط الحساب: النصيحة بالحساب كله قبل الإعلان', function () {
+      var r = withLang('ar', function () { return engine(pair(), {}, { roasBreakEven: 1, roasTarget: 3 }); });
+      var b = issueOf(r, 'best', 'low-roas');
+      ok(b && b.advice === withLang('ar', function () { return t('al.lowRoas.aBetter'); }), b ? b.advice : issuesOf(r, 'best'));
+      ok(issueOf(r, 'weak', 'loss'), issuesOf(r, 'weak'));
+    });
+    test('انخفاض إنفاق الحساب: النص بيقول المتوسط اتحسب على كام يوم (٦ أيام قبل أمس — مش إنفاق الـ٧ أيام ÷ ٧)', function () {
+      var ads = [a8('d1', { daily: [200, 200, 200, 200, 200, 200, 60, 10], res: [2, 2, 2, 2, 2, 2, 1, 0] }),
+        a8('d2', { daily: [100, 100, 100, 100, 100, 100, 30, 5], res: [1, 1, 1, 1, 1, 1, 0, 0] })];
+      var meta = { 'meta:act_1': { label: 'Meta — T', currency: 'SAR', timeZone: 'UTC', metaAccountStatus: 1, spendCapReached: false, spendCap: 0, amountSpent: 0 } };
+      var a = withLang('ar', function () { return engine(ads, meta); }).alerts.filter(function (x) { return x.code === 'acct-drop'; })[0];
+      ok(a && /أمس ٩٠ ر\.س فقط مقابل متوسط ٣٠٠ ر\.س يومياً خلال ٦ أيام قبله \(−٧٠٪\)/.test(a.detail), a ? a.detail : 'no alert');
+      var en = withLang('en', function () { return engine(ads, meta); }).alerts.filter(function (x) { return x.code === 'acct-drop'; })[0];
+      ok(en && /over the 6 days before/.test(en.detail), en ? en.detail : 'no en alert');
+    });
   });
 
   describe('ربط Meta المحفوظ على الجهاز (الهاتف كان بيفصل الحسابات كل مرة)', function () {

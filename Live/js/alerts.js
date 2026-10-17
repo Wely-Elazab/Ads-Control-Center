@@ -495,9 +495,17 @@
       if (profitAd) {
         var roas3 = spend3 > 0 ? sales3 / spend3 : null;
         var recentEvidence = spend3 > 0 && (!evidenceCpr || spend3 >= evidenceCpr * 3);
-        var cmp = purch.roas == null || selfAcc ? '' : (fmt.currencyLabel(cur)
-          ? t('al.vsAcc', { one: fmt.int(1), cur: fmt.currencyLabel(cur), acc: fmt.num(purch.roas) })
-          : t('al.vsAccNoCur', { acc: fmt.num(purch.roas) })) + (roasW != null && roasW < s.roasTarget && roasW >= purch.roas ? t('al.vsAccBetter') : '');
+        // المقارنة بعائد إعلانات المبيعات في الحساب على نفس أيام الجملة اللي قبلها (Kimball & Ross: نفس التعريف ونفس الفترة).
+        // better = الإعلان أحسن من متوسط الحساب، يعني متوسط باقي إعلانات المبيعات أضعف منه — فالنصيحة متبقاش «اخفض ميزانيته»
+        // (حساب حقيقي ١٨ أكتوبر: أفضل إعلان في الحساب ×١٫٩ والحساب ×٠٫٨، والتنبيه بيقول «أفضل من متوسط حسابك» وينصح بخفض ميزانيته)
+        var vsAcc = function (p, own, ownSpend) {
+          if (!p || p.roas == null || !(p.spend > 0) || ownSpend >= p.spend * 0.9) return { text: '', better: false };
+          var better = own != null && own < s.roasTarget && own >= p.roas;
+          return { better: better, text: (fmt.currencyLabel(cur)
+            ? t('al.vsAcc', { one: fmt.int(1), cur: fmt.currencyLabel(cur), acc: fmt.num(p.roas) })
+            : t('al.vsAccNoCur', { acc: fmt.num(p.roas) })) + (better ? t('al.vsAccBetter') : '') };
+        };
+        var wk = vsAcc(purch, roasW, spendW), cmp = wk.text;
         // الأسبوع فيه مبيعات بس آخر ٣ أيام مفيهاش ولا طلب: سطر لوحده — متوسط الأسبوع كان بيخبّي إن الإعلان وقف يبيع
         // (حساب حقيقي ١١ أكتوبر: «×١٫٨ خلال ٥ أيام» وآخر ٣ أيام صفر مبيعات بإنفاق ٢٦٠ ر.س)
         var zero3 = sales3 === 0 && spend3 > 0 && salesW > 0 ? t('al.zero3', { spend: money(spend3) }) : '';
@@ -511,13 +519,15 @@
         // تحت حد الخسارة مش «هدر»: مبيدخلش في المعرّض للهدر ولا لوحة الهدر
         var lossMoney = function (i, sp, sa) { i.amount = lossAmt(sp, sa); i.atRisk = !beOver; return withMoney(i, beOver ? 'belowBE' : 'loss', beOver ? 0 : (spend3 - sales3) / 3); };
         if (weekEvidence && roasW < s.roasBreakEven) {
-          issues.push(lossMoney(makeIssue('critical', ['roas', 'spend'], t('al.loss' + lossK + '.t'), t('al.lossWeek' + lossK + '.d', wkVars), t('al.loss.a'), 0, 'loss', true), spendW, salesW));
+          issues.push(lossMoney(makeIssue('critical', ['roas', 'spend'], t('al.loss' + lossK + '.t'), t('al.lossWeek' + lossK + '.d', wkVars), t(wk.better ? 'al.loss.aBetter' : 'al.loss.a'), 0, 'loss', true), spendW, salesW));
         } else if (lossRecent && (!weekEvidence || roasW < s.roasTarget)) {
-          // آخر ٣ أيام بخسارة، والأسبوع نفسه مش قوي: عاجل
+          // آخر ٣ أيام بخسارة، والأسبوع نفسه مش قوي: عاجل. «في الفترة نفسها» بعد جملة الأسبوع = الأسبوع، ومن غيرها = الـ٣ أيام
+          // (قبل كده عائد الحساب في الأسبوع كان بييجي بعد جملة الـ٣ أيام على إنه «في الفترة نفسها»)
+          var r3 = weekEvidence ? wk : vsAcc(acc.purchIn(RECENT3, YESTERDAY), roas3, spend3);
           issues.push(lossMoney(makeIssue('critical', ['roas', 'spend'], t('al.loss' + lossK + '.t'),
             t('al.loss' + lossK + '.d', { name: name, spend: money(spend3), sales: money(sales3), roasText: roasLabel(roas3), be: wkVars.be }) +
-              (weekEvidence ? t('al.weekCtx', { roas: fmt.num(roasW) }) : '') + cmp,
-            t('al.loss.a'), 0, 'loss', true), spend3, sales3));
+              (weekEvidence ? t('al.weekCtx', { roas: fmt.num(roasW) }) : '') + r3.text,
+            t(r3.better ? 'al.loss.aBetter' : 'al.loss.a'), 0, 'loss', true), spend3, sales3));
         } else if (lossRecent) {
           // أسبوع قوي وآخر ٣ أيام بخسارة: تراجع يتابَع («مهم») — ممكن مبيعات اتأخر تسجيلها
           issues.push(withMoney(makeIssue('warning', ['roas'], t('al.roasDrop.t'),
@@ -525,7 +535,7 @@
             t('al.roasDrop.a'), spend3 - sales3, 'roas-drop'), 'loss', 0));
         } else if (weekEvidence && roasW < s.roasTarget) {
           // الأثر بالفلوس: المبيعات أقل قد إيه من اللي كان المفروض الإنفاق ده يجيبه بالعائد المستهدف
-          issues.push(withMoney(makeIssue('warning', ['roas'], t('al.lowRoas.t'), t('al.lowRoasWeek.d', wkVars), t('al.lowRoas.a'), spendW * s.roasTarget - salesW, 'low-roas'), 'short', 0));
+          issues.push(withMoney(makeIssue('warning', ['roas'], t('al.lowRoas.t'), t('al.lowRoasWeek.d', wkVars), t(wk.better ? 'al.lowRoas.aBetter' : 'al.lowRoas.a'), spendW * s.roasTarget - salesW, 'low-roas'), 'short', 0));
         } else if (weekEvidence && roasW >= s.roasTarget * 1.5) {
           issues.push(makeIssue('opportunity', ['roas'], t('al.greatRoas.t'), t('al.greatRoasWeek.d', wkVars), t('al.greatRoas.a'), 0, 'roas-great'));
         }
@@ -789,6 +799,9 @@
 
     var spendY = acc.spendByDay[YESTERDAY];
     var prevAvg = sum(acc.spendByDay, 0, DAY_BEFORE) / (DAY_BEFORE + 1);
+    // عدد الأيام اللي المتوسط اتحسب عليها بيتكتب في النص: «متوسط ٣٠٠ يومياً» جنب «أُنفق ١٬٨٩٠ خلال آخر ٧ أيام» كان
+    // بيبان غلط (١٬٨٩٠ ÷ ٧ = ٢٧٠) — المتوسط على الأيام اللي قبل أمس بس (مراجعة المرحلة ٤، حساب حقيقي ١٨ أكتوبر)
+    var prevDays = fmt.int(DAY_BEFORE + 1);
     if (prevAvg > 0) {
       // لو فيه تنبيه حساب عاجل فوق (دفع، حد صرف، إعلانات وقفت) فهو اللي بيفسّر الوقوف ده — منكررش
       var acctAlreadyFlagged = alerts.length > 0;
@@ -798,14 +811,14 @@
         // مفيش ولا إعلان شغّال: صاحب الحساب وقّف كل حاجة بنفسه (نهاية حملة، إجازة) — ده مش عطل
       } else if (spendY === 0) {
         alerts.push(makeIssue('critical', ['account'], t('al.acctZero.t'),
-          t('al.acctZero.d', { acc: accName, avg: money(prevAvg) }), t('al.acctZero.a'), 0, 'acct-zero'));
+          t('al.acctZero.d', { acc: accName, avg: money(prevAvg), n: prevDays }), t('al.acctZero.a'), 0, 'acct-zero'));
       } else if (spendY >= prevAvg * s.accountSpikeMultiple) {
         // الزيادة بتتنبّه بس لو النتائج مازادتش معاها — زيادة مفيدة مش حاجة عاجلة
         var resPrev = sum(acc.resultsByDay, 0, DAY_BEFORE) / (DAY_BEFORE + 1), resY = acc.resultsByDay[YESTERDAY];
         var resultsKeptUp = resPrev > 0 && resY / resPrev >= (spendY / prevAvg) * 0.8;
         if (!resultsKeptUp) {
           alerts.push(makeIssue('warning', ['account'], t('al.acctSpike.t'),
-            t('al.acctSpike.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), pct: fmt.int((spendY / prevAvg - 1) * 100) }),
+            t('al.acctSpike.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), n: prevDays, pct: fmt.int((spendY / prevAvg - 1) * 100) }),
             t('al.acctSpike.a'), spendY - prevAvg, 'acct-spike'));
         }
       } else if (spendY <= prevAvg * s.accountDropRatio) {
@@ -815,11 +828,11 @@
         if (base > 0 && dayB <= base * s.accountDropRatio) {
           var two = (dayB + spendY) / 2;
           alerts.push(makeIssue('warning', ['account'], t('al.acctDrop.t'),
-            t('al.acctDrop.d2', { acc: accName, spend: money(two), avg: money(base), pct: fmt.int((1 - two / base) * 100) }),
+            t('al.acctDrop.d2', { acc: accName, spend: money(two), avg: money(base), n: fmt.int(DAY_BEFORE), pct: fmt.int((1 - two / base) * 100) }),
             t('al.acctDrop.a'), 0, 'acct-drop'));
         } else {
           alerts.push(makeIssue('warning', ['account'], t('al.acctDrop.t'),
-            t('al.acctDrop.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), pct: fmt.int((1 - spendY / prevAvg) * 100) }),
+            t('al.acctDrop.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), n: prevDays, pct: fmt.int((1 - spendY / prevAvg) * 100) }),
             t('al.acctDrop.a'), 0, 'acct-drop'));
         }
       }
