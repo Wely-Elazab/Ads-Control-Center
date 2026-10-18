@@ -1364,6 +1364,7 @@
     }
     var pc = platCompare(platforms);
     if (pc) out.push(pc);
+    dxState.platCmp = pc ? pc.text : null;   // للنص المنسوخ («انسخ الملخص») — زي رسالة البريد
     var other = {};
     mine.forEach(function (c) {
       var p = periodOf(c), k = c.resultKey || 'generic';
@@ -1380,18 +1381,13 @@
     if (!platforms || platforms.length !== 1) return null;
     var p = platforms[0], S = dxState.sources[p], inp = S && S.input;
     if (!inp) return null;
-    var plat = { pur: 0, rev: 0 }, spend = 0, store = 0, ok = true;
-    var inPeriod = function (r) { return r.date >= inp.since && r.date <= inp.until; };
-    (inp.daily || []).forEach(function (r) {
-      if (!inPeriod(r)) return;
-      spend += r.spend || 0;
-      if (p === 'meta') { if (r.ppur == null) ok = false; plat.pur += r.ppur || 0; plat.rev += r.prev || 0; store += r.pur || 0; }
-    });
-    if (p !== 'meta') {
-      var src = candidates.filter(function (c) { return onPlatforms(c, platforms) && c.resultKey === 'purchase'; });
-      ok = src.length > 0 && src.every(function (c) { return !!platOf(c); });
-      src.forEach(function (c) { var pp = platOf(c); if (pp) { plat.pur += pp.results || 0; plat.rev += pp.sales || 0; store += periodOf(c).results || 0; } });
-    }
+    // Meta: من المحرك نفسه (diagnosis.js DX.platCompare) — نفس السطر في رسالة البريد والنص المنسوخ
+    if (p === 'meta') { var mt = DX.platCompare(inp, 'meta'); return mt ? { text: mt } : null; }
+    var plat = { pur: 0, rev: 0 }, spend = 0, store = 0;
+    (inp.daily || []).forEach(function (r) { if (r.date >= inp.since && r.date <= inp.until) spend += r.spend || 0; });
+    var src = candidates.filter(function (c) { return onPlatforms(c, platforms) && c.resultKey === 'purchase'; });
+    var ok = src.length > 0 && src.every(function (c) { return !!platOf(c); });
+    src.forEach(function (c) { var pp = platOf(c); if (pp) { plat.pur += pp.results || 0; plat.rev += pp.sales || 0; store += periodOf(c).results || 0; } });
     if (!ok || !(Math.round(plat.pur) > Math.round(store))) return null;
     return { text: t('dx.platCmp', { plat: t('dx.plat.' + p), orders: DX.ordersText(Math.round(plat.pur)), sales: money(plat.rev, inp.currency || null),
       roas: spend > 0 ? roasStr(plat.rev / spend) : '—' }) };
@@ -1445,7 +1441,7 @@
     var btn = e.target.closest && e.target.closest('#dxCopy, [data-dx-copy]');
     if (!btn || !dxState.composed) return;
     var o = dxState.composed;
-    if (btn.id === 'dxCopy') dxCopyText(DX.toText(o, dxState.account), btn);
+    if (btn.id === 'dxCopy') dxCopyText(DX.toText(Object.assign({}, o, { platCmp: dxState.platCmp || null }), dxState.account), btn);
     else {
       var b = o.blocks[Number(btn.getAttribute('data-dx-copy'))];
       if (b) dxCopyText('📊 ' + t('dx.title') + (dxState.account ? ' — ' + dxState.account : '') + '\n' + o.period + '\n\n' + DX.blockText(b), btn);

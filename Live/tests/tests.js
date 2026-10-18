@@ -5179,6 +5179,22 @@
       ok(m && m.level === 'warning' && !m.atRisk, m ? m.level + ' atRisk=' + m.atRisk : issuesOf(r, 'mid'));
       ok(!issueOf(r, 'tiny', 'loss'), issuesOf(r, 'tiny'));
     });
+    // حساب حقيقي ١٨ أكتوبر: معاينة البريد قالت «٥ طلبات» من غير سطر «للمقارنة: تنسب Meta…» اللي في الأداة (Meta بتنسب ١٦)
+    test('سطر المقارنة برقم المنصة من المحرك نفسه: الأداة والنص المنسوخ ورسالة البريد بنفس الكلام', function () {
+      var row = function (d, ppur) { return { date: d, spend: 100, pur: 2, rev: 400, ppur: ppur, prev: ppur * 200 }; };
+      var inp = { since: '2026-10-04', until: '2026-10-05', currency: 'SAR', daily: [row('2026-10-03', 9), row('2026-10-04', 5), row('2026-10-05', 5)] };
+      var line = withLang('ar', function () { return DX.platCompare(inp, 'meta'); });
+      ok(line && /تنسب Meta لهذه الفترة ١٠ طلبات بمبيعات ٢٬٠٠٠ ر\.س \(عائد ×١٠\)/.test(line), line || 'no line');
+      var saved = dxState.sources.meta;
+      try {
+        dxState.sources.meta = { input: inp };
+        eq(withLang('ar', function () { return platCompare(['meta']); }).text, line, 'the tool shows the engine line');
+      } finally { dxState.sources.meta = saved; }
+      var text = withLang('ar', function () { return DX.toText({ period: 'p', title: 'T', tone: 'bad', kpis: [], blocks: [], notes: [], platCmp: line }, 'Acc'); });
+      ok(text.indexOf(line) > -1, text);
+      eq(DX.platCompare({ since: '2026-10-04', until: '2026-10-04', daily: [{ date: '2026-10-04', spend: 1, pur: 1, rev: 1, ppur: null }] }, 'meta'), null, 'a day without a platform number');
+      eq(DX.platCompare(inp, 'snapchat'), null, 'Meta only (others come from the ads)');
+    });
     test('انخفاض إنفاق الحساب: النص بيقول المتوسط اتحسب على كام يوم (٦ أيام قبل أمس — مش إنفاق الـ٧ أيام ÷ ٧)', function () {
       var ads = [a8('d1', { daily: [200, 200, 200, 200, 200, 200, 60, 10], res: [2, 2, 2, 2, 2, 2, 1, 0] }),
         a8('d2', { daily: [100, 100, 100, 100, 100, 100, 30, 5], res: [1, 1, 1, 1, 1, 1, 0, 0] })];

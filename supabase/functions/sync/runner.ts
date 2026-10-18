@@ -534,6 +534,9 @@ async function buildSummary(accountId: string, acct: Acct, since: string, until:
   input.feedback = await feedbackOf(accountId);
   // سطر «العائد أعلى/أقل من المستهدف» زي اللي في الأداة — بس لو العميل بعت المستهدف وحد الخسارة
   const composed = g.DX.compose(g.DX.analyze(input), { mail: true, target });
+  // «للمقارنة: تنسب Meta لهذه الفترة…» زي الأداة بالظبط (diagnosis.js DX.platCompare) — من غيره «٥ طلبات» في البريد قصاد ١٦ في
+  // مدير الإعلانات من غير ولا كلمة (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦). نص البريد (DX.toText) بياخده من composed.platCmp
+  composed.platCmp = typeof g.DX.platCompare === 'function' ? g.DX.platCompare(input, 'meta') : null;
   let actions = null;
   try {
     const acts = await g.metaActivities(accountId, g.shiftKey(since, -12));
@@ -625,6 +628,7 @@ function summaryMail(account: string, name: string, since: string, until: string
       o.kpis.map((k: any) => '<tr><td style="' + td + '">' + esc(k.label) + '</td><td style="' + td + ';padding-inline:8px;font-weight:700">' + esc(k.value) +
         '</td><td style="' + td + ';' + MUTED + '">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</td></tr>').join('') + '</table></div>');
   }
+  if (o.platCmp) parts.push('<div>' + P(esc(o.platCmp), MUTED) + '</div>');
   // بطاقة «مستقر» عنوانها هو نفس العنوان الرئيسي فوق — منكررهوش
   (o.blocks || []).forEach((b: any) => parts.push(blockHtml(b.kind === 'note' && b.title === o.title ? { ...b, title: '' } : b)));
   if (sum.actions) parts.push(blockHtml(sum.actions));
