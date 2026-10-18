@@ -5035,6 +5035,21 @@
         DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
       }
     });
+    test('حسابين بمنطقتين زمنيتين مختلفتين: مفيش «كل المنصات» (الأيام بتتجمع بالتاريخ وتاريخ كل حساب بتوقيته)', function () {
+      var a = src('meta', 51), b = src('snapchat', 53);
+      a.input.timezone = 'Asia/Riyadh'; b.input.timezone = 'America/Los_Angeles';
+      var rd = function (x, id) { return { status: 'ready', key: id, input: x.input, report: DX.analyze(x.input), account: id, accountId: id }; };
+      try {
+        DX_ON = true;
+        dxState.sources = { meta: rd(a, 'meta:1'), snapchat: rd(b, 'snapchat:1') };
+        dxRecompute();
+        eq(dxState.views.map(function (v) { return v.id; }), ['meta', 'snapchat'], 'different time zones');
+        b.input.timezone = 'Asia/Riyadh';
+        dxState.sources.snapchat = rd(b, 'snapchat:1');
+        dxRecompute();
+        eq(dxState.views.map(function (v) { return v.id; }), ['all', 'meta', 'snapchat'], 'same time zone');
+      } finally { DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true; }
+    });
     // حساب حقيقي ١٨ أكتوبر: رسائل Meta (مفيش مشتريات خالص) + مبيعات Snapchat — «كل المنصات» ×١٫٨ «أقل من حد الخسارة» وSnapchat لوحده ×٣
     test('منصة مفيش مشتريات بتوصلها خالص برّه «كل المنصات»، والعرض الافتراضي أول منصة بتبيع لحد ما العميل يختار (مراجعة المرحلة ٤)', function () {
       var noPur = function (x) { x.input.daily.forEach(function (d) { d.pur = 0; d.rev = 0; d.atc = 0; d.ic = 0; }); return x; };
@@ -6326,6 +6341,45 @@
           eq([w.viewMode, w.filters.campaign, param(w, 'list'), w.currentView], ['campaigns', null, 'campaigns', 'ads']);
           f.remove();
         });
+      });
+    });
+    // مراجعة المرحلة ٤ (١٨ أكتوبر ٢٠٢٦، حساب حقيقي): عرض الحملات كان من الإعلانات الظاهرة بعد إخفاء المتوقفة — ٥ حملات من ١٣
+    testAsync('عرض الحملات: الحملة = كل إعلاناتها اللي ليها أرقام بالمتوقفة، وفتحها بيعرض كل إعلاناتها', function () {
+      return frame('&view=ads&list=campaigns').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        w.candidates = [ad('live', { daily: steady(10), res: steady(1), cid: 'k', camp: 'Kept' }),
+          ad('gone', { daily: steady(20), res: steady(1), cid: 'k', camp: 'Kept', active: false, pausedLevel: 'ad' }),
+          ad('off', { daily: steady(30), cid: 'z', camp: 'AllOff', active: false, pausedLevel: 'ad' })];
+        w.render();
+        eq(w.visibleCandidates().map(function (c) { return c.id; }), ['live'], 'the ads list still hides stopped ads by default');
+        var cards = [].slice.call(d.querySelectorAll('.campaign-card'));
+        var kept = cards.filter(function (el) { return el.textContent.indexOf('Kept') > -1; })[0];
+        eq(cards.length, 2, 'the fully stopped campaign is there too');
+        ok(kept && kept.textContent.indexOf(w.money(210, 'SAR')) > -1 && kept.textContent.indexOf(w.money(70, 'SAR')) === -1, kept ? kept.textContent : 'no card');
+        ok(!d.querySelector('[data-show-stopped]'), 'no «show stopped ads» button under campaigns');
+        kept.click();
+        return sleep(30).then(function () {
+          eq(w.visibleCandidates().map(function (c) { return c.id; }).sort(), ['gone', 'live'], 'a campaign opens on all its ads');
+          f.remove();
+        });
+      });
+    });
+    // تحت شريحة Snapchat كانت «إعلانات تحتاج إلى مراجعة: ٢» والاتنين في Meta
+    testAsync('«تحتاج مراجعة» في «يحتاج انتباهك الآن» بعدد إعلانات الشريحة المختارة، والضغط بيفلتر بمنصتها', function () {
+      return frame('').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        w.candidates = [ad('m1', { daily: steady(10), res: steady(1) }), ad('s1', { daily: steady(10), res: steady(1), platform: 'Snapchat', source: 'snapchat:sn1' })];
+        w.runAnalysis();
+        w.analysis.byAd.m1.health = 'review';
+        w.dxState.views = [{ id: 'meta' }, { id: 'snapchat' }];
+        var el = d.getElementById('topAlerts'), chip = function () { return el.querySelector('[data-kpi="review"]'); };
+        w.dxState.view = 'snapchat'; w.fillTopAlerts(el, null);
+        ok(!chip(), 'no review chip under Snapchat: ' + el.textContent.slice(0, 80));
+        w.dxState.view = 'meta'; w.fillTopAlerts(el, null);
+        ok(chip() && chip().textContent.indexOf(w.ar(1)) > -1 && chip().dataset.plat === 'meta', chip() ? chip().textContent : 'no chip');
+        chip().click();
+        eq([w.filters.health, w.filters.platform], ['review', 'Meta']);
+        f.remove();
       });
     });
     testAsync('رابط إعلان (من البريد مثلاً) بيفتح تفاصيله أول ما يوصل، وقفلها مبيسيبش خطوة ترجّعها', function () {

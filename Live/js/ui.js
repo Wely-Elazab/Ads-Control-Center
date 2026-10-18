@@ -419,11 +419,13 @@
 
   // الافتراضي: الإعلانات المتوقفة مستخبية (إلا اللي عليها تنبيه عاجل) — لحد ما العميل يطلبها، أو يدوّر بالاسم،
   // أو يختار فلتر حالة، أو الحساب كله مفيهوش ولا إعلان شغّال
+  // إعلانات حملة واحدة (filters.campaign) بتظهر كلها بالمتوقفة: كارت الحملة بقى مجموع كل إعلاناتها، فاللي تحته لازم يطابقه
   function hidesStopped() {
-    return !showStopped && filters.health === 'all' && !filters.text && candidates.some(function (c) { return c.active; });
+    return !showStopped && filters.health === 'all' && !filters.text && !filters.campaign && candidates.some(function (c) { return c.active; });
   }
-  function visibleCandidates() {
-    var hide = hidesStopped();
+  // allStopped = من غير إخفاء المتوقفة الافتراضي (عرض الحملات: الحملة مجموع كل إعلاناتها اللي ليها أرقام في الفترة)
+  function visibleCandidates(allStopped) {
+    var hide = !allStopped && hidesStopped();
     return candidates.filter(function (c) {
       if (hide && !c.active && adAnalysis(c).health !== 'review') return false;
       if (filters.platform !== 'all' && c.platform !== filters.platform) return false;
@@ -585,8 +587,8 @@
   // الترتيب بالأولوية بيضمن إن اللي محتاج انتباه يبقى في أول دفعة. أي تغيير في الفلتر أو العرض بيرجّع لأول دفعة
   var RENDER_STEP = 60;
   var renderLimit = RENDER_STEP, renderSignature = '';
-  function moreButton(shown, total) {
-    if (total <= shown) return stoppedButton();
+  function moreButton(shown, total, noStopped) {
+    if (total <= shown) return noStopped ? '' : stoppedButton();
     return '<button type="button" class="show-more" data-show-more>' + t('more.show', { n: ar(Math.min(RENDER_STEP, total - shown)) }) + '</button>';
   }
   // زرار «عرض الإعلانات المتوقفة» في آخر القايمة (بعد ما كل الظاهر يتعرض) — لو فيه متوقفة مستخبية أو لسه متحمّلتش
@@ -647,11 +649,15 @@
       if (!anyLoading()) cardGrid.innerHTML = '';
       galleryCount.textContent = anyLoading() ? t('gallery.loading') : t('gallery.login');
     } else if (viewMode === 'campaigns') {
-      var camps = sortCampaigns(groupCampaigns(visible), filters.sort);
+      // الحملة = مجموع كل إعلاناتها اللي ليها أرقام في الفترة، بالمتوقفة (الفلاتر اللي العميل اختارها بس هي اللي بتقلّلها).
+      // مراجعة المرحلة ٤ (١٨ أكتوبر ٢٠٢٦، حساب حقيقي): كانت من الإعلانات الظاهرة بعد إخفاء المتوقفة — ٥ حملات من ١٣، وحملة
+      // صرفت ٥٩٠ ر.س من غير ولا طلب مش ظاهرة، وحملة ١١٧ $ وطلب واحد وحقيقتها ٢٧١ $ و٤ طلبات (Kimball: المجموع = مجموع اللي تحته)
+      var campAds = sortCandidates(visibleCandidates(true), filters.sort);
+      var camps = sortCampaigns(groupCampaigns(campAds), filters.sort);
       cardGrid.innerHTML = camps.length
-        ? camps.slice(0, renderLimit).map(campaignMarkup).join('') + moreButton(renderLimit, camps.length)
-        : (stoppedButton() || '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>');
-      galleryCount.textContent = t('gallery.countCampaigns', { n: ar(camps.length), camps: noun(camps.length, 'n.campaign'), m: ar(visible.length), ads: noun(visible.length, 'n.ad') });
+        ? camps.slice(0, renderLimit).map(campaignMarkup).join('') + moreButton(renderLimit, camps.length, true)
+        : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
+      galleryCount.textContent = t('gallery.countCampaigns', { n: ar(camps.length), camps: noun(camps.length, 'n.campaign'), m: ar(campAds.length), ads: noun(campAds.length, 'n.ad') });
     } else {
       cardGrid.innerHTML = visible.length
         ? visible.slice(0, renderLimit).map(cardMarkup).join('') + moreButton(renderLimit, visible.length)
@@ -1217,7 +1223,9 @@
     var sales = ready.filter(function (p) { return !S[p].report || S[p].report.status !== 'noPurchases'; });
     if (sales.length >= 2) {
       var f = S[sales[0]].input;
-      var same = sales.every(function (p) { var x = S[p].input; return x.currency === f.currency && x.since === f.since && x.until === f.until; });
+      // والمنطقة الزمنية كمان: الأيام بتتجمع بالتاريخ، وتاريخ كل حساب بتوقيته — حسابين بتوقيتين مختلفين أيامهم مش نفس الأيام
+      // (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦ — Kimball: بُعد تاريخ واحد للكل)
+      var same = sales.every(function (p) { var x = S[p].input; return x.currency === f.currency && x.since === f.since && x.until === f.until && (x.timezone || '') === (f.timezone || ''); });
       if (same) {
         var accId = 'all:' + sales.map(function (p) { return S[p].accountId; }).join(',');
         var input = DX.combine(sales.map(function (p) { return { platform: p, input: S[p].input }; }));
@@ -1719,8 +1727,13 @@
     var items = DX.attention(o ? o.blocks : [], alerts, candidates);
     renderWastePanel(pick, alerts);
     // «تحتاج مراجعة»: شارة بتفلتر الإعلانات دي («معرّض للهدر» و«دون طلبات منذ…» بقوا لوحة الهدر فوق — renderWastePanel)
-    var review = analysis.summary.health.review;
-    var chips = review ? '<button type="button" class="attn-chip" data-kpi="review">' + esc(t('attn.review', { n: ar(review) })) + '</button>' : '';
+    // بعدد إعلانات المنصة المختارة بس، زي القايمة اللي تحتها — مراجعة المرحلة ٤ (١٨ أكتوبر ٢٠٢٦، حساب حقيقي): تحت شريحة
+    // Snapchat كانت «إعلانات تحتاج إلى مراجعة: ٢» والاتنين في Meta. والضغط بيفتح الإعلانات دي بفلتر المنصة نفسها
+    var review = candidates.filter(function (c) {
+      var a = analysis.byAd[c.id];
+      return a && a.health === 'review' && (!pick || String(c.source || '').indexOf(pick + ':') === 0);
+    }).length;
+    var chips = review ? '<button type="button" class="attn-chip" data-kpi="review"' + (pick ? ' data-plat="' + esc(pick) + '"' : '') + '>' + esc(t('attn.review', { n: ar(review) })) + '</button>' : '';
     var head = '<div class="top-alerts-head"><h3 class="top-alerts-title">' + esc(t('sec.attn')) + '</h3>' + (chips ? '<span class="attn-chips">' + chips + '</span>' : '') + '</div>';
     if (!items.length) {
       // لسه بيتحمّل (القفل اتشال بعد ٣٠ ثانية): منقولش «لا شيء عاجل» قبل ما الأرقام تيجي
@@ -1825,10 +1838,13 @@
     if (el) el.innerHTML = wastePanelHtml(wasteData(pick, alerts));
   }
   // «تحتاج مراجعة» بيفلتر الإعلانات دي وينزل لها، و«معرّض للهدر» بيفتح التنبيهات اللي وراه
-  function kpiAction(kind) {
+  // plat = المنصة المختارة في الملخص (الشارة جت من شريحتها) — الإعلانات بتتفلتر بيها هي كمان
+  function kpiAction(kind, plat) {
     if (kind === 'risk') { openAlertsView('risk'); return; }
     var group = document.querySelector('.filter-group[data-filter="health"]');
     if (group) setFilterChip(group, 'review');
+    var pg = document.querySelector('.filter-group[data-filter="platform"]');
+    if (pg) setFilterChip(pg, plat && PLATFORM_NAMES[plat] ? PLATFORM_NAMES[plat] : 'all');
     // بنعرض الإعلانات من غير ما نغيّر طريقة العرض المحفوظة — في صفحة «الإعلانات» من أولها
     viewMode = 'ads';
     showView('ads');
@@ -1841,7 +1857,7 @@
   });
   document.getElementById('topAlerts').addEventListener('click', function (e) {
     var el;
-    if ((el = e.target.closest('[data-kpi]'))) { kpiAction(el.dataset.kpi); return; }
+    if ((el = e.target.closest('[data-kpi]'))) { kpiAction(el.dataset.kpi, el.dataset.plat || null); return; }
     if ((el = e.target.closest('[data-campaign]'))) { openCampaign(el); return; }
     if ((el = e.target.closest('[data-ad-id]'))) { var c = findCandidate(el.getAttribute('data-ad-id')); if (c) openExpand(c); return; }
     if (e.target.closest('[data-go-alerts]')) openAlertsView('urgent');
