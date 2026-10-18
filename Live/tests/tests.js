@@ -4000,6 +4000,16 @@
         eq([w.ids, w.spendById], [['M2', 'M3'], { M2: 120, M3: 80 }]);
         // المراجعة: الشغّالة من غير طلبات بإنفاقها في الشهر
         withLang('ar', function () { var h = wastePanelHtml(wasteData(null, [])); ok(/منذ ١ /.test(h) && /٢٠٠ ر\.س/.test(h) && /عددها ٢، والنشط منها الآن ١ بإنفاق ١٢٠ ر\.س هذا الشهر/.test(h), h); });
+        // الشراء من أي إعلان في الحساب: M1 جاب ٤ — فالتتبّع واصل، والنص «لم تحقق أي طلب» زي ما هو
+        eq(w.purchases, 4, 'purchases from any ad in the account');
+        withLang('ar', function () { var h = wastePanelHtml(wasteData(null, [])); ok(/لم تحقق أي طلب/.test(h) && !/لم يُسجَّل/.test(h), h); });
+        // ولا شراء في الحساب كله (حساب حقيقي ١٨ أكتوبر، والملخص فوقها «لا تصل إلى المنصة أي عمليات شراء»): «لم يُسجَّل لها
+        // أي طلب» وراجع التتبّع الأول — مش «لم تحقق أي طلب»
+        w.purchases = 0;
+        withLang('ar', function () {
+          var h = wastePanelHtml(wasteData(null, []));
+          ok(/دون طلبات مسجّلة/.test(h) && /لم يُسجَّل لها أي طلب/.test(h) && /فراجع تتبّع الشراء/.test(h) && !/لم تحقق أي طلب/.test(h), h);
+        });
         delete activeSources.meta;
       }, function (e) { restore(); throw e; });
     });

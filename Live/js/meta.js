@@ -237,13 +237,17 @@
       level: 'ad', time_range: JSON.stringify({ since: since, until: until }), fields: 'ad_id,spend,actions,optimization_goal', limit: 500
     }, FULL_SCAN_CAP).then(function (res) {
       if (!live() || !res || res.err || res.truncated) return;
-      var w = { since: since, until: until, spend: 0, total: 0, ads: 0, ids: [], spendById: {}, currency: currency };
+      var w = { since: since, until: until, spend: 0, total: 0, ads: 0, ids: [], spendById: {}, currency: currency, purchases: 0 };
       res.data.forEach(function (row) {
         var sp = num(row.spend), goal = GOAL_TO_ACTION[row.optimization_goal];
-        w.total += sp;
-        if (!(sp > 0) || !goal || goal[0].key !== 'purchase') return;
         var p = valueForType(row.actions, 'omni_purchase');
         if (p == null) p = valueForType(row.actions, 'purchase');
+        // الشراء من أي إعلان في الحساب (أي هدف): صفر في الشهر كله = منقدرش نقول إن إعلانات المبيعات «مجابتش طلب» — ممكن التتبّع
+        // مش واصل لـ Meta (ui.js wastePanelHtml). حساب حقيقي ١٨ أكتوبر: الملخص «لا تصل إلى المنصة أي عمليات شراء…» وتحته
+        // «٣٩٩ $ صُرفت على إعلانات مبيعات لم تحقق أي طلب» (مراجعة المرحلة ٤)
+        if (p > 0) w.purchases += p;
+        w.total += sp;
+        if (!(sp > 0) || !goal || goal[0].key !== 'purchase') return;
         if (!(p > 0)) { w.spend += sp; w.ads++; w.ids.push(String(row.ad_id)); w.spendById[String(row.ad_id)] = sp; }
       });
       monthWaste[source] = w;

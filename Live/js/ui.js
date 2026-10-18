@@ -1760,11 +1760,13 @@
     }
     if (d.month) {
       var w = d.month.w, plat = PLATFORMS.filter(isConnected).length > 1 ? ' (Meta)' : '';
+      // ولا شراء من الحساب كله في الشهر (meta.js loadMonthWaste — w.purchases): «لم يُسجَّل لها طلب» وراجع التتبّع الأول، مش
+      // «لم تحقق أي طلب» — ملخص المتجر فوقها بيقول إن مفيش مشتريات بتوصل أصلاً
       tiles += tile('', t('waste.month.k', { since: fmtKey(w.since) }) + plat, money(w.spend, w.currency),
-        t('waste.month.s', { n: ar(w.ads), pct: ar(Math.round(w.total > 0 ? w.spend / w.total * 100 : 0)) + (isAr() ? '٪' : '%'),
+        t(w.purchases === 0 ? 'waste.month.sNoTrack' : 'waste.month.s', { n: ar(w.ads), pct: ar(Math.round(w.total > 0 ? w.spend / w.total * 100 : 0)) + (isAr() ? '٪' : '%'),
           live: d.month.live ? t('waste.month.live', { n: ar(d.month.live), v: money(d.month.liveSpend, w.currency) }) : '' }));
     }
-    return '<div class="waste-panel' + (d.n ? ' has-risk' : '') + '"><p class="waste-title">' + esc(t(d.n ? 'waste.title' : 'waste.titleMonth')) + '</p>' +
+    return '<div class="waste-panel' + (d.n ? ' has-risk' : '') + '"><p class="waste-title">' + esc(t(d.n ? 'waste.title' : (d.month && d.month.w.purchases === 0 ? 'waste.titleMonthNoTrack' : 'waste.titleMonth'))) + '</p>' +
       '<div class="waste-tiles">' + tiles + '</div>' +
       '<div class="waste-foot">' + (d.n ? '<button type="button" class="waste-cta" data-kpi="risk">' + esc(t('waste.cta')) + '</button>' : '') +
       '<p class="waste-note">' + esc(t(!d.n ? 'waste.noteMonth' : (d.orders ? 'waste.note' : 'waste.noteRes'))) + '</p></div></div>';
