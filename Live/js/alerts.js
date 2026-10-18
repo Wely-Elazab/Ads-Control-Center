@@ -717,7 +717,14 @@
         var urgent = issues.some(function (i) { return i.level === 'critical'; });
         // والفرص كمان (زيادة الميزانية / عائد ممتاز) — مبنية على الأيام اللي قبل التعديل، وسبب الحكم بيقول «ملاحظات ما قبله للعلم فقط».
         // حساب حقيقي ١٨ أكتوبر: «رُفعت ميزانية المجموعة أمس من ١٠ لـ ٢٠ $، ونحتاج ٣ أيام» وجنبه فرصة «زوّد الميزانية» (مراجعة المرحلة ٤)
-        issues.forEach(function (i) { if (i.level === 'warning' || i.level === 'opportunity') { i.level = 'info'; i.detail += t('al.afterEditNote'); } });
+        // واقتراح الفرصة («زوّد الميزانية») بيستنى هو كمان: تغيير تاني قبل ما أثر الأول يبان بيناقض «ننتظر ٣ أيام للحكم» اللي جنبه —
+        // نفس الحساب: الميزانية اتضاعفت أمس والاقتراح كان «قد يستحق اختبار زيادة ميزانيته تدريجياً»
+        var waitA = t('al.afterEdit.a', { what: what });
+        issues.forEach(function (i) {
+          if (i.level !== 'warning' && i.level !== 'opportunity') return;
+          if (i.level === 'opportunity') i.advice = waitA;
+          i.level = 'info'; i.detail += t('al.afterEditNote');
+        });
         if (!urgent) { pend = 'edited'; basis = t('pend.edited.d', { what: what, when: when }); }
       } else if (basis) {
         var pre = { s: sum(daily, 0, edit.idx - 1), r: sum(results, 0, edit.idx - 1), v: sum(sales, 0, edit.idx - 1) };

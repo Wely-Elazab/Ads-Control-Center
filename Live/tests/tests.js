@@ -5245,6 +5245,8 @@
       var after = issueOf(r, 'sc', 'scale');
       ok(after && after.level === 'info' && after.detail.indexOf(t('al.afterEditNote').trim()) > -1, after ? after.level + ' | ' + after.detail : issuesOf(r, 'sc'));
       eq(r.byAd.sc.health, 'pending');
+      // والاقتراح: استنى أثر التعديل قبل أي زيادة تانية — مش «زوّد ميزانيته» والميزانية اتضاعفت أمس
+      ok(after.advice.indexOf('انتظر حتى تكتمل ٣ أيام') === 0 && after.advice.indexOf('من ١٠ ر.س إلى ٢٠ ر.س') > -1, after.advice);
     });
     test('انخفاض إنفاق الحساب: النص بيقول المتوسط اتحسب على كام يوم (٦ أيام قبل أمس — مش إنفاق الـ٧ أيام ÷ ٧)', function () {
       var ads = [a8('d1', { daily: [200, 200, 200, 200, 200, 200, 60, 10], res: [2, 2, 2, 2, 2, 2, 1, 0] }),
