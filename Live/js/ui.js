@@ -671,6 +671,7 @@
     // ملخص المتجر كله: الحكم والأرقام وسطر النهارده و«يحتاج انتباهك الآن» (renderKpis وrenderTopAlerts جواه)
     renderDiagnosis();
     maybeShowWelcome();
+    refreshOpenExpand();
     // الرابط وزرار الرجوع (js/route.js): بعد الرسم عشان يشوف الحالة النهائية
     if (typeof routeAfterRender === 'function') routeAfterRender();
   }
@@ -1943,10 +1944,28 @@
     return null;
   }
 
-  var expandSeq = 0;
+  var expandSeq = 0, expandShown = null;
+  // اللي بيتعرض في التفاصيل: أرقام الإعلان وحكمه وملاحظاته — لو اتغيّر بعد تحديث (refreshOpenExpand) النافذة بتترسم من جديد
+  function expandSig(c) {
+    var a = adAnalysis(c);
+    return JSON.stringify([c.daily, c.dailyResults, c.dailySales, c.dailyDates, c.active, c.platformStatus, c.frequency, a.health, a.basis,
+      a.issues.map(function (i) { return [i.level, i.title, i.detail, i.advice]; })]);
+  }
+  // تفاصيل إعلان مفتوحة والأرقام اتحدّثت من وراها (الرجوع للتاب بعد نص ساعة بيحدّث لوحده): نرسمها بالأرقام الجديدة في نفس
+  // مكان التمرير. قبل كده كانت بتفضل على أرقامها القديمة والكارت اللي وراها اتغيّر. نفس الأرقام = منلمسهاش (الفيديو بيكمّل)
+  function refreshOpenExpand() {
+    if (!expandShown || expandOverlay.classList.contains('hidden')) return;
+    var c = findCandidate(expandOverlay.dataset.adId);
+    if (!c || c === expandShown.c) return;
+    if (expandSig(c) === expandShown.sig) { expandShown.c = c; return; }
+    var card = expandOverlay.querySelector('.expand-card'), top = card.scrollTop;
+    openExpand(c);
+    card.scrollTop = top;
+  }
   function openExpand(c) {
     // رقم الإعلان المفتوح — للرابط (?ad=) وزرار الرجوع في js/route.js
     expandOverlay.dataset.adId = c.id;
+    expandShown = { c: c, sig: expandSig(c) };
     var a = adAnalysis(c);
     var h = HEALTH[a.health];
     document.getElementById('expandTitle').textContent = c.offer;

@@ -6207,6 +6207,31 @@
         });
       });
     });
+    testAsync('رابط إعلان وأرقامه لسه مجاتش: التفاصيل بتستنى الأرقام، والنافذة المفتوحة بتتحدّث لما أرقامها تتغيّر (مراجعة المرحلة ٤)', function () {
+      return frame('&ad=d1').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, ov = d.getElementById('expandOverlay');
+        var total = function () { return d.querySelector('#expandChart tbody .col-total').textContent; };
+        // كروت Meta من غير أرقام (meta.js بيعرضها قبل الأرقام): قبل الإصلاح التفاصيل كانت بتتفتح هنا على «لم يُنفق شيئاً»
+        w.numbersPending.meta = true;
+        w.candidates = [ad('d1', {})];
+        w.render();
+        eq([ov.classList.contains('hidden'), param(w, 'ad')], [true, 'd1'], 'waits for the numbers, the address keeps the ad');
+        w.numbersPending.meta = false;
+        w.candidates = [ad('d1', { daily: steady(10), res: steady(1) })];
+        w.render();
+        eq(ov.classList.contains('hidden'), false, 'opens once the numbers are in');
+        var before = total(), media = d.getElementById('expandPreview').firstChild;
+        // تحديث بنفس الأرقام (نسخة جديدة من الإعلان): النافذة متتلمسش — المعاينة نفسها
+        w.candidates = [ad('d1', { daily: steady(10), res: steady(1) })];
+        w.render();
+        ok(d.getElementById('expandPreview').firstChild === media, 'same numbers: not rebuilt');
+        // تحديث بأرقام جديدة (الرجوع للتاب بعد نص ساعة): النافذة بتترسم بيها
+        w.candidates = [ad('d1', { daily: steady(20), res: steady(1) })];
+        w.render();
+        ok(total() !== before && !ov.classList.contains('hidden'), before + ' → ' + total());
+        f.remove();
+      });
+    });
     testAsync('رابط حملة بيفتح إعلاناتها أول ما توصل', function () {
       return frame('&campaign=888').then(function (f) {
         var w = f.contentWindow, d = f.contentDocument;

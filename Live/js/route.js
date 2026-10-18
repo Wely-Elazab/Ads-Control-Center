@@ -214,8 +214,10 @@
       (candidates.length || PLATFORMS.some(function (p) { return platformState[p]; }));
     if (routePending.ad) {
       var a = findCandidate(routePending.ad);
-      if (a) { routePending.ad = null; openExpand(a); }
-      else if (settled && candidates.length) { routePending.ad = null; routeNotices.push(msg('route.noAd')); }
+      // الإعلان موجود بس أرقام منصته لسه مجاتش (كروت Meta بتظهر قبل أرقامها): نستنى الأرقام. قبل كده التفاصيل كانت بتتفتح
+      // على الكارت الفاضي — حساب حقيقي ١٨ أكتوبر: «لم يُنفق شيئاً خلال آخر ٧ أيام» والكارت وراها ١٠٠ $ و٢٧ محادثة (مراجعة المرحلة ٤)
+      if (a && !numbersPending[platformOfSource(a.source)]) { routePending.ad = null; openExpand(a); }
+      else if (!a && settled && candidates.length) { routePending.ad = null; routeNotices.push(msg('route.noAd')); }
     }
     if (routePending.campaign && settled && candidates.length) { routePending.campaign = null; routeNotices.push(msg('route.noCampaign')); }
     if (settled && routeNotices.length) {
