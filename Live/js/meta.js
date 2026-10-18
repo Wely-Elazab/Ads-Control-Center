@@ -635,9 +635,12 @@
   // الرقم هنا = رقم المنصة (platform). «الأقرب للمتجر» (value) لنفس الحدث بنجيبه من actions، ولو الحدث مش فيها
   // بيفضل رقم المنصة. لو Meta رجّعت أكتر من قيمة (واحدة لكل نافذة)، رقم المنصة = اللي من غير نافذة (الافتراضي)
   function resultsValue(values) {
-    if (values.length <= 1) return values[0] && values[0].value;
     var plain = values.filter(function (v) { return v && (!v.attribution_windows || v.attribution_windows.indexOf('default') > -1); })[0];
     if (plain) return plain.value;
+    // كله بنوافذ ومفيش «default» = الافتراضي صفر وMeta شالته (بتشيل الصفر). قبل كده كنا بناخد أول نافذة — مشاهدة من غير نقرة
+    // (حساب حقيقي ١٨ أكتوبر: إعلانين مجموعتهم مبتحسبش المشاهدة، ورقم المنصة طلع ٢ و١ من «1d_view» بدل صفر)
+    if (values.some(function (v) { return v && v.attribution_windows; })) return '0';
+    if (values.length <= 1) return values[0] && values[0].value;
     return values.reduce(function (m, v) { var n = parseFloat(v && v.value); return isFinite(n) && n > m ? n : m; }, -Infinity);
   }
   function metaResults(row) {
@@ -684,6 +687,9 @@
   }
   function actNum(a, platform) {
     var v = parseFloat(a.value);
+    // فيه نوافذ ومفيش value = الرقم الافتراضي صفر وMeta شالته — مش «مش معروف». قبل كده كان بيرجع null فالكارت ياخد رقم المنصة
+    // من عمود Results (مشاهدة من غير نقرة) على إنه «الأقرب للمتجر» — مجموع الكروت ١٠٢ والملخص ٩٩ في ٣٠ يوم (حساب حقيقي ١٨ أكتوبر)
+    if (!isFinite(v) && a.value == null && hasWindows(a)) v = 0;
     if (!isFinite(v)) return null;
     if (platform || !hasWindows(a)) return v;
     var c = parseFloat(a[STORE_WINDOW]);

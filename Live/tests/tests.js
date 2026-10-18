@@ -892,6 +892,19 @@
       var c = transformRealAd(baseAd(), rows, {}, DAYS_X, null, 'SAR', null, null);
       eq([c.resultKey, c.results, c.plat.results], ['purchase', 4, 6]);
     });
+    // حساب حقيقي ١٨ أكتوبر (مراجعة المرحلة ٤): إعلانين مجموعتهم مبتحسبش المشاهدة — Meta شالت value و7d_click (صفر) وسابت 1d_view،
+    // وResults فيها «1d_view» بس من غير «default». الكارت كان بيعدّ المشاهدة «الأقرب للمتجر» (مجموع ٣٠ يوم ١٠٢ والملخص ٩٩)
+    test('من غير value ولا «default» (الافتراضي صفر): الأقرب للمتجر صفر ورقم المنصة صفر — مش المشاهدة', function () {
+      var viewOnly = { spend: '57.66', actions: [{ action_type: 'offsite_conversion.fb_pixel_purchase', '1d_view': '2' }, { action_type: 'omni_purchase', '1d_view': '2' }],
+        results: [{ indicator: 'actions:offsite_conversion.fb_pixel_purchase', values: [{ attribution_windows: ['1d_view'], value: '2' }] }] };
+      var c = transformRealAd(baseAd(), [Object.assign({ date_start: KEYS[3] }, viewOnly)], {}, DAYS_X, null, 'SAR', null, viewOnly);
+      eq([c.results, periodOf(c).results, c.plat && c.plat.results, platOf(c) && platOf(c).results], [0, 0, 0, 0]);
+      // نافذتين من غير «default» (مشاهدة ومشاهدة متفاعلة): برضه صفر، مش الأكبر فيهم
+      var two = { spend: '86.26', actions: [{ action_type: 'offsite_conversion.fb_pixel_purchase', '1d_view': '1', '1d_ev': '1' }],
+        results: [{ indicator: 'actions:offsite_conversion.fb_pixel_purchase', values: [{ attribution_windows: ['1d_view'], value: '1' }, { attribution_windows: ['1d_ev'], value: '1' }] }] };
+      var d = transformRealAd(baseAd(), [], {}, DAYS_X, null, 'SAR', null, two);
+      eq([periodOf(d).results, platOf(d) && platOf(d).results], [0, 0]);
+    });
     test('الفترة المختارة: الأقرب للمتجر في الكارت، ورقم المنصة في platOf بنفس الإنفاق', function () {
       var periodRow = { spend: '200', actions: [{ action_type: 'omni_purchase', value: '10', '7d_click': '8', '1d_view': '2' }],
         action_values: [{ action_type: 'omni_purchase', value: '1000', '7d_click': '800', '1d_view': '200' }] };
