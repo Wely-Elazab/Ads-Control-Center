@@ -1756,23 +1756,40 @@
       var x = byAd[id]; n++;
       found[x.cur] = (found[x.cur] || 0) + x.v; daily[x.cur] = (daily[x.cur] || 0) + x.d;
     });
-    var w = typeof monthWaste !== 'undefined' && activeSources.meta && (!pick || pick === 'meta') ? monthWaste['meta:' + activeSources.meta] : null;
-    var month = null;
-    if (w && w.spend > 0) {
-      var src = 'meta:' + activeSources.meta, ids = {};
-      (w.ids || []).forEach(function (id) { ids[id] = 1; });
-      // الشغّالة منها وإنفاقها في الشهر (مراجعة ١١ أكتوبر ٢٠٢٦: «النشط منها ١٤» من غير مبلغ مكانش بيقول قد إيه على المحك — وكانت
-      // كلها «عُدّل مؤخراً» فمش ظاهرة كهدر فوق)
-      var liveAds = candidates.filter(function (c) { return c.source === src && c.active && ids[String(c.nativeId || c.id)]; });
-      var liveSpend = liveAds.reduce(function (s, c) { return s + ((w.spendById || {})[String(c.nativeId || c.id)] || 0); }, 0);
-      month = { w: w, live: liveAds.length, liveSpend: liveSpend };
+    // خانة لكل حساب في شريحته، و«كل الحسابات» في الآخر في كل الشرائح (طلب صاحب المنتج ١٨ أكتوبر ٢٠٢٦) لو حسابين أو أكتر فيهم هدر.
+    // الحساب اللي مفيش ولا شراء بيوصله في الشهر برّه المجموع: هدره مجهول مش صفر (زي «كل المنصات» — مراجعة المرحلة ٤ ر٦٥)،
+    // والعملات كل واحدة لوحدها من غير تحويل (م٦: مفيش رقم بيجمع عملتين)
+    var all = MONTH_PLATFORMS.map(monthOf).filter(function (m) { return m && m.w.spend > 0; });
+    var months = all.filter(function (m) { return !pick || pick === m.p; });
+    var inTotal = all.filter(function (m) { return m.w.purchases > 0; }), total = null;
+    if (inTotal.length >= 2) {
+      total = { parts: inTotal, byCur: {}, spendCur: {}, ads: 0, since: inTotal[0].w.since,
+        out: all.filter(function (m) { return inTotal.indexOf(m) === -1; }).map(function (m) { return m.p; }) };
+      inTotal.forEach(function (m) {
+        var k = m.w.currency || '';
+        total.byCur[k] = (total.byCur[k] || 0) + m.w.spend; total.spendCur[k] = (total.spendCur[k] || 0) + m.w.total; total.ads += m.w.ads;
+      });
     }
-    return { n: n, found: found, daily: daily, orders: orders, month: month };
+    return { n: n, found: found, daily: daily, orders: orders, months: months, total: total };
   }
+  // هدر الشهر لكل حساب متصل: Meta (meta.js loadMonthWaste) وSnapchat (api/snapchat-ads-fetch.js snapMonthWaste) — Google لسه
+  var MONTH_PLATFORMS = ['meta', 'snapchat'];
+  function monthOf(p) {
+    var w = typeof monthWaste !== 'undefined' && activeSources[p] ? monthWaste[p + ':' + activeSources[p]] : null;
+    if (!w) return null;
+    var src = p + ':' + activeSources[p], ids = {};
+    (w.ids || []).forEach(function (id) { ids[id] = 1; });
+    // الشغّالة منها وإنفاقها في الشهر (مراجعة ١١ أكتوبر ٢٠٢٦: «النشط منها ١٤» من غير مبلغ مكانش بيقول قد إيه على المحك — وكانت
+    // كلها «عُدّل مؤخراً» فمش ظاهرة كهدر فوق)
+    var liveAds = candidates.filter(function (c) { return c.source === src && c.active && ids[String(c.nativeId || c.id)]; });
+    var liveSpend = liveAds.reduce(function (s, c) { return s + ((w.spendById || {})[String(c.nativeId || c.id)] || 0); }, 0);
+    return { p: p, w: w, live: liveAds.length, liveSpend: liveSpend };
+  }
+  function pctText(x) { return ar(Math.round(x * 100)) + (isAr() ? '٪' : '%'); }
   function weekByCur(map) { var o = {}; Object.keys(map).forEach(function (k) { o[k] = map[k] * 7; }); return o; }
   function wastePanelHtml(d) {
     var hasDaily = Object.keys(d.daily).some(function (k) { return d.daily[k] > 0; });
-    if (!d.n && !d.month) return '';
+    if (!d.n && !d.months.length && !d.total) return '';
     var tile = function (cls, k, v, s) {
       return '<div class="waste-tile' + cls + '"><span class="waste-k">' + esc(k) + '</span><b class="waste-v">' + esc(v) + '</b><span class="waste-s">' + esc(s) + '</span></div>';
     };
@@ -1781,15 +1798,24 @@
       tiles += tile(' bad', t('waste.found.k'), moneyByCur(d.found), t('waste.found.s', { n: ar(d.n) }));
       if (hasDaily) tiles += tile(' bad', t('waste.stop.k'), t('waste.stop.v', { v: moneyByCur(d.daily) }), t('waste.stop.s', { week: moneyByCur(weekByCur(d.daily)) }));
     }
-    if (d.month) {
-      var w = d.month.w, plat = PLATFORMS.filter(isConnected).length > 1 ? ' (Meta)' : '';
-      // ولا شراء من الحساب كله في الشهر (meta.js loadMonthWaste — w.purchases): «لم يُسجَّل لها طلب» وراجع التتبّع الأول، مش
-      // «لم تحقق أي طلب» — ملخص المتجر فوقها بيقول إن مفيش مشتريات بتوصل أصلاً
+    var several = PLATFORMS.filter(isConnected).length > 1;
+    d.months.forEach(function (m) {
+      var w = m.w, plat = several ? ' (' + PLATFORM_NAMES[m.p] + ')' : '';
+      // ولا شراء من الحساب كله في الشهر (w.purchases): «لم يُسجَّل لها طلب» وراجع التتبّع الأول، مش «لم تحقق أي طلب» — ملخص
+      // المتجر فوقها بيقول إن مفيش مشتريات بتوصل أصلاً
       tiles += tile('', t('waste.month.k', { since: fmtKey(w.since) }) + plat, money(w.spend, w.currency),
-        t(w.purchases === 0 ? 'waste.month.sNoTrack' : 'waste.month.s', { n: ar(w.ads), pct: ar(Math.round(w.total > 0 ? w.spend / w.total * 100 : 0)) + (isAr() ? '٪' : '%'),
-          live: d.month.live ? t('waste.month.live', { n: ar(d.month.live), v: money(d.month.liveSpend, w.currency) }) : '' }));
+        t(w.purchases === 0 ? 'waste.month.sNoTrack' : 'waste.month.s', { n: ar(w.ads), pct: pctText(w.total > 0 ? w.spend / w.total : 0), plat: PLATFORM_NAMES[m.p],
+          live: m.live ? t('waste.month.live', { n: ar(m.live), v: money(m.liveSpend, w.currency) }) : '' }));
+    });
+    if (d.total) {
+      var T = d.total, curs = Object.keys(T.byCur);
+      var share = curs.length === 1 && T.spendCur[curs[0]] > 0 ? t('waste.total.share', { pct: pctText(T.byCur[curs[0]] / T.spendCur[curs[0]]) }) : t('waste.total.cur');
+      var parts = DX.listText(T.parts.map(function (m) { return t('waste.total.part', { plat: PLATFORM_NAMES[m.p], v: money(m.w.spend, m.w.currency) }); }));
+      tiles += tile(' total', t('waste.total.k', { since: fmtKey(T.since) }), moneyByCur(T.byCur), t('waste.total.s', { parts: parts, share: share, n: ar(T.ads),
+        ex: T.out.length ? t('waste.total.ex', { plats: DX.listText(T.out.map(function (p) { return PLATFORM_NAMES[p]; })) }) : '' }));
     }
-    return '<div class="waste-panel' + (d.n ? ' has-risk' : '') + '"><p class="waste-title">' + esc(t(d.n ? 'waste.title' : (d.month && d.month.w.purchases === 0 ? 'waste.titleMonthNoTrack' : 'waste.titleMonth'))) + '</p>' +
+    var noTrack = !d.total && d.months.length && d.months.every(function (m) { return m.w.purchases === 0; });
+    return '<div class="waste-panel' + (d.n ? ' has-risk' : '') + '"><p class="waste-title">' + esc(t(d.n ? 'waste.title' : (noTrack ? 'waste.titleMonthNoTrack' : 'waste.titleMonth'))) + '</p>' +
       '<div class="waste-tiles">' + tiles + '</div>' +
       '<div class="waste-foot">' + (d.n ? '<button type="button" class="waste-cta" data-kpi="risk">' + esc(t('waste.cta')) + '</button>' : '') +
       '<p class="waste-note">' + esc(t(!d.n ? 'waste.noteMonth' : (d.orders ? 'waste.note' : 'waste.noteRes'))) + '</p></div></div>';

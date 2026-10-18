@@ -114,6 +114,11 @@
       var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns, payload.periodStats,
         payload.storeStats ? payload.storeStats.timeseries_stats || [] : null, payload.periodStoreStats, payload.creatives, payload.media);
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
+      // «إنفاق هذا الشهر دون طلبات» زي Meta (api/snapchat-ads-fetch.js snapMonthWaste) — بعملة الحساب، ومبيتحفظش
+      if (typeof monthWaste !== 'undefined') {
+        if (payload.monthWaste) monthWaste['snapchat:' + adAccountId] = Object.assign({ currency: (payload.account && payload.account.currency) || null }, payload.monthWaste);
+        else delete monthWaste['snapchat:' + adAccountId];
+      }
       cacheSource('snapchat:' + adAccountId, snapCandidates);
       setPlatformState('snapchat', null);
       // طلب الفترة المختارة فشل: الكروت بأرقام آخر ٧ أيام — بنقول ده زي Meta (مراجعة المرحلة ٤، ١٧ أكتوبر ٢٠٢٦: كانت بتظهر من غير إشارة

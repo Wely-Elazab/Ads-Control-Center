@@ -75,6 +75,34 @@ export function storeOrderAdIds() {
   });
   return out;
 }
+// أهداف الشراء في المجموعة الإعلانية (توثيق Snapchat Marketing API — Ad Squads، optimization_goal)
+const SNAP_PURCHASE_GOALS = { PIXEL_PURCHASE: 1, APP_PURCHASE: 1, APP_REENGAGE_PURCHASE: 1 };
+// «إنفاق هذا الشهر دون طلبات» زي Meta (js/meta.js loadMonthWaste — طلب صاحب المنتج ١٨ أكتوبر ٢٠٢٦: كانت لـ Meta بس):
+// إعلانات مجموعاتها محسّنة للشراء، صرفت من أول الشهر لأمس من غير ولا شراء برقم المنصة نفسها (إعداد Ads Manager)، والمتوقفة
+// كمان — من قايمة الحساب كلها قبل تصفية الأسبوع. purchases = الشراء من الحساب كله (صفر = ممكن التتبّع مش واصل).
+// null = منقدرش نحكم: المجموعات مجاتش، أو الرد مفيهوش أرقام الشراء
+export function snapMonthWaste(data, adsList, squadList, since, until) {
+  if (!data || !Array.isArray(squadList)) return null;
+  const goalOf = {}, squadOf = {};
+  squadList.forEach(function (s) { if (s && s.id) goalOf[s.id] = s.optimization_goal || null; });
+  (adsList || []).forEach(function (a) { if (a && a.id) squadOf[a.id] = a.ad_squad_id; });
+  const w = { since: since, until: until, spend: 0, total: 0, ads: 0, ids: [], spendById: {}, purchases: 0 };
+  let counted = false;
+  ((data.total_stats || data.timeseries_stats) || []).forEach(function (e) {
+    const ts = (e && (e.total_stat || e.timeseries_stat)) || e || {};
+    ((ts.breakdown_stats && ts.breakdown_stats.ad) || []).forEach(function (b) {
+      const st = (b && b.stats) || {};
+      if (!('conversion_purchases' in st)) return;
+      counted = true;
+      const sp = Number(st.spend || 0) / 1000000, pur = Number(st.conversion_purchases || 0);
+      w.total += sp;
+      if (pur > 0) w.purchases += pur;
+      if (!(sp > 0) || pur > 0 || !SNAP_PURCHASE_GOALS[goalOf[squadOf[b.id]]]) return;
+      w.spend += sp; w.ads++; w.ids.push(String(b.id)); w.spendById[String(b.id)] = sp;
+    });
+  });
+  return counted ? w : null;
+}
 // شغّال فعلاً: ACTIVE مش كفاية — Snapchat بيرجّع delivery_status (حساب حقيقي: ٣٢٦ ACTIVE منهم ١٨ بس VALID). المرفوض
 // والمستني مراجعة بيفضلوا (زي Meta)، ولو الحقل مش موجود منخبّيش إعلان ممكن يكون شغّال
 export function snapAdLive(a) {
@@ -239,8 +267,20 @@ export default async function handler(req, res) {
         periodP = statsSafe('TOTAL', pFrom, pTo).then(function (p) { return p.error ? null : p.data; }).catch(function () { return null; });
         periodStoreP = storeOf('TOTAL', pFrom, pTo);
       }
+      // من أول الشهر لأمس بتوقيت الحساب (snapMonthWaste) — أول يوم في الشهر مفيش. رقم المنصة بإعداد Ads Manager، ولو اترفض
+      // فبافتراضي الـ API؛ من غير الرجوع للإنفاق والسوايب بس (من غير أرقام الشراء منقدرش نقول «دون طلبات»)
+      const month = { since: range.until.slice(0, 8) + '01', until: shiftDateKey(range.until, -1) };
+      let monthP = Promise.resolve(null);
+      if (month.until >= month.since) {
+        const mTo = range.until + 'T00:00:00.000' + tzOffsetString(range.until, tz);
+        const mFrom = month.since + 'T00:00:00.000' + tzOffsetString(month.since, tz);
+        const MONTH_FIELDS = 'spend,conversion_purchases';
+        monthP = fetchStats(MONTH_FIELDS, 'TOTAL', mFrom, mTo, PLATFORM_WINDOWS)
+          .then(function (p) { return p.error ? fetchStats(MONTH_FIELDS, 'TOTAL', mFrom, mTo) : p; })
+          .then(function (p) { return p.error ? null : p.data; }).catch(function () { return null; });
+      }
 
-      const results = await Promise.all([adsP, squadsP, campaignsP, statsP, periodP, storeP, periodStoreP, creativesP, mediaP]);
+      const results = await Promise.all([adsP, squadsP, campaignsP, statsP, periodP, storeP, periodStoreP, creativesP, mediaP, monthP]);
       const adsResult = results[0], squadList = results[1], campaignList = results[2], stats = results[3];
       if (adsResult.error) {
         res.status(adsResult.status || 502).json({ error: adsResult.error });
@@ -284,6 +324,8 @@ export default async function handler(req, res) {
         periodStoreStats: results[4] ? results[6] : null,
         period: periodRange,
         range: range,
+        // من قايمة الإعلانات والمجموعات كلها (قبل التصفية) — المتوقفة من أول الشهر مش في الكروت
+        monthWaste: snapMonthWaste(results[9], adsResult.ads, squadList, month.since, month.until),
         account: acc ? { timezone: acc.timezone || null, currency: acc.currency || null } : null
       });
       return;

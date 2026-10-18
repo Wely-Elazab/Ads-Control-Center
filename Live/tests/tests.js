@@ -439,6 +439,7 @@
         if (/\/ads\?/.test(u)) return json({ ads: [{ ad: { id: 'a1' } }] });
         if (/\/stats/.test(u)) {
           if (/view_attribution_window=none/.test(u)) return bad();   // «الأقرب للمتجر» مش موضوع الاختبار ده
+          if (/fields=spend,conversion_purchases&/.test(u)) return json({ total_stats: [] });   // هدر الشهر — ليه اختبار لوحده
           urls.push(u);
           if (rejectPlat && u.indexOf(PLAT) > -1) return bad();
           if (rejectFull && /conversion_purchases/.test(u)) return bad();
@@ -2065,6 +2066,52 @@
         eq(out.creatives, { cr1: { type: 'WEB_VIEW', headline: 'Summer sale', brand: 'Shop', cta: 'SHOP_NOW', mediaId: 'm1', url: 'https://shop.example/p' } });
         eq(out.media, { m1: { type: 'VIDEO', url: 'https://cdn.example/v.mp4', w: null, h: null, duration: 15 } });
         ok(!('_probe' in out), 'no debug data unless asked');
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+    // طلب صاحب المنتج ١٨ أكتوبر ٢٠٢٦: اللوحة كانت لـ Meta بس
+    testAsync('Snapchat: «إنفاق هذا الشهر دون طلبات» من أول الشهر لأمس — المجموعات المحسّنة للشراء بس، والمتوقفة اللي مش في الكروت كمان', function () {
+      var realFetch = window.fetch, asked = [];
+      var json = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
+      window.fetch = function (url) {
+        var raw = String(url), u = decodeURIComponent(raw);
+        if (/\/adaccounts\/[^/?]+$/.test(raw)) return json({ adaccounts: [{ adaccount: { timezone: 'Asia/Riyadh', currency: 'USD' } }] });
+        if (/\/ads\?/.test(u)) return json({ ads: [
+          { ad: { id: 'old', status: 'PAUSED', ad_squad_id: 'buy' } },
+          { ad: { id: 'won', status: 'PAUSED', ad_squad_id: 'buy' } },
+          { ad: { id: 'aware', status: 'PAUSED', ad_squad_id: 'reach' } }] });
+        if (/\/adsquads/.test(u)) return json({ adsquads: [{ adsquad: { id: 'buy', campaign_id: 'c1', optimization_goal: 'PIXEL_PURCHASE' } },
+          { adsquad: { id: 'reach', campaign_id: 'c1', optimization_goal: 'SWIPES' } }] });
+        if (/\/campaigns/.test(u)) return json({ campaigns: [{ campaign: { id: 'c1' } }] });
+        if (/\/stats/.test(u) && /granularity=TOTAL/.test(u)) {
+          asked.push(u);
+          // طلب الشهر بحقوله هو بس (الإنفاق والشراء) — مجاميع الفترة المختارة فاضية هنا
+          if (!/fields=spend,conversion_purchases&/.test(u)) return json({ total_stats: [] });
+          return json({ total_stats: [{ total_stat: { breakdown_stats: { ad: [
+            { id: 'old', stats: { spend: 120000000, conversion_purchases: 0 } },
+            { id: 'won', stats: { spend: 50000000, conversion_purchases: 2 } },
+            { id: 'aware', stats: { spend: 80000000, conversion_purchases: 0 } }] } } }] });
+        }
+        if (/\/stats/.test(u)) return json({ timeseries_stats: [] });
+        return json({});
+      };
+      var out = null;
+      var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      var mod = null;
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        mod = m;
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1', period: { preset: 'last7' } } }, res);
+      }).then(function () {
+        window.fetch = realFetch;
+        var today = todayKeyInTz('Asia/Riyadh'), first = today.slice(0, 8) + '01';
+        if (today.slice(8) === '01') { eq([out.monthWaste, asked.length], [null, 0], 'first day of the month: nothing yet'); return; }
+        var month = asked.filter(function (u) { return /fields=spend,conversion_purchases&/.test(u) && u.indexOf('start_time=' + first + 'T00:00:00') > -1; });
+        ok(month.length === 1 && /action_report_time=impression/.test(month[0]), 'one month request with the Ads Manager setting: ' + asked.join(' | '));
+        var w = out.monthWaste;
+        eq([w.since, w.until, w.spend, w.ads, w.ids, w.total, w.purchases], [first, shiftKey(today, -1), 120, 1, ['old'], 250, 2]);
+        eq(out.ads.length, 0, 'the stopped ads stay out of the cards — only in the month figure');
+        // منقدرش نحكم: المجموعات مجاتش، أو الرد من غير أرقام الشراء
+        eq(mod.snapMonthWaste({ total_stats: [] }, [], null, first, today), null, 'no ad squads');
+        eq(mod.snapMonthWaste({ total_stats: [{ total_stat: { breakdown_stats: { ad: [{ id: 'old', stats: { spend: 5000000 } }] } } }] }, [], [], first, today), null, 'no purchase numbers');
       }, function (e) { window.fetch = realFetch; throw e; });
     });
   });
@@ -4012,6 +4059,45 @@
         });
         delete activeSources.meta;
       }, function (e) { restore(); throw e; });
+    });
+    // طلب صاحب المنتج ١٨ أكتوبر ٢٠٢٦: اللوحة كانت لـ Meta بس — دلوقتي خانة لكل حساب في شريحته، و«كل الحسابات» في الآخر
+    test('هدر الشهر لكل حساب، و«كل الحسابات» في الآخر: كل عملة لوحدها، ومن غير الحساب اللي مفيش شراء بيوصله', function () {
+      var keys = ['meta', 'snapchat', 'google'], old = { act: {}, mw: Object.assign({}, monthWaste), plats: MONTH_PLATFORMS };
+      keys.forEach(function (p) { old.act[p] = activeSources[p]; });
+      var mk = function (spend, total, ads, purchases, cur) {
+        return { since: '2026-10-01', until: '2026-10-17', spend: spend, total: total, ads: ads, ids: [], spendById: {}, purchases: purchases, currency: cur };
+      };
+      var html = function (pick) { return withLang('ar', function () { return wastePanelHtml(wasteData(pick || null, [])); }); };
+      try {
+        activeSources.meta = 'act_7'; activeSources.snapchat = 'sn7';
+        monthWaste['meta:act_7'] = mk(1500, 7500, 20, 42, 'SAR');
+        monthWaste['snapchat:sn7'] = mk(40, 500, 3, 16, 'USD');
+        var h = html();
+        eq((h.match(/class="waste-tile[ "]/g) || []).length, 3, 'two accounts and the total');
+        ok(/منذ ١ أكتوبر \(Meta\)/.test(h) && /منذ ١ أكتوبر \(Snapchat\)/.test(h), 'one tile per account');
+        ok(/كل الحسابات منذ ١ أكتوبر/.test(h) && /١٬٥٠٠ ر\.س \+ ٤٠ \$/.test(h) && /كل عملة على حدة، دون تحويل بين العملات/.test(h) && /عدد الإعلانات ٢٣/.test(h), h);
+        // شريحة Snapchat: خانته هو بس، و«كل الحسابات» بيفضل في الآخر
+        var s = html('snapchat');
+        ok(!/\(Meta\)/.test(s) && /\(Snapchat\)/.test(s) && /كل الحسابات/.test(s) && s.indexOf('(Snapchat)') < s.indexOf('كل الحسابات'), s);
+        // نفس العملة: رقم واحد ونسبته من إنفاق الحسابات دي
+        monthWaste['snapchat:sn7'] = mk(500, 2500, 3, 16, 'SAR');
+        h = html();
+        ok(/<b class="waste-v">٢٬٠٠٠ ر\.س<\/b>/.test(h) && /أي ٢٠٪ من إنفاق الشهر في هذه الحسابات/.test(h), h);
+        // حساب مفيش شراء بيوصله: برّه المجموع — وفضل حساب واحد، فمفيش «كل الحسابات»
+        monthWaste['meta:act_7'] = mk(400, 900, 7, 0, 'SAR');
+        h = html();
+        ok(!/كل الحسابات/.test(h) && /ولم تصل إلى Meta أي عملية شراء/.test(h), h);
+        // تلات حسابات وواحد منهم مفيش شراء بيوصله: المجموع من الاتنين التانيين، وسطر بيقول مين برّه
+        MONTH_PLATFORMS = ['meta', 'google', 'snapchat']; activeSources.google = '123';
+        monthWaste['google:123'] = mk(300, 1200, 2, 5, 'SAR');
+        h = html();
+        ok(/<b class="waste-v">٨٠٠ ر\.س<\/b>/.test(h) && /ولا يشمل Meta، لأنه لم تصل إليها أي عملية شراء هذا الشهر/.test(h), h);
+      } finally {
+        MONTH_PLATFORMS = old.plats;
+        keys.forEach(function (p) { if (old.act[p] === undefined) delete activeSources[p]; else activeSources[p] = old.act[p]; });
+        Object.keys(monthWaste).forEach(function (k) { if (!(k in old.mw)) delete monthWaste[k]; });
+        Object.keys(old.mw).forEach(function (k) { monthWaste[k] = old.mw[k]; });
+      }
     });
     // حساب حقيقي ١٠ أكتوبر ٢٠٢٦: إعلانات فيديو Advantage+ والكتالوج كانت «الوجهة —»، وغلاف ١١ فيديو ١٦٠×١٦٠ مشوّش
     test('Meta: الوجهة من template_data (الكتالوج) وasset_feed_spec (نسخة لكل مكان ظهور)، والغلاف الصغير بيتأجل', function () {
