@@ -715,7 +715,9 @@
       var when = ago === 0 ? t('edit.when.0') : (ago === 1 ? t('edit.when.1') : t('edit.when.n', { days: daysText(ago, fmt) }));
       if (editFresh) {
         var urgent = issues.some(function (i) { return i.level === 'critical'; });
-        issues.forEach(function (i) { if (i.level === 'warning') { i.level = 'info'; i.detail += t('al.afterEditNote'); } });
+        // والفرص كمان (زيادة الميزانية / عائد ممتاز) — مبنية على الأيام اللي قبل التعديل، وسبب الحكم بيقول «ملاحظات ما قبله للعلم فقط».
+        // حساب حقيقي ١٨ أكتوبر: «رُفعت ميزانية المجموعة أمس من ١٠ لـ ٢٠ $، ونحتاج ٣ أيام» وجنبه فرصة «زوّد الميزانية» (مراجعة المرحلة ٤)
+        issues.forEach(function (i) { if (i.level === 'warning' || i.level === 'opportunity') { i.level = 'info'; i.detail += t('al.afterEditNote'); } });
         if (!urgent) { pend = 'edited'; basis = t('pend.edited.d', { what: what, when: when }); }
       } else if (basis) {
         var pre = { s: sum(daily, 0, edit.idx - 1), r: sum(results, 0, edit.idx - 1), v: sum(sales, 0, edit.idx - 1) };

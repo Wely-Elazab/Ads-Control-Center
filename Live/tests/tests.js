@@ -5234,6 +5234,18 @@
       eq(DX.platCompare({ since: '2026-10-04', until: '2026-10-04', daily: [{ date: '2026-10-04', spend: 1, pur: 1, rev: 1, ppur: null }] }, 'meta'), null, 'a day without a platform number');
       eq(DX.platCompare(inp, 'snapchat'), null, 'Meta only (others come from the ads)');
     });
+    // حساب حقيقي ١٨ أكتوبر: «رُفعت ميزانية المجموعة أمس من ١٠ لـ ٢٠ $، ونحتاج ٣ أيام كاملة» وجنبه فرصة «زيادة الميزانية» من أيام قبل التعديل
+    test('تعديل حديث: فرصة «زيادة الميزانية» بتبقى للعلم زي باقي ملاحظات ما قبله — والحكم «لم يُحكم بعد»', function () {
+      var peers = [a8('pb', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 40], res: [2, 2, 2, 2, 2, 2, 2, 1] }),
+        a8('pc', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 40], res: [2, 2, 2, 2, 2, 2, 2, 1] })];
+      var mk = function (edits) { return a8('sc', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 40], res: [5, 5, 5, 5, 5, 5, 5, 2], edits: edits }); };
+      var before = issueOf(engine(peers.concat([mk(null)])), 'sc', 'scale');
+      ok(before && before.level === 'opportunity', 'without an edit it is an opportunity: ' + (before ? before.level : 'none'));
+      var r = withLang('ar', function () { return engine(peers.concat([mk([{ date: K8[5], level: 'adset', kind: 'budget', from: 1000, to: 2000 }])])); });
+      var after = issueOf(r, 'sc', 'scale');
+      ok(after && after.level === 'info' && after.detail.indexOf(t('al.afterEditNote').trim()) > -1, after ? after.level + ' | ' + after.detail : issuesOf(r, 'sc'));
+      eq(r.byAd.sc.health, 'pending');
+    });
     test('انخفاض إنفاق الحساب: النص بيقول المتوسط اتحسب على كام يوم (٦ أيام قبل أمس — مش إنفاق الـ٧ أيام ÷ ٧)', function () {
       var ads = [a8('d1', { daily: [200, 200, 200, 200, 200, 200, 60, 10], res: [2, 2, 2, 2, 2, 2, 1, 0] }),
         a8('d2', { daily: [100, 100, 100, 100, 100, 100, 30, 5], res: [1, 1, 1, 1, 1, 1, 0, 0] })];
