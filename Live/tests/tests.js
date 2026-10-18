@@ -1043,12 +1043,18 @@
       var r = engine(ads);
       ok(!issuesOf(r, 'new').some(function (i) { return i.code === 'waste'; }));
     });
-    test('خسارة (العائد أقل من ١ في آخر ٣ أيام) = عاجل', function () {
-      var ads = baseAccount().concat([ad('loss', { daily: [100, 100, 100, 100, 100, 100, 20], res: steady(5), sales: [300, 300, 300, 50, 50, 50, 0] })]);
+    // المرحلة ٥ (ق١): «عاجل» بدليل قوي بس — احتمال الصدفة تحت حد الحساب المصحّح (Benjamini–Hochberg)، و«مهم» تحت ٥٪
+    test('خسارة (العائد أقل من ١ في آخر ٣ أيام) بدليل قوي = عاجل، وبدليل أضعف = «مهم»', function () {
+      // ٣٠ طلباً في آخر ٣ أيام بمبيعات ١٢٠ مقابل إنفاق ٣٠٠ (×٠٫٤) — صعب جداً يكون صدفة لو العائد الحقيقي ×١
+      var ads = baseAccount().concat([ad('loss', { daily: [100, 100, 100, 100, 100, 100, 20], res: steady(10), sales: [400, 400, 400, 40, 40, 40, 0] })]);
       var r = engine(ads);
       var i = issuesOf(r, 'loss').filter(function (x) { return x.code === 'loss'; })[0];
-      ok(i && i.level === 'critical', 'loss alert');
+      ok(i && i.level === 'critical', 'loss alert: ' + (i && i.level));
       ok(i.detail.indexOf('آخر ٣ أيام') > -1 && i.detail.indexOf(money(300, 'SAR')) > -1, i.detail);
+      // ١٥ طلباً بمبيعات ١٥٠ (×٠٫٥): مرجّح بس مش مؤكد بعد تصحيح عدد الاختبارات — «مهم» (كان «عاجل» قبل المرحلة ٥)
+      var weak = engine(baseAccount().concat([ad('loss', { daily: [100, 100, 100, 100, 100, 100, 20], res: steady(5), sales: [300, 300, 300, 50, 50, 50, 0] })]));
+      var j = issuesOf(weak, 'loss').filter(function (x) { return x.code === 'loss'; })[0];
+      ok(j && j.level === 'warning', 'weaker evidence: ' + (j && j.level));
     });
     test('يوم واحد من غير مبيعات في إعلان أسبوعه ممتاز = مفيش «عاجل» ولا «مهم» (حالة حقيقية)', function () {
       // مشتريات قليلة وغالية (~٤٠٠ للطلب): يوم ٣ كان صفر ورجع، وأمس صفر — العائد في الأسبوع ×١٦٠ تقريباً
@@ -1097,7 +1103,8 @@
     test('فرصة زيادة الاستثمار على آخر ٣ أيام مش يوم واحد', function () {
       var oneDay = ad('od', { daily: steady(100), res: [5, 5, 5, 0, 0, 12, 3] });
       ok(!issuesOf(engine(baseAccount().concat([oneDay])), 'od').some(function (i) { return i.code === 'scale'; }), 'one great day');
-      var three = ad('th', { daily: steady(100), res: [5, 5, 5, 8, 8, 8, 3] });
+      // الضعف لـ٣ أيام (١٠ في اليوم مقابل ٥ في الباقي) — زيادة ٦٠٪ لـ٣ أيام بقت في حدود الصدفة (المرحلة ٥ ق١: الفرصة محتاجة دليل)
+      var three = ad('th', { daily: steady(100), res: [5, 5, 5, 10, 10, 10, 3] });
       var sc = issuesOf(engine(baseAccount().concat([three])), 'th').filter(function (i) { return i.code === 'scale'; })[0];
       ok(sc && sc.detail.indexOf('آخر ٣ أيام') > -1, sc ? sc.detail : 'no scale');
     });
@@ -1107,17 +1114,20 @@
       var list = issuesOf(r, 'tiny');
       ok(list.length > 0, 'has a note');
       ok(list.filter(function (i) { return i.code !== 'underspend'; }).every(function (i) { return i.level === 'info' && i.minor && !i.atRisk; }), 'other notes are FYI');
-      // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: نشط من أكتر من ٣ أيام وإنفاقه أقل من تكلفة نتيجة = «يحتاج إلى تحسين»
-      // (لا يأخذ إنفاقاً كافياً) بدل «لم يُحكم بعد» — على الكارت بس، مش في قائمة التنبيهات
-      eq([r.byAd.tiny.health, r.byAd.tiny.pending], ['improve', null]);
+      // نشط من أكتر من ٣ أيام وإنفاقه أقل من تكلفة نتيجة: «لم يُحكم بعد — يأخذ إنفاقاً قليلاً» (حالة محايدة — المرحلة ٥ ه٨،
+      // بموافقة صاحب المنتج ١٩ أكتوبر ٢٠٢٦؛ كانت «يحتاج إلى تحسين» من ١٠ أكتوبر) — على الكارت بس، مش في قائمة التنبيهات
+      // وعليه ملاحظة تانية (وقف أمس)، فسبب «لم يُحكم بعد» = «إنفاق صغير» (أقل من ٢٪ من الحساب) — أدق من «يأخذ إنفاقاً قليلاً» هنا
+      eq([r.byAd.tiny.health, r.byAd.tiny.pending], ['pending', 'small']);
       ok(!r.alerts.some(function (a) { return a.adId === 'tiny' && a.code === 'underspend'; }), 'not in the alerts list');
     });
-    test('لا يأخذ إنفاقاً كافياً: جاب نتيجة بإنفاق أقل من تكلفة نتيجة = «يحتاج إلى تحسين»، وفي فترة التعلّم لأ', function () {
+    test('لا يأخذ إنفاقاً كافياً: جاب نتيجة بإنفاق أقل من تكلفة نتيجة = «لم يُحكم بعد — يأخذ إنفاقاً قليلاً»، وفي فترة التعلّم «جديد»', function () {
       var low = ad('low', { daily: [2, 2, 2, 2, 2, 2, 0], res: [0, 0, 1, 0, 0, 0, 0] });
       var r = withLang('ar', function () { return engine(baseAccount().concat([low])); });
       var us = issuesOf(r, 'low').filter(function (i) { return i.code === 'underspend'; })[0];
-      ok(us && us.level === 'warning' && us.quiet, 'quiet warning');
-      eq(r.byAd.low.health, 'improve');
+      // المرحلة ٥ (ه٨): ملاحظة «للعلم» في التفاصيل وحالة محايدة على الكارت — كانت «يحتاج إلى تحسين» بالأصفر
+      ok(us && us.level === 'info' && us.quiet, 'quiet FYI note');
+      eq([r.byAd.low.health, r.byAd.low.pending], ['pending', 'underspend']);
+      eq(withLang('ar', function () { return t('pend.underspend.t'); }), 'يأخذ إنفاقاً قليلاً');
       ok(/لا يأخذ إنفاقاً كافياً/.test(us.title) && /وحقق عملية شراء واحدة/.test(us.detail), us.detail);
       var fresh = ad('fresh', { daily: [0, 0, 0, 0, 2, 2, 0], res: [0, 0, 0, 0, 1, 0, 0], age: 2 });
       eq(engine(baseAccount().concat([fresh])).byAd.fresh.health, 'pending', 'still learning');
@@ -1245,7 +1255,8 @@
     });
     test('الترتيب جوه كل مستوى: الأكبر في الميزانية الأول، ومشاكل الحساب العاجلة فوق الكل', function () {
       var ads = baseAccount().concat([
-        ad('w1', { daily: [50, 50, 50, 50, 50, 50, 10], res: [3, 3, 3, 3, 0, 0, 0] }),
+        // ٨٠ في اليوم: يومين صفر والمتوقع ٨ = عاجل بدليل (بـ٥٠ في اليوم المتوقع ٥ — «مهم» بعد المرحلة ٥ ق١)
+        ad('w1', { daily: [80, 80, 80, 80, 80, 80, 16], res: [4, 4, 4, 4, 0, 0, 0] }),
         ad('w2', { daily: [300, 300, 300, 300, 300, 300, 60], res: [9, 9, 9, 9, 0, 0, 0] }),
         ad('f1', { daily: steady(80), res: steady(4), freq: 8 }),
         ad('f2', { daily: steady(400), res: steady(20), freq: 8 })
@@ -1308,10 +1319,14 @@
       eq([health(r, 'l1'), health(r, 'l2'), health(r, 'win')], ['review', 'review', 'good']);
       ok(has(r, 'l1', 'waste-week', 'critical') && /آخر ٦ أيام/.test(r.byAd.l1.issues[0].detail), list(r, 'l1'));
     });
-    test('ولا طلب طول الأسبوع بإنفاق يومي صغير (آخر يومين لوحدهم مكانوش كفاية) = عاجل', function () {
-      var r = engine(baseAccount().concat([ad('dry', { daily: steady(8) })]));
+    test('ولا طلب طول الأسبوع بإنفاق يومي صغير (آخر يومين لوحدهم مكانوش كفاية) = عاجل لو الإنفاق كفاية دليل', function () {
+      // ١٥٠ في الأسبوع ومتوسط الحساب ٢٠ للطلب: المتوقع ٧٫٥ والصفر صعب يكون صدفة — وآخر يومين لوحدهم (٥٠، المتوقع ٢٫٥) مش كفاية
+      var r = engine(baseAccount().concat([ad('dry', { daily: steady(25) })]));
       ok(has(r, 'dry', 'waste-week', 'critical'), list(r, 'dry'));
       eq(health(r, 'dry'), 'review');
+      // ٤٨ في الأسبوع: المتوقع ٢٫٤ واحتمال الصفر صدفة نحو ٩٪ — مش «عاجل» (كان عاجل عند ضعف تكلفة الطلب قبل المرحلة ٥ ق١)
+      var small = engine(baseAccount().concat([ad('dry', { daily: steady(8) })]));
+      ok(!has(small, 'dry', 'waste-week', 'critical'), list(small, 'dry'));
     });
     test('نتيجة واحدة بإنفاق يكفي لعشرة = تكلفة مرتفعة «عاجل» (القاعدة كانت محتاجة نتيجتين)', function () {
       var r = engine(baseAccount().concat([ad('one', { daily: steady(30), res: [0, 0, 0, 0, 0, 1, 0] })]));
@@ -1338,14 +1353,18 @@
       // السبب مكتوب: عائده ومستهدفه، ومتوسط عائد الحساب في الفترة نفسها
       ok(/×٤/.test(r.byAd.a.basis) && /متوسط عائد إعلانات المبيعات في حسابك/.test(r.byAd.a.basis), r.byAd.a.basis);
     });
-    test('خسارة طول الأسبوع (عائد ×٠٫٧) = عاجل «عائد أقل من التكلفة»، ومعاه عائد الحساب في الفترة نفسها', function () {
-      var r = engine(salesBase().concat([ad('lose', { daily: steady(100), res: [1, 0, 1, 0, 1, 0, 0], sales: [140, 0, 140, 0, 140, 0, 0], cid: 'kd' })]));
+    test('خسارة طول الأسبوع (عائد ×٠٫٣ بـ٢٤ طلباً) = عاجل «عائد أقل من التكلفة»، ومعاه عائد الحساب في الفترة نفسها', function () {
+      var r = engine(salesBase().concat([ad('lose', { daily: steady(100), res: steady(4), sales: steady(30), cid: 'kd' })]));
       var i = r.byAd.lose.issues.filter(function (x) { return x.code === 'loss'; })[0];
       ok(i && i.level === 'critical' && /آخر ٦ أيام/.test(i.detail) && /في الفترة نفسها/.test(i.detail), i ? i.detail : list(r, 'lose'));
+      // ٣ طلبات بعائد ×٠٫٧: احتمال الصدفة لو العائد الحقيقي ×١ نحو ٣٠٪ — مش «عاجل» (كان عاجل بـ«٣ طلبات» قبل المرحلة ٥ ق١)
+      var weak = engine(salesBase().concat([ad('lose', { daily: steady(100), res: [1, 0, 1, 0, 1, 0, 0], sales: [140, 0, 140, 0, 140, 0, 0], cid: 'kd' })]));
+      ok(!has(weak, 'lose', 'loss', 'critical') && health(weak, 'lose') !== 'review', list(weak, 'lose') + ' ' + health(weak, 'lose'));
     });
     test('عائد أقل من المستهدف لكنه أحسن من متوسط الحساب = بيقول إن السبب ممكن يكون الفترة', function () {
-      var weak = [ad('w1', { daily: steady(100), res: steady(2), sales: steady(120), cid: 'k1' }), ad('w2', { daily: steady(100), res: steady(2), sales: steady(120), cid: 'k2' }),
-        ad('mid', { daily: steady(100), res: steady(2), sales: steady(200), cid: 'k3' })];
+      // ٣٦ طلباً بعائد ×١٫٦ والمستهدف ×٣ — تحت المستهدف بدليل (بـ١٢ طلباً بعائد ×٢ كان في حدود الصدفة بعد المرحلة ٥ ق١)
+      var weak = [ad('w1', { daily: steady(300), res: steady(6), sales: steady(360), cid: 'k1' }), ad('w2', { daily: steady(300), res: steady(6), sales: steady(360), cid: 'k2' }),
+        ad('mid', { daily: steady(300), res: steady(6), sales: steady(480), cid: 'k3' })];
       var i = engine(weak).byAd.mid.issues.filter(function (x) { return x.code === 'low-roas'; })[0];
       ok(i && i.detail.indexOf(t('al.vsAccBetter').trim().slice(0, 20)) > -1, i ? i.detail : 'no low-roas');
     });
@@ -1356,15 +1375,16 @@
       var i = r.byAd.be.issues.filter(function (j) { return j.code === 'loss'; })[0];
       ok(i && i.title === t('al.lossBE.t') && /×٥/.test(i.detail) && !/أقل من التكلفة/.test(i.detail), i ? i.title + ' | ' + i.detail : list(r, 'be'));
       ok(i && i.money.kind === 'belowBE' && i.amount > 0 && !i.atRisk, i && JSON.stringify([i.money, i.amount, i.atRisk]));
-      // الحد ١ (الافتراضي): زي الأول — المبيعات أقل من الإنفاق فعلاً، وده هدر
-      var y = ad('l1', { daily: steady(100), res: steady(1), sales: steady(50), cid: 'ky' });
+      // الحد ١ (الافتراضي): زي الأول — المبيعات أقل من الإنفاق فعلاً، وده هدر (٢٤ طلباً بعائد ×٠٫٤ — دليل يكفي «عاجل»)
+      var y = ad('l1', { daily: steady(100), res: steady(4), sales: steady(40), cid: 'ky' });
       var j = engine(salesBase().concat([y])).byAd.l1.issues.filter(function (k) { return k.code === 'loss'; })[0];
       ok(j && j.title === t('al.loss.t') && j.money.kind === 'loss' && j.atRisk, j ? j.title + ' ' + j.money.kind : 'no loss');
     });
     test('أسبوع فيه مبيعات بس آخر ٣ أيام من غير ولا بيعة: سطر صريح بدل ما متوسط الأسبوع يخبّيه', function () {
-      var z = ad('z3', { daily: steady(100), res: [2, 2, 2, 0, 0, 0, 0], sales: [150, 150, 150, 0, 0, 0, 0], cid: 'kz' });
+      // ١٨ طلباً بعائد ×٠٫٢٥ في الأسبوع (خسارة بدليل)، وآخر ٣ أيام من غير ولا بيعة بإنفاق ٩٠٠
+      var z = ad('z3', { daily: steady(300), res: [6, 6, 6, 0, 0, 0, 0], sales: [150, 150, 150, 0, 0, 0, 0], cid: 'kz' });
       var i = withLang('ar', function () { return engine(salesBase().concat([z])); }).byAd.z3.issues.filter(function (k) { return k.code === 'loss'; })[0];
-      ok(i && /ولم يحقق أي مبيعات في آخر ٣ أيام رغم إنفاق ٣٠٠ ر\.س/.test(i.detail), i ? i.detail : 'no loss');
+      ok(i && /ولم يحقق أي مبيعات في آخر ٣ أيام رغم إنفاق ٩٠٠ ر\.س/.test(i.detail), i ? i.detail : 'no loss');
     });
     test('الحساب كله نزل أمس: نزول الإعلان «للعلم» بسبب الحساب، مش «وصول ضعيف» على كل إعلان لوحده', function () {
       var mk = function (id, cid) { return ad(id, { daily: [100, 100, 100, 100, 100, 10, 10], res: [5, 5, 5, 5, 5, 1, 1], cid: cid }); };
@@ -1406,8 +1426,12 @@
       eq(health(r, 'x'), 'good');
     });
     test('أسبوع قوي وآخر ٣ أيام بخسارة = «تراجع العائد» (مهم) مش «عاجل»', function () {
-      var r = engine(salesBase().concat([ad('dip', { daily: steady(100), res: [6, 6, 6, 1, 0, 1, 0], sales: [2400, 2400, 2400, 80, 0, 80, 0], cid: 'ke' })]));
+      // آخر ٣ أيام: ١٨ طلباً بمبيعات ١٢٠ (×٠٫٤) — تراجع بدليل (بطلبين بس كان في حدود الصدفة بعد المرحلة ٥ ق١)
+      var r = engine(salesBase().concat([ad('dip', { daily: steady(100), res: [6, 6, 6, 6, 6, 6, 0], sales: [2400, 2400, 2400, 40, 40, 40, 0], cid: 'ke' })]));
       ok(has(r, 'dip', 'roas-drop', 'warning') && !has(r, 'dip', 'loss'), list(r, 'dip'));
+      // تراجع بطلبين بس في آخر ٣ أيام (لسه متأكدش): مفيش «عائد ممتاز — زوّد الميزانية» وآخر ٣ أيام تحت حد الخسارة
+      var r2 = engine(salesBase().concat([ad('dip', { daily: steady(100), res: [6, 6, 6, 1, 0, 1, 0], sales: [2400, 2400, 2400, 80, 0, 80, 0], cid: 'ke' })]));
+      ok(!has(r2, 'dip', 'roas-great') && !has(r2, 'dip', 'loss'), list(r2, 'dip'));
     });
     test('الواجهة: «لم يُحكم بعد» على الكارت بسببه، والتفاصيل فيها أساس الحكم وفترته، والنصيحة «اقتراح للمراجعة»', function () {
       var fresh = ad('fresh', { daily: [0, 0, 0, 0, 0, 10, 5], age: 1 });
@@ -4274,11 +4298,12 @@
         eq(I18N.timesPhrase(2, numAr), 'ضعف');
         eq(I18N.timesPhrase(3, numAr), ar(3) + ' أضعاف');
         eq(I18N.timesPhrase(2.6, numAr), numAr(2.6) + ' ضعف');
-        // تنبيه الإنفاق دون نتائج والمتوقع عملية شراء واحدة (متوسط الحساب ٢٠، واتصرف ٢٥ في يومين)
+        // المتوقع عملية شراء واحدة (متوسط الحساب ٢٠، واتصرف ٢٥): من المرحلة ٥ (ق١) ده مش دليل على هدر (احتمال الصفر صدفة نحو ٣٠٪)،
+        // فالجملة في سبب «لم يُحكم بعد» — «أنفق ٢٥ دون أي…، والمتوقع نحو عملية شراء واحدة»
         var ads = baseAccount().concat([ad('w1', { daily: [0, 0, 0, 0, 12, 13, 0], res: steady(0), key: 'purchase' })]);
-        var w = engine(ads).byAd.w1.issues.filter(function (i) { return /waste/.test(i.code || ''); })[0];
-        ok(w, 'waste alert');
-        ok(w.detail.indexOf('عملية شراء واحدة') > -1 && w.detail.indexOf('١ عملية') === -1, 'reads «عملية شراء واحدة»: ' + w.detail);
+        var b = engine(ads).byAd.w1;
+        ok(!b.issues.some(function (i) { return /waste/.test(i.code || '') && i.level !== 'info'; }), 'no waste alert on one expected purchase');
+        ok(b.basis && b.basis.indexOf('عملية شراء واحدة') > -1 && b.basis.indexOf('١ عملية') === -1, 'reads «عملية شراء واحدة»: ' + b.basis);
       });
       withLang('en', function () { eq(I18N.countPhrase(2, 'purchase', String), '2 purchases'); eq(I18N.timesPhrase(2.6, String), '2.6×'); });
     });
@@ -5280,12 +5305,14 @@
     test('العائد جنب حد الخسارة: ×٤٫٩٦ مش «×٥، أقل من حد الخسارة (×٥)»', function () {
       var c = a8('rx', { daily: [100, 100, 100, 100, 100, 100, 100, 0], res: [2, 2, 2, 2, 2, 2, 2, 0], sales: [496, 496, 496, 496, 496, 496, 496, 0] });
       var r = withLang('ar', function () { return engine([c], {}, { roasBreakEven: 5, roasTarget: 6 }); });
-      var i = r.byAd.rx.issues.filter(function (x) { return x.code === 'loss'; })[0];
-      ok(i && i.detail.indexOf('٤٫٩٦') > -1 && !/×٥،/.test(i.detail), i ? i.detail : r.byAd.rx.issues.map(function (x) { return x.code; }).join(','));
-      // بعيد عن الحد: خانة واحدة زي الأول
-      c.dailySales = [300, 300, 300, 300, 300, 300, 300, 0];
+      // ×٤٫٩٦ مقابل ×٥ مش دليل على خسارة (المرحلة ٥ ق١) — الرقم نفسه في سبب الحكم المبدئي بخانتين
+      ok(!r.byAd.rx.issues.some(function (x) { return x.code === 'loss'; }), 'no loss alert at ×4.96 vs ×5');
+      var basis = r.byAd.rx.basis || '';
+      ok(basis.indexOf('٤٫٩٦') > -1 && !/×٥،/.test(basis), basis);
+      // بعيد عن الحد: خانة واحدة زي الأول (عائد ×٢ مقابل حد ×٥ بـ١٤ طلباً = خسارة بدليل)
+      c.dailySales = [200, 200, 200, 200, 200, 200, 200, 0];
       var j = withLang('ar', function () { return engine([c], {}, { roasBreakEven: 5, roasTarget: 6 }); }).byAd.rx.issues.filter(function (x) { return x.code === 'loss'; })[0];
-      ok(j && j.detail.indexOf('٣') > -1 && j.detail.indexOf('٣٫٠٠') === -1, j ? j.detail : 'no alert');
+      ok(j && j.detail.indexOf('٢') > -1 && j.detail.indexOf('٢٫٠٠') === -1, j ? j.detail : 'no alert');
     });
     test('حد الإنفاق: إنفاق ٧ أيام ÷ ٧ (مش ÷ ٨ خانات) — ٦٥٠ باقية و١٠٠ يومياً = «عاجل» ونحو ٦ أيام', function () {
       var ads = [a8('x', { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: [2, 2, 2, 2, 2, 2, 2, 1] }), a8('y', { daily: z8() })];
@@ -5317,8 +5344,8 @@
       var r = engine([X, Y, Z]);
       eq(r.byAd.X.health, 'good');
       ok(!r.alerts.some(function (a) { return a.code === 'concentration'; }), 'no concentration alert on the best ad');
-      // إعلان خسران (×٠٫٥) واخد أغلب الإنفاق: التنبيه بيطلع ومعاه عنوان مشكلته
-      var L = a8('L', { daily: [150, 150, 150, 150, 150, 150, 150, 50], res: [1, 1, 1, 1, 1, 1, 1, 0], sales: [75, 75, 75, 75, 75, 75, 75, 0] });
+      // إعلان خسران (×٠٫٣ بـ٢١ طلباً) واخد أغلب الإنفاق: التنبيه بيطلع ومعاه عنوان مشكلته
+      var L = a8('L', { daily: [150, 150, 150, 150, 150, 150, 150, 50], res: [3, 3, 3, 3, 3, 3, 3, 0], sales: [45, 45, 45, 45, 45, 45, 45, 0] });
       var r2 = withLang('ar', function () { return engine([L, Y, Z]); });
       var c = r2.alerts.filter(function (a) { return a.code === 'concentration'; })[0];
       var lossTitle = r2.byAd.L.issues.filter(function (i) { return i.code === 'loss'; })[0];
@@ -5327,7 +5354,8 @@
 
     test('المعرّض للهدر: الإعلان مرة واحدة بأكبر مبلغ عليه — «دون نتائج آخر يومين» و«خسارة» مبيتجمعوش (زي لوحة الهدر)', function () {
       var B = a8('B4', { daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [2, 2, 2, 2, 2, 2, 2, 1], sales: [300, 300, 300, 300, 300, 300, 300, 100] });
-      var W = a8('W4', { daily: [200, 200, 200, 200, 200, 200, 200, 100], res: [1, 1, 1, 1, 1, 0, 0, 0], sales: [150, 150, 150, 150, 150, 0, 0, 0] });
+      // ٢٠ طلباً بعائد ×٠٫٥٤ (خسارة بدليل)، وآخر يومين صفر والمتوقع ٨ — التنبيهين بدليل يكفي «عاجل» (المرحلة ٥ ق١)
+      var W = a8('W4', { daily: [200, 200, 200, 200, 200, 200, 200, 100], res: [4, 4, 4, 4, 4, 0, 0, 0], sales: [150, 150, 150, 150, 150, 0, 0, 0] });
       var r = engine([B, W]);
       var codes = r.alerts.filter(function (a) { return a.adId === 'W4' && a.atRisk; }).map(function (a) { return a.code + ' ' + a.amount; });
       ok(codes.length === 2, 'both alerts still shown: ' + codes);
@@ -5428,9 +5456,10 @@
 
     // حساب حقيقي ١٨ أكتوبر: أفضل إعلان في الحساب (×١٫٩ والحساب ×٠٫٨) تحت حد الخسارة ×٥ — الشرح كان بيقول «أفضل من متوسط
     // حسابك» والنصيحة «تعديله أو خفض ميزانيته». خفض ميزانية الأحسن بيقلل المبيعات أكتر من غيره (متوسط الباقي أضعف منه)
+    // نفس العائد (×١٫٩ و×٠٫٤٣) بعدد طلبات أكبر (١٠ و١٤): بـ٣ طلبات وطلبين كان الفرق عن الحد في حدود الصدفة (المرحلة ٥ ق١)
     var pair = function () {
-      return [a8('best', { daily: [75, 75, 75, 75, 75, 75, 75, 0], res: [1, 0, 1, 0, 1, 0, 0, 0], sales: [333, 0, 333, 0, 330, 0, 0, 0] }),
-        a8('weak', { daily: [215, 215, 215, 215, 215, 215, 215, 0], res: [1, 0, 0, 0, 1, 0, 0, 0], sales: [325, 0, 0, 0, 325, 0, 0, 0] })];
+      return [a8('best', { daily: [75, 75, 75, 75, 75, 75, 75, 0], res: [2, 1, 2, 1, 2, 1, 1, 0], sales: [190, 95, 190, 95, 190, 95, 142, 0] }),
+        a8('weak', { daily: [215, 215, 215, 215, 215, 215, 215, 0], res: [2, 2, 2, 2, 2, 2, 2, 0], sales: [93, 93, 93, 93, 93, 93, 92, 0] })];
     };
     var issueOf = function (r, id, code) { return r.byAd[id].issues.filter(function (x) { return x.code === code; })[0]; };
     test('تحت حد الخسارة وأفضل من متوسط الحساب: النصيحة مش «خفض ميزانيته» — والإعلان الأضعف نصيحته زي ما هي', function () {
@@ -5441,7 +5470,8 @@
       ok(w && w.advice === withLang('ar', function () { return t('al.loss.a'); }), w ? w.advice : issuesOf(r, 'weak'));
     });
     test('عائد أقل من المستهدف وأفضل من متوسط الحساب: النصيحة بالحساب كله قبل الإعلان', function () {
-      var r = withLang('ar', function () { return engine(pair(), {}, { roasBreakEven: 1, roasTarget: 3 }); });
+      // المستهدف ×٤: ×١٫٩ بـ١٠ طلبات تحت المستهدف بدليل (مقابل ×٣ كان في حدود الصدفة — المرحلة ٥ ق١)
+      var r = withLang('ar', function () { return engine(pair(), {}, { roasBreakEven: 1, roasTarget: 4 }); });
       var b = issueOf(r, 'best', 'low-roas');
       ok(b && b.advice === withLang('ar', function () { return t('al.lowRoas.aBetter'); }), b ? b.advice : issuesOf(r, 'best'));
       ok(issueOf(r, 'weak', 'loss'), issuesOf(r, 'weak'));
@@ -5452,15 +5482,16 @@
       return [a8('Wst', { daily: [73, 73, 73, 73, 73, 72, 72, 0], res: [0, 0, 1, 0, 0, 0, 0, 0], sales: [0, 0, 329, 0, 0, 0, 0, 0] }),
         a8('Bst', { daily: [69, 69, 69, 68, 68, 68, 68, 0], res: [1, 0, 1, 0, 1, 0, 0, 0], sales: [332, 0, 332, 0, 332, 0, 0, 0] })];
     };
-    test('أسوأ إعلان بطلب واحد وإنفاق كبير تحت حد الخسارة = «عاجل» (احتمال الصدفة ٠٫٤٪) — وسبب حكمه مش «مبدئي»', function () {
+    test('أسوأ إعلان بطلب واحد وإنفاق كبير تحت حد الخسارة = «عاجل» (احتمال الصدفة نحو ٠٫٨٪) — وسبب حكمه مش «مبدئي»', function () {
       var r = withLang('ar', function () { return engine(worstBest(), {}, { roasBreakEven: 5, roasTarget: 6 }); });
       var w = issueOf(r, 'Wst', 'loss'), b = issueOf(r, 'Bst', 'loss');
       ok(w && w.level === 'critical' && w.title === t('al.lossBE.t'), w ? w.level + ' ' + w.title : issuesOf(r, 'Wst'));
       ok(r.byAd.Wst.health === 'review' && !/مبدئي/.test(r.byAd.Wst.basis || ''), r.byAd.Wst.health + ' | ' + r.byAd.Wst.basis);
-      // الإعلان الأحسن: زي ما كان (٣ طلبات = الدليل الأول) — عاجل، ونصيحته «ابدأ بالحساب كله» لأنه أحسن من المتوسط
-      ok(b && b.level === 'critical' && b.advice === t('al.loss.aBetter'), b ? b.level + ' | ' + b.advice : issuesOf(r, 'Bst'));
+      // الإعلان الأحسن (٣ طلبات بعائد ×٢٫١): احتمال الصدفة نحو ١٠٪ — مش «خسارة عاجلة» (المرحلة ٥ ق١). الترتيب بقى صح: الأسوأ عاجل
+      // والأحسن لأ (قبل المرحلة ٤ كان العكس، وبعدها الاتنين عاجل)
+      ok(!(b && b.level === 'critical'), b ? b.level : 'no loss');
     });
-    test('خسارة بالاحتمال بس بين ١٪ و١٠٪ = «مهم» برّه المعرّض للهدر — والإنفاق الصغير اللي احتماله عالي من غير تنبيه', function () {
+    test('طلب واحد رخيص في حساب طلباته غالية = مفيش دليل خسارة (مش «عاجل» ولا في المعرّض للهدر) — والإنفاق الصغير من غير تنبيه', function () {
       // متوسط تكلفة الطلب في الحساب ٣٨٠ (١٬٩٠٠ ÷ ٥): إنفاق «mid» أقل من ٣ أضعافه، فالدليل الأول مبيشتغلش — الاحتمال بس
       var base = [a8('o1', { daily: [100, 100, 100, 100, 100, 100, 100, 0], res: [1, 0, 0, 1, 0, 0, 0, 0], sales: [1800, 0, 0, 1800, 0, 0, 0, 0] }),
         a8('o2', { daily: [100, 100, 100, 100, 100, 100, 100, 0], res: [1, 0, 0, 1, 0, 0, 0, 0], sales: [1800, 0, 0, 1800, 0, 0, 0, 0] })];
@@ -5469,8 +5500,10 @@
       // ١٠٠ وصفر طلبات: المتوقع على الحد ١٫٤ واحتمال الصفر ٢٥٪ — مفيش دليل
       var tiny = a8('tiny', { daily: [15, 15, 14, 14, 14, 14, 14, 0] });
       var r = withLang('ar', function () { return engine(base.concat([mid, tiny]), {}, { roasBreakEven: 5, roasTarget: 6 }); });
+      // من المرحلة ٥ (ق١): طلب واحد بـ٣٣٠ وطلبات الحساب بـ١٬٨٠٠ — قيمة طلب الإعلان نفسه مش معروفة من طلب واحد (تتقرّب لقيمة الحساب)،
+      // فالمتوقع على الحد نحو ١٫٧ طلب بس ومفيش دليل: مش «عاجل» ومش في المعرّض للهدر
       var m = issueOf(r, 'mid', 'loss');
-      ok(m && m.level === 'warning' && !m.atRisk, m ? m.level + ' atRisk=' + m.atRisk : issuesOf(r, 'mid'));
+      ok(!(m && (m.level === 'critical' || m.atRisk)), m ? m.level + ' atRisk=' + m.atRisk : 'no loss');
       ok(!issueOf(r, 'tiny', 'loss'), issuesOf(r, 'tiny'));
     });
     // حساب حقيقي ١٨ أكتوبر: معاينة البريد قالت «٥ طلبات» من غير سطر «للمقارنة: تنسب Meta…» اللي في الأداة (Meta بتنسب ١٦)
@@ -5511,6 +5544,83 @@
       ok(a && /أمس ٩٠ ر\.س فقط مقابل متوسط ٣٠٠ ر\.س يومياً خلال ٦ أيام قبله \(−٧٠٪\)/.test(a.detail), a ? a.detail : 'no alert');
       var en = withLang('en', function () { return engine(ads, meta); }).alerts.filter(function (x) { return x.code === 'acct-drop'; })[0];
       ok(en && /over the 6 days before/.test(en.detail), en ? en.detail : 'no en alert');
+    });
+  });
+
+  // المرحلة ٥ (ق١، ١٩ أكتوبر ٢٠٢٦): معيار دليل واحد لأحكام أداء الإعلان، هو معيار تشخيص المتجر. محاكاة حساب سليم تماماً (كل إعلاناته
+  // بنفس الأداء الحقيقي) كانت بتطلّع عاجل كاذب في ٦٤–٨٢٪ من الفحوص و٣٫٩ رسالة عاجلة كاذبة في الأسبوع. نسخة مصغّرة بذرة ثابتة من
+  // tests/private/alert-sim.html (نفس الافتراضات: تذبذب يوم الحساب ٠٫١٥ والإعلان ٠٫٢ والإنفاق ٠٫٣، وقيمة طلب معامل اختلافها ٠٫٨)
+  describe('معيار الدليل لتنبيهات الإعلان (المرحلة ٥)', function () {
+    var K8 = last7Days(TODAY).map(function (d) { return d.key; });
+    function rng(seed) {
+      var a = seed >>> 0;
+      return function () {
+        a = (a + 0x6D2B79F5) >>> 0;
+        var x = Math.imul(a ^ (a >>> 15), 1 | a);
+        x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+        return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    function normal(r) { var u = 0, v = 0; while (u === 0) u = r(); while (v === 0) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+    function poisson(l, r) { if (!(l > 0)) return 0; var L = Math.exp(-l), k = 0, p = 1; do { k++; p *= r(); } while (p > L); return k - 1; }
+    function lognorm(r, cv) { var s = Math.sqrt(Math.log(1 + cv * cv)); return Math.exp(s * normal(r) - s * s / 2); }
+    // ٢٠ إعلان، ميزانيات ٢٠–٣٠٠ يومياً، تكلفة الطلب الحقيقية ١٠٠، وقيمة الطلب aov. plant = { idx, factor } إعلان بمشكلة حقيقية
+    function account(r, aov, plant) {
+      var dayF = [], ads = [];
+      for (var d = 0; d < 8; d++) dayF.push(lognorm(r, 0.15));
+      for (var a = 0; a < 20; a++) {
+        var budget = 20 * Math.pow(15, a / 19), rate = 0.01 * (plant && plant.idx === a ? plant.factor : 1), daily = [], res = [], sales = [];
+        for (var dd = 0; dd < 8; dd++) {
+          var sp = Math.round(budget * lognorm(r, 0.3) * (dd === 7 ? 0.5 : 1) * 100) / 100, k = poisson(sp * rate * dayF[dd] * lognorm(r, 0.2), r), v = 0;
+          for (var j = 0; j < k; j++) v += aov * lognorm(r, 0.8);
+          daily.push(sp); res.push(k); sales.push(Math.round(v * 100) / 100);
+        }
+        var c = ad('s' + a, { daily: daily.slice(0, 7), res: res.slice(0, 7), sales: sales.slice(0, 7), cid: 'c' + (a % 4), age: 40 });
+        c.daily = daily; c.dailyResults = res; c.dailySales = sales; c.dailyDates = K8;
+        ads.push(c);
+      }
+      return ads;
+    }
+    test('حساب مبيعات سليم تماماً (العائد الحقيقي ×٤٫٥): «عاجل» كاذب في أقل من ٣٪ من الفحوص، و«مهم» على أقل من ٦٪ من الإعلانات', function () {
+      var r = rng(501), runs = 120, urgentRuns = 0, warnAds = 0, total = 0;
+      for (var k = 0; k < runs; k++) {
+        var out = engine(account(r, 450, null));
+        if (out.alerts.some(function (a) { return a.level === 'critical' && !a.minor; })) urgentRuns++;
+        Object.keys(out.byAd).forEach(function (id) {
+          total++;
+          if (out.byAd[id].issues.some(function (i) { return (i.level === 'critical' || i.level === 'warning') && !i.minor && !i.quiet; })) warnAds++;
+        });
+      }
+      ok(urgentRuns / runs < 0.03, 'false urgent in ' + urgentRuns + ' of ' + runs + ' checks');
+      ok(warnAds / total < 0.06, 'false warning on ' + warnAds + ' of ' + total + ' healthy ads');
+    });
+    test('إعلان بلا أي طلب (إنفاقه متوسط) مكشوف في كل مرة، وإعلان تكلفة طلبه ×٣ مكشوف في ٤٠٪ أو أكتر (أقصى الممكن نحو ٥٦٪)', function () {
+      var r = rng(502), runs = 60, dead = 0, costly = 0;
+      for (var k = 0; k < runs; k++) {
+        var d = engine(account(r, 300, { idx: 12, factor: 0 })).byAd.s12.issues;
+        if (d.some(function (i) { return i.level === 'critical' || i.level === 'warning'; })) dead++;
+        var c = engine(account(r, 300, { idx: 12, factor: 1 / 3 })).byAd.s12.issues;
+        if (c.some(function (i) { return i.level === 'critical' || i.level === 'warning'; })) costly++;
+      }
+      eq(dead, runs, 'no-orders ad caught every time');
+      ok(costly / runs >= 0.4, 'costly ad caught ' + costly + ' of ' + runs);
+    });
+    test('احتمال المبيعات الدقيق (بواسون مركّب مع جاما) = محاكاة مونت كارلو: أسوأ إعلان ٠٫٧٨٪، والأحسن ١٠٪', function () {
+      var P = PauseProofAlerts._.roasP;
+      // القيم من ٢٠٠ ألف عيّنة مونت كارلو لنفس النموذج (tests/private/alert-debug.html)
+      ok(Math.abs(P(329, 509, 5, 1, 331, 7, -1) - 0.00788) < 0.0005, String(P(329, 509, 5, 1, 331, 7, -1)));
+      ok(Math.abs(P(996, 479, 5, 3, 331, 7, -1) - 0.0998) < 0.003, String(P(996, 479, 5, 3, 331, 7, -1)));
+      ok(Math.abs(P(4800, 600, 3, 24, 200, 6, 1) - 0.00143) < 0.0003, String(P(4800, 600, 3, 24, 200, 6, 1)));
+      // فوق الحد في اختبار «أقل» (أو العكس) = مفيش دليل
+      eq([P(700, 100, 5, 3, 200, 7, -1), P(300, 100, 5, 3, 200, 7, 1)], [1, 1]);
+    });
+    test('Benjamini–Hochberg: حد «عاجل» للحساب كله بعدد الاختبارات اللي اتعملت', function () {
+      var F = PauseProofAlerts._.fdrCut;
+      // ٣ اختبارات بنسبة ١٠٪: ٠٫٠٢ ≤ ٠٫١ × ٢ ÷ ٣ = ٠٫٠٦٧ → الاتنين الأصغر عاجل
+      eq(F([0.5, 0.001, 0.02], 0.1), 0.02);
+      // نفس الاحتمال (٠٫٠٢) وسط ٤٠ اختبار سليم: مش عاجل (٠٫٠٢ > ٠٫١ ÷ ٤٠)
+      var many = [0.02]; for (var i = 0; i < 39; i++) many.push(0.5 + i / 100);
+      eq(F(many, 0.1), -1);
     });
   });
 
