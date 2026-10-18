@@ -1279,7 +1279,7 @@
     copy.hidden = !o;
     // أرقام الملخص (طلبات، مبيعات، عائد…) — مفيش مشتريات = شريط الإنفاق والنتائج مكانها
     var nums = !!(o && o.kpis && o.kpis.length);
-    renderKpis(!nums && !loading);
+    renderKpis(!nums && !loading, dxViewPlatforms());
     var lines = nums ? storeLines(dxViewPlatforms()) : [];
     document.getElementById('dxToday').innerHTML = lines.map(function (l) { return '<p>' + esc(l.text) + '</p>'; }).join('');
     // بين قوسين مش «·» — النقطة جنب الأرقام العربية بتتقري «٠»
@@ -1575,13 +1575,17 @@
   // ---------- شريط الإنفاق والنتائج (جوه ملخص المتجر) ----------
   // بيظهر بس لما أرقام الملخص مش متاحة (الحساب مفيهوش مشتريات، الملخص فشل، ?dx=0) — ساعتها هو أرقام الفترة المختارة
   // (نفس أرقام كروت الإعلانات — core.js periodOf). «معرّض للهدر» و«تحتاج مراجعة» بقوا شارات في «يحتاج انتباهك الآن»
-  function renderKpis(show) {
+  // platforms = منصات العرض المختار في الملخص (dxViewPlatforms) — زي العنوان اللي فوقه. قبل كده كان بيجمع كل الكروت: تحت شريحة Meta
+  // (حساب مفيهوش مشتريات) كان بيكتب «لا تُسجَّل مشتريات» وتحته «١٦ عملية شراء» وإنفاق ٩٠٧ $ من Meta وSnapchat مع بعض
+  // (مراجعة المرحلة ٤، حساب حقيقي ١٨ أكتوبر ٢٠٢٦)
+  function renderKpis(show, platforms) {
     var strip = document.getElementById('kpiStrip');
     if (!show || !candidates.length) { strip.innerHTML = ''; return; }
     // المجاميع بتتحسب لكل عملة على حدة — جمع ريال مع دولار يطلع رقم بلا معنى
     // والنتائج لكل نوع على حدة: مشتريات + محادثات + سوايب في رقم واحد كان بيطلع رقم ملوش معنى
     var spendByCur = {}, byType = {};
     candidates.forEach(function (c) {
+      if (!onPlatforms(c, platforms)) return;
       var p = periodOf(c);
       spendByCur[c.currency || ''] = (spendByCur[c.currency || ''] || 0) + (p.spend || 0);
       if (p.results == null) return;

@@ -1601,6 +1601,24 @@
       render();
       eq(document.querySelectorAll('#kpiStrip .kpi-value')[1].textContent, ar(7) + ' ' + t('res.purchase'));
     });
+    // حساب حقيقي ١٨ أكتوبر: شريحة Meta (حساب رسائل من غير مشتريات) كان عنوانها «لا تُسجَّل مشتريات» وتحته «١٦ عملية شراء» وإنفاق
+    // ٩٠٧ $ — أرقام Meta وSnapchat مع بعض. الشريط بيتبع شريحة الملخص المختارة زي العنوان
+    test('الشريط بيتبع شريحة الملخص المختارة (Meta لوحدها) — مش كل المنصات', function () {
+      candidates = [
+        ad('m1', { daily: steady(50), res: steady(7), key: 'message' }),
+        ad('s1', { daily: steady(70), res: [3, 3, 2, 2, 2, 2, 2], key: 'purchase', source: 'snapchat:a1', platform: 'Snapchat' })
+      ];
+      candidates.forEach(function (c) { c.currency = 'USD'; });
+      dxState.views = [{ id: 'all' }, { id: 'meta' }, { id: 'snapchat' }];
+      dxState.view = 'meta';
+      render();
+      var v = document.querySelectorAll('#kpiStrip .kpi-value');
+      ok(v[0].textContent.indexOf(fmtNum(350)) > -1 && v[0].textContent.indexOf(fmtNum(840)) === -1, v[0].textContent);
+      ok(v[1].textContent.indexOf(t('res1.purchase')) === -1 && v[1].textContent.indexOf(t('res.purchase')) === -1, v[1].textContent);
+      dxState.view = 'all';
+      render();
+      ok(document.querySelectorAll('#kpiStrip .kpi-value')[0].textContent.indexOf(fmtNum(840)) > -1, 'all platforms = combined');
+    });
   });
 
   describe('Google — حملات Performance Max', function () {
