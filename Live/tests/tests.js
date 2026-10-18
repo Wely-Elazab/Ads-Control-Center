@@ -3672,6 +3672,22 @@
       settingsOverlay.classList.add('hidden');
     });
 
+    // المراجعة التانية للمرحلة ٤ (ر٧٩): «1,000» في «أقل عدد نتائج» (حدّه ١٠٬٠٠٠) كان بيتحفظ ١ في صمت — الفاصلة كانت عشرية في كل الخانات
+    test('الإعدادات: «1,000» في خانة عدد = ألف مش ١، و«1,000» يوم برّه الحد = خطأ ظاهر (ر٧٩)', function () {
+      var inp = function (k) { return settingsForm.querySelector('[name="' + k + '"]'); };
+      var save = function (k, typed) { alertSettings = {}; renderSettingsForm(); inp(k).value = typed; document.getElementById('settingsSave').click(); };
+      [['1,000', 1000], ['١٬٠٠٠', 1000], ['1,000 ', 1000], ['12', 12], ['١٢', 12]].forEach(function (x) {
+        save('scaleMinResults', x[0]);
+        eq(alertSettings.scaleMinResults, x[1], 'typed "' + x[0] + '"');
+      });
+      save('oldAdDays', '1,000');
+      eq(alertSettings.oldAdDays, undefined, 'not saved as 1 day');
+      ok(settingsForm.querySelector('.setting-row.invalid [name="oldAdDays"]'), 'out of range (730) is shown as an error');
+      save('roasTarget', '2,5');
+      eq(alertSettings.roasTarget, 2.5, 'a multiplier keeps the decimal comma');
+      settingsOverlay.classList.add('hidden');
+    });
+
     test('الفترة المخصصة: مقلوبة أو في المستقبل أو أطول من ٩٣ يوم بتتحفظ صح واسمها يطابق البيانات', function () {
       var today = todayKeyInTz(BROWSER_TZ);
       var apply = function (a, b) { dateFrom.value = a; dateTo.value = b; document.getElementById('periodApply').click(); };

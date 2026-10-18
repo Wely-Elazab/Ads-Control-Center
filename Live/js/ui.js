@@ -2565,11 +2565,14 @@
     return true;
   }
   // الأرقام العربية (٠-٩) والفارسية (۰-۹) والفاصلة (٫ أو ,) → رقم عادي. «١٫٥» و«1,5» و«1.5» كلهم ١٫٥
-  function settingNumberText(v) {
-    return String(v == null ? '' : v).trim()
+  // whole = خانة عدد صحيح (عدد نتائج، أيام): الفاصلة قبل ٣ أرقام بالظبط فاصل آلاف — «1,000» = ألف. قبل كده كانت ١ في صمت
+  // (المراجعة التانية للمرحلة ٤، ر٧٩: «أقل عدد نتائج» حدّه ١٠٬٠٠٠ فالواحد كان بيتقبل). في المضاعفات والنسب الفاصلة عشرية (أقصاها ١٠٠)
+  function settingNumberText(v, whole) {
+    var s = String(v == null ? '' : v).trim()
       .replace(/[\u0660-\u0669]/g, function (d) { return String(d.charCodeAt(0) - 0x0660); })
-      .replace(/[\u06F0-\u06F9]/g, function (d) { return String(d.charCodeAt(0) - 0x06F0); })
-      .replace(/[\u066B,]/g, '.').replace(/\s+/g, '');
+      .replace(/[\u06F0-\u06F9]/g, function (d) { return String(d.charCodeAt(0) - 0x06F0); });
+    if (whole) s = s.replace(/[\u066C,](?=\d{3}(?!\d))/g, '');
+    return s.replace(/[\u066B,]/g, '.').replace(/\s+/g, '');
   }
   function readSettingsForm(root, radioName) {
     root = root || settingsForm;
@@ -2579,7 +2582,7 @@
     PauseProofAlerts.SETTINGS_META.forEach(function (m) {
       var input = inputOf(m.key);
       if (!input) return;
-      var txt = settingNumberText(input.value);
+      var txt = settingNumberText(input.value, m.kind === 'count' || m.kind === 'days');
       if (txt === '') return; // فاضي = قيمة النمط المختار
       var raw = /^\d*\.?\d+$/.test(txt) ? parseFloat(txt) : NaN;
       if (!isFinite(raw) || raw < m.min || raw > m.max) {
