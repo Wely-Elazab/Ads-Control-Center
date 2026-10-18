@@ -3607,6 +3607,27 @@
       eq(keyDiffDays(period.since, period.until), PERIOD_MAX_DAYS - 1, 'trimmed to 93 days');
       eq(document.getElementById('connectStatus').textContent, t('period.trimmed', { n: ar(PERIOD_MAX_DAYS), date: fmtKey(period.since) }), 'says it was trimmed');
     });
+    // رد Meta نفسها (١٨ أكتوبر ٢٠٢٦): «(#3018) The start date of the time range cannot be beyond 37 months from the current date» —
+    // وملخص المتجر بيجيب فترات قبل الفترة بنفس الطول (DX.windows). فترة قديمة كانت بتفشل كلها من غير سبب مكتوب
+    test('فترة مخصصة أقدم من حد Meta (٣٧ شهراً مع فترات المقارنة): البداية بتتقدّم والرسالة بتقول ليه — ومن غير Meta زي ما هي', function () {
+      var today = todayKeyInTz(BROWSER_TZ), savedMeta = activeSources.meta;
+      var apply = function (a, b) { dateFrom.value = a; dateTo.value = b; document.getElementById('periodApply').click(); };
+      var lim = new Date(today + 'T00:00:00Z'); lim.setUTCMonth(lim.getUTCMonth() - 37);
+      var oldest = shiftKey(lim.toISOString().slice(0, 10), 1);
+      try {
+        activeSources.meta = 'act_1';
+        apply('2022-01-01', '2022-01-30');
+        var ws = DX.windows(period.since, period.until, false);
+        eq(ws[ws.length - 1].since, oldest, 'the oldest comparison window starts exactly at Meta\'s limit');
+        eq(keyDiffDays(period.since, period.until), 29, 'same length (30 days)');
+        eq(document.getElementById('connectStatus').textContent, t('period.tooOld', { date: fmtKey(period.since) }), 'says why');
+        apply(shiftKey(today, -20), shiftKey(today, -10));
+        eq([period.since, period.until], [shiftKey(today, -20), shiftKey(today, -10)], 'a recent period is untouched');
+        delete activeSources.meta;
+        apply('2022-01-01', '2022-01-30');
+        eq([period.since, period.until], ['2022-01-01', '2022-01-30'], 'no Meta = no Meta limit');
+      } finally { if (savedMeta) activeSources.meta = savedMeta; else delete activeSources.meta; }
+    });
 
     test('تنبيه على مستوى حساب مالوش اسم معروف بيقول اسم المنصة (مش snapchat:123)', function () {
       var one = ad('z1', { daily: [50, 50, 50, 50, 50, 0, 0], res: steady(2) });

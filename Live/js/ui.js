@@ -1501,8 +1501,25 @@
     if (since > until) since = until;
     var trimmed = keyDiffDays(since, until) > PERIOD_MAX_DAYS - 1;
     if (trimmed) since = shiftKey(until, -(PERIOD_MAX_DAYS - 1));
+    // Meta مبتديش أرقام أقدم من ٣٧ شهراً (ردها نفسه: «(#3018) The start date of the time range cannot be beyond 37 months from
+    // the current date»)، وملخص المتجر بيجيب فترات قبلها بنفس الطول للمقارنة (DX.windows — من ٥ لـ ٩). فترة قريبة من الحد كانت بتفشل
+    // كلها («تعذّر…») من غير ما تقول ليه — فبنقدّم البداية لحد ما الفترة واللي قبلها يدخلوا (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦)
+    var tooOld = false;
+    if (activeSources.meta && window.DX && DX.windows) {
+      var lim = new Date(today + 'T00:00:00Z');
+      lim.setUTCMonth(lim.getUTCMonth() - 37);
+      var oldest = shiftKey(lim.toISOString().slice(0, 10), 1);
+      var ws = DX.windows(since, until, false), first = ws[ws.length - 1].since;
+      if (first < oldest) {
+        var len = keyDiffDays(since, until);
+        since = shiftKey(since, keyDiffDays(first, oldest)); until = shiftKey(since, len);
+        if (until > today) until = today;
+        tooOld = true;
+      }
+    }
     applyPeriod({ preset: 'custom', since: since, until: until });
-    if (trimmed) setStatus(msg('period.trimmed', { n: PERIOD_MAX_DAYS, date: function () { return fmtKey(since); } }));
+    if (tooOld) setStatus(msg('period.tooOld', { date: function () { return fmtKey(since); } }));
+    else if (trimmed) setStatus(msg('period.trimmed', { n: PERIOD_MAX_DAYS, date: function () { return fmtKey(since); } }));
   });
   syncPeriodUi();
 
