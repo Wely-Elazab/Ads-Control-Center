@@ -1945,19 +1945,20 @@
   }
 
   var expandSeq = 0, expandShown = null;
-  // اللي بيتعرض في التفاصيل: أرقام الإعلان وحكمه وملاحظاته — لو اتغيّر بعد تحديث (refreshOpenExpand) النافذة بتترسم من جديد
+  // اللي بيتعرض في التفاصيل: الإعلان كله (أرقامه وتعديلاته وتكراره) وحكمه وملاحظاته — لو اتغيّر (refreshOpenExpand) النافذة
+  // بتترسم من جديد. الإعلان نفسه مش كفاية: سجل التعديلات وتكرار الظهور من البداية بيتضافوا على نفس الكارت في الخلفية بعد
+  // الأرقام (meta.js loadAdEdits / loadLifeFrequency)، وحكم الإعلان بيتغيّر لما إعلانات الحساب التانية تتغيّر
   function expandSig(c) {
-    var a = adAnalysis(c);
-    return JSON.stringify([c.daily, c.dailyResults, c.dailySales, c.dailyDates, c.active, c.platformStatus, c.frequency, a.health, a.basis,
-      a.issues.map(function (i) { return [i.level, i.title, i.detail, i.advice]; })]);
+    var a = adAnalysis(c), own;
+    try { own = JSON.stringify(c); } catch (e) { own = JSON.stringify([c.daily, c.dailyResults, c.dailySales, c.edits, c.frequency, c.frequencyLife]); }
+    return own + JSON.stringify([a.health, a.pending, a.basis, a.issues.map(function (i) { return [i.level, i.title, i.detail, i.advice]; })]);
   }
-  // تفاصيل إعلان مفتوحة والأرقام اتحدّثت من وراها (الرجوع للتاب بعد نص ساعة بيحدّث لوحده): نرسمها بالأرقام الجديدة في نفس
-  // مكان التمرير. قبل كده كانت بتفضل على أرقامها القديمة والكارت اللي وراها اتغيّر. نفس الأرقام = منلمسهاش (الفيديو بيكمّل)
+  // تفاصيل إعلان مفتوحة واللي فيها اتغيّر من وراها (التعديلات وصلت، أو الرجوع للتاب بعد نص ساعة حدّث الأرقام لوحده): نرسمها
+  // من جديد في نفس مكان التمرير. قبل كده كانت بتفضل على حالتها القديمة والكارت اللي وراها اتغيّر. مفيش تغيير = منلمسهاش (الفيديو بيكمّل)
   function refreshOpenExpand() {
     if (!expandShown || expandOverlay.classList.contains('hidden')) return;
     var c = findCandidate(expandOverlay.dataset.adId);
-    if (!c || c === expandShown.c) return;
-    if (expandSig(c) === expandShown.sig) { expandShown.c = c; return; }
+    if (!c || expandSig(c) === expandShown.sig) return;
     var card = expandOverlay.querySelector('.expand-card'), top = card.scrollTop;
     openExpand(c);
     card.scrollTop = top;

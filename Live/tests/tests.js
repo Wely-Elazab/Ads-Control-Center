@@ -6229,6 +6229,12 @@
         w.candidates = [ad('d1', { daily: steady(20), res: steady(1) })];
         w.render();
         ok(total() !== before && !ov.classList.contains('hidden'), before + ' → ' + total());
+        // سجل التعديلات بيوصل بعد الأرقام ويتضاف على نفس الكارت (meta.js loadAdEdits): الحكم اتغيّر فالنافذة بتتحدّث — على
+        // الموقع ١٨ أكتوبر النافذة اتفتحت «جيد» وفضلت كده، والكارت وراها «عُدّل مؤخراً — ننتظر نتيجة التعديل»
+        w.candidates[0].edits = [{ kind: 'budget', level: 'adset', date: KEYS[5], from: 1000, to: 2000 }];
+        w.render();
+        var basis = w.adAnalysis(w.candidates[0]).basis;
+        ok(w.adAnalysis(w.candidates[0]).pending === 'edited' && ov.innerText.indexOf(basis) > -1, basis + ' | ' + ov.innerText.slice(0, 200));
         f.remove();
       });
     });
