@@ -5139,6 +5139,33 @@
       ok(b && b.advice === withLang('ar', function () { return t('al.lowRoas.aBetter'); }), b ? b.advice : issuesOf(r, 'best'));
       ok(issueOf(r, 'weak', 'loss'), issuesOf(r, 'weak'));
     });
+    // حساب حقيقي ١٨ أكتوبر: أسوأ إعلان (٥٠٩ ر.س وطلب واحد بـ٣٢٩، ×٠٫٦٥ والحد ×٥) كان «لم يُحكم بعد» من غير ولا ملاحظة، وأحسن منه
+    // (٤٧٩ ر.س و٣ طلبات، ×٢٫١) «عاجل» — دليل «٣ طلبات أو إنفاق يكفي لـ٣ بمتوسط الحساب» بيتقاس بمتوسط حساب خسران أصلاً
+    var worstBest = function () {
+      return [a8('Wst', { daily: [73, 73, 73, 73, 73, 72, 72, 0], res: [0, 0, 1, 0, 0, 0, 0, 0], sales: [0, 0, 329, 0, 0, 0, 0, 0] }),
+        a8('Bst', { daily: [69, 69, 69, 68, 68, 68, 68, 0], res: [1, 0, 1, 0, 1, 0, 0, 0], sales: [332, 0, 332, 0, 332, 0, 0, 0] })];
+    };
+    test('أسوأ إعلان بطلب واحد وإنفاق كبير تحت حد الخسارة = «عاجل» (احتمال الصدفة ٠٫٤٪) — وسبب حكمه مش «مبدئي»', function () {
+      var r = withLang('ar', function () { return engine(worstBest(), {}, { roasBreakEven: 5, roasTarget: 6 }); });
+      var w = issueOf(r, 'Wst', 'loss'), b = issueOf(r, 'Bst', 'loss');
+      ok(w && w.level === 'critical' && w.title === t('al.lossBE.t'), w ? w.level + ' ' + w.title : issuesOf(r, 'Wst'));
+      ok(r.byAd.Wst.health === 'review' && !/مبدئي/.test(r.byAd.Wst.basis || ''), r.byAd.Wst.health + ' | ' + r.byAd.Wst.basis);
+      // الإعلان الأحسن: زي ما كان (٣ طلبات = الدليل الأول) — عاجل، ونصيحته «ابدأ بالحساب كله» لأنه أحسن من المتوسط
+      ok(b && b.level === 'critical' && b.advice === t('al.loss.aBetter'), b ? b.level + ' | ' + b.advice : issuesOf(r, 'Bst'));
+    });
+    test('خسارة بالاحتمال بس بين ١٪ و١٠٪ = «مهم» برّه المعرّض للهدر — والإنفاق الصغير اللي احتماله عالي من غير تنبيه', function () {
+      // متوسط تكلفة الطلب في الحساب ٣٨٠ (١٬٩٠٠ ÷ ٥): إنفاق «mid» أقل من ٣ أضعافه، فالدليل الأول مبيشتغلش — الاحتمال بس
+      var base = [a8('o1', { daily: [100, 100, 100, 100, 100, 100, 100, 0], res: [1, 0, 0, 1, 0, 0, 0, 0], sales: [1800, 0, 0, 1800, 0, 0, 0, 0] }),
+        a8('o2', { daily: [100, 100, 100, 100, 100, 100, 100, 0], res: [1, 0, 0, 1, 0, 0, 0, 0], sales: [1800, 0, 0, 1800, 0, 0, 0, 0] })];
+      // ٤٠٠ وطلب واحد بـ٣٣٠، والحد ×٥: المتوقع على الحد ٦ طلبات، واحتمال طلب واحد أو أقل ١٫٧٪
+      var mid = a8('mid', { daily: [58, 57, 57, 57, 57, 57, 57, 0], res: [0, 0, 1, 0, 0, 0, 0, 0], sales: [0, 0, 330, 0, 0, 0, 0, 0] });
+      // ١٠٠ وصفر طلبات: المتوقع على الحد ١٫٤ واحتمال الصفر ٢٥٪ — مفيش دليل
+      var tiny = a8('tiny', { daily: [15, 15, 14, 14, 14, 14, 14, 0] });
+      var r = withLang('ar', function () { return engine(base.concat([mid, tiny]), {}, { roasBreakEven: 5, roasTarget: 6 }); });
+      var m = issueOf(r, 'mid', 'loss');
+      ok(m && m.level === 'warning' && !m.atRisk, m ? m.level + ' atRisk=' + m.atRisk : issuesOf(r, 'mid'));
+      ok(!issueOf(r, 'tiny', 'loss'), issuesOf(r, 'tiny'));
+    });
     test('انخفاض إنفاق الحساب: النص بيقول المتوسط اتحسب على كام يوم (٦ أيام قبل أمس — مش إنفاق الـ٧ أيام ÷ ٧)', function () {
       var ads = [a8('d1', { daily: [200, 200, 200, 200, 200, 200, 60, 10], res: [2, 2, 2, 2, 2, 2, 1, 0] }),
         a8('d2', { daily: [100, 100, 100, 100, 100, 100, 30, 5], res: [1, 1, 1, 1, 1, 1, 0, 0] })];
