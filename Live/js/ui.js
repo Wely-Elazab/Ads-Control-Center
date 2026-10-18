@@ -1211,20 +1211,30 @@
     var S = dxState.sources, ids = DX_PLATFORM_ORDER.filter(function (p) { return S[p]; });
     var ready = ids.filter(function (p) { return S[p].status === 'ready'; });
     var views = ready.map(function (p) { return { id: p, report: S[p].report, account: S[p].account, accountId: S[p].accountId }; });
-    if (ready.length >= 2) {
-      var f = S[ready[0]].input;
-      var same = ready.every(function (p) { var x = S[p].input; return x.currency === f.currency && x.since === f.since && x.until === f.until; });
+    // المنصة اللي مفيش ولا عملية شراء بتوصلها (noPurchases) برّه «كل المنصات»: مبيعاتها مش معروفة (مش صفر)، وجمع إنفاقها مع
+    // مبيعات غيرها بينزّل العائد. حساب حقيقي ١٨ أكتوبر: رسائل Meta (٣٧١ $) + مبيعات Snapchat = ×١٫٨ «أقل من حد الخسارة»، وSnapchat
+    // لوحده ×٣، وتحت شريحة Meta «لا يمكن تحليل المبيعات» (مراجعة المرحلة ٤ — Kimball: القيمة المجهولة مش صفر)
+    var sales = ready.filter(function (p) { return !S[p].report || S[p].report.status !== 'noPurchases'; });
+    if (sales.length >= 2) {
+      var f = S[sales[0]].input;
+      var same = sales.every(function (p) { var x = S[p].input; return x.currency === f.currency && x.since === f.since && x.until === f.until; });
       if (same) {
-        var accId = 'all:' + ready.map(function (p) { return S[p].accountId; }).join(',');
-        var input = DX.combine(ready.map(function (p) { return { platform: p, input: S[p].input }; }));
+        var accId = 'all:' + sales.map(function (p) { return S[p].accountId; }).join(',');
+        var input = DX.combine(sales.map(function (p) { return { platform: p, input: S[p].input }; }));
         input.feedback = dxFbFor(accId);
-        var rep = DX.attachPlatforms(DX.analyze(input), ready.map(function (p) { return { platform: p, report: S[p].report }; }));
-        views.unshift({ id: 'all', report: rep, account: ready.map(function (p) { return S[p].account; }).filter(Boolean).join(' + '), accountId: accId });
+        var rep = DX.attachPlatforms(DX.analyze(input), sales.map(function (p) { return { platform: p, report: S[p].report }; }));
+        rep.excluded = ready.filter(function (p) { return sales.indexOf(p) === -1; });
+        views.unshift({ id: 'all', report: rep, platforms: sales, account: sales.map(function (p) { return S[p].account; }).filter(Boolean).join(' + '), accountId: accId });
       }
     }
     dxState.views = views;
     dxState.status = views.length ? 'ready' : (ids.some(function (p) { return S[p].status === 'loading'; }) ? 'loading' : (ids.length ? 'error' : 'idle'));
-    if (!views.some(function (v) { return v.id === dxState.view; })) dxState.view = views.length ? views[0].id : 'all';
+    // العرض الافتراضي لحد ما العميل يختار بنفسه (picked): «كل المنصات» لو موجود، وإلا أول منصة بتوصلها مشتريات. قبل كده أول منصة
+    // تخلّص تحميل كانت بتفضل هي المعروضة حتى بعد ما «كل المنصات» يظهر — والصفحة بتفتح على «لا تُسجَّل مشتريات» وSnapchat بيبيع
+    if (!dxState.picked || !views.some(function (v) { return v.id === dxState.view; })) {
+      var first = views.filter(function (v) { return !v.report || v.report.status !== 'noPurchases'; })[0] || views[0];
+      dxState.view = first ? first.id : 'all';
+    }
     var cur = views.filter(function (v) { return v.id === dxState.view; })[0];
     dxState.report = cur ? cur.report : null;
     dxState.account = cur ? cur.account : null;
@@ -1308,6 +1318,8 @@
     // منصة لسه بتتحمّل بعد ما التانية خلصت
     var pending = DX_PLATFORM_ORDER.filter(function (p) { return dxState.sources && dxState.sources[p] && dxState.sources[p].status === 'loading'; });
     var more = pending.length ? '<p class="dx-notes">' + esc(t('dx.loadingMore', { platforms: DX.listText(pending.map(function (p) { return t('dx.plat.' + p); })) })) + '</p>' : '';
+    var ex = dxExcludedNote();
+    if (ex) more += '<p class="dx-notes">' + esc(ex) + '</p>';
     body.innerHTML = tabs + more + '<div class="dx-head ' + esc(o.tone) + '"><p class="dx-headline">' + esc(o.title) + '</p>' +
       (o.basis ? '<p class="dx-basis">' + esc(o.basis) + '</p>' : '') +
       (nums ? '<div class="dx-kpis">' + o.kpis.map(dxKpiHtml).join('') + '</div>' : '') +
@@ -1325,12 +1337,21 @@
     el.innerHTML = b ? '<div class="dx-verdict ' + esc(o.tone) + '"><p class="dx-verdict-title">' + esc(t('dx.verdict.title')) + '</p>' +
       dxBlockHtml(b, o.main, true) + '</div>' : '';
   }
-  // منصات العرض الظاهر في الملخص («كل المنصات» = المنصات اللي ملخصها جاهز) — null = مفيش عروض، كل الإعلانات
+  // منصات العرض الظاهر في الملخص («كل المنصات» = المنصات اللي اتجمعت فيه — من غير اللي مفيش مشتريات بتوصلها) — null = مفيش
+  // عروض، كل الإعلانات
   function dxViewPlatforms() {
     var views = dxState.views || [];
     if (!views.length) return null;
-    if (dxState.view === 'all') return views.filter(function (v) { return v.id !== 'all'; }).map(function (v) { return v.id; });
+    if (dxState.view === 'all') {
+      var all = views.filter(function (v) { return v.id === 'all'; })[0];
+      return all && all.platforms ? all.platforms.slice() : views.filter(function (v) { return v.id !== 'all'; }).map(function (v) { return v.id; });
+    }
     return [dxState.view];
+  }
+  // «كل المنصات» من غير منصة مفيش مشتريات بتوصلها (dxRecompute): بنقول كده فوق الأرقام وفي النص المنسوخ
+  function dxExcludedNote() {
+    var r = dxState.view === 'all' && dxState.report, ex = r && r.excluded;
+    return ex && ex.length ? t('dx.view.excluded', { platforms: DX.listText(ex.map(function (p) { return t('dx.plat.' + p); })) }) : '';
   }
   function onPlatforms(c, platforms) {
     return !platforms || platforms.some(function (p) { return String(c.source || '').indexOf(p + ':') === 0; });
@@ -1416,6 +1437,7 @@
     var b = e.target.closest && e.target.closest('[data-dx-view]');
     if (!b) return;
     dxState.view = b.getAttribute('data-dx-view');
+    dxState.picked = true;   // اختيار العميل بيفضل — dxRecompute مبيرجّعش العرض الافتراضي
     dxFbOpen = null;
     dxRecompute();
   });
@@ -1442,7 +1464,8 @@
     var btn = e.target.closest && e.target.closest('#dxCopy, [data-dx-copy]');
     if (!btn || !dxState.composed) return;
     var o = dxState.composed;
-    if (btn.id === 'dxCopy') dxCopyText(DX.toText(Object.assign({}, o, { platCmp: dxState.platCmp || null }), dxState.account), btn);
+    var ex = dxExcludedNote();
+    if (btn.id === 'dxCopy') dxCopyText(DX.toText(Object.assign({}, o, { platCmp: dxState.platCmp || null, notes: ex ? (o.notes || []).concat([ex]) : o.notes }), dxState.account), btn);
     else {
       var b = o.blocks[Number(btn.getAttribute('data-dx-copy'))];
       if (b) dxCopyText('📊 ' + t('dx.title') + (dxState.account ? ' — ' + dxState.account : '') + '\n' + o.period + '\n\n' + DX.blockText(b), btn);

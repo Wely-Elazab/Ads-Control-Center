@@ -4949,6 +4949,46 @@
         DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
       }
     });
+    // حساب حقيقي ١٨ أكتوبر: رسائل Meta (مفيش مشتريات خالص) + مبيعات Snapchat — «كل المنصات» ×١٫٨ «أقل من حد الخسارة» وSnapchat لوحده ×٣
+    test('منصة مفيش مشتريات بتوصلها خالص برّه «كل المنصات»، والعرض الافتراضي أول منصة بتبيع لحد ما العميل يختار (مراجعة المرحلة ٤)', function () {
+      var noPur = function (x) { x.input.daily.forEach(function (d) { d.pur = 0; d.rev = 0; d.atc = 0; d.ic = 0; }); return x; };
+      var m = noPur(src('meta', 31)), g = src('google', 37), s = src('snapchat', 41);
+      var old = { opts: Object.assign({}, platformOptions), act: Object.assign({}, activeSources), copy: window.dxCopyText }, copied = null;
+      DX_ON = true; activeSources.meta = 'act_1'; activeSources.google = '123'; activeSources.snapchat = 'sn1';
+      var rd = function (x, id) { return { status: 'ready', key: id, input: x.input, report: DX.analyze(x.input), account: id, accountId: id }; };
+      try {
+        eq(DX.analyze(m.input).status, 'noPurchases', 'meta records no purchases');
+        // منصتين، واحدة منهم مفيهاش مشتريات: مفيش «كل المنصات»، والملخص بيفتح على اللي بتبيع (مش أول واحدة في الترتيب)
+        dxState.sources = { meta: rd(m, 'meta:1'), snapchat: rd(s, 'snapchat:1') };
+        dxRecompute();
+        eq([dxState.views.map(function (v) { return v.id; }), dxState.view], [['meta', 'snapchat'], 'snapchat']);
+        // تلاتة: «كل المنصات» = Google + Snapchat بس، وبيرجع هو الافتراضي لما يظهر
+        dxState.sources.google = rd(g, 'google:1');
+        dxRecompute();
+        var all = dxState.views[0];
+        eq([all.id, all.platforms, all.report.excluded, dxState.view], ['all', ['google', 'snapchat'], ['meta'], 'all']);
+        ok(Math.abs(all.report.cur.spend - DX.analyze(g.input).cur.spend - DX.analyze(s.input).cur.spend) < 1e-6, 'meta spend left out: ' + all.report.cur.spend);
+        eq(dxViewPlatforms(), ['google', 'snapchat'], 'the KPI strip follows the same platforms');
+        withLang('ar', function () {
+          dxRecompute();
+          ok(document.getElementById('dxBody').textContent.indexOf('لا يشمل «كل المنصات» Meta') > -1, 'note above the numbers');
+          window.dxCopyText = function (txt) { copied = txt; };
+          document.getElementById('dxCopy').click();
+          ok(copied && copied.indexOf('لا يشمل «كل المنصات» Meta') > -1, 'in the copied text: ' + (copied || '').slice(0, 80));
+        });
+        // العميل اختار Meta بنفسه: بيفضل عليها
+        document.querySelector('#dxBody [data-dx-view="meta"]').click();
+        dxRecompute();
+        eq(dxState.view, 'meta', 'the user pick stays');
+      } finally {
+        window.dxCopyText = old.copy;
+        ['meta', 'google', 'snapchat'].forEach(function (p) {
+          if (p in old.opts) platformOptions[p] = old.opts[p]; else delete platformOptions[p];
+          if (p in old.act) activeSources[p] = old.act[p]; else delete activeSources[p];
+        });
+        DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
+      }
+    });
   });
 
   describe('نافذة الأداة: ٧ أيام مكتملة + اليوم', function () {
