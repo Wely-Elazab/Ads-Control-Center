@@ -59,7 +59,11 @@
   // رقم من نص جاي من منصة — أي قيمة مش رقم بتبقى صفر، عشان «NaN» متظهرش في الأرقام ولا تبوّظ المجاميع
   function num(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
   function numAr(n) { var r = Math.round((n || 0) * 10) / 10; return ar(String(r).replace('.', decSep())); }
+  // بخانتين — لما رقم بيتقارن بحد في نفس الجملة والتقريب لخانة واحدة بيخلّيهم زي بعض (alerts.js rx، diagnosis.js targetLine)
+  function numAr2(n) { var r = Math.round((n || 0) * 100) / 100; return ar(String(r).replace('.', decSep())); }
   function roasStr(r) { if (!r) return '—'; return '×' + numAr(r); }
+  // العائد جنب حد (المستهدف أو حد الخسارة): «×٤٫٩٦، أقل من حد الخسارة (×٥)» مش «×٥، أقل من حد الخسارة (×٥)» (مراجعة المرحلة ٤ ر٧٥)
+  function roasVs(r, ref) { return r && ref && numAr(r) === numAr(ref) && Math.abs(r - ref) > 1e-9 ? '×' + numAr2(r) : roasStr(r); }
   function sinceLabel(n) {
     if (n == null) return '';
     if (n === 0) return t('since.today');

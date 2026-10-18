@@ -291,6 +291,15 @@
       var pp = platOf(c);
       eq([pp.results, pp.sales, pp.spend], [14, 1400, 150]);
     });
+    test('نوع نتيجة إعلان Snapchat من هدف مجموعته زي Meta — مش من مشتريات الحساب في آخر ٧ أيام (مراجعة المرحلة ٤ ر٧٧)', function () {
+      var two = [{ ad: { id: 'b', name: 'buy', status: 'ACTIVE', ad_squad_id: 'sqB' } }, { ad: { id: 'w', name: 'swipe', status: 'ACTIVE', ad_squad_id: 'sqW' } }];
+      var noBuys = series({ b: [[5, { spend: 100 * M, swipes: 40, conversion_purchases: 0 }]], w: [[5, { spend: 50 * M, swipes: 30, conversion_purchases: 0 }]] });
+      var squads = [{ id: 'sqB', optimization_goal: 'PIXEL_PURCHASE' }, { id: 'sqW', optimization_goal: 'SWIPES' }];
+      // حساب مبيعات وقفت مشترياته أسبوع: إعلان المشتريات بيتحكم عليه بالمشتريات (صفر)، مش بالسوايب
+      eq(transformSnapchatAds(two, noBuys, days, 'SAR', squads, [], null, null, null).map(function (c) { return c.resultKey + ':' + c.results; }), ['purchase:0', 'swipe:30']);
+      // من غير هدف المجموعة (رد قديم من الخادم): القرار القديم على مستوى الحساب
+      eq(transformSnapchatAds(two, noBuys, days, 'SAR', [], [], null, null, null).map(function (c) { return c.resultKey; }), ['swipe', 'swipe']);
+    });
     // المرحلة ٤ (دقة الأرقام): ٥٥ إعلان × ٧ أيام بتقريب كل يوم لأقرب سنت طلّعوا إجمالي ٥١٠٫٠٠ وSnapchat ٥٠٩٫٩٨.
     // المبالغ بدقة المايكرو لحد العرض: مجموع الإعلانات = مجموع المنصة نفسه (إلى جزء من المليون)
     test('مبالغ Snapchat بدقتها الكاملة: مجموع الإعلانات = مجموع المنصة (من غير تقريب كل يوم)', function () {
@@ -1313,6 +1322,9 @@
       eq([health(r, 'n1'), r.byAd.n1.pending], ['pending', 'learning']);
       ok(/فترة/.test(r.byAd.n1.basis) || /توزيعه/.test(r.byAd.n1.basis), r.byAd.n1.basis);
       ok(has(r, 'n2', 'waste-new', 'warning') && health(r, 'n2') === 'improve', list(r, 'n2'));
+      // المبلغ أيام مكتملة (لحد أمس) — والجملة بتقول كده (مراجعة المرحلة ٤ ر٦٨)
+      var n2 = withLang('ar', function () { return engine(baseAccount().concat([ad('n2', { daily: [0, 0, 0, 0, 0, 200, 100], age: 1 })])); }).byAd.n2.issues.filter(function (i) { return i.code === 'waste-new'; })[0];
+      ok(n2 && n2.detail.indexOf('منذ بدايته حتى أمس') > -1, n2 ? n2.detail : 'no issue');
     });
     test('نشط ومصرفش = «لم يُحكم بعد» مش «جيد»', function () {
       var r = engine(baseAccount().concat([ad('idle', { daily: steady(0) })]));
@@ -4032,7 +4044,9 @@
             { ad_id: 'M1', spend: '300', optimization_goal: 'OFFSITE_CONVERSIONS', actions: buy(4) },
             { ad_id: 'M2', spend: '120', optimization_goal: 'OFFSITE_CONVERSIONS', actions: [] },
             { ad_id: 'M3', spend: '80', optimization_goal: 'OFFSITE_CONVERSIONS' },
-            { ad_id: 'M4', spend: '500', optimization_goal: 'REACH' }] };
+            { ad_id: 'M4', spend: '500', optimization_goal: 'REACH' },
+            // المنصة بتنسب له طلبين بالمشاهدة ومفيش نقرة (ر٦٦ب): مش «دون طلبات» — برقم المنصة نفسها زي Snapchat
+            { ad_id: 'M5', spend: '50', optimization_goal: 'OFFSITE_CONVERSIONS', actions: [{ action_type: 'omni_purchase', value: '2', '1d_view': '2' }] }] };
         } });
       accountInfo['meta:act_12'] = { timeZone: 'UTC', currency: 'SAR' };
       loadAdsForAccount('act_12');
@@ -4042,13 +4056,13 @@
         var today = todayKeyInTz('UTC');
         if (today.slice(8) === '01') { ok(!w, 'first day of the month: nothing yet'); return; }
         eq([asked.since, asked.until], [today.slice(0, 8) + '01', shiftKey(today, -1)]);
-        eq([w.spend, w.ads, w.total], [200, 2, 1000]);
+        eq([w.spend, w.ads, w.total], [200, 2, 1050]);
         activeSources.meta = 'act_12';
         eq([w.ids, w.spendById], [['M2', 'M3'], { M2: 120, M3: 80 }]);
         // المراجعة: الشغّالة من غير طلبات بإنفاقها في الشهر
         withLang('ar', function () { var h = wastePanelHtml(wasteData(null, [])); ok(/منذ ١ /.test(h) && /٢٠٠ ر\.س/.test(h) && /عددها ٢، والنشط منها الآن ١ بإنفاق ١٢٠ ر\.س هذا الشهر/.test(h), h); });
         // الشراء من أي إعلان في الحساب: M1 جاب ٤ — فالتتبّع واصل، والنص «لم تحقق أي طلب» زي ما هو
-        eq(w.purchases, 4, 'purchases from any ad in the account');
+        eq(w.purchases, 6, 'purchases from any ad in the account (platform number)');
         withLang('ar', function () { var h = wastePanelHtml(wasteData(null, [])); ok(/لم تحقق أي طلب/.test(h) && !/لم يُسجَّل/.test(h), h); });
         // ولا شراء في الحساب كله (حساب حقيقي ١٨ أكتوبر، والملخص فوقها «لا تصل إلى المنصة أي عمليات شراء»): «لم يُسجَّل لها
         // أي طلب» وراجع التتبّع الأول — مش «لم تحقق أي طلب»
@@ -5035,6 +5049,37 @@
         DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
       }
     });
+    // بيانات صناعية أرقامها معروفة: ١٠٠ طلب في الأسبوع بمتوسط ١٠٠ وإنفاق ٧٬٠٠٠، والأسبوع الحالي بمضاعفات
+    var dxDays = function (curPur, curRev) {
+      var since = '2026-10-11', until = '2026-10-17', ws = DX.windows(since, until, false), rows = [];
+      for (var k = ws[ws.length - 1].since; k <= until; k = shiftKey(k, 1)) {
+        var cur = k >= since, pur = 100 / 7;
+        rows.push({ date: k, spend: 1000, imp: 100000, clicks: 2000, atc: 200, ic: 100, pur: pur * (cur ? curPur : 1), rev: pur * 100 * (cur ? curRev : 1) });
+      }
+      return { since: since, until: until, currency: 'SAR', daily: rows, dims: [] };
+    };
+    var kpi = function (r, id) { return DX.compose(r).kpis.filter(function (k) { return k.id === id; })[0]; };
+    test('لون «المبيعات» من اختبار المبيعات نفسها: طلبات +٨٠٪ مؤكدة ومتوسط القيمة نزل = مبيعات +٢٪ من غير «مؤكد» (ر٧١)', function () {
+      var r = DX.analyze(dxDays(1.8, 1.02));
+      eq(kpi(r, 'orders').sig, 1, 'the orders change itself is confirmed');
+      var rv = kpi(r, 'revenue');
+      eq([rv.sig, rv.soft], [0, 0], 'revenue +2%: ' + JSON.stringify(rv));
+    });
+    test('متوسط قيمة الطلب «مؤكد» بنفس عتبة باقي الأرقام (z ≥ ٢٫٥) — z نحو ٢٫٢ = «مرجّح» مش «مؤكد» (ر٧٢)', function () {
+      var r = DX.analyze(dxDays(1, 1.356)), a = kpi(r, 'aov');
+      ok(r.head.aov.z > 2 && r.head.aov.z < 2.5, 'z = ' + r.head.aov.z);
+      eq([a.sig, a.soft], [0, 1]);
+    });
+    test('سطر المستهدف: العائد بخانتين لو التقريب بيخلّيه زي الحد (×٤٫٩٦ مقابل ×٥)، و«إنفاق الحساب كله» لو فيه حملات أهداف تانية (ر٧٥، ر٧٣)', function () {
+      var inp = dxDays(1, 4.96 * 0.7), target = { target: { roas: 6, be: 5 } };
+      withLang('ar', function () {
+        var o = DX.compose(DX.analyze(inp), target);
+        ok(o.basis.indexOf('×٤٫٩٦') > -1 && o.basis.indexOf('حد الخسارة (×٥)') > -1 && o.basis.indexOf('الحساب كله') === -1, o.basis);
+        inp.other = { w: DX.windows(inp.since, inp.until, false).map(function () { return { spend: 50, imp: 0, clicks: 0, atc: 0, ic: 0, pur: 0, rev: 0 }; }), goals: { awareness: 50 } };
+        var o2 = DX.compose(DX.analyze(inp), target);
+        ok(o2.basis.indexOf('العائد على إنفاق الحساب كله') === 0, o2.basis);
+      });
+    });
     test('حسابين بمنطقتين زمنيتين مختلفتين: مفيش «كل المنصات» (الأيام بتتجمع بالتاريخ وتاريخ كل حساب بتوقيته)', function () {
       var a = src('meta', 51), b = src('snapchat', 53);
       a.input.timezone = 'Asia/Riyadh'; b.input.timezone = 'America/Los_Angeles';
@@ -5183,6 +5228,49 @@
     var issuesOf = function (r, id) { return r.byAd[id].issues.map(function (i) { return i.code + ':' + i.level; }); };
     function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
+    // ---------- المراجعة الثانية للمرحلة ٤ (١٨ أكتوبر ٢٠٢٦) ----------
+    test('احتمال بواسون باللوغاريتم: متوقع ١٠٠٠ وجه ١٠٠٠ = نحو النص (كان صفر من حد الأرقام العشرية)، والأرقام الصغيرة زي ما هي', function () {
+      var P = PauseProofAlerts._.poissonAtMost;
+      ok(Math.abs(P(1000, 1000) - 0.5084) < 0.002, 'P(X≤1000 | 1000) = ' + P(1000, 1000));
+      ok(Math.abs(P(2, 5) - Math.exp(-5) * (1 + 5 + 12.5)) < 1e-12, 'small: ' + P(2, 5));
+      eq([P(0, 0), P(3, -1)], [1, 1]);
+    });
+    test('إعلان وقف فجأة: المبلغ = آخر ٣ أيام + النهارده، والجملة بتقول كده', function () {
+      var stop = a8('st', { daily: [10, 10, 10, 10, 10, 10, 10, 5], res: [1, 1, 1, 1, 1, 1, 1, 0] });
+      stop.active = false; stop.pausedLevel = 'rejected';
+      var r = withLang('ar', function () { return engine([a8('p1', { daily: [50, 50, 50, 50, 50, 50, 50, 20], res: [2, 2, 2, 2, 2, 2, 2, 1] }), stop]); });
+      var i = r.byAd.st.issues.filter(function (x) { return x.code === 'stopped'; })[0];
+      ok(i && i.detail.indexOf('٣٥ ر.س خلال آخر ٣ أيام واليوم') > -1, i ? i.detail : 'no alert');
+    });
+    // حساب برسائل رخيصة كتير وعملاء محتملين غاليين: الإنفاق زاد على العملاء المحتملين ونتائجهم زادت معاه بنفس النسبة
+    test('زيادة إنفاق الحساب: النتائج بأنواعها بوحدة واحدة (كل نوع بمتوسط تكلفته) — مش عدد المحادثات + العملاء المحتملين', function () {
+      var ads = [a8('m', { key: 'message', daily: [100, 100, 100, 100, 100, 100, 100, 0], res: [50, 50, 50, 50, 50, 50, 50, 0] }),
+        a8('l', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 400, 0], res: [2, 2, 2, 2, 2, 2, 8, 0] })];
+      var meta = { 'meta:act_1': { label: 'Meta — T', currency: 'SAR', timeZone: 'UTC', metaAccountStatus: 1 } };
+      var r = engine(ads, meta);
+      ok(!r.alerts.some(function (a) { return a.code === 'acct-spike'; }), 'results kept up: ' + r.alerts.map(function (a) { return a.code; }).join(','));
+      // وزيادة النتائج فعلاً مزادتش = تنبيه زي الأول
+      ads[1].dailyResults = [2, 2, 2, 2, 2, 2, 2, 0];
+      ok(engine(ads, meta).alerts.some(function (a) { return a.code === 'acct-spike'; }), 'results did not keep up');
+    });
+    test('أكبر مصدر نتائج وقف في حساب فيه أكتر من نوع: النصيب بقيمة كل نوع (العدد كان بيخلّي عميل محتمل زي محادثة)', function () {
+      var off = a8('l1', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 0], res: [2, 2, 2, 2, 2, 2, 2, 0] });
+      off.active = false; off.pausedLevel = 'ad';
+      var ads = [a8('m1', { key: 'message', daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [50, 50, 50, 50, 50, 50, 50, 20] }), off];
+      var r = withLang('ar', function () { return engine(ads, { 'meta:act_1': { label: 'Meta — T', currency: 'SAR', timeZone: 'UTC', metaAccountStatus: 1 } }); });
+      var a = r.alerts.filter(function (x) { return x.code === 'top-stopped'; })[0];
+      ok(a && /٥٠٪/.test(a.detail) && a.detail.indexOf('بمتوسط تكلفته') > -1, a ? a.detail : 'no alert (14 leads of 364 results by count = 4%)');
+    });
+    test('العائد جنب حد الخسارة: ×٤٫٩٦ مش «×٥، أقل من حد الخسارة (×٥)»', function () {
+      var c = a8('rx', { daily: [100, 100, 100, 100, 100, 100, 100, 0], res: [2, 2, 2, 2, 2, 2, 2, 0], sales: [496, 496, 496, 496, 496, 496, 496, 0] });
+      var r = withLang('ar', function () { return engine([c], {}, { roasBreakEven: 5, roasTarget: 6 }); });
+      var i = r.byAd.rx.issues.filter(function (x) { return x.code === 'loss'; })[0];
+      ok(i && i.detail.indexOf('٤٫٩٦') > -1 && !/×٥،/.test(i.detail), i ? i.detail : r.byAd.rx.issues.map(function (x) { return x.code; }).join(','));
+      // بعيد عن الحد: خانة واحدة زي الأول
+      c.dailySales = [300, 300, 300, 300, 300, 300, 300, 0];
+      var j = withLang('ar', function () { return engine([c], {}, { roasBreakEven: 5, roasTarget: 6 }); }).byAd.rx.issues.filter(function (x) { return x.code === 'loss'; })[0];
+      ok(j && j.detail.indexOf('٣') > -1 && j.detail.indexOf('٣٫٠٠') === -1, j ? j.detail : 'no alert');
+    });
     test('حد الإنفاق: إنفاق ٧ أيام ÷ ٧ (مش ÷ ٨ خانات) — ٦٥٠ باقية و١٠٠ يومياً = «عاجل» ونحو ٦ أيام', function () {
       var ads = [a8('x', { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: [2, 2, 2, 2, 2, 2, 2, 1] }), a8('y', { daily: z8() })];
       var meta = { 'meta:act_1': { label: 'Meta — T', currency: 'SAR', timeZone: 'UTC', metaAccountStatus: 1, spendCapReached: false, spendCap: 1000000, amountSpent: 935000 } };

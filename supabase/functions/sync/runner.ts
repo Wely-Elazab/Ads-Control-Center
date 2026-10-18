@@ -245,7 +245,7 @@ function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Targe
   return res.alerts.filter((a: any) => a.level === 'critical' && !a.minor);
 }
 function alertFmt() {
-  return { money: g.money, currencyLabel: g.currencyLabel, num: g.numAr, int: (n: number) => g.ar(Math.round(n || 0)) };
+  return { money: g.money, currencyLabel: g.currencyLabel, num: g.numAr, num2: g.numAr2, int: (n: number) => g.ar(Math.round(n || 0)) };
 }
 
 // ---------- التنبيهات اللي محتاجة بيانات زيادة (قواعدها في js/alerts.js: siteAlerts / editAlerts / linkAlerts) ----------

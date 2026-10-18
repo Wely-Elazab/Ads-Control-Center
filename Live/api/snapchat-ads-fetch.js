@@ -295,7 +295,9 @@ export default async function handler(req, res) {
       const usedSquads = {}, usedCreatives = {};
       ads.forEach(function (a) { usedSquads[a.ad_squad_id] = 1; if (a.creative_id) usedCreatives[a.creative_id] = 1; });
       const squads = (squadList || []).filter(function (s) { return usedSquads[s.id]; }).map(function (s) {
-        return { id: s.id, name: s.name || null, status: s.status, campaign_id: s.campaign_id, start_time: s.start_time || null, end_time: s.end_time || null };
+        // optimization_goal: نوع نتيجة كل إعلان من هدف مجموعته (js/snapchat.js) زي Meta — مراجعة المرحلة ٤ ر٧٧
+        return { id: s.id, name: s.name || null, status: s.status, campaign_id: s.campaign_id, start_time: s.start_time || null, end_time: s.end_time || null,
+          optimization_goal: s.optimization_goal || null };
       });
       const usedCampaigns = {};
       squads.forEach(function (s) { usedCampaigns[s.campaign_id] = 1; });

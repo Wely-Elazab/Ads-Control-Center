@@ -287,7 +287,7 @@
   function storeAlertSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); return true; } catch (e) { return false; } }
   var alertSettings = loadAlertSettings();
 
-  var ALERT_FMT = { money: money, currencyLabel: currencyLabel, num: numAr, int: function (n) { return ar(Math.round(n || 0)); } };
+  var ALERT_FMT = { money: money, currencyLabel: currencyLabel, num: numAr, num2: numAr2, int: function (n) { return ar(Math.round(n || 0)); } };
   var analysis = PauseProofAlerts.analyze([], {}, alertSettings, ALERT_FMT);
 
   // اسم كل حساب وعملته وحالته — عشان تنبيهات مستوى الحساب

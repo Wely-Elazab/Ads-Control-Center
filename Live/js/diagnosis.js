@@ -290,7 +290,16 @@ var DX = (function () {
     if (a.pur >= 10 && b.pur >= 10 && a.rev > 0 && b.rev > 0) {
       var aovA = a.rev / a.pur, aovB = b.rev / b.pur, lnR = Math.log(aovB / aovA);
       var z = lnR / Math.sqrt(PHI_SAMPLING * 0.64 * (1 / a.pur + 1 / b.pur));
-      aov = { from: aovA, to: aovB, pct: aovB / aovA - 1, z: z, real: Math.abs(z) >= Z_WHERE && Math.abs(aovB / aovA - 1) >= MIN_PCT };
+      // «مؤكد» بنفس عتبة باقي أرقام الحساب (Z_REAL) — كانت Z_WHERE (٢)، فخلفية «مؤكد» في نفس الشريط كانت بمعيارين (ر٧٢).
+      // Z_WHERE لمرحلة بتفسّر تغيّر اتأكد قبلها، ومتوسط قيمة الطلب حكم لوحده على الحساب
+      aov = { from: aovA, to: aovB, pct: aovB / aovA - 1, z: z, real: Math.abs(z) >= Z_REAL && Math.abs(aovB / aovA - 1) >= MIN_PCT };
+    }
+    // المبيعات نفسها (نفس طول الفترتين): نفس اختبار العائد من غير الإنفاق — لون «المبيعات» كان بيتاخد من اختبار تاني (الطلبات أو
+    // متوسط القيمة أو العائد)، فطلبات زادت ٥٠٪ ومتوسط قيمة نزل التلت = مبيعات +٢٪ بخلفية «تحسّن مؤكد» (مراجعة المرحلة ٤ ر٧١)
+    var rev = null;
+    if (a.pur >= 5 && b.pur >= 5 && a.rev > 0 && b.rev > 0) {
+      var zV = Math.log(b.rev / a.rev) / Math.sqrt(phiD * 1.64 * (1 / a.pur + 1 / b.pur));
+      rev = { pct: b.rev / a.rev - 1, z: zV, dir: Math.abs(zV) >= Z_REAL && Math.abs(b.rev / a.rev - 1) >= MIN_PCT ? sign(zV) : 0 };
     }
     // العائد على الإنفاق (قيمة المبيعات ÷ الإنفاق) — الربح أولاً (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦): العنوان كان بيحكم
     // بعدد الطلبات وتكلفتها بس، فإنفاق اتضاعف ومبيعات نزلت ٢٠٪ طلع «طلبات أكثر» بلون أخضر. المبيعات = عدد الطلبات ×
@@ -310,7 +319,7 @@ var DX = (function () {
       type: type, tone: tone, dOrd: dOrd, dEff: dEff, dSpend: dSpend, flatEff: flatEff, effUncertain: effUncertain, phiDaily: phiD,
       ordersZ: orders.z, effZ: eff.z, spendPct: spendPct, ordPct: ordPct, cpaPct: cpaPct,
       unusual: Math.abs(effHist.z) >= Z_UNUSUAL, histZ: effHist.z, phiHist: phiH,
-      rank: rank, marginal: marginal, aov: aov, split: split, roas: roas
+      rank: rank, marginal: marginal, aov: aov, split: split, roas: roas, rev: rev
     };
   }
 
@@ -1429,7 +1438,8 @@ var DX = (function () {
       { id: 'spend', label: t('dx.kpi.spend'), value: M(b.spend), prev: M(a.spend), pct: ch(a.spend, b.spend), sig: 0, goodUp: null },
       { id: 'orders', label: t('dx.kpi.orders'), value: fmtNum(b.pur), prev: fmtNum(a.pur), pct: ordPct, sig: h.dOrd || 0, soft: h.dOrd ? 0 : lik(h.ordersZ, ordPct), goodUp: true },
       { id: 'revenue', label: t('dx.kpi.revenue'), value: money(b.rev, r.currency), prev: money(a.rev, r.currency), pct: ch(a.rev, b.rev),
-        sig: (h.dOrd || (h.aov && h.aov.real) || (h.roas && h.roas.dir)) ? sign(b.rev - a.rev) : 0, goodUp: true },
+        // لونه من اختبار المبيعات نفسها (headline rev — ر٧١)، و«مرجّح» لو احتمال الصدفة أقل من ٥٪ زي الباقي
+        sig: (h.rev && h.rev.dir) || 0, soft: h.rev && !h.rev.dir ? lik(h.rev.z, ch(a.rev, b.rev)) : 0, goodUp: true },
       // متوسط قيمة الطلب = المبيعات ÷ الطلبات (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) — لونه من اختبار متوسط القيمة نفسه
       { id: 'aov', label: t('dx.kpi.aov'), value: aovB ? M(aovB) : '—', prev: aovA ? M(aovA) : '—', pct: aovA && aovB ? aovB / aovA - 1 : null,
         sig: h.aov && h.aov.real ? sign(h.aov.pct) : 0, soft: h.aov && !h.aov.real ? lik(h.aov.z, aovPct) : 0, goodUp: true },
@@ -1791,10 +1801,14 @@ var DX = (function () {
   function targetLine(r, target) {
     var b = r.cur;
     if (!target || !(target.roas > 0) || !(b.spend > 0) || !(b.rev > 0) || b.pur < 5) return null;
-    var ro = b.rev / b.spend, v = { roas: roasStr(ro), target: roasStr(target.roas), be: roasStr(target.be) };
-    if (target.be > 0 && ro < target.be) return { level: 'loss', text: t('dx.target.belowBE', v) };
-    if (ro < target.roas) return { level: 'below', text: t('dx.target.below', v) };
-    return { level: 'above', text: t('dx.target.above', v) };
+    // العائد بخانتين لو التقريب بيخلّيه زي الحد اللي بيتقارن بيه (ر٧٥)، و«إنفاق الحساب كله» لو فيه حملات أهداف تانية — نفس اسم
+    // الرقم في شريط الأرقام فوقه («العائد على الإنفاق (الحساب كله)» — ر٧٣)
+    var ro = b.rev / b.spend, below = target.be > 0 && ro < target.be;
+    var roTxt = typeof roasVs === 'function' ? roasVs(ro, below ? target.be : target.roas) : roasStr(ro);
+    var v = { roas: roTxt, target: roasStr(target.roas), be: roasStr(target.be) }, W = r.other && r.other.spend > 0 ? 'W' : '';
+    if (below) return { level: 'loss', text: t('dx.target.belowBE' + W, v) };
+    if (ro < target.roas) return { level: 'below', text: t('dx.target.below' + W, v) };
+    return { level: 'above', text: t('dx.target.above' + W, v) };
   }
 
   // التقرير كله جاهز للعرض — بالترتيب: العاجل، ثم «لماذا»، ثم اللي يحتاج قرار، ثم المتابعة والفرص

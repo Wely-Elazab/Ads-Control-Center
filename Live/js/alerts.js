@@ -152,11 +152,16 @@
   function any(arr) { return (arr || []).some(function (v) { return v > 0; }); }
   // احتمال إن العدد يطلع k أو أقل بالصدفة لو المتوقع lambda (توزيع بواسون) — نتائج الإعلانات عدّ،
   // واليوم اللي فيه نتيجتين بدل خمسة ممكن يحصل صدفة. بنستخدمه عشان منطلعش تنبيه على تذبذب طبيعي
+  // باللوغاريتم (log-sum-exp): e^(−λ) بيبقى صفر لما المتوقع أكبر من نحو ٧٤٥ (حد الأرقام العشرية)، فالاحتمال كان بيطلع صفر حتى
+  // لو العدد قد المتوقع بالظبط (مراجعة المرحلة ٤ — مكانش بيغيّر حكم النهارده لأن كل قاعدة بتشترط فرق كبير قبله، بس خطأ رياضي)
   function poissonAtMost(k, lambda) {
     if (!(lambda > 0)) return 1;
-    var term = Math.exp(-lambda), total = term;
-    for (var i = 1; i <= k; i++) { term *= lambda / i; total += term; }
-    return Math.min(1, total);
+    if (!(k >= 0)) return 0;
+    var lt = -lambda, logs = [lt], mx = lt;
+    for (var i = 1; i <= k; i++) { lt += Math.log(lambda / i); logs.push(lt); if (lt > mx) mx = lt; }
+    var s = 0;
+    for (var j = 0; j < logs.length; j++) s += Math.exp(logs[j] - mx);
+    return Math.min(1, Math.exp(mx + Math.log(s)));
   }
 
   // أي إعداد مش محفوظ بياخد قيمة النمط اللي المستخدم اختاره (مش القيمة الافتراضية) —
@@ -204,12 +209,22 @@
       var g = byLabel[k];
       g.avgCpr = g.results > 0 ? g.spend / g.results : null;
     });
+    // النتائج بأنواعها في رقم واحد بوحدة واحدة: كل نتيجة بمتوسط تكلفة نوعها في الحساب (محادثة بـ٢ وعميل محتمل بـ٥٠) — جمع
+    // العدد نفسه (محادثات + عملاء محتملين + سوايب) رقم ملوش معنى، والنوع الرخيص الكتير كان بيغطي على الغالي (مراجعة المرحلة ٤
+    // ر٦٩ — Kimball & Ross: مقاييس موحّدة قبل الجمع). حساب نوعه واحد = نفس النسب بالظبط
+    var typeCount = Object.keys(byLabel).filter(function (k) { return byLabel[k].results > 0; }).length;
+    var equivByDay = zeros(WINDOW);
+    Object.keys(byLabel).forEach(function (k) {
+      var g = byLabel[k];
+      if (!g.avgCpr) return;
+      g.ads.forEach(function (c) { for (var i = 0; i < WINDOW; i++) equivByDay[i] += ((c.dailyResults && c.dailyResults[i]) || 0) * g.avgCpr; });
+    });
     // متوسط صرف الإعلان الواحد في يومين — بنستخدمه كبديل لما الحساب ملوش متوسط تكلفة نتيجة أصلاً
     // (مثلاً حساب كل إعلاناته لسه مجابتش ولا نتيجة) — من غيره كان أهم تنبيه بيختفي تماماً
     var spend2All = spendByDay[DAY_BEFORE] + spendByDay[YESTERDAY];
     var avgAdSpend2 = spendingAds > 0 ? spend2All / spendingAds : 0;
     return {
-      byLabel: byLabel, hasSales: hasSales, spendByDay: spendByDay, resultsByDay: resultsByDay,
+      byLabel: byLabel, hasSales: hasSales, spendByDay: spendByDay, resultsByDay: resultsByDay, equivByDay: equivByDay, mixedTypes: typeCount > 1,
       total7: total7, activeCount: activeCount, avgAdSpend2: avgAdSpend2, byCampaign: byCampaign,
       roasW: hasSales && purchSpendW > 0 ? purchSalesW / purchSpendW : null, purchSpendW: purchSpendW,
       // نفس المتوسطات على أيام معيّنة بس (المرحلة ٤، مراجعة ١٧ أكتوبر ٢٠٢٦ — تعريف واحد للمقياس: Kimball & Ross، «conformed facts»):
@@ -334,8 +349,13 @@
     var lossChanceW = profitAd ? lossChance(spendW, resW, salesW, acc.purchIn(weekStart, YESTERDAY).aov) : 1;
     // كفاية نحكم على ربح الأسبوع: الدليل العام (٣ طلبات…) أو خسارة مثبتة بالاحتمال — عشان سبب الحكم ولونه ميقولوش «مبدئي» جنب تنبيه خسارة
     var profitEvidence = weekEvidence || lossChanceW < 0.1;
+    // العائد جنب حد بيتقارن بيه في نفس الجملة: لو التقريب لخانة واحدة بيخلّيه زي الحد بالظبط بنكتبه بخانتين — «×٥، أقل من
+    // حد الخسارة (×٥)» كانت بتطلع لعائد ×٤٫٩٦ (مراجعة المرحلة ٤ ر٧٥). الحد = حد الخسارة لو تحته، وإلا المستهدف
+    var num2 = fmt.num2 || fmt.num;
+    var rx = function (x, ref) { return ref != null && x != null && fmt.num(x) === fmt.num(ref) && Math.abs(x - ref) > 1e-9 ? num2(x) : fmt.num(x); };
+    var rr = function (r) { return rx(r, r < s.roasBreakEven ? s.roasBreakEven : s.roasTarget); };
     var roasLabel = function (r) {
-      return fmt.currencyLabel(cur) ? t('al.roasText', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: fmt.num(r) }) : t('al.roasTextNoCur', { roas: fmt.num(r) });
+      return fmt.currencyLabel(cur) ? t('al.roasText', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: rr(r) }) : t('al.roasTextNoCur', { roas: rr(r) });
     };
     // الأقل من نتيجة واحدة: «أقل من عملية شراء واحدة» بدل «نحو صفر»
     var expText = function (x) { return x < 1 ? t('pend.lessThan', { one: countText(1, c.resultKey, fmt) }) : t('pend.about', { n: countText(Math.round(x), c.resultKey, fmt) }); };
@@ -374,12 +394,12 @@
       if (/^prelim/.test(key)) {
         var pv = { count: countText(resW, c.resultKey, fmt), need: countText(3, c.resultKey, fmt), one: one,
           cmp: t('pend.cmp.' + key, { target: fmt.num(s.roasTarget), be: fmt.num(s.roasBreakEven) }) };
-        if (profitAd) { pv.roas = fmt.num(roasW); return t('pend.prelim.profit', pv); }
+        if (profitAd) { pv.roas = rr(roasW); return t('pend.prelim.profit', pv); }
         pv.cpr = money(spendW / resW); pv.avg = money(avgCpr);
         return t('pend.prelim.cpr', pv);
       }
       if (key === 'little' && profitAd && resW > 0) {
-        return t('pend.little.profit', { count: countText(resW, c.resultKey, fmt), roas: fmt.num(roasW), need: countText(3, c.resultKey, fmt) });
+        return t('pend.little.profit', { count: countText(resW, c.resultKey, fmt), roas: rr(roasW), need: countText(3, c.resultKey, fmt) });
       }
       if (key === 'little' && avgCpr) {
         return resW > 0 ? t('pend.little.d', { count: countText(resW, c.resultKey, fmt), spend: money(spendW), exp: expText(spendW / avgCpr) })
@@ -522,8 +542,8 @@
           if (!p || p.roas == null || !(p.spend > 0) || ownSpend >= p.spend * 0.9) return { text: '', better: false };
           var better = own != null && own < s.roasTarget && own >= p.roas;
           return { better: better, text: (fmt.currencyLabel(cur)
-            ? t('al.vsAcc', { one: fmt.int(1), cur: fmt.currencyLabel(cur), acc: fmt.num(p.roas) })
-            : t('al.vsAccNoCur', { acc: fmt.num(p.roas) })) + (better ? t('al.vsAccBetter') : '') };
+            ? t('al.vsAcc', { one: fmt.int(1), cur: fmt.currencyLabel(cur), acc: rx(p.roas, own) })
+            : t('al.vsAccNoCur', { acc: rx(p.roas, own) })) + (better ? t('al.vsAccBetter') : '') };
         };
         var wk = vsAcc(purch, roasW, spendW), cmp = wk.text;
         // الأسبوع فيه مبيعات بس آخر ٣ أيام مفيهاش ولا طلب: سطر لوحده — متوسط الأسبوع كان بيخبّي إن الإعلان وقف يبيع
@@ -704,7 +724,7 @@
     if (underspend && !starvedWin) basis = t('basis.underspend', { spend: money(spendW), one: one, avg: money(avgCpr) });
     else if (pend) basis = pendText(pend);
     else if (profitAd && profitEvidence) {
-      basis = t('basis.profit', { roas: fmt.num(roasW), target: fmt.num(s.roasTarget) }) + (purch.roas != null && !selfAcc ? t('basis.vsAcc', { acc: fmt.num(purch.roas) }) : '');
+      basis = t('basis.profit', { roas: rr(roasW), target: fmt.num(s.roasTarget) }) + (purch.roas != null && !selfAcc ? t('basis.vsAcc', { acc: rx(purch.roas, roasW) }) : '');
     } else if (avgCpr && ownCpr != null) {
       basis = t('basis.cpr', { one: one, cpr: money(ownCpr), avg: money(avgCpr) });
     }
@@ -843,7 +863,9 @@
           t('al.acctZero.d', { acc: accName, avg: money(prevAvg), n: prevDays }), t('al.acctZero.a'), 0, 'acct-zero'));
       } else if (spendY >= prevAvg * s.accountSpikeMultiple) {
         // الزيادة بتتنبّه بس لو النتائج مازادتش معاها — زيادة مفيدة مش حاجة عاجلة
-        var resPrev = sum(acc.resultsByDay, 0, DAY_BEFORE) / (DAY_BEFORE + 1), resY = acc.resultsByDay[YESTERDAY];
+        // النتائج بوحدة واحدة (كل نوع بمتوسط تكلفته — accountStats equivByDay، ر٦٩): محادثات رخيصة كتير مكانتش تغطي على عملاء
+        // محتملين زادوا مع الإنفاق
+        var resPrev = sum(acc.equivByDay, 0, DAY_BEFORE) / (DAY_BEFORE + 1), resY = acc.equivByDay[YESTERDAY];
         var resultsKeptUp = resPrev > 0 && resY / resPrev >= (spendY / prevAvg) * 0.8;
         if (!resultsKeptUp) {
           alerts.push(makeIssue('warning', ['account'], t('al.acctSpike.t'),
@@ -884,14 +906,19 @@
     // فالرسالة بتتأكد إن فيه بديل. «أكبر» = ربع مبيعات الحساب في آخر ٧ أيام أو أكتر (أو نتائجه لو مفيش قيمة مبيعات)،
     // وكان بيصرف لحد امبارح (وقف قريب — مش إعلان واقف من أسبوع). الحملة كلها لو كل إعلاناتها وقفت، وإلا الإعلان لوحده
     // أيام مكتملة (لحد امبارح) زي «مبيعاته في ٧ أيام» جنب التنبيه (ui.js alertMoneyHtml) — النهارده كان داخل في الرقم اللي في النص
-    var valueOf = function (c) { return acc.hasSales ? sum(c.dailySales || [], 0, YESTERDAY) : (c.results || 0); };
+    // من غير مبيعات: النتائج، ولو الحساب فيه أكتر من نوع كل نتيجة بمتوسط تكلفة نوعها (ر٦٩ — العدد نفسه بيخلط محادثة بعميل محتمل)
+    var valueOf = function (c) {
+      if (acc.hasSales) return sum(c.dailySales || [], 0, YESTERDAY);
+      var g = acc.mixedTypes && c.resultKey ? acc.byLabel[c.resultKey] : null;
+      return (c.results || 0) * (acc.mixedTypes ? ((g && g.avgCpr) || 0) : 1);
+    };
     var totalValue = ads.reduce(function (s0, c) { return s0 + valueOf(c); }, 0);
     // الحساب كله واقف (مفيش ولا إعلان شغّال) = صاحبه وقّف كل حاجة بنفسه، والوقوف غير المقصود للحساب كله
     // (دفع، حد إنفاق، حالة الحساب) ليه تنبيهاته فوق
     if (totalValue > 0 && acc.activeCount > 0) {
       var justStopped = function (c) { return !c.active && sum(c.daily || [], DAY_BEFORE, TODAY) > 0; };
       var topText = function (name, value, share, status) {
-        return t(acc.hasSales ? 'al.topStopped.d' : 'al.topStopped.dRes', { name: name, pct: fmt.int(share * 100), value: money(value), status: status });
+        return t(acc.hasSales ? 'al.topStopped.d' : (acc.mixedTypes ? 'al.topStopped.dResMix' : 'al.topStopped.dRes'), { name: name, pct: fmt.int(share * 100), value: money(value), status: status });
       };
       var camps = {}, doneCamp = {};
       ads.forEach(function (c) {
@@ -1162,6 +1189,7 @@
     SETTINGS_META: SETTINGS_META,
     SETTINGS_ORDER: SETTINGS_ORDER,
     mergeSettings: mergeSettings,
-    analyze: analyze
+    analyze: analyze,
+    _: { poissonAtMost: poissonAtMost }   // للاختبارات
   };
 })(window);

@@ -240,8 +240,11 @@
       var w = { since: since, until: until, spend: 0, total: 0, ads: 0, ids: [], spendById: {}, currency: currency, purchases: 0 };
       res.data.forEach(function (row) {
         var sp = num(row.spend), goal = GOAL_TO_ACTION[row.optimization_goal];
-        var p = valueForType(row.actions, 'omni_purchase');
-        if (p == null) p = valueForType(row.actions, 'purchase');
+        // برقم المنصة نفسها (بالمشاهدة كمان — platform = true)، زي Snapchat (api/snapchat-ads-fetch.js snapMonthWaste): «دون طلبات»
+        // = ولا طلب حتى بحساب المنصة الأوسع، أقوى دليل هدر. مراجعة المرحلة ٤ (ر٦٦ب): كان «الأقرب للمتجر» (fbPagesPromise بيطلب النوافذ
+        // لوحده)، فإعلان المنصة بتنسب له طلبات بالمشاهدة كان بيتعد هنا وهو في تنبيهاته «مهم» مش هدر (al.wasteView)
+        var p = valueForType(row.actions, 'omni_purchase', true);
+        if (p == null) p = valueForType(row.actions, 'purchase', true);
         // الشراء من أي إعلان في الحساب (أي هدف): صفر في الشهر كله = منقدرش نقول إن إعلانات المبيعات «مجابتش طلب» — ممكن التتبّع
         // مش واصل لـ Meta (ui.js wastePanelHtml). حساب حقيقي ١٨ أكتوبر: الملخص «لا تصل إلى المنصة أي عمليات شراء…» وتحته
         // «٣٩٩ $ صُرفت على إعلانات مبيعات لم تحقق أي طلب» (مراجعة المرحلة ٤)
