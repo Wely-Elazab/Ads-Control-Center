@@ -128,6 +128,21 @@ export function cleanTarget(b: any): { roas_target: number; roas_break_even: num
   if (!ok(r) || !ok(e) || e > r) return undefined;
   return { roas_target: Math.round(r * 100) / 100, roas_break_even: Math.round(e * 100) / 100 };
 }
+// حساسية التنبيهات من الأداة (المرحلة ٥ ق٥): بعد كده التنبيهات العاجلة بالبريد بنفس الحساسية اللي العميل اختارها (كانت الافتراضية
+// دايماً — اللي اختار «هادي» كان بيوصله بريد بحساسية «متوازن»). المفاتيح المعروفة بس وأرقام بس — المُشغّل بيمرّرها لمحرك الأداة
+// اللي بيتحقق من حدود كل قيمة بنفسه (alerts.js mergeSettings)، فالحدود متتكررش هنا. undefined = مبعتهاش (القديمة بتفضل)
+const SENS_KEYS = ['learningDays', 'minSpendShare', 'oldAdDays', 'wasteCprMultiple', 'cprWarnMultiple', 'cprCriticalMultiple', 'lowDeliveryRatio',
+  'spikeMultiple', 'dropRatio', 'scaleMinResults', 'scaleCprRatio', 'frequencyWarn', 'frequencyHigh', 'accountSpikeMultiple', 'accountDropRatio', 'concentrationShare'];
+export function cleanSens(b: any): { alert_settings: Record<string, number> } | undefined {
+  const v = b && b.sens;
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out: Record<string, number> = {};
+  SENS_KEYS.forEach((k) => {
+    const n = typeof v[k] === 'number' ? v[k] : NaN;
+    if (isFinite(n) && n >= 0 && n <= 10000) out[k] = Math.round(n * 10000) / 10000;
+  });
+  return Object.keys(out).length ? { alert_settings: out } : undefined;
+}
 async function getSettings(account: string): Promise<any | null> {
   const r = await db('digest_settings?select=email,enabled,summary_days,summary_hour,timezone,lang&account_id=eq.' + account, { method: 'GET' });
   const rows = await r.json();
@@ -288,7 +303,7 @@ export async function handleDigest(action: string, body: any, origin: string | n
     const row = { account_id: account, email, enabled: true, summary_days: days, summary_hour: hour,
       timezone: acc.timezone_name || 'Asia/Riyadh', lang: body.lang === 'en' ? 'en' : 'ar',
       consent_at: now, consent_version: CONSENT_VERSION, updated_at: now, last_summary_until: yesterdayIn(acc.timezone_name || 'Asia/Riyadh'),
-      ...(cleanTarget(body) || {}) };
+      ...(cleanTarget(body) || {}), ...(cleanSens(body) || {}) };
     await db('digest_settings?on_conflict=account_id', { method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(row) });
     await mailEnabled(account, acc.name, row);
     return reply(200, { ok: true, settings: publicSettings(row), tokenExpiresAt: expiresAt }, origin);
@@ -302,7 +317,7 @@ export async function handleDigest(action: string, body: any, origin: string | n
     if (body.days !== undefined) { const d = cleanDays(body.days); if (!d) return reply(400, { error: 'days' }, origin); patch.summary_days = d; }
     if (body.hour !== undefined) { const h = cleanHour(body.hour); if (h === null) return reply(400, { error: 'hour' }, origin); patch.summary_hour = h; }
     if (body.lang === 'ar' || body.lang === 'en') patch.lang = body.lang;
-    Object.assign(patch, cleanTarget(body) || {});
+    Object.assign(patch, cleanTarget(body) || {}, cleanSens(body) || {});
     await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify(patch) });
     const next = { ...s, ...patch };
     if (patch.email && patch.email !== s.email) await mailEnabled(account, acc.name, next);   // تأكيد للعنوان الجديد
@@ -322,7 +337,7 @@ export async function handleDigest(action: string, body: any, origin: string | n
     const expiresAt = await storeToken(body.token, account);
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
     // فتح الحساب بيبعت المستهدف وحد الخسارة اللي في الأداة دلوقتي — لو اتغيّروا على جهاز تاني بيتحدّثوا هنا
-    const tg = cleanTarget(body);
+    const tg = cleanTarget(body) || cleanSens(body) ? Object.assign({}, cleanTarget(body) || {}, cleanSens(body) || {}) : undefined;
     if (tg) await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify(tg) });
     return reply(200, { ok: true, enabled: true, tokenExpiresAt: expiresAt }, origin);
   }

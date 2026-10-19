@@ -5996,6 +5996,18 @@
         });
       });
     });
+    // المرحلة ٥ (ق٥): البريد العاجل كان بالإعدادات الافتراضية حتى لو العميل اختار «هادي» — دلوقتي الحساسية الفعلية بتتبعت مع المستهدف
+    testAsync('تحديث الملخص بيبعت حساسية التنبيهات الفعلية (نمط «هادي») مع المستهدف وحد الخسارة', function () {
+      var prev = alertSettings;
+      alertSettings = { _preset: 'calm', roasTarget: 4 };
+      return withDigest(function () { return ok200({ ok: true }); }, function (calls) {
+        digestAutoRefresh('act_9');
+        var c = calls[0] || {};
+        alertSettings = prev;
+        eq([c.action, c.target, c.sens && c.sens.wasteCprMultiple, c.sens && c.sens.minSpendShare, 'roasTarget' in (c.sens || {})],
+          ['digest.refresh', 4, 3, 0.05, false]);
+      });
+    });
     testAsync('فتح حساب Meta بيجدد المفتاح مرة في الجلسة، و«فصل» Meta بيطلب حذف كل مفاتيح صاحب الجلسة', function () {
       return withDigest(function () { return ok200({ ok: true }); }, function (calls) {
         digestAutoRefresh('act_1'); digestAutoRefresh('act_1');

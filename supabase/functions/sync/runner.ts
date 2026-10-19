@@ -230,8 +230,17 @@ async function storedTarget(account: string): Promise<Target> {
   const rows = r ? await r.json().catch(() => null) : null;
   return targetOf(Array.isArray(rows) && rows[0] ? rows[0] : null);
 }
-// محرك الأداة بإعداداته الافتراضية (حساسية العميل محفوظة في متصفحه بس) — إلا المستهدف وحد الخسارة لو بعتهم. العاجل بس
-function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Target): any[] {
+// حساسية التنبيهات اللي العميل اختارها في الأداة (المرحلة ٥ ق٥ — digest.ts cleanSens). null = لسه مبعتهاش: الإعدادات الافتراضية
+type Sens = Record<string, number> | null;
+async function storedSens(account: string): Promise<Sens> {
+  const r = await db('digest_settings?select=alert_settings&account_id=eq.' + account, { method: 'GET' }).catch(() => null);
+  const rows = r ? await r.json().catch(() => null) : null;
+  const v = Array.isArray(rows) && rows[0] ? rows[0].alert_settings : null;
+  return v && typeof v === 'object' ? v : null;
+}
+// محرك الأداة بحساسية العميل (ق٥ — قبل كده الإعدادات الافتراضية هنا وحساسية العميل في متصفحه بس، فالبريد كان بيطلع بحساسية
+// «متوازن» لعميل اختار «هادي»)، والمستهدف وحد الخسارة لو بعتهم. العاجل بس. mergeSettings في المحرك بيتحقق من حدود كل قيمة
+function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Target, sens: Sens = null): any[] {
   const source = 'meta:' + accountId;
   const meta = {
     [source]: {
@@ -241,7 +250,8 @@ function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Targe
       spendCap: Number(acct.spend_cap) || 0, amountSpent: Number(acct.amount_spent) || 0
     }
   };
-  const res = g.PauseProofAlerts.analyze(cands, meta, target ? { roasTarget: target.roas, roasBreakEven: target.be } : {}, alertFmt());
+  const custom = Object.assign({}, sens || {}, target ? { roasTarget: target.roas, roasBreakEven: target.be } : {});
+  const res = g.PauseProofAlerts.analyze(cands, meta, custom, alertFmt());
   return res.alerts.filter((a: any) => a.level === 'critical' && !a.minor);
 }
 function alertFmt() {
@@ -365,7 +375,7 @@ async function brokenLinks(cands: any[]): Promise<any[]> {
   return res.filter(Boolean);
 }
 // كل التنبيهات العاجلة للحساب: محرك الأداة + البيانات الزيادة. التعديل الكبير على عنصر عليه «أكبر مصدر وقف» منكررهوش
-async function allUrgent(accountId: string, acct: Acct, cands: any[], editsSince: number, target: Target): Promise<any[]> {
+async function allUrgent(accountId: string, acct: Acct, cands: any[], editsSince: number, target: Target, sens: Sens = null): Promise<any[]> {
   const ex = await extraAlerts(accountId, acct, cands, editsSince), extra = ex.alerts;
   // «توقف أكبر مصدر لمبيعاتك» اللي صاحب المفتاح وقّفه بنفسه (الإعلان أو مجموعته أو حملته) مبيوصلش بريد عاجل (ق٣)
   const byId: Record<string, any> = {};
@@ -377,7 +387,7 @@ async function allUrgent(accountId: string, acct: Acct, cands: any[], editsSince
     const c = byId[String(a.adId)];
     return !!c && [c.id, c.adsetId, c.campaignId].some((id: any) => id != null && ex.ownPaused[String(id)]);
   };
-  const base = urgentAlerts(accountId, acct, cands, target).filter((a: any) => !own(a));
+  const base = urgentAlerts(accountId, acct, cands, target, sens).filter((a: any) => !own(a));
   const stopped: Record<string, boolean> = {};
   base.forEach((a: any) => { if (a.code === 'top-stopped') stopped[String(a.adId || String(a.objectId || '').replace(/^c:/, ''))] = true; });
   return base.concat(extra.filter((a: any) => !(a.code === 'big-edit' && stopped[String(a.objectId || '').split('@')[0]])));
@@ -684,7 +694,7 @@ function summaryMail(account: string, name: string, since: string, until: string
 
 // ---------- فحص حساب واحد ----------
 type Settings = { account_id: string; email: string; lang: string; timezone: string; summary_days: number[]; summary_hour: number; last_summary_until: string | null; checked_at?: string | null;
-  roas_target?: number | null; roas_break_even?: number | null; last_monthly?: string | null };
+  roas_target?: number | null; roas_break_even?: number | null; last_monthly?: string | null; alert_settings?: Record<string, number> | null };
 // الفحص العاجل مرة في الساعة لكل حساب، مع إن المُشغّل بيشتغل كل ١٠ دقايق (عشان الملخصات اللي ميعادها واحد متتأخرش)
 function urgentDueFor(s: Settings): boolean { return !s.checked_at || Date.now() - Date.parse(s.checked_at) >= URGENT_EVERY_MS; }
 async function checkAccount(s: Settings): Promise<string> {
@@ -751,7 +761,7 @@ async function checkAccount(s: Settings): Promise<string> {
     if (doUrgent) {
       // التعديلات من آخر فحص (أو آخر ساعتين لأول فحص)
       const editsSince = s.checked_at ? Date.parse(s.checked_at) : now - 2 * 3600000;
-      const urgent = await allUrgent(account, acct, cands, editsSince, targetOf(s));
+      const urgent = await allUrgent(account, acct, cands, editsSince, targetOf(s), s.alert_settings || null);
       const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], sentRows: Mark[] = [], seen: Record<string, boolean> = {};
       for (const a of urgent) {
         const kind = String(a.code || 'other'), obj = String(a.adId || a.objectId || '');
@@ -816,7 +826,7 @@ export async function runAll(): Promise<Record<string, unknown>> {
   try { joinReminded = await joinReminders(); } catch (e) { console.error('join reminders failed', String((e as Error).message || e).slice(0, 200)); }
   const outdated = await loadEngine();
   if (outdated.length) await rpc('beat', { p_source: 'runner-engine-outdated' }).catch(() => {});
-  const r = await db('digest_settings?select=account_id,email,lang,timezone,summary_days,summary_hour,last_summary_until,checked_at,roas_target,roas_break_even,last_monthly&enabled=is.true&order=checked_at.asc.nullsfirst&limit=500', { method: 'GET' });
+  const r = await db('digest_settings?select=account_id,email,lang,timezone,summary_days,summary_hour,last_summary_until,checked_at,roas_target,roas_break_even,last_monthly,alert_settings&enabled=is.true&order=checked_at.asc.nullsfirst&limit=500', { method: 'GET' });
   const all = (await r.json()) as Settings[];
   // الملخصات اللي ميعادها جه الأول، وبعدها الفحص العاجل الأقدم — واللي مفيش عليه حاجة بيتخطّى من غير أي طلب
   const mailDue = (s: Settings) => (summaryDue(s) || monthlyDue(s) ? 1 : 0);
@@ -895,7 +905,7 @@ export async function preview(token: string, accountId: string, lang: string): P
       const cands = await loadCandidates(accountId, acct);
       if (!cands) return { error: 'retry' };
       // المعاينة: التعديلات الكبيرة من آخر ٢٤ ساعة (عشان تبان أمثلة)
-      const urgent = await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, await storedTarget(accountId));
+      const urgent = await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, await storedTarget(accountId), await storedSens(accountId));
       const mail = urgentMail(accountId, acct.name || accountId, urgent, [], acct.timezone_name || 'UTC', en, await stopUrl(accountId));
       return {
         engineCommit: ENGINE_COMMIT, engineOutdated: outdated, metaUsage: usage, ads: cands.length,

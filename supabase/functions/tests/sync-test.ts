@@ -6,7 +6,7 @@
 
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
 import { corsHeaders, esc, reply } from '../sync/lib.ts';
-import { cleanEmail, cleanTarget, daysText, hourText, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
+import { cleanEmail, cleanSens, cleanTarget, daysText, hourText, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import { byOwner, callTimeout, freshUsage, normName, ownPausedIds, readUsage } from '../sync/runner.ts';
@@ -208,4 +208,13 @@ Deno.test('فعل صاحب المفتاح نفسه: الاسم بيتقارن م
     null
   ], me);
   assertEquals(paused, { c1: true });
+});
+
+// المرحلة ٥ (ق٥): حساسية التنبيهات من الأداة — المفاتيح المعروفة والأرقام بس (محرك الأداة بيتحقق من الحدود في المُشغّل)
+Deno.test('حساسية التنبيهات: المفاتيح المعروفة والأرقام بس، والمستهدف بيتحفظ لوحده، وأي حاجة تانية متتحدّثش', () => {
+  assertEquals(cleanSens({ sens: { wasteCprMultiple: 3, minSpendShare: 0.05, roasTarget: 9, evil: 1, dropRatio: '0.3', spikeMultiple: -1 } }),
+    { alert_settings: { wasteCprMultiple: 3, minSpendShare: 0.05 } });
+  assertEquals(cleanSens({}), undefined);
+  assertEquals(cleanSens({ sens: [1, 2] }), undefined);
+  assertEquals(cleanSens({ sens: { evil: 1 } }), undefined);
 });

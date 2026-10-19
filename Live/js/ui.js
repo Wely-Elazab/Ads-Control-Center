@@ -860,9 +860,12 @@
   function digestAccount() { var id = activeSources.meta; return /^act_\d{1,30}$/.test(id || '') ? id : null; }
   // المستهدف وحد الخسارة من إعدادات التنبيهات (قرار ٧ أكتوبر ٢٠٢٦): بيتبعتوا مع الملخص التلقائي عشان رسالة الملخص فيها نفس
   // سطر «العائد أقل من المستهدف…» اللي هنا، والتنبيهات العاجلة بالبريد بنفس حد الخسارة (digest.ts cleanTarget)
+  // ومعاهم حساسية التنبيهات نفسها (المرحلة ٥ ق٥): القيم الفعلية بعد النمط والتعديلات — من غيرها البريد العاجل كان بالإعدادات
+  // الافتراضية حتى لو العميل اختار «هادي» (digest.ts cleanSens، runner.ts urgentAlerts)
   function digestTarget() {
-    var s = PauseProofAlerts.mergeSettings(alertSettings);
-    return { target: s.roasTarget, be: s.roasBreakEven };
+    var s = PauseProofAlerts.mergeSettings(alertSettings), sens = {};
+    Object.keys(s).forEach(function (k) { if (k !== 'roasTarget' && k !== 'roasBreakEven') sens[k] = s[k]; });
+    return { target: s.roasTarget, be: s.roasBreakEven, sens: sens };
   }
   // العميل غيّر إعدادات التنبيهات: الحسابات اللي الملخص مفعّل لها في الجلسة دي بتاخد المستهدف وحد الخسارة الجداد
   function digestPushTarget() {
