@@ -760,7 +760,9 @@
       if (!profitAd && avgCpr && resW >= 1 && ownCpr != null) {
         var ratio = ownCpr / avgCpr;
         if (ratio >= s.cprWarnMultiple && pFew < P_LIKELY) {
-          var critical = ratio >= s.cprCriticalMultiple && urgentOk(pFew);
+          // جوه حملة ميزانيتها على مستوى الحملة: «مهم» بس — Meta مبتسمحش بإشعار مبني على التكلفة لإعلان أو مجموعة هناك لأنه ممكن
+          // يضر الأداء (مركز المساعدة ٥١١١٠٧٢٣٣٤٢٠٥٢٨)، والإعلان الأغلى ظاهرياً ممكن يكون الأكفأ عندها (الأثر التفصيلي — المرحلة ٥ ق٢)
+          var critical = ratio >= s.cprCriticalMultiple && !c.campaignBudget && urgentOk(pFew);
           var oldNote = age != null && age >= s.oldAdDays ? t('al.cpr.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '';
           issues.push(withMoney(makeIssue(critical ? 'critical' : 'warning', ['cpr'], t('al.cpr.t', { label: label, one1: one }),
             t('al.cpr.d', { one: one, name: name, cpr: money(ownCpr), old: oldNote, pct: fmt.int((ratio - 1) * 100), avg: money(avgCpr) }),
@@ -818,7 +820,7 @@
         // الزهق «بيضر» (عاجل) زي تعريف Meta للإرهاق (Creative fatigue — مركز مساعدة Meta ١٣٤٦٨١٦١٤٢٣٢٧٨٥٨): مرات ظهور كتير
         // و**ضعف** التكلفة أو أكتر — وبدليل (ق١). بين ١٫٥ وضعفين «مهم» زي «Creative limited» عندها. كان ١٫٥ ضعف = عاجل (المرحلة ٥ ق٤).
         // إعلان المبيعات العاجل بتاعه قاعدة الخسارة فوق
-        var hurting = !profitAd && !learning && avgCpr && ownCpr != null && ownCpr >= avgCpr * FATIGUE_X && urgentOk(pFew);
+        var hurting = !profitAd && !learning && !c.campaignBudget && avgCpr && ownCpr != null && ownCpr >= avgCpr * FATIGUE_X && urgentOk(pFew);
         // التكرار العالي لوحده مش مشكلة (جمهور إعادة الاستهداف صغير وبيبقى مربح): «مهم» بس لو في أداء الإعلان علامة ضعف،
         // وغير كده ملاحظة «للعلم» — أفضل إعلان في الحساب كان بيطلع «يحتاج إلى تحسين» بسبب التكرار بس
         var weakPerf = profitWeak || issues.some(function (i) {

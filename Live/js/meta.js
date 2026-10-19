@@ -760,7 +760,9 @@
   var META_ISSUES = 'issues_info{error_code,error_summary,error_message,level}';
   var META_AD_FIELDS = 'id,name,effective_status,created_time,updated_time,' + META_ISSUES + ',' +
     'adset{id,name,optimization_goal,effective_status,start_time,end_time,lifetime_budget,budget_remaining,' + META_ISSUES + '},' +
-    'campaign{id,name,effective_status,start_time,stop_time,' + META_ISSUES + '},';
+    // daily_budget / lifetime_budget على الحملة = ميزانية على مستوى الحملة (Advantage+ campaign budget): Meta مبتسمحش بإشعار مبني
+    // على التكلفة لإعلان أو مجموعة جوّاها (مركز المساعدة ٥١١١٠٧٢٣٣٤٢٠٥٢٨ — المرحلة ٥ ق٢)، فحكم التكلفة هناك مبيبقاش «عاجل»
+    'campaign{id,name,effective_status,start_time,stop_time,daily_budget,lifetime_budget,' + META_ISSUES + '},';
   var META_AD_FIELDS_BASIC = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},campaign{id,name},';
   var META_CREATIVE_FULL = '{title,body,image_url,image_hash,thumbnail_url,video_id,effective_object_story_id,effective_instagram_media_id,product_set_id,' +
     'asset_feed_spec{images{hash,url},videos{video_id,thumbnail_url},link_urls{website_url},call_to_action_types},' +
@@ -966,6 +968,8 @@
       adsetId: (ad.adset && ad.adset.id) || null,
       edits: adEditsById[ad.id] || null,
       campaignName: (ad.campaign && ad.campaign.name) || null,
+      // ميزانية على مستوى الحملة (META_AD_FIELDS) — alerts.js: حكم التكلفة جوّاها مبيوصلش «عاجل»
+      campaignBudget: !!(ad.campaign && (Number(ad.campaign.daily_budget) > 0 || Number(ad.campaign.lifetime_budget) > 0)),
       adsetName: (ad.adset && ad.adset.name) || null,
       nativeId: ad.id,
       format: format,

@@ -1087,6 +1087,22 @@
       var many = ad('many', { daily: steady(100), res: [1, 1, 2, 1, 1, 2, 2] });
       var i = issuesOf(engine(baseAccount().concat([many])), 'many').filter(function (x) { return x.code === 'cpr'; })[0];
       ok(i && i.level === 'critical', 'ten purchases at ~2.7x the average');
+      // جوه حملة ميزانيتها على مستوى الحملة: «مهم» مش «عاجل» — Meta مبتسمحش بإشعار مبني على التكلفة هناك (المرحلة ٥ ق٢)
+      many.campaignBudget = true;
+      var j = issuesOf(engine(baseAccount().concat([many])), 'many').filter(function (x) { return x.code === 'cpr'; })[0];
+      ok(j && j.level === 'warning', 'campaign budget: ' + (j && j.level));
+      // والنصيحة: الإعلان مالهوش ميزانية — «نقل الميزانية» اتشالت
+      ok(withLang('ar', function () { return t('al.cpr.a'); }).indexOf('نقل جزء من الميزانية') === -1, 'advice');
+    });
+    test('Meta: ميزانية على مستوى الحملة (daily_budget أو lifetime_budget) بتتقري من طلب الإعلانات', function () {
+      var raw = function () {
+        return { id: '1', name: 'A', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000',
+          adset: { id: 's', name: 'Set S', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c', name: 'Camp C' }, creative: {} };
+      };
+      var a = raw(); a.campaign.daily_budget = '5000';
+      ok(transformRealAd(a, [], {}, DAYS_X, null, 'SAR', null, null).campaignBudget === true, 'daily budget on the campaign');
+      ok(transformRealAd(raw(), [], {}, DAYS_X, null, 'SAR', null, null).campaignBudget === false, 'ad set budgets');
+      ok(/campaign\{[^}]*daily_budget,lifetime_budget/.test(META_AD_FIELDS), 'requested from Meta');
     });
     test('إعلان وصول بـ٥ في الأسبوع (٠٫٤٪ من الحساب) = «للعلم» بس حتى لو صرفه أكبر من تكلفة نتيجة واحدة (حالة حقيقية)', function () {
       var reach = ad('rc', { daily: [0.06, 2.01, 2.36, 0.41, 0.4, 0, 0.05], res: [66, 3021, 3532, 639, 597, 0, 94], key: 'reach' });
