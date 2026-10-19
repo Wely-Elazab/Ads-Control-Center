@@ -674,9 +674,12 @@
       var dryUrgent = weekDry && !platOnly ? urgentOk(pFew) : false;
       if (platOnly && spendW >= (threshold || 0) / 2 && pFew < P_LIKELY) {
         wasteRaised = true;
-        issues.push(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteView.t', { label: label }),
-          t('al.wasteView.d', { name: name, spend: money(spendW), label: label, plat: countText(platOnly, c.resultKey, fmt) }),
-          t('al.wasteView.a'), spendW, 'waste-view'), 'wasteClick', spend3 / 3));
+        // ر٤٣ (مرحَّل من المرحلة ٤): سبب الفرق بين رقمنا ورقم المنصة يختلف بالمنصة — في Meta أساسنا النقر والمنصة بتنسب
+        // كمان بعد المشاهدة من غير نقر، وفي سناب شات أساسنا الطلبات المسجّلة في المتجر والمنصة بتنسب بنوافذ النسب بتاعتها
+        var vk = c.baseStore ? 'Store' : '';
+        issues.push(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteView' + vk + '.t', { label: label }),
+          t('al.wasteView' + vk + '.d', { name: name, spend: money(spendW), label: label, plat: countText(platOnly, c.resultKey, fmt) }),
+          t('al.wasteView' + vk + '.a'), spendW, 'waste-view'), 'wasteClick', spend3 / 3));
       } else if (weekDry) {
         var wVars = { name: name, spend: money(spendW), label: label, one: one, avg: money(avgCpr),
           expPhrase: countText(Math.round(Math.max(1, spendW / avgCpr)), c.resultKey, fmt) };

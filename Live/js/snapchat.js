@@ -313,6 +313,9 @@
         period: period,
         // رقم المنصة جنب «الأقرب للمتجر» (core.js platOf) — زي Meta
         plat: cmp ? { results: sum(p.purchases), sales: sum(p.sales) } : null,
+        // أساس أرقامنا هنا = الطلبات المسجّلة في المتجر (مش النقر زي Meta) — alerts.js بيكتب سبب الفرق صح
+        // (ر٤٣ المرحَّل للمرحلة ٥): «بعد مشاهدته دون نقر» وصف غلط لسناب شات، الفرق هنا مصدر الرقم ونوافذ النسب
+        baseStore: !!cmp,
         fail: false
       };
     });

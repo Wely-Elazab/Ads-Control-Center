@@ -69,8 +69,9 @@
       resultKey: o.key || 'purchase', cpr: r ? spend / r : null, roas: s && spend ? s / spend : null,
       frequency: o.freq || null, daysAgo: o.age != null ? o.age : 30, updatedDaysAgo: 5, currency: 'SAR',
       reviewStatus: o.review || null, deliveryReason: null, platformStatus: 'ACTIVE', period: null,
-      // المرحلة ٥: aid = المجموعة الإعلانية (ق٦ — إعلان جديد فيها)، partial = حالة المجموعة مش مقروءة من المنصة (ق٧)
-      adsetId: o.aid || null, statusPartial: !!o.partial
+      // المرحلة ٥: aid = المجموعة الإعلانية (ق٦ — إعلان جديد فيها)، partial = حالة المجموعة مش مقروءة من المنصة (ق٧)،
+      // plat = رقم المنصة جنب رقمنا، baseStore = أساس رقمنا هو طلبات المتجر مش النقر (ر٤٣)
+      adsetId: o.aid || null, statusPartial: !!o.partial, plat: o.plat || null, baseStore: !!o.baseStore
     };
     return c;
   }
@@ -1362,6 +1363,14 @@
       // إعلان جديد في مجموعة تانية ملوش علاقة
       var other = engine(baseAccount().concat([pricey(), ad('fresh', { daily: [0, 0, 0, 0, 0, 20, 10], age: 1, aid: 's2' })]));
       ok(has(other, 'old', 'cpr', 'critical'), list(other, 'old'));
+    });
+    // ر٤٣ (مرحَّل من المرحلة ٤): أساس رقمنا في سناب شات = طلبات المتجر، فسبب الفرق مش «مشاهدة من غير نقر» زي Meta
+    test('ر٤٣: أساس الرقم من المتجر = نص «هدر بعد المشاهدة» يقول سبب الفرق الصحيح', function () {
+      var mk = function (store) { return engine(baseAccount().concat([ad('sv', { daily: steady(40), plat: { results: 3, sales: 0 }, baseStore: store })])); };
+      var pick = function (r) { return r.byAd.sv.issues.filter(function (i) { return i.code === 'waste-view'; })[0]; };
+      var st = pick(mk(true)), clk = pick(mk(false));
+      ok(st && /مسجّلة في متجرك/.test(st.detail) && !/دون نقر/.test(st.detail), st ? st.title + ' — ' + st.detail : list(mk(true), 'sv'));
+      ok(clk && /بعد مشاهدته دون نقر/.test(clk.detail), clk ? clk.detail : list(mk(false), 'sv'));
     });
     // المرحلة ٥ ق٧: مصدرا حالة المجموعة الإعلانية فشلوا — التنبيه ميقولش إن العيب في الإعلان وهو ممكن يكون إعداد في المجموعة
     test('ق٧: حالة المجموعة غير مقروءة = تنبيه التوصيل بيقول إن السبب قد يكون من المجموعة', function () {
