@@ -248,17 +248,38 @@ function alertFmt() {
   return { money: g.money, currencyLabel: g.currencyLabel, num: g.numAr, num2: g.numAr2, int: (n: number) => g.ar(Math.round(n || 0)) };
 }
 
+// ---------- فعل صاحب المفتاح نفسه (المرحلة ٥ ق٣) ----------
+// اللي فعّل الملخص وقّف أكبر مصدر مبيعات أو ضاعف ميزانية بنفسه: بريد «عاجل» على فعله هو مش ضرر، وبيتعلّم يتجاهل العاجل كله
+// (Google SRE، فصل المراقبة: «هل هتتجاهله في يوم لأنه مش ضار؟»). الاسم في سجل Meta (actor_name) قصاد اسم صاحب المفتاح (/me).
+// التنبيه بيفضل في الأداة والملخص، والتعديل اللي عمله حد تاني (زميل في الوكالة) بيفضل عاجل
+export function normName(s: unknown): string { return typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().toLowerCase() : ''; }
+export function byOwner(actor: unknown, me: string): boolean { return !!me && normName(actor) === me; }
+// العناصر (إعلان أو مجموعة أو حملة) اللي صاحب المفتاح وقّفها بنفسه — events = نتيجة DX._.actionOf
+export function ownPausedIds(events: any[], me: string): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  (events || []).forEach((ev) => { if (ev && ev.kind === 'pause' && ev.id && byOwner(ev.actor, me)) out[String(ev.id)] = true; });
+  return out;
+}
+async function ownerName(): Promise<string> {
+  const j = await graph('/me', 'GET', { fields: 'name' }).catch(() => null);
+  return normName(j && j.name);
+}
+
 // ---------- التنبيهات اللي محتاجة بيانات زيادة (قواعدها في js/alerts.js: siteAlerts / editAlerts / linkAlerts) ----------
-// editsSince = آخر فحص عاجل: التعديلات الأحدث منه بس، فكل تعديل بيتقيّم مرة واحدة
-async function extraAlerts(accountId: string, acct: Acct, cands: any[], editsSince: number): Promise<any[]> {
+// editsSince = آخر فحص عاجل: التعديلات الأحدث منه بس، فكل تعديل بيتقيّم مرة واحدة. ownPaused = اللي صاحب المفتاح وقّفه بنفسه
+// في آخر يومين (لـ«توقف أكبر مصدر لمبيعاتك» — allUrgent)
+async function extraAlerts(accountId: string, acct: Acct, cands: any[], editsSince: number): Promise<{ alerts: any[]; ownPaused: Record<string, boolean> }> {
   const tz = acct.timezone_name || 'UTC', cur = acct.currency || null, fmt = alertFmt(), out: any[] = [];
+  let ownPaused: Record<string, boolean> = {};
   const fail = (what: string, e: unknown) => console.error('extra alerts ' + what, String((e as Error).message || e).slice(0, 160));
   try { out.push(...g.PauseProofAlerts.siteAlerts(await g.metaSiteDays(accountId, tz), fmt)); } catch (e) { fail('site', e); }
   try {
-    const acts = await g.metaActivities(accountId, g.shiftKey(g.todayKeyInTz(tz), -1));
+    const acts = await g.metaActivities(accountId, g.shiftKey(g.todayKeyInTz(tz), -2));
     if (acts.err) throw new Error('activities');
+    const me = await ownerName();
+    ownPaused = ownPausedIds(acts.data.map((ev: any) => g.DX._.actionOf(ev, tz)), me);
     const edits = acts.data.filter((ev: any) => eventMs(ev.event_time) > editsSince)
-      .map((ev: any) => g.DX._.actionOf(ev, tz)).filter((ev: any) => ev && (ev.kind === 'budget' || ev.kind === 'pause'));
+      .map((ev: any) => g.DX._.actionOf(ev, tz)).filter((ev: any) => ev && (ev.kind === 'budget' || ev.kind === 'pause') && !byOwner(ev.actor, me));
     if (edits.length) {
       const today = g.todayKeyInTz(tz), groups: any[] = [];
       ['campaign', 'adset', 'ad'].forEach((l) => {
@@ -275,7 +296,7 @@ async function extraAlerts(accountId: string, acct: Acct, cands: any[], editsSin
     }
   } catch (e) { fail('edits', e); }
   try { out.push(...g.PauseProofAlerts.linkAlerts(await brokenLinks(cands))); } catch (e) { fail('links', e); }
-  return out;
+  return { alerts: out, ownPaused };
 }
 function eventMs(when: string): number {
   const ms = Date.parse(String(when || '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
@@ -345,7 +366,18 @@ async function brokenLinks(cands: any[]): Promise<any[]> {
 }
 // كل التنبيهات العاجلة للحساب: محرك الأداة + البيانات الزيادة. التعديل الكبير على عنصر عليه «أكبر مصدر وقف» منكررهوش
 async function allUrgent(accountId: string, acct: Acct, cands: any[], editsSince: number, target: Target): Promise<any[]> {
-  const base = urgentAlerts(accountId, acct, cands, target), extra = await extraAlerts(accountId, acct, cands, editsSince);
+  const ex = await extraAlerts(accountId, acct, cands, editsSince), extra = ex.alerts;
+  // «توقف أكبر مصدر لمبيعاتك» اللي صاحب المفتاح وقّفه بنفسه (الإعلان أو مجموعته أو حملته) مبيوصلش بريد عاجل (ق٣)
+  const byId: Record<string, any> = {};
+  cands.forEach((c: any) => { byId[String(c.id)] = c; });
+  const own = (a: any) => {
+    if (a.code !== 'top-stopped') return false;
+    const camp = String(a.objectId || '').indexOf('c:') === 0 ? String(a.objectId).slice(2) : null;
+    if (camp) return !!ex.ownPaused[camp];
+    const c = byId[String(a.adId)];
+    return !!c && [c.id, c.adsetId, c.campaignId].some((id: any) => id != null && ex.ownPaused[String(id)]);
+  };
+  const base = urgentAlerts(accountId, acct, cands, target).filter((a: any) => !own(a));
   const stopped: Record<string, boolean> = {};
   base.forEach((a: any) => { if (a.code === 'top-stopped') stopped[String(a.adId || String(a.objectId || '').replace(/^c:/, ''))] = true; });
   return base.concat(extra.filter((a: any) => !(a.code === 'big-edit' && stopped[String(a.objectId || '').split('@')[0]])));
