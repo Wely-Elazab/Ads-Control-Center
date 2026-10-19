@@ -1798,14 +1798,25 @@ var DX = (function () {
   }
   // العائد مقارنةً بالمستهدف وحد الخسارة (إعدادات التنبيهات — opts.target). الملخص بالبريد بيعرفهم من ٧ أكتوبر ٢٠٢٦
   // (digest_settings — runner.ts targetOf) لو العميل بعتهم من الأداة، وإلا مبيتبعتش فيه السطر ده
+  // عائد الفترة نفسها مقارنةً بالحد = وصف لللي حصل (مش توقّع لأداء جاي زي حكم الإعلان)، فمن ٥ طلبات بيتقال زي ما هو. تحت ٥ طلبات
+  // بيتقال بس لو الفرق صعب يكون صدفة — نفس اختبار العائد بتاع تنبيهات الإعلان (alerts.js roasP — بواسون مركّب مع جاما، المرحلة ٥ ق١).
+  // قبل كده كان بيختفي تحت ٥ طلبات دايماً: ملخص حقيقي ١٢–١٨ أكتوبر ٢٠٢٦ بعائد ×٠٫٨ بـ٤ طلبات والحد ×٥ (المتوقع على الحد نحو ٢٤
+  // طلب، واحتمال الصدفة أقل من واحد في المليون) طلع من غير «أقل من حد الخسارة» وبعنوان برتقالي (المرحلة ٥ ه١١)
   function targetLine(r, target) {
     var b = r.cur;
-    if (!target || !(target.roas > 0) || !(b.spend > 0) || !(b.rev > 0) || b.pur < 5) return null;
+    if (!target || !(target.roas > 0) || !(b.spend > 0) || !(b.rev > 0) || !(b.pur > 0)) return null;
     // العائد بخانتين لو التقريب بيخلّيه زي الحد اللي بيتقارن بيه (ر٧٥)، و«إنفاق الحساب كله» لو فيه حملات أهداف تانية — نفس اسم
     // الرقم في شريط الأرقام فوقه («العائد على الإنفاق (الحساب كله)» — ر٧٣)
     var ro = b.rev / b.spend, below = target.be > 0 && ro < target.be;
     var roTxt = typeof roasVs === 'function' ? roasVs(ro, below ? target.be : target.roas) : roasStr(ro);
     var v = { roas: roTxt, target: roasStr(target.roas), be: roasStr(target.be) }, W = r.other && r.other.spend > 0 ? 'W' : '';
+    // قيمة الطلب المرجعية: الفترات اللي قبلها مع بعض (تاريخ الحساب نفسه)
+    var hist = { rev: 0, pur: 0 };
+    (r.windows || []).slice(1).forEach(function (w) { hist.rev += w.rev || 0; hist.pur += w.pur || 0; });
+    var aovRef = hist.pur > 0 && hist.rev > 0 ? hist.rev / hist.pur : null;
+    var P = typeof PauseProofAlerts !== 'undefined' && PauseProofAlerts.roasP;
+    var sure = function (bar, dir) { return !!P && P(b.rev, b.spend, bar, b.pur, aovRef, r.len, dir) < 0.05; };
+    if (b.pur < 5 && !sure(below ? target.be : target.roas, ro < target.roas ? -1 : 1)) return null;
     if (below) return { level: 'loss', text: t('dx.target.belowBE' + W, v) };
     if (ro < target.roas) return { level: 'below', text: t('dx.target.below' + W, v) };
     return { level: 'above', text: t('dx.target.above' + W, v) };

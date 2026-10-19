@@ -5121,6 +5121,17 @@
         ok(o2.basis.indexOf('العائد على إنفاق الحساب كله') === 0, o2.basis);
       });
     });
+    // ملخص حقيقي ١٢–١٨ أكتوبر ٢٠٢٦: عائد ×٠٫٨ بـ٤ طلبات والحد ×٥ — السطر كان بيختفي تحت ٥ طلبات والعنوان برتقالي (المرحلة ٥ ه١١)
+    test('تحت ٥ طلبات: سطر حد الخسارة بيظهر لو الفرق مؤكد (×٠٫٨ والحد ×٥)، ومبيظهرش لو قريب من الحد (×٤٫٥)', function () {
+      withLang('ar', function () {
+        var o = DX.compose(DX.analyze(dxDays(0.04, 0.56)), { target: { roas: 6, be: 5 } });
+        ok(o.basis && o.basis.indexOf('حد الخسارة (×٥)') > -1, o.basis || 'no line');
+        eq(o.tone, 'bad');
+        // ٤ طلبات بعائد ×٤٫٥ والحد ×٥: الفرق ١٠٪ في حدود الصدفة بالعدد ده — مفيش سطر (زي قبل كده تحت ٥ طلبات)
+        var o2 = DX.compose(DX.analyze(dxDays(0.04, 3.15)), { target: { roas: 6, be: 5 } });
+        ok(!o2.basis, o2.basis);
+      });
+    });
     test('حسابين بمنطقتين زمنيتين مختلفتين: مفيش «كل المنصات» (الأيام بتتجمع بالتاريخ وتاريخ كل حساب بتوقيته)', function () {
       var a = src('meta', 51), b = src('snapchat', 53);
       a.input.timezone = 'Asia/Riyadh'; b.input.timezone = 'America/Los_Angeles';

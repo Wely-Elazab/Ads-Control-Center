@@ -1375,6 +1375,8 @@
     SETTINGS_ORDER: SETTINGS_ORDER,
     mergeSettings: mergeSettings,
     analyze: analyze,
+    // اختبار العائد مقابل حد (بواسون مركّب مع جاما) — الملخص بيستخدمه لسطر المستهدف (diagnosis.js targetLine)، معيار واحد للأداة
+    roasP: roasP,
     _: { poissonAtMost: poissonAtMost, roasP: roasP, fewerP: fewerP, fdrCut: fdrCut }   // للاختبارات
   };
 })(window);
