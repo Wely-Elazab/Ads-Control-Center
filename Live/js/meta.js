@@ -927,7 +927,7 @@
     // الصرف دليل عملي أقوى من أي وصف. الملاحظة بتفضل ظاهرة في التفاصيل
     var ISSUE_LEVELS = { issue: 1, 'ad-issue': 1, 'adset-issue': 1, 'campaign-issue': 1, budget: 1 };
     if (!delivery.active && ISSUE_LEVELS[delivery.level] && daily[daily.length - 1] > 0) {
-      delivery = { active: true, level: null, reason: delivery.reason };
+      delivery = { active: true, level: null, reason: delivery.reason, partial: delivery.partial };
     }
     // مصدر واحد بس لقيمة المبيعات: مجموع نفس الأرقام اليومية الظاهرة في الجدول تحت —
     // عشان أي رقم إجمالي معروض يطابق دايماً تفصيله اليومي، من غير أي مصدر ثانٍ يختلف معاه
@@ -1004,6 +1004,8 @@
       active: delivery.active,
       pausedLevel: delivery.level,
       deliveryReason: delivery.reason || null,
+      // حالة المجموعة الإعلانية مش مقروءة من المنصة (المرحلة ٥ ق٧) — alerts.js بيزوّد جملة في تنبيهات التوصيل
+      statusPartial: !!delivery.partial,
       platformStatus: ad.effective_status || null,
       period: periodData,
       // رقم المنصة للأسبوع، جنب «الأقرب للمتجر» (results وdailySales). null = Meta مرجّعتش نوافذ، فمفيش مقارنة
@@ -1073,7 +1075,11 @@
     // 6) الحساب نفسه واقف تماماً (مشاكل الدفع الأخف بتظهر كتنبيه على مستوى الحساب، مش كإيقاف لكل إعلان)
     if (acct && acct.accountStatus != null && META_ACCOUNT_BLOCKING[Number(acct.accountStatus)]) return off('account');
 
-    return { active: true, level: null, reason: null };
+    // المرحلة ٥ ق٧: مصدرا حالة المجموعة الإعلانية — الحقول المتداخلة جوه طلب الإعلانات، والاستعلام المستقل للمجموعات.
+    // لو الاتنين رجعوا فاضيين، إيقاف المجموعة نفسه مش بيفوتنا (Meta بتحسبه جوه حالة الإعلان: ADSET_PAUSED)، إنما
+    // «انتهت مدتها» و«خلصت ميزانيتها» وملاحظات المنصة (issues_info) بتبقى مش مقروءة — فتنبيهات التوصيل بتقول كده بدل
+    // ما تخلّي الحكم كأن المشكلة في الإعلان نفسه
+    return { active: true, level: null, reason: null, partial: !(adset.effective_status || st.adsetStatus) };
   }
 
   // ---------- ملخص المتجر: أرقام الحساب يوم بيوم + تقسيماته (قراءة بس) ----------

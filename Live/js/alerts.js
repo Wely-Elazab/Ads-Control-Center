@@ -318,7 +318,7 @@
   // إحصائيات كل حساب (source) — متوسط تكلفة النتيجة محسوب لكل نوع نتيجة على حدة،
   // لأن مقارنة تكلفة "محادثة" بتكلفة "شراء" مقارنة مضلّلة
   function accountStats(ads) {
-    var byLabel = {}, byCampaign = {}, purchAds = [];
+    var byLabel = {}, byCampaign = {}, byAdset = {}, purchAds = [];
     var hasSales = false, spendByDay = zeros(WINDOW), resultsByDay = zeros(WINDOW);
     var total7 = 0, activeCount = 0, spendingAds = 0, purchSpendW = 0, purchSalesW = 0;
     ads.forEach(function (c) {
@@ -331,6 +331,8 @@
       if (c.active) activeCount++;
       if (any(c.dailySales)) hasSales = true;
       if (c.campaignId) (byCampaign[c.campaignId] = byCampaign[c.campaignId] || []).push(c);
+      // إعلانات كل مجموعة إعلانية — عشان نعرف لو اتضاف فيها إعلان جديد (المرحلة ٥ ق٦)
+      if (c.adsetId) (byAdset[c.adsetId] = byAdset[c.adsetId] || []).push(c);
       // عائد إعلانات الشراء في الأيام المكتملة (من غير النهارده) — للمقارنة جوه تقييم كل إعلان «في الفترة نفسها»
       if (any(c.dailySales) || c.resultKey === 'purchase' || c.resultKey === 'conversion') {
         purchSpendW += sum(c.daily || [], 0, YESTERDAY); purchSalesW += sum(c.dailySales || [], 0, YESTERDAY);
@@ -363,7 +365,7 @@
     var avgAdSpend2 = spendingAds > 0 ? spend2All / spendingAds : 0;
     return {
       byLabel: byLabel, hasSales: hasSales, spendByDay: spendByDay, resultsByDay: resultsByDay, equivByDay: equivByDay, mixedTypes: typeCount > 1,
-      total7: total7, activeCount: activeCount, avgAdSpend2: avgAdSpend2, byCampaign: byCampaign,
+      total7: total7, activeCount: activeCount, avgAdSpend2: avgAdSpend2, byCampaign: byCampaign, byAdset: byAdset,
       roasW: hasSales && purchSpendW > 0 ? purchSalesW / purchSpendW : null, purchSpendW: purchSpendW,
       // نفس المتوسطات على أيام معيّنة بس (المرحلة ٤، مراجعة ١٧ أكتوبر ٢٠٢٦ — تعريف واحد للمقياس: Kimball & Ross، «conformed facts»):
       // الإعلان المتعدَّل بيتحكم عليه بالأيام اللي بعد التعديل، فمتوسط الحساب اللي بيتقارن بيه لازم يبقى على نفس الأيام —
@@ -431,6 +433,16 @@
     var group = c.resultKey ? acc.byLabel[c.resultKey] : null;
     var age = c.daysAgo;
     var learning = age != null && age < s.learningDays;
+    // إعلان جديد اتضاف لنفس المجموعة الإعلانية (المرحلة ٥ ق٦) — Meta: ده «تعديل كبير» بيرجّع المجموعة كلها لمرحلة التعلّم
+    // (مركز المساعدة: About the learning phase / Significant edits)، فأرقام إخواته في الأيام الأولى بتبقى غير مستقرة:
+    // المنصة بتوزّع الإنفاق من أول وجديد. مش بنمنع الحكم زي التعديل على الإعلان نفسه (إعلان رابح من شهرين مش عايز يرجع
+    // «لم يُحكم بعد» لأن جنبه إعلان جديد)، بس بنمنع التصعيد للعاجل في القواعد اللي أساسها التوزيع، وبنقول السبب في أساس الحكم
+    var newSib = null;
+    ((c.adsetId && acc.byAdset && acc.byAdset[c.adsetId]) || []).forEach(function (o) {
+      if (o === c || o.daysAgo == null || o.daysAgo >= s.learningDays) return;
+      if (newSib == null || o.daysAgo < newSib) newSib = o.daysAgo;
+    });
+    var reLearn = newSib != null && !learning;
     var daily = c.daily || [], results = c.dailyResults || [], sales = c.dailySales || [];
     // آخر تعديل على الإعلان أو مجموعته أو حملته جوه النافذة (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦ — meta.js loadAdEdits):
     // أقل من ٣ أيام مكتملة بعده = الحكم بيستنى (إلا الهدر الواضح — العاجل). ٣ أيام أو أكتر = الحكم على الأيام اللي بعده بس
@@ -617,13 +629,16 @@
     };
     // إعلان كان بيصرف أقل من ١٪ من إنفاق الحساب اليومي: نزوله مش معلومة — «كان ينفق نحو ٠ ر.س يومياً» كانت بتطلع
     var tinyAd = prevSpendAvg > 0 && prevSpendAvg < accPrevDaily * 0.01;
+    // المرحلة ٥ ق٧: حالة مجموعته الإعلانية مش مقروءة من المنصة (meta.js statusPartial) — السبب ممكن يكون إعداد في
+    // المجموعة (مدة أو ميزانية خلصت) مش الإعلان، فبنقول كده في التنبيه بدل ما يفهم إن العيب في الإعلان
+    var partialNote = c.statusPartial ? t('al.statusPartial') : '';
     if ((age == null || age >= 2) && !tinyAd) {
       if (spendY === 0 && prevSpendAvg > 0) {
         issues.push(spendShifted(c, acc, prevSpendAvg) ? shiftNote() : (accShrank ? acctNote() : makeIssue('warning', ['delivery', 'spend'], t('al.noSpendY.t'),
-          t('al.noSpendY.d', { name: name, avg: money(prevSpendAvg) }), t('al.noSpendY.a'), 0, 'no-spend-y')));
+          t('al.noSpendY.d', { name: name, avg: money(prevSpendAvg) }) + partialNote, t('al.noSpendY.a'), 0, 'no-spend-y')));
       } else if (spendY > 0 && prevSpendAvg > 0 && spendY < prevSpendAvg * s.lowDeliveryRatio) {
         issues.push(spendShifted(c, acc, prevSpendAvg) ? shiftNote() : (accShrank ? acctNote() : makeIssue('warning', ['delivery', 'spend'], t('al.weak.t'),
-          t('al.weak.d', { name: name, spend: money(spendY), avg: money(prevSpendAvg) }), t('al.weak.a'), 0, 'weak-delivery')));
+          t('al.weak.d', { name: name, spend: money(spendY), avg: money(prevSpendAvg) }) + partialNote, t('al.weak.a'), 0, 'weak-delivery')));
       } else if (!any(daily) && prevSpendAvg === 0) {
         // مفيش إنفاق = مفيش حاجة نحكم عليها: حالته «لم يُحكم بعد»، والملاحظة للعلم
         issues.push(makeIssue('info', ['delivery'], t('al.noSpend7.t'),
@@ -677,7 +692,7 @@
       // الدليل (ق١): يومين صفر صعب يكونوا صدفة بمعدل باقي الحساب في نفس اليومين (كان استثناء «أحسن من المتوسط وصرف أقل من ٣
       // أضعاف تكلفته» — الاختبار نفسه بيغطّيه). من غير متوسط في الحساب مفيش مرجع نقيس عليه: «مهم» بس، مش عاجل
       if (!weekDry && res2 === 0 && spend2 > 0 && threshold) {
-        var dry2Urgent = avgCpr ? urgentOk(p2) : false;
+        var dry2Urgent = avgCpr && !reLearn ? urgentOk(p2) : false;   // ق٦: اليومين دول هم بالظبط أيام إعادة التعلّم
         var wasteDetail = avgCpr
           ? t('al.waste.d', { name: name, spend: money(spend2), label: label, one: one, avg: money(avgCpr),
               expPhrase: countText(Math.round(Math.max(1, spend2 / avgCpr)), c.resultKey, fmt) })
@@ -762,7 +777,7 @@
         if (ratio >= s.cprWarnMultiple && pFew < P_LIKELY) {
           // جوه حملة ميزانيتها على مستوى الحملة: «مهم» بس — Meta مبتسمحش بإشعار مبني على التكلفة لإعلان أو مجموعة هناك لأنه ممكن
           // يضر الأداء (مركز المساعدة ٥١١١٠٧٢٣٣٤٢٠٥٢٨)، والإعلان الأغلى ظاهرياً ممكن يكون الأكفأ عندها (الأثر التفصيلي — المرحلة ٥ ق٢)
-          var critical = ratio >= s.cprCriticalMultiple && !c.campaignBudget && urgentOk(pFew);
+          var critical = ratio >= s.cprCriticalMultiple && !c.campaignBudget && !reLearn && urgentOk(pFew);
           var oldNote = age != null && age >= s.oldAdDays ? t('al.cpr.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '';
           issues.push(withMoney(makeIssue(critical ? 'critical' : 'warning', ['cpr'], t('al.cpr.t', { label: label, one1: one }),
             t('al.cpr.d', { one: one, name: name, cpr: money(ownCpr), old: oldNote, pct: fmt.int((ratio - 1) * 100), avg: money(avgCpr) }),
@@ -784,7 +799,8 @@
         if ((daily[d] || 0) > 0 && (results[d] || 0) / daily[d] <= resY / spendY) newLow = false;
       }
       var unlikely = prevSpend4 > 0 && countBelowP(resY, prevResAvg * spendY / prevSpend4, 1) < P_LIKELY;   // بالتشتت (ق١)
-      if (!wasteRaised && prevResAvg >= 2 && prevSpend4 > 0 && spendY >= prevSpend4 * 0.7 && resY <= prevResAvg * s.dropRatio && newLow && unlikely) {
+      // ق٦: مع إعلان جديد في المجموعة، نزول النتائج متوقّع — المنصة بتعيد توزيع الإنفاق والجمهور بين إعلانات المجموعة
+      if (!wasteRaised && !reLearn && prevResAvg >= 2 && prevSpend4 > 0 && spendY >= prevSpend4 * 0.7 && resY <= prevResAvg * s.dropRatio && newLow && unlikely) {
         issues.push(makeIssue('warning', ['results'], t('al.drop.t'),
           // صفر نتائج: «لم يحقق أي مشتريات» بدل «حقق ٠ مشتريات فقط»
           resY === 0
@@ -820,7 +836,7 @@
         // الزهق «بيضر» (عاجل) زي تعريف Meta للإرهاق (Creative fatigue — مركز مساعدة Meta ١٣٤٦٨١٦١٤٢٣٢٧٨٥٨): مرات ظهور كتير
         // و**ضعف** التكلفة أو أكتر — وبدليل (ق١). بين ١٫٥ وضعفين «مهم» زي «Creative limited» عندها. كان ١٫٥ ضعف = عاجل (المرحلة ٥ ق٤).
         // إعلان المبيعات العاجل بتاعه قاعدة الخسارة فوق
-        var hurting = !profitAd && !learning && !c.campaignBudget && avgCpr && ownCpr != null && ownCpr >= avgCpr * FATIGUE_X && urgentOk(pFew);
+        var hurting = !profitAd && !learning && !reLearn && !c.campaignBudget && avgCpr && ownCpr != null && ownCpr >= avgCpr * FATIGUE_X && urgentOk(pFew);
         // التكرار العالي لوحده مش مشكلة (جمهور إعادة الاستهداف صغير وبيبقى مربح): «مهم» بس لو في أداء الإعلان علامة ضعف،
         // وغير كده ملاحظة «للعلم» — أفضل إعلان في الحساب كان بيطلع «يحتاج إلى تحسين» بسبب التكرار بس
         var weakPerf = profitWeak || issues.some(function (i) {
@@ -937,6 +953,10 @@
         else if (enough && !profitAd && pre.r > 0 && resW > 0) cmp = t('basis.edit.cpr', { one: one, after: money(spendW / resW), before: money(pre.s / pre.r), pre: preTxt });
         basis += t('basis.edit.window', { what: what, when: when }) + cmp;
       }
+    }
+    // ق٦: إخوات الإعلان الجديد يعرفوا السبب — «أرقام هذه الأيام غير مستقرة» (وبرضه القواعد الموصوفة فوق مش بتوصل عاجل)
+    if (reLearn && c.active && basis) {
+      basis += t('basis.relearn', { when: newSib === 0 ? t('edit.when.0') : (newSib === 1 ? t('edit.when.1') : t('edit.when.n', { days: daysText(newSib, fmt) })) });
     }
     // ألوان أرقام الكارت (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «كل النص رمادي وأسود»): أخضر/أحمر خفيف على العائد مقارنةً
     // بالمستهدف وحد الخسارة لإعلان المبيعات (الربح أولاً)، وعلى تكلفة النتيجة مقارنةً بمتوسط الحساب لغيره (±١٥٪) —

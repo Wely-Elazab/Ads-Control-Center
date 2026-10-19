@@ -68,7 +68,9 @@
       daily: daily, dailyResults: res, dailySales: sales, dailyDates: KEYS, spend: spend, results: o.noResults ? null : r,
       resultKey: o.key || 'purchase', cpr: r ? spend / r : null, roas: s && spend ? s / spend : null,
       frequency: o.freq || null, daysAgo: o.age != null ? o.age : 30, updatedDaysAgo: 5, currency: 'SAR',
-      reviewStatus: o.review || null, deliveryReason: null, platformStatus: 'ACTIVE', period: null
+      reviewStatus: o.review || null, deliveryReason: null, platformStatus: 'ACTIVE', period: null,
+      // المرحلة ٥: aid = المجموعة الإعلانية (ق٦ — إعلان جديد فيها)، partial = حالة المجموعة مش مقروءة من المنصة (ق٧)
+      adsetId: o.aid || null, statusPartial: !!o.partial
     };
     return c;
   }
@@ -1347,6 +1349,27 @@
     test('نتيجة واحدة بإنفاق يكفي لعشرة = تكلفة مرتفعة «عاجل» (القاعدة كانت محتاجة نتيجتين)', function () {
       var r = engine(baseAccount().concat([ad('one', { daily: steady(30), res: [0, 0, 0, 0, 0, 1, 0] })]));
       ok(has(r, 'one', 'cpr', 'critical'), list(r, 'one'));
+    });
+    // المرحلة ٥ ق٦ — Meta (About the learning phase / Significant edits): إضافة إعلان جديد للمجموعة بترجّعها لمرحلة التعلّم،
+    // فأرقام إخواته في الأيام الأولى غير مستقرة. الحكم بيفضل (إعلان رابح من شهرين ميرجعش «لم يُحكم بعد»)، بس من غير تصعيد للعاجل
+    test('ق٦: إعلان جديد في نفس المجموعة = تكلفة إخواته المرتفعة مش «عاجل»، والسبب في أساس الحكم', function () {
+      var pricey = function () { return ad('old', { daily: steady(30), res: [0, 0, 0, 0, 0, 1, 0], aid: 's1' }); };
+      var alone = engine(baseAccount().concat([pricey()]));
+      ok(has(alone, 'old', 'cpr', 'critical'), 'من غير إعلان جديد المفروض عاجل: ' + list(alone, 'old'));
+      var withNew = engine(baseAccount().concat([pricey(), ad('fresh', { daily: [0, 0, 0, 0, 0, 20, 10], age: 1, aid: 's1' })]));
+      ok(has(withNew, 'old', 'cpr', 'warning') && !has(withNew, 'old', 'cpr', 'critical'), list(withNew, 'old'));
+      ok(/مرحلة التعلّم/.test(withNew.byAd.old.basis || ''), 'أساس الحكم: ' + withNew.byAd.old.basis);
+      // إعلان جديد في مجموعة تانية ملوش علاقة
+      var other = engine(baseAccount().concat([pricey(), ad('fresh', { daily: [0, 0, 0, 0, 0, 20, 10], age: 1, aid: 's2' })]));
+      ok(has(other, 'old', 'cpr', 'critical'), list(other, 'old'));
+    });
+    // المرحلة ٥ ق٧: مصدرا حالة المجموعة الإعلانية فشلوا — التنبيه ميقولش إن العيب في الإعلان وهو ممكن يكون إعداد في المجموعة
+    test('ق٧: حالة المجموعة غير مقروءة = تنبيه التوصيل بيقول إن السبب قد يكون من المجموعة', function () {
+      var mk = function (p) { return engine(baseAccount().concat([ad('w', { daily: [50, 50, 50, 50, 50, 0, 0], res: steady(2), partial: p })])); };
+      var dim = mk(true).byAd.w.issues.filter(function (i) { return i.code === 'no-spend-y'; })[0];
+      var known = mk(false).byAd.w.issues.filter(function (i) { return i.code === 'no-spend-y'; })[0];
+      ok(dim && /حالة مجموعته الإعلانية/.test(dim.detail), dim ? dim.detail : list(mk(true), 'w'));
+      ok(known && !/حالة مجموعته الإعلانية/.test(known.detail), known ? known.detail : list(mk(false), 'w'));
     });
     test('إعلان جديد = «لم يُحكم بعد» بسببه، وإنفاق كبير من غير نتائج وهو جديد = «مهم»', function () {
       var r = engine(baseAccount().concat([ad('n1', { daily: [0, 0, 0, 0, 0, 10, 5], age: 1 }), ad('n2', { daily: [0, 0, 0, 0, 0, 200, 100], age: 1 })]));
