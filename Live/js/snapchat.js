@@ -287,6 +287,10 @@
         placement: (campaign && campaign.name) || (squad && squad.name) || '—',
         campaignId: (squad && squad.campaign_id) || null,
         campaignName: (campaign && campaign.name) || null,
+        // المجموعة (Ad Squad) هي اللي شايلة الميزانية والاستهداف لمجموعة إعلانات (مستند مطوّري سناب شات: ad squads —
+        // daily_budget_micro أو lifetime_budget_micro مطلوب عليها). فالإعلان الجديد فيها بياخد من نصيب القديم —
+        // alerts.js ق٦ (قرار صاحب المنتج ١٩ أكتوبر: وسّع القاعدة لسناب شات كذلك، بسبب تقاسم الميزانية وحده)
+        adsetId: ad.ad_squad_id || null,
         adsetName: (squad && squad.name) || null,
         nativeId: ad.id,
         reviewStatus: /REJECT|DENY/i.test(ad.review_status || '') ? 'disapproved' : null,

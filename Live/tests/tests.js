@@ -70,8 +70,10 @@
       frequency: o.freq || null, daysAgo: o.age != null ? o.age : 30, updatedDaysAgo: 5, currency: 'SAR',
       reviewStatus: o.review || null, deliveryReason: null, platformStatus: 'ACTIVE', period: null,
       // المرحلة ٥: aid = المجموعة الإعلانية (ق٦ — إعلان جديد فيها)، partial = حالة المجموعة مش مقروءة من المنصة (ق٧)،
-      // plat = رقم المنصة جنب رقمنا، baseStore = أساس رقمنا هو طلبات المتجر مش النقر (ر٤٣)
-      adsetId: o.aid || null, statusPartial: !!o.partial, plat: o.plat || null, baseStore: !!o.baseStore
+      // plat = رقم المنصة جنب رقمنا، baseStore = أساس رقمنا هو طلبات المتجر مش النقر (ر٤٣)،
+      // setLearns = المنصة بتوثّق إن إضافة إعلان بترجّع المجموعة لمرحلة التعلّم (Meta)
+      adsetId: o.aid || null, statusPartial: !!o.partial, plat: o.plat || null, baseStore: !!o.baseStore,
+      setLearns: o.setLearns !== false
     };
     return c;
   }
@@ -281,7 +283,7 @@
     var totals = function (rows) {
       return { total_stats: [{ total_stat: { breakdown_stats: { ad: Object.keys(rows).map(function (id) { return { id: id, stats: rows[id] }; }) } } }] };
     };
-    var ads = [{ ad: { id: 'a1', name: 'Snap ad 1', status: 'ACTIVE' } }];
+    var ads = [{ ad: { id: 'a1', name: 'Snap ad 1', status: 'ACTIVE', ad_squad_id: 'sq1' } }];
     var plat = series({ a1: [[5, { spend: 100 * M, swipes: 40, conversion_purchases: 10, conversion_purchases_value: 1000 * M }],
       [6, { spend: 50 * M, swipes: 20, conversion_purchases: 4, conversion_purchases_value: 400 * M }]] });
     var store = series({ a1: [[5, { conversion_purchases: 6, conversion_purchases_value: 600 * M }], [6, { conversion_purchases: 3, conversion_purchases_value: 300 * M }]] });
@@ -293,6 +295,9 @@
       eq(c.plat, { results: 14, sales: 1400 });
       var pp = platOf(c);
       eq([pp.results, pp.sales, pp.spend], [14, 1400, 150]);
+      // ق٦ لسناب شات: معرّف المجموعة لازم يوصل للمحرك عشان يشوف الإعلان الجديد في نفس المجموعة.
+      // وbaseStore = أساس رقمنا طلبات المتجر (ر٤٣)، وsetLearns مش متعيّن: مفيش مقالة رسمية لسناب عن مرحلة التعلّم
+      eq([c.adsetId, c.baseStore, !!c.setLearns], ['sq1', true, false]);
     });
     test('نوع نتيجة إعلان Snapchat من هدف مجموعته زي Meta — مش من مشتريات الحساب في آخر ٧ أيام (مراجعة المرحلة ٤ ر٧٧)', function () {
       var two = [{ ad: { id: 'b', name: 'buy', status: 'ACTIVE', ad_squad_id: 'sqB' } }, { ad: { id: 'w', name: 'swipe', status: 'ACTIVE', ad_squad_id: 'sqW' } }];
@@ -1363,6 +1368,18 @@
       // إعلان جديد في مجموعة تانية ملوش علاقة
       var other = engine(baseAccount().concat([pricey(), ad('fresh', { daily: [0, 0, 0, 0, 0, 20, 10], age: 1, aid: 's2' })]));
       ok(has(other, 'old', 'cpr', 'critical'), list(other, 'old'));
+    });
+    // ق٦ في سناب شات (قرار صاحب المنتج ١٩ أكتوبر): نفس القاعدة، والسبب المكتوب تقاسم ميزانية المجموعة — من غير أي كلام
+    // عن «مرحلة تعلّم» سناب شات (مقالتها الرسمية مقرأناهاش)
+    test('ق٦ لسناب شات: القاعدة بتسري، والسبب تقاسم الميزانية مش مرحلة التعلّم', function () {
+      var snap = { platform: 'Snapchat', source: 'snap:acc_1', setLearns: false };
+      var r = engine([ad('g1', Object.assign({ daily: steady(100), res: steady(5) }, snap)),
+        ad('g2', Object.assign({ daily: steady(100), res: steady(5) }, snap)),
+        ad('old', Object.assign({ daily: steady(30), res: [0, 0, 0, 0, 0, 1, 0], aid: 'q1' }, snap)),
+        ad('fresh', Object.assign({ daily: [0, 0, 0, 0, 0, 20, 10], age: 1, aid: 'q1' }, snap))]);
+      ok(has(r, 'old', 'cpr', 'warning') && !has(r, 'old', 'cpr', 'critical'), list(r, 'old'));
+      var b = r.byAd.old.basis || '';
+      ok(/يتقاسمها إعلاناتها/.test(b) && !/مرحلة التعلّم/.test(b), 'أساس الحكم: ' + b);
     });
     // ر٤٣ (مرحَّل من المرحلة ٤): أساس رقمنا في سناب شات = طلبات المتجر، فسبب الفرق مش «مشاهدة من غير نقر» زي Meta
     test('ر٤٣: أساس الرقم من المتجر = نص «هدر بعد المشاهدة» يقول سبب الفرق الصحيح', function () {

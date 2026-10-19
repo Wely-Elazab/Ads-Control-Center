@@ -959,7 +959,9 @@
     }
     // ق٦: إخوات الإعلان الجديد يعرفوا السبب — «أرقام هذه الأيام غير مستقرة» (وبرضه القواعد الموصوفة فوق مش بتوصل عاجل)
     if (reLearn && c.active && basis) {
-      basis += t('basis.relearn', { when: newSib === 0 ? t('edit.when.0') : (newSib === 1 ? t('edit.when.1') : t('edit.when.n', { days: daysText(newSib, fmt) })) });
+      // Meta: «رجعت لمرحلة التعلّم» (موثّق عندها). غيرها: سبب التوزيع وحده — تقاسم ميزانية المجموعة (setLearns)
+      basis += t(c.setLearns ? 'basis.relearn' : 'basis.relearnShare',
+        { when: newSib === 0 ? t('edit.when.0') : (newSib === 1 ? t('edit.when.1') : t('edit.when.n', { days: daysText(newSib, fmt) })) });
     }
     // ألوان أرقام الكارت (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «كل النص رمادي وأسود»): أخضر/أحمر خفيف على العائد مقارنةً
     // بالمستهدف وحد الخسارة لإعلان المبيعات (الربح أولاً)، وعلى تكلفة النتيجة مقارنةً بمتوسط الحساب لغيره (±١٥٪) —

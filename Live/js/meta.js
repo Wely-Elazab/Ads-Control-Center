@@ -966,6 +966,9 @@
       placement: (ad.campaign && ad.campaign.name) || (ad.adset && ad.adset.name) || '—',
       campaignId: (ad.campaign && ad.campaign.id) || null,
       adsetId: (ad.adset && ad.adset.id) || null,
+      // Meta بتوثّق إن إضافة إعلان للمجموعة «تعديل جوهري» بيرجّعها لمرحلة التعلّم (مركز المساعدة: significant edits) —
+      // alerts.js بيكتب السبب بالنص ده. سناب شات ملهاش مقالة رسمية قرأناها، فسببها «تقاسم الميزانية» بس (ق٦)
+      setLearns: true,
       edits: adEditsById[ad.id] || null,
       campaignName: (ad.campaign && ad.campaign.name) || null,
       // ميزانية على مستوى الحملة (META_AD_FIELDS) — alerts.js: حكم التكلفة جوّاها مبيوصلش «عاجل»
