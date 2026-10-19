@@ -35,7 +35,10 @@
 - الجداول: `migrations/` — أسماء الملفات بنفس أرقام الإصدار المسجّلة في القاعدة (من ١٢ أكتوبر ٢٠٢٦)، فأدوات Supabase بتطابقها.
   أي ترحيل جديد: اسمه بنفس الرقم اللي القاعدة سجّلته (`list_migrations`).
 - الدالة: `functions/sync/` — **الملفات السبعة كلها** (`index.ts` + `lib.ts` + `digest.ts` + `runner.ts` + `join.ts` + `auth.ts` + `metalink.ts`)،
-  `verify_jwt = false`. بتتنشر من Claude (Supabase MCP) أو من لوحة Supabase. **مش** بتتنشر تلقائياً مع push.
+  `verify_jwt = false`. من ١٩ أكتوبر ٢٠٢٦ بتتنشر **تلقائياً** لما تغيير في `functions/sync/` يوصل `main`
+  (`.github/workflows/deploy-sync.yml` — Supabase CLI، بسر `SUPABASE_ACCESS_TOKEN` في GitHub). و`main` مبيوصلوش غير إيداع نجحت
+  اختباراته على staging (`.github/scripts/ship.sh`). النشر اليدوي (Supabase MCP أو لوحة Supabase) احتياطي بس — النسخة ٥٤ مقدرتش
+  تتبعت بيه (الملفات السبعة أكبر من طلب واحد).
   بعد النشر: رقم الإصدار اتغيّر فعلاً (`list_edge_functions` — النشر ممكن يرجّع خطأ من غير ما يتم)، ومقارنة كل ملف حرفاً بحرف مع المستودع.
 - الاختبارات: `functions/tests/sync-test.ts` (Deno، من غير شبكة ولا قاعدة) — بتتشغّل في التكامل المستمر مع كل push
   (`.github/workflows/tests.yml`). محلياً: `deno test --allow-env --no-check supabase/functions/tests/sync-test.ts`.
