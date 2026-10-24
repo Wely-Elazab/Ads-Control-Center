@@ -58,9 +58,11 @@
   // REF_CAMP بيتحدد في evaluateAd لكل إعلان (التدقيق العميق ٢٤ أكتوبر ٢٠٢٦: المقارنة جوه الحملة نفسها)
   var REF_CAMP = false;
   var t = function (k, v) {
-    if (v && v.wd == null) v.wd = WEEK_AD || WEEK_TXT || String(YESTERDAY + 1);
-    if (v && v.rest == null && global.I18N) v.rest = global.I18N.t(REF_CAMP ? 'ref.rest.camp' : 'ref.rest.acc');
-    if (v && v.avgOf == null && global.I18N) v.avgOf = global.I18N.t(REF_CAMP ? 'ref.avgOf.camp' : 'ref.avgOf.acc');
+    // من غير متغيرات كمان: {rest} في نصيحة «فرصة الزيادة» كان بيطلع زي ما هو (حساب حقيقي ٢٤ أكتوبر)
+    v = v || {};
+    if (v.wd == null) v.wd = WEEK_AD || WEEK_TXT || String(YESTERDAY + 1);
+    if (v.rest == null && global.I18N) v.rest = global.I18N.t(REF_CAMP ? 'ref.rest.camp' : 'ref.rest.acc');
+    if (v.avgOf == null && global.I18N) v.avgOf = global.I18N.t(REF_CAMP ? 'ref.avgOf.camp' : 'ref.avgOf.acc');
     return global.I18N ? global.I18N.t(k, v) : k;
   };
 

@@ -35,11 +35,12 @@
     return CURRENCY_LABELS[cur] || cur;
   }
   // رقم بفاصل الآلاف (٢٬٤٠٠ / 2,400). keepSmallDecimal: الأرقام الأقل من ١٠ بخانة عشرية لو فيها كسور
-  // (٠٫٤ مش ٠) — عشان صرف صغير زي "صرف ١ بس" ميتقريش صفر
+  // (٠٫٤ مش ٠) — عشان صرف صغير زي "صرف ١ بس" ميتقريش صفر. وأقل من ١ بخانتين، وأقل من ٠٫١ بتلاتة (التدقيق العميق ٢٤ أكتوبر،
+  // حساب حقيقي: «تكلفة التمريرة ٠٫١ $، أقل بـ٢٩٪ من المتوسط (٠٫١ $)» والحقيقي ٠٫٠٧ و٠٫١٠)
   function fmtNum(n, keepSmallDecimal) {
-    var v = Number(n) || 0;
-    var s = (keepSmallDecimal && v !== 0 && Math.abs(v) < 10 && Math.round(v) !== v)
-      ? String(Math.round(v * 10) / 10).replace('.', decSep())
+    var v = Number(n) || 0, a = Math.abs(v), d = a < 0.1 ? 3 : (a < 1 ? 2 : 1), f = Math.pow(10, d);
+    var s = (keepSmallDecimal && v !== 0 && a < 10 && Math.round(v) !== v)
+      ? String(Math.round(v * f) / f).replace('.', decSep())
       : Math.round(v).toLocaleString('en-US').replace(/,/g, isAr() ? '٬' : ',');
     return ar(s);
   }

@@ -1550,6 +1550,32 @@
       eq([r.byAd.z.health, r.byAd.z.pending], ['pending', 'little']);
       ok(/دون أي عملاء محتملين/.test(r.byAd.z.basis || ''), r.byAd.z.basis);
     });
+    test('كل نصوص المحرك من غير متغير ناقص ({rest} وغيره) ولا undefined ولا NaN — بالعربي والإنجليزي، على حساب فيه أغلب الحالات', function () {
+      var ads = [ad('g1', { daily: steady(100), res: steady(5), key: 'lead' }), ad('g2', { daily: steady(100), res: steady(5), key: 'lead' }),
+        ad('cheap', { daily: steady(100), res: [5, 5, 5, 10, 10, 10, 5], key: 'lead' }),                 // فرصة زيادة (نصيحتها كان فيها {rest})
+        ad('dear', { daily: steady(100), res: [1, 1, 1, 1, 1, 1, 1], key: 'lead' }),                     // تكلفة مرتفعة
+        ad('dry', { daily: steady(100), res: steady(0), key: 'lead' }),                                  // أسبوع دون نتائج
+        ad('fat', { daily: steady(100), res: steady(5), key: 'lead', freq: 9, age: 120 }),
+        ad('s1', { daily: steady(100), res: steady(2), sales: steady(600) }), ad('s2', { daily: steady(100), res: steady(2), sales: steady(600) }),
+        ad('lossy', { daily: steady(150), res: steady(3), sales: steady(45) }), ad('star', { daily: steady(100), res: steady(4), sales: steady(1800) }),
+        ad('few', { daily: [9, 8, 8, 8, 9, 8, 0], res: steady(0), key: 'lead' }), ad('new', { daily: [0, 0, 0, 0, 0, 80, 40], res: steady(0), key: 'lead', age: 1 })];
+      ['ar', 'en'].forEach(function (lang) {
+        var r = withLang(lang, function () { return engine(ads); });
+        var bad = [];
+        Object.keys(r.byAd).forEach(function (id) {
+          var a = r.byAd[id], txt = [a.basis || '', a.pendingTitle || ''].concat(a.issues.map(function (i) { return [i.title, i.detail, i.advice, i.inline || ''].join(' '); })).join(' ');
+          if (/undefined|NaN|\{[a-zA-Z0-9]+\}/.test(txt)) bad.push(lang + ' ' + id + ': ' + txt.match(/.{0,30}(undefined|NaN|\{[a-zA-Z0-9]+\}).{0,30}/)[0]);
+        });
+        r.alerts.forEach(function (a) { var x = [a.title, a.detail, a.advice].join(' '); if (/undefined|NaN|\{[a-zA-Z0-9]+\}/.test(x)) bad.push(lang + ' alert ' + a.code); });
+        eq(bad, []);
+        ok(r.byAd.cheap.issues.some(function (i) { return i.code === 'scale'; }), lang + ' scale: ' + list(r, 'cheap'));
+      });
+    });
+    test('التكاليف الصغيرة بخانات كفاية: ٠٫٠٧ مش ٠٫١، و٠٫٠٠٤ مش ٠', function () {
+      withLang('ar', function () {
+        eq([money(0.07, 'USD'), money(0.004, 'USD'), money(0.45, 'USD'), money(2.36, 'USD'), money(12.4, 'USD')], ['٠٫٠٧ $', '٠٫٠٠٤ $', '٠٫٤٥ $', '٢٫٤ $', '١٢ $']);
+      });
+    });
 
     // ---- مراجعة الإعدادات (٢٤ أكتوبر — قرارات صاحب المنتج) ----
     test('حساب من غير مستهدف وحد خسارة: حكم الربح بيستنى («حدّد هدف الربح») ومفيش تنبيه ربح ولا فرصة، والهدر شغّال', function () {

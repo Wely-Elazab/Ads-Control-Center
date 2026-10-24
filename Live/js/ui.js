@@ -2652,14 +2652,9 @@
       return c.source === source && c.results != null && c.resultKey !== 'reach' && !(c.dailySales || []).slice(0, -1).some(function (v) { return v > 0; });
     });
   }
-  // التكلفة الصغيرة (أقل من ٠٫١) بخانات كفاية بدل «٠» — نقرة بـ٠٫٠٤ مش «٠ $»
-  function costMoney(v, cur) {
-    if (!(v < 0.1)) return money(v, cur);
-    var label = currencyLabel(cur), d = v < 0.01 ? 4 : 3;
-    return ar(String(Math.round(v * Math.pow(10, d)) / Math.pow(10, d)).replace('.', decSep())) + (label ? ' ' + label : '');
-  }
+  // التكلفة الصغيرة بخانات كفاية (core.js fmtNum — نقرة بـ٠٫٠٤ مش «٠ $»)
   function costNow(spend, results, key, cur) {
-    return results > 0 && spend > 0 ? t('settings.cost.now', { cpr: costMoney(spend / results, cur), one: t('res1.' + (key || 'generic')) }) : '';
+    return results > 0 && spend > 0 ? t('settings.cost.now', { cpr: money(spend / results, cur), one: t('res1.' + (key || 'generic')) }) : '';
   }
   function costTargets(source, current) {
     var types = {}, camps = {}, cur = null;
