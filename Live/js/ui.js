@@ -862,7 +862,11 @@
   // سطر «العائد أقل من المستهدف…» اللي هنا، والتنبيهات العاجلة بالبريد بنفس حد الخسارة (digest.ts cleanTarget)
   // ومعاهم حساسية التنبيهات نفسها (المرحلة ٥ ق٥): القيم الفعلية بعد النمط والتعديلات — من غيرها البريد العاجل كان بالإعدادات
   // الافتراضية حتى لو العميل اختار «هادي» (digest.ts cleanSens، runner.ts urgentAlerts)
+  // جهاز مفيهوش إعدادات محفوظة (أول مرة على المتصفح ده) مبيبعتش حاجة، واللي محفوظ للبريد بيفضل زي ما هو (المراجعة الثانية للمرحلة ٥،
+  // ٢٤ أكتوبر ٢٠٢٦): كان بيبعت القيم الافتراضية كأنها اختيار العميل — فتح الأداة من متصفح تاني رجّع حد الخسارة في البريد من ×٥ لـ×١
+  // (اتشاف حياً). وتفعيل الملخص من جهاز زي ده = من غير سطر المستهدف لحد ما العميل يحفظ إعداداته (مش مستهدف ×٣ ماختاروش)
   function digestTarget() {
+    if (!alertSettings || !Object.keys(alertSettings).length) return {};
     var s = PauseProofAlerts.mergeSettings(alertSettings), sens = {};
     Object.keys(s).forEach(function (k) { if (k !== 'roasTarget' && k !== 'roasBreakEven') sens[k] = s[k]; });
     return { target: s.roasTarget, be: s.roasBreakEven, sens: sens };

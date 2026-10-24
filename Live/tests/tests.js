@@ -6126,6 +6126,18 @@
           ['digest.refresh', 4, 3, 0.05, false]);
       });
     });
+    // المراجعة الثانية للمرحلة ٥ (٢٤ أكتوبر): جهاز مفيهوش إعدادات محفوظة كان بيبعت القيم الافتراضية كأنها اختيار العميل — فتح الأداة
+    // من متصفح تاني رجّع حد الخسارة في البريد من ×٥ لـ×١ (اتشاف حياً). اللي محفوظ في البريد بيفضل لحد ما العميل يحفظ إعدادات على جهاز
+    testAsync('جهاز من غير إعدادات محفوظة مبيمسحش المستهدف وحد الخسارة والحساسية المحفوظين للبريد', function () {
+      var prev = alertSettings;
+      alertSettings = {};
+      return withDigest(function () { return ok200({ ok: true }); }, function (calls) {
+        digestAutoRefresh('act_9');
+        var c = calls[0] || {};
+        alertSettings = prev;
+        eq([c.action, 'target' in c, 'be' in c, 'sens' in c], ['digest.refresh', false, false, false]);
+      });
+    });
     testAsync('فتح حساب Meta بيجدد المفتاح مرة في الجلسة، و«فصل» Meta بيطلب حذف كل مفاتيح صاحب الجلسة', function () {
       return withDigest(function () { return ok200({ ok: true }); }, function (calls) {
         digestAutoRefresh('act_1'); digestAutoRefresh('act_1');
