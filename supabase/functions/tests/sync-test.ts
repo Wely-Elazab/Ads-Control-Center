@@ -221,7 +221,7 @@ Deno.test('حساسية التنبيهات: المفاتيح المعروفة و
 
 // ---------- دورة حياة التنبيه العاجل (المراجعة الثانية للمرحلة ٥) ----------
 Deno.test('بصمة المشكلة بالعيلة: أنواع أداء الإعلان كلها بصمة واحدة، وإنفاق الحساب واحدة، والباقي بنوعه', () => {
-  for (const k of ['waste', 'waste-week', 'loss', 'cpr', 'fatigue', 'waste-early', 'drop', 'spike', 'low-roas', 'roas-drop', 'waste-view', 'waste-new']) assertEquals(familyOf(k), 'perf', k);
+  for (const k of ['waste', 'waste-week', 'loss', 'cost-max', 'cpr', 'fatigue', 'waste-early', 'drop', 'spike', 'low-roas', 'roas-drop', 'waste-view', 'waste-new']) assertEquals(familyOf(k), 'perf', k);
   assertEquals([familyOf('acct-zero'), familyOf('acct-drop')], ['acct-spend', 'acct-spend']);
   for (const k of ['top-stopped', 'stopped', 'tracking-off', 'link-broken', 'big-edit', 'connection', 'expiry', 'spend-cap-near']) assertEquals(familyOf(k), k, k);
 });

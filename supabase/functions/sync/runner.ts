@@ -19,7 +19,7 @@ import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
 import { joinReminders } from './join.ts';
 
-const ENGINE_COMMIT = 'e3f3ec0901ba50ddf96c7c69f42189678b9902a7';
+const ENGINE_COMMIT = '099f630a7c21c4678345ce60cdd1090fbf2fd705';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
@@ -42,7 +42,7 @@ const SYSTEM_KINDS: Record<string, boolean> = { connection: true, expiry: true }
 // النافذة، و«الأكبر بالفلوس» بين الخسارة والهدر بيتبدّل. كانت البصمة بالنوع: بريد عاجل جديد عن نفس الإعلان، والملخص يقول عن القديم
 // «حُلّت» وهو أسوأ (المحاكاة: إعلان ميت طول الأسبوع — «حُلّت» كاذبة في ٤٦٪ من الأسابيع، وبريد «جديد» تاني في ٢١٪).
 // إنفاق الحساب (صفر أمس / نزل للنص) عيلة واحدة كمان. النوع نفسه بيتسجّل في last_code (عنوان سطر الملخص)
-const PERF_KINDS: Record<string, boolean> = { 'waste-week': true, waste: true, loss: true, 'waste-view': true, cpr: true, 'waste-early': true, 'waste-new': true,
+const PERF_KINDS: Record<string, boolean> = { 'waste-week': true, waste: true, loss: true, 'cost-max': true, 'waste-view': true, cpr: true, 'waste-early': true, 'waste-new': true,
   'roas-drop': true, 'low-roas': true, spike: true, drop: true, fatigue: true };
 const ACCT_SPEND_KINDS: Record<string, boolean> = { 'acct-zero': true, 'acct-drop': true };
 export function familyOf(code: string): string { return PERF_KINDS[code] ? 'perf' : (ACCT_SPEND_KINDS[code] ? 'acct-spend' : code); }
@@ -661,7 +661,7 @@ function blockHtml(b: any): string {
 // عنوان سطر الملخص من آخر نوع ظهر (last_code). المراجعة الثانية للمرحلة ٥: تنبيه الأداء على الإعلان ممكن يبقى أي نوع من عيلته
 // (والإرهاق بيعلّي مستوى «انخفاض النتائج» أو «إنفاق أعلى من المعتاد» لـ«عاجل») — كانوا بيقعوا على «توقف الإعلان» لأنهم مش هنا
 const KIND_TITLE: Record<string, string> = {
-  waste: 'al.waste.t', 'waste-week': 'al.wasteWeek.t', 'waste-early': 'al.wasteEarly.t', loss: 'al.loss.t', stopped: 'al.stopped.t', cpr: 'al.cpr.t', fatigue: 'al.fatigue.t',
+  waste: 'al.waste.t', 'waste-week': 'al.wasteWeek.t', 'waste-early': 'al.wasteEarly.t', loss: 'al.loss.t', 'cost-max': 'al.costMax.t', stopped: 'al.stopped.t', cpr: 'al.cpr.t', fatigue: 'al.fatigue.t',
   'waste-view': 'al.wasteView.t', 'waste-new': 'al.wasteNew.t', 'roas-drop': 'al.roasDrop.t', 'low-roas': 'al.lowRoas.t', spike: 'al.spike.t', drop: 'al.drop.t',
   'acct-status': 'al.acct.t', 'spend-cap': 'al.cap.t', 'acct-stopped': 'al.acctStopped.t', 'acct-zero': 'al.acctZero.t', 'acct-drop': 'al.acctDrop.t',
   'top-stopped': 'al.topStopped.t', 'spend-cap-near': 'al.capNear.t', 'tracking-off': 'al.trackOff.t', 'lpv-drop': 'al.lpvDrop.t',
