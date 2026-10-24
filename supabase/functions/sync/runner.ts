@@ -19,7 +19,7 @@ import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
 import { joinReminders } from './join.ts';
 
-const ENGINE_COMMIT = '5f638ec6aa689875239945e9b47fa87fadfc4f8f';
+const ENGINE_COMMIT = '5a3a85938097fcd2bd09915c2e75b8b39c4577da';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
@@ -35,6 +35,29 @@ const GRAPH_TIMEOUT_MS = 40000;            // الطلب العادي ثواني
 const RUN_DEADLINE_MS = 140000;           // ١٠ ثواني قبل حد الدالة لتسجيل اللي حصل و«النبض»
 const URGENT_EVERY_MS = 50 * 60000;       // الفحص العاجل مرة في الساعة تقريباً لكل حساب (التشغيل نفسه كل ١٠ دقايق)
 const SYSTEM_KINDS: Record<string, boolean> = { connection: true, expiry: true };
+
+// ---------- عيلة البصمة (المراجعة الثانية للمرحلة ٥) ----------
+// مفتاح ثابت للمشكلة الواحدة (PagerDuty: «dedup key» واحد للحادثة؛ ISA-18.2: إنذار واحد لكل حالة غير طبيعية). المحرك بيطلّع تنبيه
+// أداء واحد للإعلان، بس نوعه بيتغيّر من يوم ليوم مع نفس المشكلة: «يومان دون نتائج» بيبقى «أسبوع كامل» لما آخر نتيجة تخرج من
+// النافذة، و«الأكبر بالفلوس» بين الخسارة والهدر بيتبدّل. كانت البصمة بالنوع: بريد عاجل جديد عن نفس الإعلان، والملخص يقول عن القديم
+// «حُلّت» وهو أسوأ (المحاكاة: إعلان ميت طول الأسبوع — «حُلّت» كاذبة في ٤٦٪ من الأسابيع، وبريد «جديد» تاني في ٢١٪).
+// إنفاق الحساب (صفر أمس / نزل للنص) عيلة واحدة كمان. النوع نفسه بيتسجّل في last_code (عنوان سطر الملخص)
+const PERF_KINDS: Record<string, boolean> = { 'waste-week': true, waste: true, loss: true, 'waste-view': true, cpr: true, 'waste-early': true, 'waste-new': true,
+  'roas-drop': true, 'low-roas': true, spike: true, drop: true, fatigue: true };
+const ACCT_SPEND_KINDS: Record<string, boolean> = { 'acct-zero': true, 'acct-drop': true };
+export function familyOf(code: string): string { return PERF_KINDS[code] ? 'perf' : (ACCT_SPEND_KINDS[code] ? 'acct-spend' : code); }
+// مصدر بيانات التنبيهات اللي بتيجي من طلبات زيادة (extraAlerts): لو المصدر فشل في الفحص ده، غياب تنبيهه مش «حُلّت» — منعرفش
+// (معيار م٨: غياب البيانات حالة مستقلة). قبل كده فشل طلب الموقع ٢٤ ساعة كان بيقفل «التتبّع متوقف» كأنه اتصلّح
+const SOURCE_OF: Record<string, 'site' | 'links'> = { 'tracking-off': 'site', 'lpv-drop': 'site', 'checkout-off': 'site', 'link-broken': 'links' };
+type Failed = { site: boolean; edits: boolean; links: boolean };
+// مكتوبة لوحدها عشان تتختبر (tests/sync-test.ts): البصمة دي تتقفل «حُلّت» دلوقتي؟ alive = لسه ظاهرة «مهم» (عتبة تعافٍ مستقلة —
+// حد «عاجل» بيتحرك مع اختبارات الحساب كل يوم، فالمشكلة بتنزل «مهم» وترجع: مش «حُلّت» ثم «عاجل» جديد)
+export function resolveNow(m: { kind: string; last_code?: string | null; last_seen_at: string }, alive: boolean, failed: Failed, now: number): 'keep' | 'seen' | 'resolve' {
+  if (alive) return 'seen';
+  const src = SOURCE_OF[m.last_code || m.kind];
+  if (src && failed[src]) return 'keep';
+  return now - Date.parse(m.last_seen_at) >= RESOLVE_AFTER_MS ? 'resolve' : 'keep';
+}
 
 const g = globalThis as any;
 
@@ -240,7 +263,9 @@ async function storedSens(account: string): Promise<Sens> {
 }
 // محرك الأداة بحساسية العميل (ق٥ — قبل كده الإعدادات الافتراضية هنا وحساسية العميل في متصفحه بس، فالبريد كان بيطلع بحساسية
 // «متوازن» لعميل اختار «هادي»)، والمستهدف وحد الخسارة لو بعتهم. العاجل بس. mergeSettings في المحرك بيتحقق من حدود كل قيمة
-function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Target, sens: Sens = null): any[] {
+// alive = مفاتيح (العيلة|العنصر) للتنبيهات «المهمة» — مبتتبعتش، بس بتقول إن المشكلة لسه قائمة (resolveNow)
+function alertKey(a: any): string { return familyOf(String(a.code || 'other')) + '|' + String(a.adId || a.objectId || ''); }
+function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Target, sens: Sens = null): { urgent: any[]; alive: Record<string, boolean> } {
   const source = 'meta:' + accountId;
   const meta = {
     [source]: {
@@ -252,7 +277,9 @@ function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Targe
   };
   const custom = Object.assign({}, sens || {}, target ? { roasTarget: target.roas, roasBreakEven: target.be } : {});
   const res = g.PauseProofAlerts.analyze(cands, meta, custom, alertFmt());
-  return res.alerts.filter((a: any) => a.level === 'critical' && !a.minor);
+  const alive: Record<string, boolean> = {};
+  res.alerts.forEach((a: any) => { if (a.level === 'warning' && !a.minor) alive[alertKey(a)] = true; });
+  return { urgent: res.alerts.filter((a: any) => a.level === 'critical' && !a.minor), alive };
 }
 function alertFmt() {
   return { money: g.money, currencyLabel: g.currencyLabel, num: g.numAr, num2: g.numAr2, int: (n: number) => g.ar(Math.round(n || 0)) };
@@ -278,10 +305,11 @@ async function ownerName(): Promise<string> {
 // ---------- التنبيهات اللي محتاجة بيانات زيادة (قواعدها في js/alerts.js: siteAlerts / editAlerts / linkAlerts) ----------
 // editsSince = آخر فحص عاجل: التعديلات الأحدث منه بس، فكل تعديل بيتقيّم مرة واحدة. ownPaused = اللي صاحب المفتاح وقّفه بنفسه
 // في آخر يومين (لـ«توقف أكبر مصدر لمبيعاتك» — allUrgent)
-async function extraAlerts(accountId: string, acct: Acct, cands: any[], editsSince: number): Promise<{ alerts: any[]; ownPaused: Record<string, boolean> }> {
+async function extraAlerts(accountId: string, acct: Acct, cands: any[], editsSince: number): Promise<{ alerts: any[]; ownPaused: Record<string, boolean>; failed: Failed }> {
   const tz = acct.timezone_name || 'UTC', cur = acct.currency || null, fmt = alertFmt(), out: any[] = [];
   let ownPaused: Record<string, boolean> = {};
-  const fail = (what: string, e: unknown) => console.error('extra alerts ' + what, String((e as Error).message || e).slice(0, 160));
+  const failed: Failed = { site: false, edits: false, links: false };
+  const fail = (what: keyof Failed, e: unknown) => { failed[what] = true; console.error('extra alerts ' + what, String((e as Error).message || e).slice(0, 160)); };
   try { out.push(...g.PauseProofAlerts.siteAlerts(await g.metaSiteDays(accountId, tz), fmt)); } catch (e) { fail('site', e); }
   try {
     const acts = await g.metaActivities(accountId, g.shiftKey(g.todayKeyInTz(tz), -2));
@@ -306,7 +334,7 @@ async function extraAlerts(accountId: string, acct: Acct, cands: any[], editsSin
     }
   } catch (e) { fail('edits', e); }
   try { out.push(...g.PauseProofAlerts.linkAlerts(await brokenLinks(cands))); } catch (e) { fail('links', e); }
-  return { alerts: out, ownPaused };
+  return { alerts: out, ownPaused, failed };
 }
 function eventMs(when: string): number {
   const ms = Date.parse(String(when || '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
@@ -375,7 +403,8 @@ async function brokenLinks(cands: any[]): Promise<any[]> {
   return res.filter(Boolean);
 }
 // كل التنبيهات العاجلة للحساب: محرك الأداة + البيانات الزيادة. التعديل الكبير على عنصر عليه «أكبر مصدر وقف» منكررهوش
-async function allUrgent(accountId: string, acct: Acct, cands: any[], editsSince: number, target: Target, sens: Sens = null): Promise<any[]> {
+// alive = المشاكل اللي لسه ظاهرة «مهم» (مبتتبعتش)، وfailed = مصادر البيانات اللي فشلت في الفحص ده (resolveNow)
+async function allUrgent(accountId: string, acct: Acct, cands: any[], editsSince: number, target: Target, sens: Sens = null): Promise<{ urgent: any[]; alive: Record<string, boolean>; failed: Failed }> {
   const ex = await extraAlerts(accountId, acct, cands, editsSince), extra = ex.alerts;
   // «توقف أكبر مصدر لمبيعاتك» اللي صاحب المفتاح وقّفه بنفسه (الإعلان أو مجموعته أو حملته) مبيوصلش بريد عاجل (ق٣)
   const byId: Record<string, any> = {};
@@ -387,29 +416,40 @@ async function allUrgent(accountId: string, acct: Acct, cands: any[], editsSince
     const c = byId[String(a.adId)];
     return !!c && [c.id, c.adsetId, c.campaignId].some((id: any) => id != null && ex.ownPaused[String(id)]);
   };
-  const base = urgentAlerts(accountId, acct, cands, target, sens).filter((a: any) => !own(a));
+  const ua = urgentAlerts(accountId, acct, cands, target, sens);
+  const base = ua.urgent.filter((a: any) => !own(a));
   const stopped: Record<string, boolean> = {};
   base.forEach((a: any) => { if (a.code === 'top-stopped') stopped[String(a.adId || String(a.objectId || '').replace(/^c:/, ''))] = true; });
-  return base.concat(extra.filter((a: any) => !(a.code === 'big-edit' && stopped[String(a.objectId || '').split('@')[0]])));
+  return { urgent: base.concat(extra.filter((a: any) => !(a.code === 'big-edit' && stopped[String(a.objectId || '').split('@')[0]]))), alive: ua.alive, failed: ex.failed };
 }
 
 // ---------- البصمات ----------
-type Mark = { kind: string; object_id: string; first_at: string; last_sent_at: string; last_seen_at: string; times_sent: number; resolved_at: string | null };
-async function marksOf(account: string): Promise<Record<string, Mark>> {
-  const r = await db('alert_marks?select=kind,object_id,first_at,last_sent_at,last_seen_at,times_sent,resolved_at&account_id=eq.' + account, { method: 'GET' });
+// kind = عيلة البصمة (familyOf) للجديد — والصفوف القديمة بنوعها القديم («loss»…) بتتقري تحت مفتاح عيلتها وبتتحدّث بنفس صفها،
+// فمفيش ترحيل ولا بريد «جديد» عن مشكلة اتبعتت قبل التغيير. last_code = آخر نوع ظهر (عنوان سطر الملخص)
+type Mark = { kind: string; object_id: string; first_at: string; last_sent_at: string; last_seen_at: string; times_sent: number; resolved_at: string | null; last_code?: string | null };
+// أكتر من صف لنفس العيلة والعنصر (أنواع قديمة قبل العيلة): المفتوح يكسب، وبين المفتوحين الأقدم
+export function markMap(rows: Mark[]): Record<string, Mark> {
   const out: Record<string, Mark> = {};
-  ((await r.json()) as Mark[]).forEach((m) => { out[m.kind + '|' + m.object_id] = m; });
+  (rows || []).forEach((m) => {
+    const k = familyOf(m.kind) + '|' + m.object_id, cur = out[k];
+    if (!cur || (cur.resolved_at && !m.resolved_at) || (!cur.resolved_at === !m.resolved_at && m.first_at < cur.first_at)) out[k] = m;
+  });
   return out;
+}
+async function marksOf(account: string): Promise<Record<string, Mark>> {
+  const r = await db('alert_marks?select=kind,object_id,first_at,last_sent_at,last_seen_at,times_sent,resolved_at,last_code&account_id=eq.' + account, { method: 'GET' });
+  return markMap((await r.json()) as Mark[]);
 }
 async function saveMarks(account: string, rows: Mark[]): Promise<void> {
   if (!rows.length) return;
   await db('alert_marks?on_conflict=account_id,kind,object_id', {
     method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify(rows.map((r) => ({ account_id: account, ...r })))
+    // كل الصفوف بنفس الأعمدة (PostgREST في الإدخال الجماعي)
+    body: JSON.stringify(rows.map((r) => ({ account_id: account, ...r, last_code: r.last_code ?? null })))
   });
 }
-function newMark(kind: string, obj: string, iso: string): Mark {
-  return { kind, object_id: obj, first_at: iso, last_sent_at: iso, last_seen_at: iso, times_sent: 1, resolved_at: null };
+function newMark(kind: string, obj: string, iso: string, code: string | null = null): Mark {
+  return { kind, object_id: obj, first_at: iso, last_sent_at: iso, last_seen_at: iso, times_sent: 1, resolved_at: null, last_code: code };
 }
 async function logSend(account: string, type: string, status: string, id: string | null, error: string | null): Promise<void> {
   await db('send_log', { method: 'POST', headers: { 'prefer': 'return=minimal' },
@@ -618,9 +658,12 @@ function blockHtml(b: any): string {
   if (b.next) h += P('<strong>' + esc(t('dx.next')) + '</strong> ' + esc(b.next));
   return h + '</div>';
 }
+// عنوان سطر الملخص من آخر نوع ظهر (last_code). المراجعة الثانية للمرحلة ٥: تنبيه الأداء على الإعلان ممكن يبقى أي نوع من عيلته
+// (والإرهاق بيعلّي مستوى «انخفاض النتائج» أو «إنفاق أعلى من المعتاد» لـ«عاجل») — كانوا بيقعوا على «توقف الإعلان» لأنهم مش هنا
 const KIND_TITLE: Record<string, string> = {
   waste: 'al.waste.t', 'waste-week': 'al.wasteWeek.t', 'waste-early': 'al.wasteEarly.t', loss: 'al.loss.t', stopped: 'al.stopped.t', cpr: 'al.cpr.t', fatigue: 'al.fatigue.t',
-  'acct-status': 'al.acct.t', 'spend-cap': 'al.cap.t', 'acct-stopped': 'al.acctStopped.t', 'acct-zero': 'al.acctZero.t',
+  'waste-view': 'al.wasteView.t', 'waste-new': 'al.wasteNew.t', 'roas-drop': 'al.roasDrop.t', 'low-roas': 'al.lowRoas.t', spike: 'al.spike.t', drop: 'al.drop.t',
+  'acct-status': 'al.acct.t', 'spend-cap': 'al.cap.t', 'acct-stopped': 'al.acctStopped.t', 'acct-zero': 'al.acctZero.t', 'acct-drop': 'al.acctDrop.t',
   'top-stopped': 'al.topStopped.t', 'spend-cap-near': 'al.capNear.t', 'tracking-off': 'al.trackOff.t', 'lpv-drop': 'al.lpvDrop.t',
   'checkout-off': 'al.buyOff.t', 'link-broken': 'al.link.t'
 };
@@ -638,9 +681,9 @@ function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: strin
     // العنصر: إعلان (رقمه)، أو حملة («c:رقمها»)، أو صفحة رابط («u:…» — العنوان كفاية)
     const camp = m.object_id.indexOf('c:') === 0 ? cands.find((x) => x.campaignId === m.object_id.slice(2)) : null;
     const c = m.object_id && !camp && m.object_id.indexOf('u:') !== 0 ? cands.find((x) => x.id === m.object_id) : null;
-    const key = (c && c.resultKey) || 'purchase';
+    const key = (c && c.resultKey) || 'purchase', code = m.last_code || m.kind;
     const title = m.kind === 'connection' ? (en ? 'We lost access to the account' : 'توقف وصولنا إلى الحساب')
-      : t(m.kind === 'loss' && target && target.be > 1 ? 'al.lossBE.t' : (KIND_TITLE[m.kind] || 'al.stopped.t'), { label: g.I18N.resultAny(key), one1: t('res1.' + key) });   // حد خسارة فوق ١ = «أقل من حد الخسارة» مش «أقل من التكلفة»
+      : t(code === 'loss' && target && target.be > 1 ? 'al.lossBE.t' : (KIND_TITLE[code] || 'al.stopped.t'), { label: g.I18N.resultAny(key), one1: t('res1.' + key) });   // حد خسارة فوق ١ = «أقل من حد الخسارة» مش «أقل من التكلفة»
     const name = !m.object_id || m.object_id.indexOf('u:') === 0 ? ''
       : (camp ? t('al.topStopped.camp', { name: camp.campaignName || '' })
         : (c ? (c.offer || c.headline || '') : (en ? 'an ad that is no longer running' : 'إعلان لم يعد يعمل')));
@@ -761,24 +804,28 @@ async function checkAccount(s: Settings): Promise<string> {
     if (doUrgent) {
       // التعديلات من آخر فحص (أو آخر ساعتين لأول فحص)
       const editsSince = s.checked_at ? Date.parse(s.checked_at) : now - 2 * 3600000;
-      const urgent = await allUrgent(account, acct, cands, editsSince, targetOf(s), s.alert_settings || null);
+      const all = await allUrgent(account, acct, cands, editsSince, targetOf(s), s.alert_settings || null);
       const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], sentRows: Mark[] = [], seen: Record<string, boolean> = {};
-      for (const a of urgent) {
-        const kind = String(a.code || 'other'), obj = String(a.adId || a.objectId || '');
-        const k = kind + '|' + obj;
+      for (const a of all.urgent) {
+        // البصمة بالعيلة (familyOf) — والنوع نفسه في last_code. التذكير بيعرض نص التنبيه الحالي، فلو المشكلة زادت («يومان» بقت
+        // «أسبوع كامل») التذكير بيقولها
+        const code = String(a.code || 'other'), obj = String(a.adId || a.objectId || '');
+        const k = alertKey(a);
         if (seen[k]) continue;
         seen[k] = true;
         const m = marks[k];
-        if (!m || m.resolved_at) { fresh.push(a); sentRows.push(newMark(kind, obj, iso)); }
+        if (!m || m.resolved_at) { fresh.push(a); sentRows.push(newMark(familyOf(code), obj, iso, code)); }
         else if (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS) {
           remind.push({ a, m });
-          sentRows.push({ ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1 });
-        } else keep.push({ ...m, last_seen_at: iso });
+          sentRows.push({ ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1, last_code: code });
+        } else keep.push({ ...m, last_seen_at: iso, last_code: code });
       }
       for (const k in marks) {
         const m = marks[k];
         if (seen[k] || m.resolved_at || SYSTEM_KINDS[m.kind]) continue;
-        if (now - Date.parse(m.last_seen_at) >= RESOLVE_AFTER_MS) keep.push({ ...m, resolved_at: iso });
+        const r = resolveNow(m, !!all.alive[k], all.failed, now);
+        if (r === 'seen') keep.push({ ...m, last_seen_at: iso });
+        else if (r === 'resolve') keep.push({ ...m, resolved_at: iso });
       }
       // الرسالة الأول، والبصمات بعدها: لو الإرسال فشل، الساعة الجاية بتحاول تاني
       if (fresh.length || remind.length) {
@@ -905,7 +952,7 @@ export async function preview(token: string, accountId: string, lang: string): P
       const cands = await loadCandidates(accountId, acct);
       if (!cands) return { error: 'retry' };
       // المعاينة: التعديلات الكبيرة من آخر ٢٤ ساعة (عشان تبان أمثلة)
-      const urgent = await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, await storedTarget(accountId), await storedSens(accountId));
+      const urgent = (await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, await storedTarget(accountId), await storedSens(accountId))).urgent;
       const mail = urgentMail(accountId, acct.name || accountId, urgent, [], acct.timezone_name || 'UTC', en, await stopUrl(accountId));
       return {
         engineCommit: ENGINE_COMMIT, engineOutdated: outdated, metaUsage: usage, ads: cands.length,

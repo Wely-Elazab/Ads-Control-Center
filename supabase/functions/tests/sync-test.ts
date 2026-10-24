@@ -9,7 +9,7 @@ import { corsHeaders, esc, reply } from '../sync/lib.ts';
 import { cleanEmail, cleanSens, cleanTarget, daysText, hourText, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
-import { byOwner, callTimeout, freshUsage, normName, ownPausedIds, readUsage } from '../sync/runner.ts';
+import { byOwner, callTimeout, familyOf, freshUsage, markMap, normName, ownPausedIds, readUsage, resolveNow } from '../sync/runner.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
 Deno.env.set('TOKEN_ENC_KEY', btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))));
@@ -217,4 +217,33 @@ Deno.test('حساسية التنبيهات: المفاتيح المعروفة و
   assertEquals(cleanSens({}), undefined);
   assertEquals(cleanSens({ sens: [1, 2] }), undefined);
   assertEquals(cleanSens({ sens: { evil: 1 } }), undefined);
+});
+
+// ---------- دورة حياة التنبيه العاجل (المراجعة الثانية للمرحلة ٥) ----------
+Deno.test('بصمة المشكلة بالعيلة: أنواع أداء الإعلان كلها بصمة واحدة، وإنفاق الحساب واحدة، والباقي بنوعه', () => {
+  for (const k of ['waste', 'waste-week', 'loss', 'cpr', 'fatigue', 'waste-early', 'drop', 'spike', 'low-roas', 'roas-drop', 'waste-view', 'waste-new']) assertEquals(familyOf(k), 'perf', k);
+  assertEquals([familyOf('acct-zero'), familyOf('acct-drop')], ['acct-spend', 'acct-spend']);
+  for (const k of ['top-stopped', 'stopped', 'tracking-off', 'link-broken', 'big-edit', 'connection', 'expiry', 'spend-cap-near']) assertEquals(familyOf(k), k, k);
+});
+Deno.test('البصمات القديمة بنوعها («loss») بتتقري تحت مفتاح عيلتها — المفتوح يكسب، وبين المفتوحين الأقدم', () => {
+  const row = (kind: string, first: string, resolved: string | null) => ({ kind, object_id: '7', first_at: first, last_sent_at: first, last_seen_at: first, times_sent: 1, resolved_at: resolved });
+  const m = markMap([row('waste', '2026-10-01T00:00:00Z', '2026-10-02T00:00:00Z'), row('loss', '2026-10-05T00:00:00Z', null), row('cpr', '2026-10-06T00:00:00Z', null)]);
+  assertEquals(Object.keys(m), ['perf|7']);
+  assertEquals(m['perf|7'].kind, 'loss');
+  // وبيتحدّث بنفس صفه القديم (kind زي ما هو) — مفيش بريد «جديد» عن مشكلة اتبعتت قبل التغيير
+  assertEquals(markMap([row('connection', '2026-10-01T00:00:00Z', null)])['connection|7'].kind, 'connection');
+});
+Deno.test('«حُلّت» بس لما المشكلة تختفي فعلاً: «مهم» = لسه قائمة، ومصدر فشل = منعرفش، وغياب ٢٤ ساعة = حُلّت', () => {
+  const now = Date.parse('2026-10-24T12:00:00Z'), ok = { site: false, edits: false, links: false };
+  const old = { kind: 'perf', last_code: 'waste', last_seen_at: '2026-10-23T06:00:00Z' };       // ٣٠ ساعة
+  const recent = { kind: 'perf', last_code: 'waste', last_seen_at: '2026-10-24T06:00:00Z' };    // ٦ ساعات
+  assertEquals(resolveNow(old, false, ok, now), 'resolve');
+  assertEquals(resolveNow(recent, false, ok, now), 'keep');
+  // نزلت «مهم» (حد «عاجل» اتحرك): لسه قائمة — كانت «حُلّت» بعد ٢٤ ساعة ثم «عاجل» جديد لما ترجع
+  assertEquals(resolveNow(old, true, ok, now), 'seen');
+  // طلب الموقع فشل في الفحص ده: «التتبّع متوقف» مبيتقفلش — والروابط لوحدها
+  const track = { kind: 'tracking-off', last_code: 'tracking-off', last_seen_at: '2026-10-23T06:00:00Z' };
+  assertEquals(resolveNow(track, false, { site: true, edits: false, links: false }, now), 'keep');
+  assertEquals(resolveNow(track, false, { site: false, edits: false, links: true }, now), 'resolve');
+  assertEquals(resolveNow({ kind: 'link-broken', last_seen_at: '2026-10-23T06:00:00Z' }, false, { site: false, edits: false, links: true }, now), 'keep');
 });
