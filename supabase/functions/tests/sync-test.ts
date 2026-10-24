@@ -6,7 +6,7 @@
 
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
 import { corsHeaders, esc, reply } from '../sync/lib.ts';
-import { cleanEmail, cleanSens, cleanTarget, daysText, hourText, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
+import { cleanEmail, daysText, hourText, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import { byOwner, callTimeout, familyOf, freshUsage, markMap, normName, ownPausedIds, readUsage, resolveNow, settingsChoice } from '../sync/runner.ts';
@@ -40,12 +40,6 @@ Deno.test('الردود مبتتخزّنش، والنصوص اللي جاية م
 Deno.test('البريد: بيتنضّف ويتحوّل لحروف صغيرة، والغلط بيترفض', () => {
   assertEquals(cleanEmail('  Name@Example.Co '), 'name@example.co');
   for (const bad of ['', 'name', 'a@b', 'a b@c.com', 'a@b.c', '<a@b.com>', 'a@b.com,c@d.com', 42]) assertEquals(cleanEmail(bad), null, String(bad));
-});
-Deno.test('الهدف وحد الخسارة: نفس حدود الأداة (٠٫١–٥٠، والحد مش أكبر من الهدف)، وأي حاجة تانية متتحدّثش', () => {
-  assertEquals(cleanTarget({ target: 4, be: 2 }), { roas_target: 4, roas_break_even: 2 });
-  assertEquals(cleanTarget({ target: '3.456', be: '1.004' }), { roas_target: 3.46, roas_break_even: 1 });
-  for (const bad of [{ target: 2, be: 3 }, { target: 0.05, be: 0.05 }, { target: 51, be: 1 }, { target: '', be: 1 }, { target: 3 }, null, {}])
-    assertEquals(cleanTarget(bad), undefined, JSON.stringify(bad));
 });
 Deno.test('مواعيد الملخص في الرسائل: الساعة والأيام بالعربي والإنجليزي', () => {
   assertEquals(hourText(0, 'ar'), '١٢:٠٠ صباحاً');
@@ -211,14 +205,6 @@ Deno.test('فعل صاحب المفتاح نفسه: الاسم بيتقارن م
   assertEquals(paused, { c1: true });
 });
 
-// المرحلة ٥ (ق٥): حساسية التنبيهات من الأداة — المفاتيح المعروفة والأرقام بس (محرك الأداة بيتحقق من الحدود في المُشغّل)
-Deno.test('حساسية التنبيهات: المفاتيح المعروفة والأرقام بس، والمستهدف بيتحفظ لوحده، وأي حاجة تانية متتحدّثش', () => {
-  assertEquals(cleanSens({ sens: { wasteCprMultiple: 3, minSpendShare: 0.05, roasTarget: 9, evil: 1, dropRatio: '0.3', spikeMultiple: -1 } }),
-    { alert_settings: { wasteCprMultiple: 3, minSpendShare: 0.05 } });
-  assertEquals(cleanSens({}), undefined);
-  assertEquals(cleanSens({ sens: [1, 2] }), undefined);
-  assertEquals(cleanSens({ sens: { evil: 1 } }), undefined);
-});
 
 // ---------- دورة حياة التنبيه العاجل (المراجعة الثانية للمرحلة ٥) ----------
 Deno.test('بصمة المشكلة بالعيلة: أنواع أداء الإعلان كلها بصمة واحدة، وإنفاق الحساب واحدة، والباقي بنوعه', () => {
@@ -293,9 +279,10 @@ Deno.test('إعدادات الحساب: من غير إثبات الوصول لل
     assertEquals((await handleSettings('settings.get', { platform: 'meta', accountId: '123', platformToken: T }, null)).status, 400);
   } finally { restoreFetch(); }
 });
-Deno.test('البريد بيقرا سجل الحساب لو موجود (والمستهدف منه)، وإلا النسخة القديمة', () => {
-  assertEquals(settingsChoice(null, { roas: 3, be: 1 }, { cprWarnMultiple: 2 }), { target: { roas: 3, be: 1 }, sens: { cprWarnMultiple: 2 } });
+// البريد بسجل الحساب بس: من غيره حكم الربح بيستنى زي الأداة (النسخة القديمة اللي كانت مع الملخص كانت ×٣/×١ غلط — اتشاف حياً)
+Deno.test('البريد بيقرا سجل الحساب بس — من غيره أو من غير مستهدف فيه حكم الربح بيستنى زي الأداة', () => {
+  assertEquals(settingsChoice(null), { target: null, sens: null });
   const acs = { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 } };
-  assertEquals(settingsChoice(acs, { roas: 3, be: 1 }, null), { target: { roas: 5, be: 5 }, sens: acs });
-  assertEquals(settingsChoice({ cprWarnMultiple: 2 }, { roas: 3, be: 1 }, null).target, null, 'a record without goals: profit waits (not the old copy)');
+  assertEquals(settingsChoice(acs), { target: { roas: 5, be: 5 }, sens: acs });
+  assertEquals(settingsChoice({ cprWarnMultiple: 2 }).target, null, 'a record without goals: profit waits');
 });
