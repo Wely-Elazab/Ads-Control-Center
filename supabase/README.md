@@ -19,7 +19,7 @@
 | `auth_mail_log` | وقت كل رابط «أنشئ/غيّر كلمة المرور» (حد المرات) | `login.forgot` |
 | `account_settings` | إعدادات التنبيهات لكل حساب إعلاني (Meta وSnapchat): المستهدف وحد الخسارة والحدود وأقصى تكلفة لكل نتيجة ولكل حملة (بمعرّف الحملة بس) — أرقام ومعرّفات، من غير أرقام إعلانات. `used_at` = آخر فتح (الحذف بعد ١٢ شهر — `purge_stale`) | `settings.get` / `settings.set` (`settings.ts`) — بعد إثبات الوصول للحساب من المنصة نفسها |
 
-`digest_settings` فيها كمان آخر ملخص شهري اتبعت (`last_monthly`). أعمدة `roas_target` و`roas_break_even` و`alert_settings` قديمة: مبقتش بتتكتب ولا بتتقري من ٢٤ أكتوبر ٢٠٢٦ (البريد بيقرا `account_settings`).
+`digest_settings` فيها كمان آخر ملخص شهري اتبعت (`last_monthly`). أعمدة `roas_target` و`roas_break_even` و`alert_settings` قديمة: مبقتش بتتكتب ولا بتتقري من ٢٤ أكتوبر ٢٠٢٦ (البريد بيقرا `account_settings`)، وقيمها اتمسحت نفس اليوم بموافقة صاحب المنتج.
 حسابات الدخول نفسها (البريد وكلمة المرور) في Supabase Auth (`auth.users`).
 
 **مش بيتحفظ:** محتوى الملخصات والتنبيهات، أرقام الإعلانات، الصور، أي بيانات Google، وأي بيانات Snapchat غير رقم الحساب وإعداداته (`account_settings`)، ومفاتيح Meta لغير من فعّل الملخص.
