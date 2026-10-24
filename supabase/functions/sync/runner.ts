@@ -280,7 +280,11 @@ function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Targe
   const custom = Object.assign({}, sens || {}, target ? { roasTarget: target.roas, roasBreakEven: target.be } : {});
   const res = g.PauseProofAlerts.analyze(cands, meta, custom, alertFmt());
   const alive: Record<string, boolean> = {};
-  res.alerts.forEach((a: any) => { if (a.level === 'warning' && !a.minor) alive[alertKey(a)] = true; });
+  res.alerts.forEach((a: any) => {
+    if (a.level === 'warning' && !a.minor) alive[alertKey(a)] = true;
+    // إعلانات المجموعة الإعلانية اللي اتدمجت في تنبيه واحد (alerts.js mergeBySet): مشكلتها لسه قايمة — من غيرها كانت هتتقال «حُلّت»
+    (a.setMerged || []).forEach((id: string) => { alive[familyOf(String(a.code || 'other')) + '|' + id] = true; });
+  });
   return { urgent: res.alerts.filter((a: any) => a.level === 'critical' && !a.minor), alive };
 }
 function alertFmt() {

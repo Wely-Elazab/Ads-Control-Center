@@ -453,9 +453,10 @@
       var v = period.preset === 'last7' && !mv(c, metric) ? (adAnalysis(c).tones || {})[metric] : 0;
       return v > 0 ? ' tone-good' : (v < 0 ? ' tone-bad' : '');
     };
-    // اللون على التكلفة بالنسبة لأقصى التكلفة المقبولة لو محددة (tones.cprMax — مراجعة الإعدادات)، وإلا بالنسبة لباقي الإعلانات
+    // اللون على التكلفة بالنسبة لأقصى التكلفة المقبولة لو محددة (tones.cprMax — مراجعة الإعدادات)، وإلا بالنسبة لباقي حملته لو بياناتها
+    // تكفي (tones.cprCamp — التدقيق العميق ٢٤ أكتوبر)، وإلا باقي الإعلانات
     var tnTip = function (metric) {
-      var k = tn(metric), key = metric === 'cpr' && (adAnalysis(c).tones || {}).cprMax ? 'cprMax' : metric;
+      var tones = adAnalysis(c).tones || {}, k = tn(metric), key = metric === 'cpr' && tones.cprMax ? 'cprMax' : (metric === 'cpr' && tones.cprCamp ? 'cprCamp' : metric);
       return k ? ' — ' + t('chip.tone.' + key + (k === ' tone-good' ? '.good' : '.bad')) : '';
     };
     var tip = ' — ' + periodLabel();
@@ -494,7 +495,7 @@
     var issueLine = top
       ? '<div class="card-issue ' + LEVELS[top.level].cls + '">' + esc(top.title) + (shown.length > 1 ? ' <span class="card-issue-more">+' + ar(shown.length - 1) + '</span>' : '') + '</div>'
       // «لم يُحكم بعد»: السبب باختصار مكان الملاحظة (جديد، إنفاق صغير، مبيصرفش...)
-      : (a.health === 'pending' && a.pending ? '<div class="card-issue lv-pending">' + esc(t('pend.' + a.pending + '.t')) + '</div>' : '');
+      : (a.health === 'pending' && a.pending ? '<div class="card-issue lv-pending">' + esc(a.pendingTitle || t('pend.' + a.pending + '.t')) + '</div>' : '');
     // اسم الإعلان هو العنوان، والمنصة والحملة سطر صغير تحته (قبل كده الحملة كانت العنوان العريض في ٣ سطور والإعلان رمادي مقطوع)
     var line1 = '<div class="card-line1" dir="auto" title="' + esc(c.placement) + '">' + esc(c.platform) + ' · ' + esc(c.placement) + '</div>';
     var name = '<div class="card-name" dir="auto" title="' + esc(c.offer) + '">' + esc(c.offer) + '</div>';
@@ -2644,11 +2645,21 @@
   // المبيعات اللي بيسجّل قيمة الطلبات بيتحكم عليه بالعائد، والعائد بيراعي فرق الأسعار لوحده. لكل نوع نتيجة في الحساب، ولكل حملة لوحدها
   // (متجر بفئات أسعار مختلفة: تكلفة الطلب بتختلف من حملة لحملة) — الحملة قبل الحساب. الأنواع والحملات من إعلانات الحساب المحمّلة،
   // واللي محفوظ ومش ظاهر دلوقتي (حملة خلصت، أو الإعلانات لسه بتتحمّل) بيظهر برقمه عشان يتعدّل أو يتشال
+  // المبيعات في الأيام المكتملة بس (آخر خانة = النهارده) — نفس المحرك (alerts.js anyDone، التدقيق العميق ٢٤ أكتوبر). والوصول برّه: «أقصى
+  // تكلفة لكل شخص» وحدة مالهاش معنى عملي (تكلفة الشخص أجزاء من السنت — كانت بتظهر «٠ $ لكل شخص»)
   function costAds(source) {
-    return candidates.filter(function (c) { return c.source === source && c.results != null && !(c.dailySales || []).some(function (v) { return v > 0; }); });
+    return candidates.filter(function (c) {
+      return c.source === source && c.results != null && c.resultKey !== 'reach' && !(c.dailySales || []).slice(0, -1).some(function (v) { return v > 0; });
+    });
+  }
+  // التكلفة الصغيرة (أقل من ٠٫١) بخانات كفاية بدل «٠» — نقرة بـ٠٫٠٤ مش «٠ $»
+  function costMoney(v, cur) {
+    if (!(v < 0.1)) return money(v, cur);
+    var label = currencyLabel(cur), d = v < 0.01 ? 4 : 3;
+    return ar(String(Math.round(v * Math.pow(10, d)) / Math.pow(10, d)).replace('.', decSep())) + (label ? ' ' + label : '');
   }
   function costNow(spend, results, key, cur) {
-    return results > 0 && spend > 0 ? t('settings.cost.now', { cpr: money(spend / results, cur), one: t('res1.' + (key || 'generic')) }) : '';
+    return results > 0 && spend > 0 ? t('settings.cost.now', { cpr: costMoney(spend / results, cur), one: t('res1.' + (key || 'generic')) }) : '';
   }
   function costTargets(source, current) {
     var types = {}, camps = {}, cur = null;

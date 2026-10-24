@@ -54,8 +54,13 @@
   // {wd} = عدد الأيام المكتملة في نافذة الحكم («آخر ٧ أيام») — من النافذة نفسها مش رقم ثابت في النص
   // (النصوص فضلت تقول «آخر ٦ أيام» بعد ما النافذة بقت ٧ أيام مكتملة في ١٠ أكتوبر ٢٠٢٦)
   var WEEK_TXT = null, WEEK_AD = null;   // WEEK_AD = أيام الإعلان ده بعد آخر تعديل (evaluateAd)
+  // {rest} = المرجع اللي الإعلان بيتقارن بيه («باقي إعلانات حملته» أو «باقي إعلاناتك»)، و{avgOf} = متوسط مين («حملته» أو «حسابك») —
+  // REF_CAMP بيتحدد في evaluateAd لكل إعلان (التدقيق العميق ٢٤ أكتوبر ٢٠٢٦: المقارنة جوه الحملة نفسها)
+  var REF_CAMP = false;
   var t = function (k, v) {
     if (v && v.wd == null) v.wd = WEEK_AD || WEEK_TXT || String(YESTERDAY + 1);
+    if (v && v.rest == null && global.I18N) v.rest = global.I18N.t(REF_CAMP ? 'ref.rest.camp' : 'ref.rest.acc');
+    if (v && v.avgOf == null && global.I18N) v.avgOf = global.I18N.t(REF_CAMP ? 'ref.avgOf.camp' : 'ref.avgOf.acc');
     return global.I18N ? global.I18N.t(k, v) : k;
   };
 
@@ -131,6 +136,10 @@
     return s;
   }
   function any(arr) { return (arr || []).some(function (v) { return v > 0; }); }
+  // الأيام المكتملة بس (من غير خانة النهارده): «إعلان مبيعات» و«الحساب بيسجّل مبيعات» على نفس الأيام اللي بيتحكم عليها (التدقيق
+  // العميق ٢٤ أكتوبر ٢٠٢٦ — حساب حقيقي: إعلان صرف ٩١ $ في ٧ أيام من غير ولا طلب وجاله النهارده طلبين، فاتحكم عليه «عائد ×٠ أقل من
+  // حد الخسارة» كإعلان مبيعات، وإعلان زيه بالظبط من غير طلبات النهارده اتحكم عليه بأقصى التكلفة: حالة واحدة وحكمين)
+  function anyDone(arr) { return any((arr || []).slice(0, YESTERDAY + 1)); }
   // احتمال إن العدد يطلع k أو أقل بالصدفة لو المتوقع lambda (توزيع بواسون) — نتائج الإعلانات عدّ،
   // واليوم اللي فيه نتيجتين بدل خمسة ممكن يحصل صدفة. بنستخدمه عشان منطلعش تنبيه على تذبذب طبيعي
   // باللوغاريتم (log-sum-exp): e^(−λ) بيبقى صفر لما المتوقع أكبر من نحو ٧٤٥ (حد الأرقام العشرية)، فالاحتمال كان بيطلع صفر حتى
@@ -322,12 +331,12 @@
       }
       total7 += c.spend || 0;
       if (c.active) activeCount++;
-      if (any(c.dailySales)) hasSales = true;
+      if (anyDone(c.dailySales)) hasSales = true;
       if (c.campaignId) (byCampaign[c.campaignId] = byCampaign[c.campaignId] || []).push(c);
       // إعلانات كل مجموعة إعلانية — عشان نعرف لو اتضاف فيها إعلان جديد (المرحلة ٥ ق٦)
       if (c.adsetId) (byAdset[c.adsetId] = byAdset[c.adsetId] || []).push(c);
       // عائد إعلانات الشراء في الأيام المكتملة (من غير النهارده) — للمقارنة جوه تقييم كل إعلان «في الفترة نفسها»
-      if (any(c.dailySales) || c.resultKey === 'purchase' || c.resultKey === 'conversion') {
+      if (anyDone(c.dailySales) || c.resultKey === 'purchase' || c.resultKey === 'conversion') {
         purchSpendW += sum(c.daily || [], 0, YESTERDAY); purchSalesW += sum(c.dailySales || [], 0, YESTERDAY);
         purchAds.push(c);
       }
@@ -363,11 +372,13 @@
       // نفس المتوسطات على أيام معيّنة بس (المرحلة ٤، مراجعة ١٧ أكتوبر ٢٠٢٦ — تعريف واحد للمقياس: Kimball & Ross، «conformed facts»):
       // الإعلان المتعدَّل بيتحكم عليه بالأيام اللي بعد التعديل، فمتوسط الحساب اللي بيتقارن بيه لازم يبقى على نفس الأيام —
       // قبل كده تكلفته «خلال آخر ٣ أيام» كانت بتتقارن بمتوسط الحساب في ٧ أيام والنص بيقول «في الفترة نفسها»
-      labelIn: function (key, from, to) {
+      // camp = حملة واحدة بس (مرجع المقارنة جوه الحملة — evaluateAd)
+      labelIn: function (key, from, to, camp) {
         var g = byLabel[key];
         if (!g) return null;
         var o = { spend: 0, results: 0, adsWithResults: 0 };
         g.ads.forEach(function (c) {
+          if (camp && c.campaignId !== camp) return;
           var r = sum(c.dailyResults || [], from, to);
           o.spend += sum(c.daily || [], from, to); o.results += r;
           if (r > 0) o.adsWithResults++;
@@ -380,7 +391,7 @@
         purchAds.forEach(function (c) {
           var sa = sum(c.dailySales || [], from, to), re = sum(c.dailyResults || [], from, to);
           o.spend += sum(c.daily || [], from, to); o.sales += sa; o.results += re;
-          if (any(c.dailySales)) { valued.sales += sa; valued.results += re; }
+          if (anyDone(c.dailySales)) { valued.sales += sa; valued.results += re; }
         });
         o.roas = hasSales && o.spend > 0 ? o.sales / o.spend : null;
         // متوسط قيمة الطلب — مرجع دليل الخسارة (salesBelowP): من الإعلانات اللي بتسجّل قيمة مبيعات بس. إعلان شراء من غير قيمة
@@ -450,8 +461,27 @@
     // إعلانات الحساب من نفس نوع النتيجة على نفس أيام الحكم (كل الأسبوع، أو اللي بعد آخر تعديل) — المقارنة «في الفترة نفسها»
     // لازم تبقى فعلاً على نفس الأيام (مراجعة المرحلة ٤، ١٧ أكتوبر ٢٠٢٦: إعلان اتحكم عليه بـ٣ أيام بعد تعديله تكلفته فيهم ٥٠ وطلع
     // عليه «تكلفة مرتفعة ١٤٤» من الأسبوع كله، وسبب الحكم تحته بيقول إن الحكم على الأيام اللي بعد التعديل بس)
-    var peer = weekStart && c.resultKey ? acc.labelIn(c.resultKey, weekStart, YESTERDAY) : group;
-    // متوسط الحساب له معنى لو فيه إعلانين جابوا نتائج من النوع ده، أو ٣ نتائج على الأقل حتى لو من إعلان واحد.
+    // المرجع جوه الحملة نفسها لو باقيها جاب ٣ نتائج على الأقل من نفس النوع في أيام الحكم، وإلا الحساب كله (التدقيق العميق ٢٤ أكتوبر
+    // ٢٠٢٦ — التقسيم لطبقات متجانسة: Fisher، ومفارقة سيمبسون). الحملة في الغالب منتج أو عرض أو سوق واحد بتكلفة نتيجة خاصة بيه
+    // (ملاحظة صاحب المنتج: «متجر يبيع منتجات بفئات أسعار مختلفة، فتكلفة الطلب ستختلف كثيراً»). حساب حقيقي: تكلفة المحادثة بين حملات
+    // الحساب الواحد من ٠٫٩٦ لـ٨٫٣٩ $ — المقارنة بمتوسط الحساب طلّعت «أعلى بنسبة ٧٦٪» على إعلان أرخص من حملته، وخبّت إعلان أغلى ٢٫٨
+    // مرة من حملته الرخيصة. المحاكاة (tests/private/hier-sim.html): ٢٢٪ من الإعلانات السليمة عليها تنبيه، و٥٩٪ في الحملة الأغلى
+    // تجميع جزئي (النماذج الهرمية — Gelman & Hill): الحملة مرجع بس لو باقيها مختلف فعلاً عن باقي الحساب (احتمال الصدفة في الفرق أقل
+    // من ١٠٪ في الاتجاهين)، وإلا الحساب كله بقوته الكاملة — حساب بيقسّم نفس المنتج على كذا حملة كان هيخسر نص قدرة الكشف من غير
+    // سبب (المحاكاة: إعلان ضعف التكلفة اتكشف ٨٤ مرة من ٣٠٠ بدل ١٥٥)
+    var resW0 = sum(results, weekStart, YESTERDAY), spendW0 = sum(daily, weekStart, YESTERDAY);
+    var accPeer = weekStart && c.resultKey ? acc.labelIn(c.resultKey, weekStart, YESTERDAY) : group;
+    var campPeer = c.resultKey && c.campaignId ? acc.labelIn(c.resultKey, weekStart, YESTERDAY, c.campaignId) : null;
+    var campRef = false;
+    if (campPeer && accPeer && campPeer.results - resW0 >= 3) {
+      var kC = campPeer.results - resW0, eC = campPeer.spend - spendW0, kO = accPeer.results - campPeer.results, eO = accPeer.spend - campPeer.spend;
+      var dJ = YESTERDAY - weekStart + 1;
+      campRef = kO >= 0 && eO > 0 && eC > 0 && 2 * Math.min(fewerP(kO, eO, kC, eC, dJ), moreP(kO, eO, kC, eC, dJ)) < 0.1;
+    }
+    REF_CAMP = campRef;
+    var refCamp = campRef ? c.campaignId : null;
+    var peer = campRef ? campPeer : accPeer;
+    // المتوسط له معنى لو فيه إعلانين جابوا نتائج من النوع ده، أو ٣ نتائج على الأقل حتى لو من إعلان واحد.
     // قبل كده إعلان رابح واحد في الحساب كان بيلغي المقارنة كلها، فإعلانات صرفت بالآلاف من غير ولا طلب طلعت «جيد»
     var avgCpr = peer && peer.results > 0 && (peer.adsWithResults >= 2 || peer.results >= 3) ? peer.avgCpr : null;
     var spendY = daily[YESTERDAY] || 0, spend2 = sum(daily, DAY_BEFORE, YESTERDAY);
@@ -473,7 +503,7 @@
     var prevSpendAvg = sum(daily, weekStart, DAY_BEFORE) / historyDays;
     // إعلان مبيعات بيسجّل قيمة الطلبات: الحكم بالربح الأول (العائد مقابل المستهدف وحد الخسارة)، والمقارنة بإعلانات
     // الحساب في الفترة نفسها شرح جنبه مش أساس الحكم (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦ — الفترات بتختلف: عروض، رواتب، موسم)
-    var profitAd = acc.hasSales && any(sales);
+    var profitAd = acc.hasSales && anyDone(sales);
     // المستهدف وحد الخسارة محددين للحساب؟ لو لأ: حكم الربح بيستنى (pend «noTarget») وتنبيهات الربح مبتطلعش، والباقي (هدر،
     // توصيل، تكرار) شغّال (قرار صاحب المنتج ٢٤ أكتوبر). كل مقارنة بالمستهدف لازم تمر من هنا: «رقم ≥ قيمة فاضية» = صح في JavaScript
     var hasGoal = s.roasTarget > 0 && s.roasBreakEven > 0;
@@ -511,7 +541,7 @@
     var pLowW = profitAd && hasGoal ? salesBelowP(salesW, spendW, s.roasTarget, resW, aovW, judgedDays) : 1;
     var pAboveBE = profitAd && hasGoal ? salesAboveP(salesW, spendW, s.roasBreakEven, resW, aovW, judgedDays) : 1;
     // آخر يومين صفر لإعلان جاب نتائج قبلها: بمعدل باقي الحساب في نفس اليومين. والخسارة في آخر ٣ أيام
-    var peer2 = c.resultKey && avgCpr ? acc.labelIn(c.resultKey, DAY_BEFORE, YESTERDAY) : null;
+    var peer2 = c.resultKey && avgCpr ? acc.labelIn(c.resultKey, DAY_BEFORE, YESTERDAY, refCamp) : null;
     var p2 = peer2 && res2 === 0 ? fewerP(Math.max(0, peer2.results - res2), Math.max(0, peer2.spend - spend2), 0, spend2, 2) : 1;
     var pLoss3 = profitAd && hasGoal ? salesBelowP(sales3, spend3, s.roasBreakEven, res3, aov3, 3) : 1;
     // التكلفة أعلى من أقصى المقبول: احتمال إن النتائج تطلع قليلة كده بالصدفة لو تكلفته الحقيقية = المقبول بالظبط (نفس معيار
@@ -602,6 +632,7 @@
       if (key === 'little' || key === 'noRef') {
         return resW > 0 ? t('pend.noRef.d', { count: countText(resW, c.resultKey, fmt) }) : t('pend.noRef.zero', { spend: money(spendW), label: label });
       }
+      if (key === 'costlier') return t('pend.costlier.d', { one: one, cpr: money(ownCpr), pct: fmt.int((ownCpr / refCpr - 1) * 100), avg: money(refCpr), warn: fmt.num(s.cprWarnMultiple) });
       return t('pend.' + key + '.d');
     }
 
@@ -766,13 +797,13 @@
         // «للإعلانات الأفضل أداءً»، ومفيش أفضل منه (المراجعة الثانية للمرحلة ٥)
         var markBetter = function (i, b) { i.better = !!b; return i; };
         if (lossWeek) {
-          issues.push(markBetter(lossMoney(makeIssue(urgentOk(pLossW) ? 'critical' : 'warning', ['roas', 'spend'], t('al.loss' + lossK + '.t'), t('al.lossWeek' + lossK + '.d', wkVars), t(wk.better ? 'al.loss.aBetter' : 'al.loss.a'), 0, 'loss', true), spendW, salesW), wk.better));
+          issues.push(markBetter(lossMoney(makeIssue(urgentOk(pLossW) ? 'critical' : 'warning', ['roas', 'spend'], t('al.loss' + lossK + '.t'), t('al.lossWeek' + lossK + (salesW > 0 ? '' : 'Zero') + '.d', wkVars), t(wk.better ? 'al.loss.aBetter' : 'al.loss.a'), 0, 'loss', true), spendW, salesW), wk.better));
         } else if (lossRecent && (!weekEvidence || roasW < s.roasTarget)) {
           // آخر ٣ أيام بخسارة، والأسبوع نفسه مش قوي: عاجل (وبالاحتمال بس: تحت ١٪ عاجل، و«مهم» تحت ١٠٪). «في الفترة نفسها» بعد جملة
           // الأسبوع = الأسبوع، ومن غيرها = الـ٣ أيام (قبل كده عائد الحساب في الأسبوع كان بييجي بعد جملة الـ٣ أيام على إنه «في الفترة نفسها»)
           var r3 = weekEvidence ? wk : vsAcc(acc.purchIn(RECENT3, YESTERDAY), roas3, spend3);
           issues.push(markBetter(lossMoney(makeIssue(urgentOk(pLoss3) ? 'critical' : 'warning', ['roas', 'spend'], t('al.loss' + lossK + '.t'),
-            t('al.loss' + lossK + '.d', { name: name, spend: money(spend3), sales: money(sales3), roasText: roasLabel(roas3), be: wkVars.be }) +
+            t('al.loss' + lossK + (sales3 > 0 ? '' : 'Zero') + '.d', { name: name, spend: money(spend3), sales: money(sales3), roasText: roasLabel(roas3), be: wkVars.be }) +
               (weekEvidence ? t('al.weekCtx', { roas: fmt.num(roasW) }) : '') + r3.text,
             t(r3.better ? 'al.loss.aBetter' : 'al.loss.a'), 0, 'loss', true), spend3, sales3), r3.better));
         } else if (lossRecent) {
@@ -904,7 +935,7 @@
       var hasProblem = issues.some(function (i) { return i.level === 'critical' || i.level === 'warning'; });
       // والرخص نفسه صعب يكون صدفة (ق١): نتائج آخر ٣ أيام أكتر من باقي الحساب بنفس الإنفاق باحتمال صدفة أقل من ٥٪ — «زوّد
       // الميزانية» على ٣ نتائج رخيصة بالحظ بيصرف فلوس حقيقية
-      var peer3 = acc.labelIn(c.resultKey, RECENT3, YESTERDAY);
+      var peer3 = acc.labelIn(c.resultKey, RECENT3, YESTERDAY, refCamp);
       var p3 = peer3 ? moreP(Math.max(0, peer3.results - res3), Math.max(0, peer3.spend - spend3), res3, spend3, 3) : 1;
       // المرجع: باقي الإعلانات على نفس الـ٣ أيام (نفس الاختبار p3 — المراجعة الثانية للمرحلة ٥). كان متوسط الأسبوع والإعلان جوّاه
       var rest3K = peer3 ? peer3.results - res3 : 0, ref3 = rest3K > 0 ? (peer3.spend - spend3) / rest3K : refCpr;
@@ -994,6 +1025,12 @@
       if (profitAd) pend = roasW < s.roasBreakEven ? 'prelimLoss' : (roasW < s.roasTarget ? 'prelimBelow' : 'prelimAbove');
       else { var rel = spendW / resW / refCpr; pend = rel <= 0.85 ? 'prelimBetter' : (rel >= 1.15 ? 'prelimWorse' : 'prelimSimilar'); }
     }
+    // «جيد» لغير المبيعات = تكلفة مش أعلى من المرجع (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦). أغلى بـ١٥٪ أو أكتر بدليل (احتمال الصدفة أقل من
+    // ٥٪ — نفس معيار «مهم») بس الفرق أقل من حد التنبيه = «لم يُحكم بعد» بالسبب، مش «جيد» (التدقيق العميق ٢٤ أكتوبر، حساب حقيقي: أغلى
+    // ٤٢٪ من باقي الإعلانات و«جيد» ورقمه بالأحمر). بالدليل مش بالرقم لوحده: أول نسخة (الرقم بس) نقلت ثلث الإعلانات السليمة في محاكاة
+    // حساب كل إعلاناته بنفس الأداء من «جيد» لـ«أغلى» (من ٩٠٪ «جيد» لـ٥٩٪) — تذبذب عدد صغير. أقصى تكلفة محددة = هي الخط
+    if (!pend && c.active && !profitAd && !maxCost && avgCpr && othersHave && ownCpr != null && refCpr && ownCpr >= refCpr * 1.15 && pFew < P_LIKELY &&
+        !issues.some(function (i) { return (i.level === 'critical' || i.level === 'warning') && !i.quiet; })) pend = 'costlier';
 
     // سطر «على أي أساس الحكم» في تفاصيل الإعلان — حتى الإعلان «الجيد» بيقول ليه
     var basis = null;
@@ -1060,12 +1097,45 @@
     var raisedTop = issues.filter(function (i) { return (i.level === 'critical' || i.level === 'warning') && !i.quiet; })
       .sort(function (a, b) { return (LEVEL_RANK[b.level] - LEVEL_RANK[a.level]) || ((b.amount || 0) - (a.amount || 0)); })[0];
     if (pend && raisedTop && basis && c.active) basis += t('basis.butAlert', { title: raisedTop.title });
+    // اللون على التكلفة بالنسبة لباقي الحملة: التلميح بيقول كده (ui.js tnTip)
+    if (tones.cpr != null && !tones.cprMax && campRef) tones.cprCamp = true;
     var out = done(pend, basis);
     out.tones = out.health === 'pending' || out.health === 'inactive' ? {} : tones;
+    // عنوان «لم يُحكم بعد» على الكارت بالمرجع نفسه («أغلى من باقي إعلانات حملته»…) — ui.js
+    out.pendingTitle = out.pending ? t('pend.' + out.pending + '.t', {}) : null;
+    out.refScope = campRef ? 'camp' : 'acc';
     // الإعلان المتعدَّل: عدد الأيام المكتملة اللي اتحكم عليها (اللي بعد آخر تعديل) — سطر «التقييم مبني على…» في التفاصيل (ui.js).
     // null = الأسبوع كله
     out.days = weekStart ? YESTERDAY - weekStart + 1 : null;
     return out;
+  }
+
+  // تنبيه واحد لكل مجموعة إعلانية (ISA-18.2 وEEMUA 191 — إنذار واحد لكل حالة غير طبيعية، والتابع بيتدمج في الأصلي): لو إعلانين أو
+  // أكتر في نفس المجموعة عليهم تنبيه تكلفة أو إنفاق دون نتائج، السبب غالباً المجموعة نفسها (الجمهور، المزايدة، الصفحة) مش كل إعلان
+  // لوحده (التدقيق العميق ٢٤ أكتوبر ٢٠٢٦ — حساب حقيقي: ٤ إعلانات في مجموعة واحدة، كل واحد عليه «تكلفة مرتفعة — عاجل»، والمجموعة كلها
+  // ×٥ من باقي حملتها: ٤ خانات من ٥ في «يحتاج انتباهك الآن» لمشكلة واحدة). المضيف = الأعلى مستوى ثم الأكبر بالفلوس، ونصه بيذكر
+  // الباقيين (setMerged — المُشغّل بيعتبرهم قايمين عشان محدش منهم يتقال عليه «حُلّت» غلط). كروت الإعلانات نفسها بتفضل بأحكامها
+  var SET_MERGE = { cpr: 1, 'waste-week': 1, waste: 1, 'waste-early': 1, 'cost-max': 1 };
+  function mergeBySet(list, fmt) {
+    var groups = {}, drop = [];
+    list.forEach(function (a) {
+      if (!a.adsetId || !SET_MERGE[a.code] || a.minor || (a.level !== 'critical' && a.level !== 'warning')) return;
+      (groups[a.adsetId] = groups[a.adsetId] || []).push(a);
+    });
+    Object.keys(groups).forEach(function (k) {
+      var g = groups[k];
+      if (g.length < 2) return;
+      g.sort(function (x, y) { return (LEVEL_RANK[y.level] - LEVEL_RANK[x.level]) || ((y.amount || 0) - (x.amount || 0)); });
+      var host = g[0], others = g.slice(1), n = others.length;
+      var sep = global.I18N && global.I18N.lang === 'en' ? ', ' : '، ';
+      var names = others.slice(0, 3).map(function (o) { return t('al.name', { name: o.adName }); }).join(sep) +
+        (n > 3 ? t('al.setMerge.more', { n: fmt.int(n - 3) }) : '');
+      host.detail += t(n === 1 ? 'al.setMerge1' : (n === 2 ? 'al.setMerge2' : 'al.setMerge'), { n: fmt.int(n), ads: global.I18N ? global.I18N.noun(n, 'n.ad') : '', names: names });
+      host.advice += t('al.setMerge.a');
+      host.setMerged = others.map(function (o) { return o.adId; });
+      drop = drop.concat(others);
+    });
+    return drop.length ? list.filter(function (a) { return drop.indexOf(a) < 0; }) : list;
   }
 
   // ملاحظة على إعلان صغير بالنسبة لحسابه: بتفضل ظاهرة في تفاصيله "للعلم"، بس مش تنبيه —
@@ -1161,8 +1231,25 @@
         var resPrev = sum(acc.equivByDay, 0, DAY_BEFORE) / (DAY_BEFORE + 1), resY = acc.equivByDay[YESTERDAY];
         var resultsKeptUp = resPrev > 0 && resY / resPrev >= (spendY / prevAvg) * 0.8;
         if (!resultsKeptUp) {
+          // رفع ميزانية جوه الحساب في آخر ٣ أيام (سجل Meta — c.edits): الزيادة من فعل المعلن نفسه، فالتنبيه بيقول كده (ISA-18.2: الإنذار
+          // يفرّق بين فعل المشغّل والحالة غير الطبيعية). بيفضل «مهم»: النتائج مزادتش معاها، وده بالظبط اللي يستاهل يتشاف (التدقيق العميق
+          // ٢٤ أكتوبر — حساب حقيقي: الميزانية اترفعت ١٠ أضعاف من يومين والتنبيه بيقول «ارتفاع مفاجئ» من غير ما يذكر السبب)
+          var lastRaise = null;
+          ads.forEach(function (c) {
+            (c.edits || []).forEach(function (e) {
+              var i = (c.dailyDates || []).indexOf(e.date);
+              if (e.kind !== 'budget' || !(e.to > e.from) || i < YESTERDAY - 2 || i > YESTERDAY) return;   // رفع النهارده مبيفسّرش إنفاق أمس
+              if (!lastRaise || i > lastRaise.idx || (i === lastRaise.idx && e.to - e.from > lastRaise.e.to - lastRaise.e.from)) lastRaise = { e: e, idx: i };
+            });
+          });
+          var raiseTxt = '';
+          if (lastRaise) {
+            var ago = TODAY - lastRaise.idx, le = lastRaise.e;
+            raiseTxt = t('al.acctSpike.edit', { what: t('edit.budget.up', { lvl: t('edit.lvl.' + le.level), from: fmt.money(le.from / unitOf(cur), cur), to: fmt.money(le.to / unitOf(cur), cur) }),
+              when: ago === 0 ? t('edit.when.0') : (ago === 1 ? t('edit.when.1') : t('edit.when.n', { days: daysText(ago, fmt) })) });
+          }
           alerts.push(makeIssue('warning', ['account'], t('al.acctSpike.t'),
-            t('al.acctSpike.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), n: prevDays, pct: fmt.int((spendY / prevAvg - 1) * 100) }),
+            t('al.acctSpike.d', { acc: accName, spend: money(spendY), avg: money(prevAvg), n: prevDays, pct: fmt.int((spendY / prevAvg - 1) * 100) }) + raiseTxt,
             t('al.acctSpike.a'), spendY - prevAvg, 'acct-spike'));
         }
       } else if (spendY <= prevAvg * s.accountDropRatio) {
@@ -1330,23 +1417,25 @@
       // (من غير ما تطلع أي عاجل)، وBenjamini–Hochberg بنسبة FDR_Q بيحدد أكبر احتمال يتقال عليه «عاجل». الحساب فيه عشرات الإعلانات
       // بتتختبر مع بعض: «عاجل» عند ١٪ لكل إعلان لوحده كان بيطلّع عاجل كاذب في أغلب فحوص الحساب السليم
       acc.collect = [];
-      ads.forEach(function (c) { evaluateAd(c, acc, s, fmt); WEEK_AD = null; });
+      ads.forEach(function (c) { evaluateAd(c, acc, s, fmt); WEEK_AD = null; REF_CAMP = false; });
       acc.urgentP = fdrCut(acc.collect, FDR_Q);
       acc.collect = null;
       ads.forEach(function (c) {
         byAd[c.id] = evaluateAd(c, acc, s, fmt);
-        WEEK_AD = null;
+        WEEK_AD = null; REF_CAMP = false;
       });
       // تنبيهات الحساب قبل نسخ تنبيهات الإعلانات للقائمة: «تركّز الميزانية» بيتكتب جوه تنبيه الإعلان نفسه (المراجعة الثانية للمرحلة ٥)
       var accAlerts = evaluateAccount(source, ads, acc, accountsMeta && accountsMeta[source], s, fmt, byAd);
+      var adAlerts = [];
       ads.forEach(function (c) {
         byAd[c.id].issues.forEach(function (i) {
           setImpact(i, c.spend, acc.total7, c.currency, fmt, false);
           addCompare(i, c, fmt);
           if (i.quiet) return;   // على الكارت وفي التفاصيل بس (underspend)
-          alerts.push(Object.assign({ adId: c.id, source: source, platform: c.platform, adName: c.offer || c.headline || c.id, currency: c.currency }, i));
+          adAlerts.push(Object.assign({ adId: c.id, adsetId: c.adsetId || null, source: source, platform: c.platform, adName: c.offer || c.headline || c.id, currency: c.currency }, i));
         });
       });
+      mergeBySet(adAlerts, fmt).forEach(function (a) { alerts.push(a); });
       accAlerts.forEach(function (a) {
         a.platform = ads[0] && ads[0].platform;
         alerts.push(a);

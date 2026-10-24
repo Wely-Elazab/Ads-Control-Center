@@ -1038,6 +1038,7 @@
       // ولا نتيجة طول الأسبوع = الحكم على الأسبوع كله — «كان يكفي لنحو» بمتوسط باقي الإعلانات (المراجعة الثانية للمرحلة ٥): باقيها
       // ١٥٠٠ ÷ ٧٠ ≈ ٢١٫٤ (مساعد الاختبار بيحسب إنفاق النهارده في الإجمالي)، فـ٦٠٠ ÷ ٢١٫٤ ≈ ٢٨ — كان ٢٠ والإعلان نفسه جوّه المتوسط
       // (٢١٠٠ ÷ ٧٠ = ٣٠). المنصوب مع ١١–٩٩
+      // الكل في حملة واحدة: مفيش حملة تانية تختلف عنها، فالمرجع الحساب كله (التدقيق العميق — تجميع جزئي)
       var waste = details(engine(base.concat([ad('w1', { daily: steady(100), res: steady(0), key: 'lead' })])), 'w1');
       ok(waste.indexOf('دون أي عملاء محتملين') > -1 && waste.indexOf('لنحو ٢٨ عميلاً محتملاً') > -1 && waste.indexOf('باقي إعلاناتك') > -1, waste);
       // نتائج قبل كده في الأسبوع ويومين من غير = قاعدة آخر يومين (٢٠٠ ÷ ~٢٣ ≈ ٩ — المجرور بعد ٣–١٠)
@@ -1463,6 +1464,83 @@
       ok(cpr && /باقي إعلاناتك/.test(cpr.detail), cpr ? cpr.detail : list(r, 'dom'));
       // ومن غير ما «لا يأخذ إنفاقاً كافياً» يتأثر: الإعلانين الكويسين حكمهم زي ما هو
       eq([health(r, 'g1'), health(r, 'g2')], ['good', 'good']);
+    });
+
+    // ---- التدقيق العميق للمحرك (٢٤ أكتوبر ٢٠٢٦ — حسابات حقيقية بالتنقّل بينها) ----
+    test('إعلان المبيعات = مبيعات في الأيام المكتملة بس: طلبات النهارده مبتخلّيش إعلان صرف أسبوع من غير ولا طلب «عائد أقل من حد الخسارة»', function () {
+      var ads = [ad('g1', { daily: steady(100), res: steady(2), sales: steady(600) }), ad('g2', { daily: steady(100), res: steady(2), sales: steady(600) }),
+        ad('today', { daily: steady(60), res: [0, 0, 0, 0, 0, 0, 2], sales: [0, 0, 0, 0, 0, 0, 300] })];
+      var r = withLang('ar', function () { return engine(ads); });
+      ok(!has(r, 'today', 'loss') && !/×٠/.test(r.byAd.today.basis || ''), list(r, 'today') + ' | ' + r.byAd.today.basis);
+      ok(has(r, 'today', 'waste-week'), list(r, 'today'));
+    });
+    test('المرجع جوه الحملة نفسها: حملة منتج غالي مش «تكلفة مرتفعة» قصاد حملة رخيصة، والنص بيقول «باقي إعلانات حملته»', function () {
+      var ads = [ad('a1', { cid: 'c1', daily: steady(100), res: steady(5), key: 'lead' }), ad('a2', { cid: 'c1', daily: steady(100), res: steady(5), key: 'lead' }),
+        ad('b1', { cid: 'c2', daily: steady(100), res: steady(1), key: 'lead' }), ad('b2', { cid: 'c2', daily: steady(100), res: steady(1), key: 'lead' }),
+        ad('b3', { cid: 'c2', daily: steady(100), res: steady(1), key: 'lead' }),
+        // لوحده في حملته: مفيش باقي يكفي، فالمرجع الحساب كله
+        ad('solo', { cid: 'c3', daily: steady(100), res: steady(4), key: 'lead' })];
+      var r = withLang('ar', function () { return engine(ads); });
+      ok(!has(r, 'b1', 'cpr') && r.byAd.b1.health === 'good', list(r, 'b1') + ' ' + r.byAd.b1.health);
+      eq([r.byAd.b1.refScope, r.byAd.solo.refScope], ['camp', 'acc']);
+      ok(/باقي إعلانات حملته/.test(r.byAd.b1.basis), r.byAd.b1.basis);
+      ok(/باقي إعلاناتك/.test(r.byAd.solo.basis || '') || r.byAd.solo.health !== 'good', r.byAd.solo.basis);
+    });
+    test('أغلى من المرجع بـ١٥٪ أو أكتر بدليل بس تحت حد التنبيه = «لم يُحكم بعد — أغلى قليلاً»، مش «جيد» ورقمه بالأحمر؛ ومن غير دليل = «جيد»', function () {
+      var ads = [ad('g1', { daily: steady(1000), res: steady(50), key: 'lead' }), ad('g2', { daily: steady(1000), res: steady(50), key: 'lead' }),
+        // أغلى ~١٫٤ مرة بأعداد كبيرة (الفرق مؤكد) بس تحت حد التنبيه ×١٫٥
+        ad('m', { daily: steady(1000), res: steady(35), key: 'lead' })];
+      var r = withLang('ar', function () { return engine(ads); });
+      eq([r.byAd.m.health, r.byAd.m.pending], ['pending', 'costlier']);
+      ok(/أغلى قليلاً من متوسط باقي إعلاناتك/.test(r.byAd.m.pendingTitle) && /الفرق مؤكد/.test(r.byAd.m.basis) && /×١٫٥/.test(r.byAd.m.basis), r.byAd.m.pendingTitle + ' | ' + r.byAd.m.basis);
+      eq([r.byAd.g1.health, r.byAd.g2.health], ['good', 'good']);
+      // نفس النسبة بأعداد صغيرة (تذبذب، مفيش دليل): «جيد» زي ما هو — من غير الشرط ده ثلث الإعلانات السليمة كانت هتطلع «أغلى»
+      var small = withLang('ar', function () {
+        return engine([ad('g1', { daily: steady(100), res: steady(5), key: 'lead' }), ad('g2', { daily: steady(100), res: steady(5), key: 'lead' }),
+          ad('m', { daily: steady(100), res: [4, 4, 3, 4, 4, 3, 4], key: 'lead' })]);
+      });
+      eq(small.byAd.m.health, 'good');
+    });
+    test('خسارة من غير ولا مبيعات: «دون أي مبيعات» مش «مبيعات بقيمة ٠ … فقط»', function () {
+      var ads = [ad('g1', { daily: steady(100), res: steady(2), sales: steady(600) }), ad('g2', { daily: steady(100), res: steady(2), sales: steady(600) }),
+        // آخر ٣ أيام: ٩٠٠ إنفاق وطلبات من غير قيمة (الأسبوع ×١٫٥ فوق حد الخسارة) — الخسارة على الـ٣ أيام بدليل
+        ad('z', { daily: steady(300), res: [2, 2, 2, 1, 1, 1, 0], sales: [900, 900, 900, 0, 0, 0, 0] })];
+      var r = withLang('ar', function () { return engine(ads); });
+      var loss = r.byAd.z.issues.filter(function (i) { return i.code === 'loss'; })[0];
+      ok(loss && /دون أي مبيعات/.test(loss.detail) && !/٠ ر\.س فقط/.test(loss.detail), loss ? loss.detail : list(r, 'z'));
+    });
+    test('حملتين بنفس التكلفة (نفس المنتج مقسوم): المرجع الحساب كله بقوته الكاملة (تجميع جزئي)، مش الحملة لوحدها', function () {
+      var ads = [ad('a1', { cid: 'c1', daily: steady(100), res: steady(5), key: 'lead' }), ad('a2', { cid: 'c1', daily: steady(100), res: steady(5), key: 'lead' }),
+        ad('b1', { cid: 'c2', daily: steady(100), res: steady(5), key: 'lead' }), ad('b2', { cid: 'c2', daily: steady(100), res: steady(5), key: 'lead' })];
+      var r = engine(ads);
+      eq([r.byAd.a1.refScope, r.byAd.b1.refScope], ['acc', 'acc']);
+    });
+    test('٣ إعلانات في نفس المجموعة الإعلانية عليها تكلفة مرتفعة = تنبيه واحد في القائمة بيذكر الباقيين (ISA-18.2)، وكروتهم بأحكامها', function () {
+      var ads = [ad('g1', { aid: 's1', daily: steady(100), res: steady(5), key: 'lead' }), ad('g2', { aid: 's1', daily: steady(100), res: steady(5), key: 'lead' }),
+        ad('g3', { aid: 's1', daily: steady(100), res: steady(5), key: 'lead' }),
+        ad('x1', { aid: 's2', daily: steady(100), res: [2, 1, 2, 1, 2, 1, 2], key: 'lead' }), ad('x2', { aid: 's2', daily: steady(100), res: [2, 1, 2, 1, 2, 1, 2], key: 'lead' }),
+        ad('x3', { aid: 's2', daily: steady(100), res: [2, 1, 2, 1, 2, 1, 2], key: 'lead' })];
+      var r = withLang('ar', function () { return engine(ads); });
+      ok(['x1', 'x2', 'x3'].every(function (id) { return has(r, id, 'cpr'); }), ['x1', 'x2', 'x3'].map(function (id) { return list(r, id); }).join(' / '));
+      var inList = r.alerts.filter(function (a) { return a.adsetId === 's2' && a.code === 'cpr'; });
+      eq(inList.length, 1);
+      eq((inList[0].setMerged || []).length, 2);
+      ok(/إعلانان آخران/.test(inList[0].detail) && /المجموعة الإعلانية/.test(inList[0].advice), inList[0].detail);
+      // مجموعة فيها إعلان واحد عليه تنبيه: من غير دمج
+      ok(!r.alerts.some(function (a) { return a.adsetId === 's1' && a.setMerged; }));
+    });
+    test('«ارتفاع مفاجئ في إنفاق الحساب» بعد ما المعلن رفع الميزانية بنفسه: بيفضل «مهم» وبيقول السبب (ISA-18.2)', function () {
+      var raise = [{ date: KEYS[5], kind: 'budget', level: 'campaign', from: 10000, to: 30000 }];
+      var ads = [ad('a1', { daily: [100, 100, 100, 100, 100, 300, 100], res: steady(5), key: 'lead', edits: raise }), ad('a2', { daily: [100, 100, 100, 100, 100, 300, 100], res: steady(5), key: 'lead' })];
+      ads[0].edits = raise;
+      var r = withLang('ar', function () { return engine(ads); });
+      var sp = r.alerts.filter(function (a) { return a.code === 'acct-spike'; })[0];
+      ok(sp && sp.level === 'warning' && /رفع ميزانية الحملة من ١٠٠ ر\.س إلى ٣٠٠ ر\.س/.test(sp.detail) && /أمس/.test(sp.detail), sp ? sp.detail : r.alerts.map(function (a) { return a.code; }).join(' '));
+      // من غير رفع: نفس التنبيه من غير الجملة
+      ads[0].edits = [];
+      var r2 = withLang('ar', function () { return engine(ads); });
+      var sp2 = r2.alerts.filter(function (a) { return a.code === 'acct-spike'; })[0];
+      ok(sp2 && !/رفع ميزانية/.test(sp2.detail), sp2 ? sp2.detail : 'none');
     });
 
     // ---- مراجعة الإعدادات (٢٤ أكتوبر — قرارات صاحب المنتج) ----
