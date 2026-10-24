@@ -1542,6 +1542,14 @@
       var sp2 = r2.alerts.filter(function (a) { return a.code === 'acct-spike'; })[0];
       ok(sp2 && !/رفع ميزانية/.test(sp2.detail), sp2 ? sp2.detail : 'none');
     });
+    test('صفر نتائج بإنفاق يكفي لنحو نتيجتين ونص (من غير دليل كافي للتنبيه) = «لم يُحكم بعد»، مش «جيد» من غير سبب', function () {
+      var ads = [ad('g1', { daily: steady(100), res: steady(5), key: 'lead' }), ad('g2', { daily: steady(100), res: steady(5), key: 'lead' }),
+        ad('z', { daily: [9, 8, 8, 8, 9, 8, 0], res: steady(0), key: 'lead' })];
+      var r = withLang('ar', function () { return engine(ads); });
+      ok(!r.byAd.z.issues.some(function (i) { return i.level === 'critical' || i.level === 'warning'; }), list(r, 'z'));
+      eq([r.byAd.z.health, r.byAd.z.pending], ['pending', 'little']);
+      ok(/دون أي عملاء محتملين/.test(r.byAd.z.basis || ''), r.byAd.z.basis);
+    });
 
     // ---- مراجعة الإعدادات (٢٤ أكتوبر — قرارات صاحب المنتج) ----
     test('حساب من غير مستهدف وحد خسارة: حكم الربح بيستنى («حدّد هدف الربح») ومفيش تنبيه ربح ولا فرصة، والهدر شغّال', function () {

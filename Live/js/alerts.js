@@ -1012,14 +1012,18 @@
     }
 
     var pend = null;
+    var raisedNow = issues.some(function (i) { return (i.level === 'critical' || i.level === 'warning') && !i.quiet; });
     if (underspend) pend = starvedWin ? 'prelimAbove' : 'underspend';
     else if (learning) pend = 'learning';
     else if (!any(daily)) pend = 'noSpend';   // ولا مليم في النافذة كلها (حتى النهارده) — c.spend للأيام المكتملة بس
     else if (c.results == null) pend = 'noGoal';
     else if (profitAd) { if (!hasGoal) pend = 'noTarget'; else if (!profitEvidence) pend = 'little'; }
     // أقصى تكلفة مقبولة محددة = مرجع للحكم حتى من غير إعلانات تانية نقارن بيها (حساب فيه إعلان رسائل واحد)
-    else if (!avgCpr || !othersHave) { if (!maxCost) pend = 'noRef'; else if (resW < 2 && spendW < 2 * maxCost) pend = 'little'; }
-    else if (resW < 2 && spendW < 2 * avgCpr) pend = 'little';
+    // أقل من نتيجتين ومفيش تنبيه = «لم يُحكم بعد» حتى لو الإنفاق عدّى ضعف تكلفة النتيجة: «جيد» محتاج نتائج كفاية (قرار صاحب المنتج
+    // ٧ أكتوبر). كان صفر نتائج بإنفاق يكفي لـ٢–٣ (الصفر لسه ممكن يكون صدفة فمفيش تنبيه) بيطلع «جيد» من غير سبب حكم (التدقيق العميق
+    // ٢٤ أكتوبر — حساب حقيقي: ٩١ $ في ٧ أيام من غير ولا طلب و«جيد»)
+    else if (!avgCpr || !othersHave) { if (!maxCost) pend = 'noRef'; else if (resW < 2 && (spendW < 2 * maxCost || !raisedNow)) pend = 'little'; }
+    else if (resW < 2 && (spendW < 2 * avgCpr || !raisedNow)) pend = 'little';
     // نتيجة على الأقل وإنفاق ≥ تكلفة نتيجة بمتوسط الحساب: حكم مبدئي بالمقارنة (مع المستهدف لإعلان المبيعات، ومع الحساب لغيره)
     if (pend === 'little' && resW > 0 && avgCpr && spendW >= avgCpr) {
       if (profitAd) pend = roasW < s.roasBreakEven ? 'prelimLoss' : (roasW < s.roasTarget ? 'prelimBelow' : 'prelimAbove');
