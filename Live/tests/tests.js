@@ -1397,6 +1397,48 @@
       ok(dim && /حالة مجموعته الإعلانية/.test(dim.detail), dim ? dim.detail : list(mk(true), 'w'));
       ok(known && !/حالة مجموعته الإعلانية/.test(known.detail), known ? known.detail : list(mk(false), 'w'));
     });
+
+    // ---- المراجعة العميقة الثانية للمرحلة ٥: التوافق والتكامل بين التنبيهات (ISA-18.2 / EEMUA 191 — إنذار واحد لكل حالة) ----
+    var PERF_CODES = ['waste-week', 'waste', 'waste-early', 'waste-view', 'waste-new', 'cpr', 'loss', 'roas-drop', 'low-roas', 'spike', 'drop', 'fatigue'];
+    function perfOf(r, id) { return r.byAd[id].issues.filter(function (i) { return PERF_CODES.indexOf(i.code) > -1 && (i.level === 'critical' || i.level === 'warning'); }); }
+    test('تنبيه أداء واحد للإعلان: «يومان دون نتائج» و«تكلفة مرتفعة» و«تشبّع الجمهور» بنفس الدليل = تنبيه واحد فيه التكرار', function () {
+      // ٣ نتائج أول يوم وبعدها صفر، والشخص شاف الإعلان ٧ مرات: قبل الإصلاح ٣ تنبيهات عاجلة على نفس الإعلان (٣ خانات من ٥)
+      var r = withLang('ar', function () { return engine(baseAccount().concat([ad('x', { daily: steady(60), res: [3, 0, 0, 0, 0, 0, 0], freq: 7 })])); });
+      var p = perfOf(r, 'x');
+      eq(p.length, 1, list(r, 'x'));
+      ok(p[0].level === 'critical' && /شاهد الشخص نفسه هذا الإعلان/.test(p[0].detail) && p[0].metrics.indexOf('frequency') > -1, p[0].code + ': ' + p[0].detail);
+      eq(health(r, 'x'), 'review');
+      eq(r.alerts.filter(function (a) { return a.adId === 'x'; }).length, 1, 'once in the alert list');
+    });
+    test('لا «فرصة — زوّد الميزانية» جنب «يومان دون مشتريات» على نفس الإعلان', function () {
+      var r = engine([ad('g1', { daily: steady(100), res: steady(2), sales: steady(600) }), ad('g2', { daily: steady(100), res: steady(2), sales: steady(600) }),
+        ad('d', { daily: [100, 100, 100, 100, 300, 300, 0], res: [3, 3, 3, 4, 0, 0, 0], sales: [2400, 2400, 2400, 3200, 0, 0, 0] })], {}, { roasTarget: 3, roasBreakEven: 1 });
+      ok(perfOf(r, 'd').length === 1 && !has(r, 'd', 'roas-great'), list(r, 'd'));
+    });
+    test('الحكم المبدئي لإعلان المبيعات مبيقولش «حتى يحقق ٣» (المعيار بقى احتمال الصدفة)، وغير المبيعات بيقول «نتيجتين» زي قاعدته', function () {
+      var r = withLang('ar', function () {
+        return engine([ad('g1', { daily: steady(100), res: steady(1), sales: steady(330) }), ad('g2', { daily: steady(100), res: steady(1), sales: steady(330) }),
+          ad('m', { daily: [20, 20, 20, 30, 30, 30, 0], res: [0, 0, 0, 1, 1, 1, 0], sales: [0, 0, 0, 160, 160, 160, 0] })], {}, { roasTarget: 3, roasBreakEven: 1 });
+      });
+      ok(/^prelim/.test(r.byAd.m.pending || '') && !/حتى يحقق/.test(r.byAd.m.basis) && /صدفة/.test(r.byAd.m.basis), (r.byAd.m.pending || '') + ': ' + r.byAd.m.basis);
+      var q = withLang('ar', function () { return engine(baseAccount().concat([ad('q', { daily: [5, 5, 5, 5, 5, 5, 0], res: [0, 0, 0, 0, 0, 1, 0] })])); });
+      var two = withLang('ar', function () { return I18N.countPhrase(2, 'purchase', ar); });
+      ok(/^prelim/.test(q.byAd.q.pending || '') && q.byAd.q.basis.indexOf('حتى يحقق ' + two) > -1, (q.byAd.q.pending || '') + ': ' + q.byAd.q.basis);
+    });
+    test('الحالة «يحتاج إلى تحسين» وسبب «لم نحكم بعد»: سبب الحكم بيقول التنبيه اللي حدّد الحالة', function () {
+      var r = withLang('ar', function () { return engine(baseAccount().concat([ad('n', { daily: [0, 0, 0, 0, 200, 150, 20], age: 2 })])); });
+      eq(health(r, 'n'), 'improve');
+      var top = r.byAd.n.issues.filter(function (i) { return i.level === 'warning'; })[0];
+      ok(top && /لا نحكم/.test(r.byAd.n.basis) && r.byAd.n.basis.indexOf('«' + top.title + '»') > -1, r.byAd.n.basis);
+    });
+    test('«إنفاق أعلى من المعتاد» بدليل: نتائج أمس قليلة بشكل صعب يكون صدفة', function () {
+      // إنفاق أمس ٢٫٥ ضعف، و٣ نتائج والمتوقع بمعدّله ٥ (احتمالها صدفة نحو ٢٧٪): قبل الإصلاح «مهم»
+      var noisy = engine(baseAccount().concat([ad('l', { daily: [40, 40, 40, 40, 40, 100, 0], res: [2, 2, 2, 2, 2, 3, 0] })]));
+      ok(!has(noisy, 'l', 'spike'), list(noisy, 'l'));
+      // صفر نتائج والمتوقع ٥: بيطلع — تنبيه واحد (كان «إنفاق أعلى من المعتاد» و«انخفاض النتائج» عن نفس اليوم)
+      var real = engine(baseAccount().concat([ad('l', { daily: [40, 40, 40, 40, 40, 100, 0], res: [2, 2, 2, 2, 2, 0, 0] })]));
+      ok(has(real, 'l', 'spike', 'warning') && perfOf(real, 'l').length === 1, list(real, 'l'));
+    });
     test('إعلان جديد = «لم يُحكم بعد» بسببه، وإنفاق كبير من غير نتائج وهو جديد = «مهم»', function () {
       var r = engine(baseAccount().concat([ad('n1', { daily: [0, 0, 0, 0, 0, 10, 5], age: 1 }), ad('n2', { daily: [0, 0, 0, 0, 0, 200, 100], age: 1 })]));
       eq([health(r, 'n1'), r.byAd.n1.pending], ['pending', 'learning']);
@@ -1761,7 +1803,9 @@
       p.source = 'google:1';
       var other = ad('g1', { daily: steady(5), res: steady(1), source: 'google:1', platform: 'Google Ads', key: 'conversion' });
       var r = engine([p, other]);
-      ok(!r.alerts.some(function (al) { return al.adId === p.id && al.title === t('al.conc.t'); }), 'no concentration alert');
+      // من المراجعة الثانية للمرحلة ٥ التركّز جملة جوه تنبيه الإعلان (al.conc.in) مش تنبيه لوحده — والحملة الكاملة مالهاش الجملة دي
+      var conc = t('al.conc.in', { pct: '' }).slice(0, 12);
+      ok(!r.alerts.some(function (al) { return al.adId === p.id && String(al.advice || '').indexOf(conc) > -1; }), 'no concentration sentence');
     });
     testAsync('حساب فيه PMax بس (من غير إعلانات) بيتعرض عادي', function () {
       var realFetch = window.fetch;
@@ -5419,13 +5463,16 @@
       var Z = a8('Z', { daily: [43, 43, 43, 43, 43, 43, 42, 20], res: [2, 1, 2, 1, 2, 1, 1, 0], sales: [86, 86, 86, 86, 86, 86, 84, 0] });
       var r = engine([X, Y, Z]);
       eq(r.byAd.X.health, 'good');
-      ok(!r.alerts.some(function (a) { return a.code === 'concentration'; }), 'no concentration alert on the best ad');
-      // إعلان خسران (×٠٫٣ بـ٢١ طلباً) واخد أغلب الإنفاق: التنبيه بيطلع ومعاه عنوان مشكلته
+      var conc = withLang('ar', function () { return t('al.conc.in', { pct: '' }).slice(0, 12); });
+      ok(!r.alerts.some(function (a) { return a.adId === 'X' && String(a.advice).indexOf(conc) > -1; }), 'no concentration sentence on the best ad');
+      // إعلان خسران (×٠٫٣ بـ٢١ طلباً) واخد أغلب الإنفاق: جملة التركّز جوه تنبيه الخسارة نفسه، والإعلان مرة واحدة في «يحتاج انتباهك
+      // الآن» (المراجعة الثانية للمرحلة ٥ — كان تنبيه «تركّز الميزانية» منفصل عن نفس الإعلان ونفس المشكلة)
       var L = a8('L', { daily: [150, 150, 150, 150, 150, 150, 150, 50], res: [3, 3, 3, 3, 3, 3, 3, 0], sales: [45, 45, 45, 45, 45, 45, 45, 0] });
       var r2 = withLang('ar', function () { return engine([L, Y, Z]); });
-      var c = r2.alerts.filter(function (a) { return a.code === 'concentration'; })[0];
-      var lossTitle = r2.byAd.L.issues.filter(function (i) { return i.code === 'loss'; })[0];
-      ok(c && lossTitle && c.detail.indexOf(lossTitle.title) > -1, c ? c.detail : 'no concentration alert');
+      var loss = r2.alerts.filter(function (a) { return a.adId === 'L' && a.code === 'loss'; })[0];
+      ok(loss && loss.advice.indexOf(conc) > -1, loss ? loss.advice : 'no loss alert');
+      ok(!r2.alerts.some(function (a) { return a.code === 'concentration'; }), 'no separate concentration alert');
+      eq(DX.attention([], r2.alerts, [L, Y, Z]).filter(function (it) { return it.alert && it.alert.adId === 'L'; }).length, 1, 'the ad once in the attention list');
     });
 
     test('المعرّض للهدر: الإعلان مرة واحدة بأكبر مبلغ عليه — «دون نتائج آخر يومين» و«خسارة» مبيتجمعوش (زي لوحة الهدر)', function () {
@@ -5433,8 +5480,9 @@
       // ٢٠ طلباً بعائد ×٠٫٥٤ (خسارة بدليل)، وآخر يومين صفر والمتوقع ٨ — التنبيهين بدليل يكفي «عاجل» (المرحلة ٥ ق١)
       var W = a8('W4', { daily: [200, 200, 200, 200, 200, 200, 200, 100], res: [4, 4, 4, 4, 4, 0, 0, 0], sales: [150, 150, 150, 150, 150, 0, 0, 0] });
       var r = engine([B, W]);
+      // من المراجعة الثانية للمرحلة ٥: تنبيه أداء واحد للإعلان (ISA-18.2) — الأكبر بالفلوس (الخسارة ٦٥٠) بيفضل، و«يومان دون نتائج» بيتدمج
       var codes = r.alerts.filter(function (a) { return a.adId === 'W4' && a.atRisk; }).map(function (a) { return a.code + ' ' + a.amount; });
-      ok(codes.length === 2, 'both alerts still shown: ' + codes);
+      eq(codes, ['loss 650'], 'one alert, the bigger money');
       eq(r.summary.atRisk.SAR, 650, 'the real loss (1,400 spend − 750 sales), not 1,050');
     });
 
@@ -5543,7 +5591,16 @@
       var b = issueOf(r, 'best', 'loss'), w = issueOf(r, 'weak', 'loss');
       ok(b && b.detail.indexOf(t('al.vsAccBetter').trim().slice(0, 20)) > -1, b ? b.detail : issuesOf(r, 'best'));
       ok(b.advice === withLang('ar', function () { return t('al.loss.aBetter'); }) && !/وتعديله أو خفض ميزانيته/.test(b.advice), b.advice);
-      ok(w && w.advice === withLang('ar', function () { return t('al.loss.a'); }), w ? w.advice : issuesOf(r, 'weak'));
+      // الأضعف واخد ٧٤٪ من الإنفاق: نصيحته زي ما هي ومعاها جملة التركّز (كانت تنبيه منفصل — المراجعة الثانية للمرحلة ٥)
+      var conc = withLang('ar', function () { return t('al.conc.in', { pct: '' }).slice(0, 12); });
+      ok(w && w.advice.indexOf(withLang('ar', function () { return t('al.loss.a'); })) === 0 && w.advice.indexOf(conc) > -1, w ? w.advice : issuesOf(r, 'weak'));
+      // ولو الأفضل هو اللي واخد أغلب الإنفاق: «انقل ميزانيته للإعلانات الأفضل أداءً» غلط — مفيش أفضل منه
+      var big = withLang('ar', function () {
+        return engine([a8('best', { daily: [215, 215, 215, 215, 215, 215, 215, 0], res: [2, 2, 2, 2, 2, 2, 2, 0], sales: [400, 400, 400, 400, 400, 400, 400, 0] }),
+          a8('weak', { daily: [75, 75, 75, 75, 75, 75, 75, 0], res: [1, 1, 1, 1, 1, 1, 1, 0], sales: [30, 30, 30, 30, 30, 30, 30, 0] })], {}, { roasBreakEven: 5, roasTarget: 6 });
+      });
+      var bb = big.byAd.best.issues.filter(function (i) { return i.code === 'loss'; })[0];
+      ok(bb && bb.better && bb.advice.indexOf(conc) < 0, bb ? bb.advice : issuesOf(big, 'best'));
     });
     test('عائد أقل من المستهدف وأفضل من متوسط الحساب: النصيحة بالحساب كله قبل الإعلان', function () {
       // المستهدف ×٤: ×١٫٩ بـ١٠ طلبات تحت المستهدف بدليل (مقابل ×٣ كان في حدود الصدفة — المرحلة ٥ ق١)

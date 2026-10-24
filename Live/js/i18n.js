@@ -731,6 +731,9 @@
       // التكرار العالي وأداء الإعلان سليم: «للعلم» بس
       'al.fatigue.ok': ' ولم يظهر لذلك أثر على نتائجه حتى الآن.',
       'al.fatigue.okA': 'لا يلزم تغيير الآن، لكن قد يفيد تجهيز نسخة جديدة من الإعلان تحسباً لتراجع نتائجه.',
+      // تكرار الظهور جوه تنبيه الأداء اللي على نفس الإعلان (المراجعة الثانية للمرحلة ٥ — تنبيه واحد لكل إعلان)
+      'al.fatigue.in': ' وشاهد الشخص نفسه هذا الإعلان نحو {freq} في المتوسط خلال آخر ٧ أيام{old}، وتكرار الإعلان نفسه قد يدفع الجمهور إلى تجاهله ويرفع التكلفة.',
+      'al.fatigue.inA': ' وقد يفيد تجديد الإعلان (صورة أو فيديو أو نص جديد) أو توسيع الجمهور.',
       'al.scale.note': ' كما أن كل {one} {cur} أُنفق خلال آخر ٣ أيام عاد بمبيعات قيمتها {roas} {cur}.',
       'al.scale.t': 'فرصة لاختبار زيادة الاستثمار',
       'al.scale.d': 'حقق {name} خلال آخر ٣ أيام {count} بتكلفة {cpr} لكل {one1}، أي أقل بنسبة {pct}٪ من متوسط حسابك ({avg}).{note}',
@@ -748,7 +751,7 @@
       'pend.little.t': 'البيانات لا تكفي للحكم بعد',
       'pend.little.d': 'حقق {count} من إنفاق {spend} خلال آخر {wd} أيام، وهذا الإنفاق يعادل بمتوسط حسابك {exp}، وهو أقل مما يلزم للحكم.',
       'pend.little.zero': 'أنفق {spend} خلال آخر {wd} أيام دون أي {label} حتى الآن، وهذا الإنفاق يعادل بمتوسط حسابك {exp}، فما زال الوقت مبكراً للحكم.',
-      'pend.little.profit': 'حقق {count} خلال آخر {wd} أيام بعائد ×{roas}، وهذا أقل مما يلزم للحكم على ربحه؛ نحتاج إلى {need} على الأقل أو إلى إنفاق أكبر.',
+      'pend.little.profit': 'حقق {count} خلال آخر {wd} أيام بعائد ×{roas}، وهذا لا يكفي بعد للحكم على ربحه، لأن الفرق عن المستهدف وحد الخسارة بهذا العدد من الطلبات قد يكون صدفة؛ نحتاج إلى طلبات أكثر أو إنفاق أكبر.',
       'pend.noRef.t': 'لا يوجد ما نقارن به',
       'pend.noRef.d': 'حقق {count} خلال آخر {wd} أيام، ولا توجد في حسابك إعلانات أخرى تحقق النتيجة نفسها لنقارن تكلفته بها.',
       'pend.noRef.zero': 'أنفق {spend} خلال آخر {wd} أيام دون أي {label}، ولم يحقق أي إعلان آخر في حسابك نتيجة من هذا النوع لنقارن بها.',
@@ -767,8 +770,10 @@
       'pend.cmp.prelimAbove': 'وهو عند المستهدف (×{target}) أو أعلى',
       'pend.cmp.prelimBelow': 'وهو تحت المستهدف (×{target})',
       'pend.cmp.prelimLoss': 'وهو تحت حد الخسارة (×{be})',
-      'pend.prelim.cpr': 'قراءة مبدئية: تكلفة كل {one} فيه {cpr} مقابل {avg} في متوسط حسابك، أي {cmp}. لكنه حقق {count} فقط خلال آخر {wd} أيام، فيبقى الحكم مبدئياً حتى يحقق {need} أو يُنفق ما يكفي لها.',
-      'pend.prelim.profit': 'قراءة مبدئية: عائده خلال آخر {wd} أيام ×{roas}، {cmp}. لكنه حقق {count} فقط، فيبقى الحكم مبدئياً حتى يحقق {need} أو يُنفق ما يكفي لها.',
+      'pend.prelim.cpr': 'قراءة مبدئية: تكلفة كل {one} فيه {cpr} مقابل {avg} في متوسط حسابك، أي {cmp}. لكنه حقق {count} فقط خلال آخر {wd} أيام، فيبقى الحكم مبدئياً حتى يحقق {need} أو يُنفق ما يكفي لهما.',
+      'pend.prelim.profit': 'قراءة مبدئية: عائده خلال آخر {wd} أيام ×{roas}، {cmp}. لكن ما حققه ({count}) لا يكفي بعد ليكون هذا الفرق مؤكداً لا صدفة، فيبقى الحكم مبدئياً حتى تتراكم طلبات أكثر.',
+      // الحالة «يحتاج إلى تحسين/مراجعة» وسبب «لم يُحكم بعد» (المراجعة الثانية للمرحلة ٥): التنبيه اللي حدّد الحالة بعد السبب العام
+      'basis.butAlert': ' لكن ظهر عليه ما يستدعي الانتباه: «{title}».',
       'al.underspend.t': 'لا يأخذ إنفاقاً كافياً',
       'al.underspend.d': '{name} نشط منذ {age}، لكنه أنفق {spend} فقط خلال آخر {wd} أيام وحقق {count}، وهذا أقل من تكلفة {one} واحدة بمتوسط حسابك ({avg}). أي أن المنصة لا تعطيه إنفاقاً كافياً رغم أنه حقق نتيجة.',
       'al.underspend.dZero': '{name} نشط منذ {age}، لكنه أنفق {spend} فقط خلال آخر {wd} أيام دون أي {label}، وهذا أقل من تكلفة {one} واحدة بمتوسط حسابك ({avg})، فلا يكفي للحكم عليه.',
@@ -872,9 +877,8 @@
       'al.link.dNet': 'تعذّر فتح رابط {ads} في محاولتين (لا يستجيب الخادم أو النطاق): {url}',
       'al.link.a': 'نقترح فتح الرابط الآن؛ فإن لم يعمل، فيُستحسن إصلاحه أو إيقاف الإعلان مؤقتاً، فكل نقرة عليه إنفاق بلا فائدة.',
       'al.link.adsN': '{a} وإعلانات أخرى ({n})',
-      'al.conc.t': 'تركّز الميزانية في إعلان أقل أداءً',
-      'al.conc.d': 'يستحوذ {name} على {pct}٪ من إنفاق {acc} خلال آخر ٧ أيام ({spend})، وعليه تنبيه على أدائه: «{issue}».',
-      'al.conc.a': 'قد يحقق توزيع الميزانية على الإعلانات الأفضل أداءً نتائج أكثر بالمبلغ نفسه.',
+      // تركّز الميزانية جوه تنبيه الإعلان نفسه (المراجعة الثانية للمرحلة ٥ — كان تنبيه منفصل عن نفس الإعلان ونفس المشكلة)
+      'al.conc.in': ' ويستحوذ هذا الإعلان وحده على {pct}٪ من إنفاق الحساب، فقد يحقق توزيع ميزانيته على الإعلانات الأفضل أداءً نتائج أكثر بالمبلغ نفسه.',
 
       // ملخص المتجر (js/diagnosis.js) — أي سبب أو اقتراح هنا لازم يفضل «محتمل» مش «أكيد»:
       // المحرك بيحدد مكان الخلل بالأرقام، والسبب الحقيقي خارج البيانات بيتقال كاحتمال مع «تحقّق أولاً»
@@ -2058,6 +2062,8 @@
       'al.fatigue.a': 'Refreshing the ad (new image, video or copy) or widening the audience may help.',
       'al.fatigue.ok': ' This hasn\'t shown up in its results so far.',
       'al.fatigue.okA': 'No change needed now, but preparing a fresh version of the ad may help in case its results start to drop.',
+      'al.fatigue.in': ' The same person also saw this ad about {freq} on average in the last 7 days{old}, and repeating the same ad can make people ignore it and raise costs.',
+      'al.fatigue.inA': ' Refreshing the ad (new image, video or copy) or widening the audience may also help.',
       'al.scale.note': ' Also, every {one} {cur} spent in the last 3 days returned {roas} {cur} in sales.',
       'al.scale.t': 'Worth testing a bigger budget',
       'al.scale.d': '{name} got {count} in the last 3 days at {cpr} per {one1} — {pct}% cheaper than your account average ({avg}).{note}',
@@ -2074,7 +2080,7 @@
       'pend.little.t': 'Not enough data yet',
       'pend.little.d': 'It got {count} from {spend} in the last {wd} days; at your account average that spend equals {exp}, which is less than we need to judge.',
       'pend.little.zero': 'It spent {spend} in the last {wd} days with no {label} yet; at your account average that spend equals {exp}, so it\'s still early to judge.',
-      'pend.little.profit': 'It got {count} in the last {wd} days at a return of ×{roas} — not enough to judge its profit; we need at least {need} or more spend.',
+      'pend.little.profit': 'It got {count} in the last {wd} days at a return of ×{roas} — not enough to judge its profit yet, because with this few orders the gap from your target and loss limit could be chance; we need more orders or more spend.',
       'pend.noRef.t': 'Nothing to compare with',
       'pend.noRef.d': 'It got {count} in the last {wd} days, and no other ad in your account gets the same result to compare its cost with.',
       'pend.noRef.zero': 'It spent {spend} in the last {wd} days with no {label}, and no other ad in your account got this type of result to compare with.',
@@ -2093,7 +2099,8 @@
       'pend.cmp.prelimBelow': 'below the target (×{target})',
       'pend.cmp.prelimLoss': 'below break-even (×{be})',
       'pend.prelim.cpr': 'Early read: each {one} costs {cpr} vs {avg} on your account average, i.e. {cmp}. But it got only {count} in the last {wd} days, so this stays an early read until it gets {need} or spends enough for them.',
-      'pend.prelim.profit': 'Early read: its return over the last {wd} days is ×{roas}, {cmp}. But it got only {count}, so this stays an early read until it gets {need} or spends enough for them.',
+      'pend.prelim.profit': 'Early read: its return over the last {wd} days is ×{roas}, {cmp}. But what it got ({count}) isn\'t yet enough to rule out chance, so this stays an early read until more orders come in.',
+      'basis.butAlert': ' But something already needs attention: “{title}”.',
       'al.underspend.t': 'Not getting enough spend',
       'al.underspend.d': '{name} has been active for {age}, but spent only {spend} in the last {wd} days and got {count}, less than the cost of one {one} on your account average ({avg}). The platform isn\'t giving it enough spend even though it got a result.',
       'al.underspend.dZero': '{name} has been active for {age}, but spent only {spend} in the last {wd} days with no {label}, less than the cost of one {one} on your account average ({avg}), so it\'s not enough to judge.',
@@ -2193,9 +2200,7 @@
       'al.link.dNet': 'The link of {ads} could not be opened in two attempts (the server or domain is not responding): {url}',
       'al.link.a': 'We suggest opening the link now; if it does not work, fixing it or pausing the ad for now is worth it — every click on it is wasted spend.',
       'al.link.adsN': '{a} and other ads ({n})',
-      'al.conc.t': 'Budget concentrated in a weaker ad',
-      'al.conc.d': '{name} takes {pct}% of {acc}\'s spend in the last 7 days ({spend}), and it has a performance alert: “{issue}”.',
-      'al.conc.a': 'Spreading the budget across better-performing ads can bring more results for the same money.',
+      'al.conc.in': ' This ad alone takes {pct}% of the account\'s spend, so spreading its budget across better-performing ads may bring more results for the same money.',
 
       'n.order.one': 'order', 'n.order.many': 'orders',
       'n.week.one': 'week', 'n.week.many': 'weeks',
