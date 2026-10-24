@@ -259,13 +259,14 @@ Deno.test('إعدادات الحساب: المفاتيح المعروفة بس �
   assertEquals(cleanAccountSettings([1]), null);
 });
 Deno.test('إعدادات الحساب: من غير إثبات الوصول للحساب في منصته مفيش قراءة ولا حفظ', async () => {
-  let metaOk = true, snapOk = true, writes = 0;
+  let metaOk = true, snapOk = true, writes = 0, touches = 0, usedAt = '2025-01-01T00:00:00Z', lastWrite: any = null;
   stubFetch((url, init) => {
     if (url.indexOf('graph.facebook.com') > -1) return metaOk ? json({ id: 'act_123', name: 'X' }) : json({ error: { code: 100 } }, 400);
     if (url.indexOf('adsapi.snapchat.com') > -1) return snapOk ? json({ adaccounts: [{ adaccount: { id: 'aaaa-1111' } }] }) : json({ request_status: 'ERROR' }, 403);
     if (url.indexOf('/rest/v1/account_settings') > -1) {
-      if (init && init.method === 'POST') { writes++; return new Response(null, { status: 201 }); }
-      return json([{ settings: { roasTarget: 5, roasBreakEven: 5 }, updated_at: '2026-10-24T00:00:00Z' }]);
+      if (init && init.method === 'POST') { writes++; lastWrite = JSON.parse(String(init.body)); return new Response(null, { status: 201 }); }
+      if (init && init.method === 'PATCH') { touches++; return new Response(null, { status: 204 }); }
+      return json([{ settings: { roasTarget: 5, roasBreakEven: 5 }, updated_at: '2026-10-24T00:00:00Z', used_at: usedAt }]);
     }
     throw new Error('unexpected fetch ' + url);
   });
@@ -274,12 +275,18 @@ Deno.test('إعدادات الحساب: من غير إثبات الوصول لل
     const get = await handleSettings('settings.get', { platform: 'meta', accountId: 'act_123', platformToken: T }, null);
     assertEquals(get.status, 200);
     assertEquals((await get.json()).settings, { roasTarget: 5, roasBreakEven: 5 });
+    // آخر استخدام (مدة الاحتفاظ ١٢ شهر من غير فتح): بيتحدّث لو أقدم من يوم بس
+    assertEquals(touches, 1, 'old last-use: touched');
+    usedAt = new Date().toISOString();
+    await handleSettings('settings.get', { platform: 'meta', accountId: 'act_123', platformToken: T }, null);
+    assertEquals(touches, 1, 'used today: no extra write');
     metaOk = false;
     const denied = await handleSettings('settings.set', { platform: 'meta', accountId: 'act_123', platformToken: T, settings: { roasTarget: 1, roasBreakEven: 1 } }, null);
     assertEquals([denied.status, writes], [403, 0], 'no access on Meta: nothing written');
     const set = await handleSettings('settings.set', { platform: 'snapchat', accountId: 'aaaa-1111', platformToken: T, settings: { roasTarget: 4, roasBreakEven: 2, evil: 9 } }, null);
     assertEquals([set.status, writes], [200, 1]);
     assertEquals((await set.json()).settings, { roasTarget: 4, roasBreakEven: 2 });
+    assert(lastWrite && lastWrite.used_at && lastWrite.used_at === lastWrite.updated_at, 'saving counts as use');
     snapOk = false;
     assertEquals((await handleSettings('settings.get', { platform: 'snapchat', accountId: 'aaaa-1111', platformToken: T }, null)).status, 403);
     assertEquals((await handleSettings('settings.get', { platform: 'google', accountId: '1', platformToken: T }, null)).status, 400);

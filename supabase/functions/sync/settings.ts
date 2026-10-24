@@ -63,10 +63,15 @@ export async function handleSettings(action: string, body: any, origin: string |
   if (!ok) return reply(403, { error: 'not verified' }, origin);
 
   const where = 'account_settings?platform=eq.' + platform + '&account_id=eq.' + encodeURIComponent(id);
+  const now = new Date().toISOString();
   if (action === 'settings.get') {
-    const r = await db(where + '&select=settings,updated_at', { method: 'GET' });
+    const r = await db(where + '&select=settings,updated_at,used_at', { method: 'GET' });
     const rows = await r.json().catch(() => null);
     const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+    // آخر استخدام (مدة الاحتفاظ — السجل بيتمسح بعد ١٢ شهر من غير فتح، purge_stale): مرة في اليوم بالكتير، وفشله مبيوقفش القراءة
+    if (row && !(Date.parse(row.used_at) > Date.now() - 86400000)) {
+      await db(where, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ used_at: now }) }).catch(() => null);
+    }
     return reply(200, { settings: row ? row.settings : null, updatedAt: row ? row.updated_at : null }, origin);
   }
   if (action === 'settings.set') {
@@ -74,7 +79,7 @@ export async function handleSettings(action: string, body: any, origin: string |
     if (!clean) return reply(400, { error: 'settings' }, origin);
     await db('account_settings?on_conflict=platform,account_id', {
       method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ platform, account_id: id, settings: clean, updated_at: new Date().toISOString() })
+      body: JSON.stringify({ platform, account_id: id, settings: clean, updated_at: now, used_at: now })
     });
     return reply(200, { ok: true, settings: clean }, origin);
   }
