@@ -2093,6 +2093,8 @@
       '<div class="issue-detail">' + esc(i.detail) + '</div>' +
       (i.impactText ? '<div class="issue-impact">📊 ' + esc(i.impactText) + '</div>' : '') +
       (i.compare ? '<div class="issue-compare">🔍 ' + esc(i.compare) + '</div>' : '') +
+      // لماذا عاجل / لماذا مهم وليس عاجلاً (alerts.js levelWhy — صاحب المنتج ٢٥ أكتوبر)
+      (i.levelWhy ? '<div class="issue-why">⚖️ ' + esc(i.levelWhy) + '</div>' : '') +
       '<div class="issue-advice">💡 <strong>' + esc(t('x.suggest')) + '</strong> ' + esc(i.advice) + '</div>' +
     '</div>';
   }
@@ -2503,6 +2505,7 @@
       '<p class="alert-detail">' + esc(a.detail) + '</p>' +
       (a.impactText ? '<p class="alert-impact">📊 ' + esc(a.impactText) + '</p>' : '') +
       (a.compare ? '<p class="alert-compare">🔍 ' + esc(a.compare) + '</p>' : '') +
+      (a.levelWhy ? '<p class="alert-why">⚖️ ' + esc(a.levelWhy) + '</p>' : '') +
       '<p class="alert-advice">💡 <strong>' + esc(t('x.suggest')) + '</strong> ' + esc(a.advice) + '</p>' +
     '</article>';
   }

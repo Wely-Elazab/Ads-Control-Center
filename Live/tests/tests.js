@@ -1292,7 +1292,8 @@
     test('الترتيب جوه كل مستوى: الأكبر في الميزانية الأول، ومشاكل الحساب العاجلة فوق الكل', function () {
       var ads = baseAccount().concat([
         // ٨٠ في اليوم: يومين صفر والمتوقع ٨ = عاجل بدليل (بـ٥٠ في اليوم المتوقع ٥ — «مهم» بعد المرحلة ٥ ق١)
-        ad('w1', { daily: [80, 80, 80, 80, 80, 80, 16], res: [4, 4, 4, 4, 0, 0, 0] }),
+        // من ٢٥ أكتوبر «عاجل» بحد ثابت لحجم الإعلان (٢ في الألف تحت ١٠٪، و١٪ من ١٠٪): ٢٠٠ في اليوم ويومين صفر والمتوقع نحو ١٤
+        ad('w1', { daily: [200, 200, 200, 200, 200, 200, 40], res: [10, 10, 10, 10, 0, 0, 0] }),
         ad('w2', { daily: [300, 300, 300, 300, 300, 300, 60], res: [9, 9, 9, 9, 0, 0, 0] }),
         ad('f1', { daily: steady(80), res: steady(4), freq: 8 }),
         ad('f2', { daily: steady(400), res: steady(20), freq: 8 })
@@ -1575,6 +1576,61 @@
       withLang('ar', function () {
         eq([money(0.07, 'USD'), money(0.004, 'USD'), money(0.45, 'USD'), money(2.36, 'USD'), money(12.4, 'USD')], ['٠٫٠٧ $', '٠٫٠٠٤ $', '٠٫٤٥ $', '٢٫٤ $', '١٢ $']);
       });
+    });
+
+    // ---- مستويات التنبيه (صاحب المنتج ٢٥ أكتوبر: «لم أفهم سبب أن بعض الإعلانات عاجل وأخرى مهم رغم أنه نفس السبب») ----
+    var LEVEL_RANK_T = { none: 0, info: 1, warning: 2, critical: 3 };
+    test('حد «عاجل» = حجم الإعلان في حسابه ونوع القاعدة بس (الخطورة × الثقة — ISA-18.2)، مفيش أي اعتماد على باقي الحساب', function () {
+      var U = PauseProofAlerts._.urgentCut;
+      // خسارة فلوس مباشرة: صغير ٢ في الألف، عُشر الحساب أو أكتر ١٪، عماده (٤٠٪ أو أكتر) ٥٪
+      eq([U(0.05, true), U(0.1, true), U(0.39, true), U(0.4, true), U(0.9, true)], [0.002, 0.01, 0.01, 0.05, 0.05]);
+      // مقارنة نسبية (تكلفة أعلى من الباقي، تشبّع): من غير درجة عماد الحساب
+      eq([U(0.05, false), U(0.2, false), U(0.9, false)], [0.002, 0.01, 0.01]);
+      eq(U.length, 2, 'two inputs only — nothing from the rest of the account');
+    });
+    test('نفس الإعلان بنفس الأرقام = نفس المستوى في حساب صغير وفي حساب كبير (كان التصحيح بعدد اختبارات كل حساب بيغيّره)', function () {
+      var lossy = function (src) { return ad('L', { source: src, daily: steady(60), res: [1, 0, 1, 0, 1, 0, 0], sales: [80, 0, 80, 0, 80, 0, 0] }); };
+      var fill = function (src, n) { var a = []; for (var i = 0; i < n; i++) a.push(ad('f' + src.length + i, { source: src, daily: steady(60), res: steady(1), sales: steady(400) })); return a; };
+      var small = engine([lossy('meta:act_1')].concat(fill('meta:act_1', 2)), {}, { roasTarget: 6, roasBreakEven: 5 });
+      var big = engine([lossy('meta:act_1')].concat(fill('meta:act_1', 30)), {}, { roasTarget: 6, roasBreakEven: 5 });
+      var lv = function (r) { var i = r.byAd.L.issues.filter(function (x) { return x.code === 'loss'; })[0]; return i ? i.level : 'none'; };
+      ok(lv(small) !== 'none', list(small, 'L'));
+      // الإعلان في الحساب الكبير حصته أصغر (درجة الخطورة)، فممكن يبقى أقل — بس مش أعلى. نفس الحصة = نفس المستوى (تحت)
+      var sameShare = engine([lossy('meta:act_1')].concat(fill('meta:act_1', 2)).concat([lossy('meta:act_2')]).concat(fill('meta:act_2', 2)).map(function (c, k) { c.id = c.id + '_' + k; return c; }), {}, { roasTarget: 6, roasBreakEven: 5 });
+      var levels = Object.keys(sameShare.byAd).filter(function (id) { return id.indexOf('L_') === 0; }).map(function (id) { var i = sameShare.byAd[id].issues.filter(function (x) { return x.code === 'loss'; })[0]; return i ? i.level : 'none'; });
+      eq(levels.length, 2);
+      eq(levels[0], levels[1], 'two accounts, same numbers, same level');
+      ok(LEVEL_RANK_T[lv(big)] <= LEVEL_RANK_T[lv(small)], lv(big) + ' vs ' + lv(small));
+    });
+    test('كل تنبيه عاجل أو مهم بيقول ليه بالأرقام (احتمال الصدفة، أو القيد اللي منع العاجل)', function () {
+      var r = withLang('ar', function () {
+        return engine([ad('g1', { daily: steady(100), res: steady(2), sales: steady(600) }), ad('g2', { daily: steady(100), res: steady(2), sales: steady(600) }),
+          ad('lossy', { daily: steady(150), res: steady(3), sales: steady(45) }), ad('low', { daily: steady(300), res: steady(6), sales: steady(600) })]);
+      });
+      var all = [];
+      Object.keys(r.byAd).forEach(function (id) { r.byAd[id].issues.forEach(function (i) { if (i.level === 'critical' || i.level === 'warning') all.push(i); }); });
+      ok(all.length >= 2, all.map(function (i) { return i.code; }).join(' '));
+      ok(all.every(function (i) { return typeof i.levelWhy === 'string' && i.levelWhy.length > 10 && !/\{/.test(i.levelWhy); }), all.map(function (i) { return i.code + ':' + i.levelWhy; }).join(' | '));
+      var crit = all.filter(function (i) { return i.level === 'critical'; })[0], low = r.byAd.low.issues.filter(function (i) { return i.code === 'low-roas'; })[0];
+      ok(crit && /^عاجل/.test(crit.levelWhy) && /صدفة/.test(crit.levelWhy), crit ? crit.levelWhy : 'no critical');
+      ok(low && /فوق حد الخسارة/.test(low.levelWhy), low ? low.levelWhy : list(r, 'low'));
+      // في القائمة كمان (نسخة التنبيه)
+      ok(r.alerts.filter(function (a) { return a.level === 'critical' || a.level === 'warning'; }).every(function (a) { return !a.adId || a.levelWhy; }));
+    });
+    test('نتائج أعلى المسار (نقرات وزيارات): مفيش «فرصة لزيادة الاستثمار»، وتكلفتها العالية «مهم» بالسبب مش «عاجل»', function () {
+      var mk = function (key) {
+        return withLang('ar', function () {
+          return engine([ad('g1', { daily: steady(100), res: steady(50), key: key }), ad('g2', { daily: steady(100), res: steady(50), key: key }),
+            ad('cheap', { daily: steady(100), res: [50, 50, 50, 100, 100, 100, 50], key: key }),
+            ad('dear', { daily: steady(300), res: steady(30), key: key })]);
+        });
+      };
+      var clicks = mk('click'), leads = mk('lead');
+      ok(!has(clicks, 'cheap', 'scale'), 'clicks: ' + list(clicks, 'cheap'));
+      ok(has(leads, 'cheap', 'scale'), 'leads: ' + list(leads, 'cheap'));
+      var dc = clicks.byAd.dear.issues.filter(function (i) { return i.code === 'cpr'; })[0], dl = leads.byAd.dear.issues.filter(function (i) { return i.code === 'cpr'; })[0];
+      ok(dc && dc.level === 'warning' && /ليست بيعاً ولا عميلاً/.test(dc.levelWhy), dc ? dc.level + ' ' + dc.levelWhy : list(clicks, 'dear'));
+      ok(dl && dl.level === 'critical', dl ? dl.level : list(leads, 'dear'));
     });
 
     // ---- مراجعة الإعدادات (٢٤ أكتوبر — قرارات صاحب المنتج) ----
@@ -6222,14 +6278,6 @@
       ok(Math.abs(P(4800, 600, 3, 24, 200, 6, 1) - 0.00143) < 0.0003, String(P(4800, 600, 3, 24, 200, 6, 1)));
       // فوق الحد في اختبار «أقل» (أو العكس) = مفيش دليل
       eq([P(700, 100, 5, 3, 200, 7, -1), P(300, 100, 5, 3, 200, 7, 1)], [1, 1]);
-    });
-    test('Benjamini–Hochberg: حد «عاجل» للحساب كله بعدد الاختبارات اللي اتعملت', function () {
-      var F = PauseProofAlerts._.fdrCut;
-      // ٣ اختبارات بنسبة ١٠٪: ٠٫٠٢ ≤ ٠٫١ × ٢ ÷ ٣ = ٠٫٠٦٧ → الاتنين الأصغر عاجل
-      eq(F([0.5, 0.001, 0.02], 0.1), 0.02);
-      // نفس الاحتمال (٠٫٠٢) وسط ٤٠ اختبار سليم: مش عاجل (٠٫٠٢ > ٠٫١ ÷ ٤٠)
-      var many = [0.02]; for (var i = 0; i < 39; i++) many.push(0.5 + i / 100);
-      eq(F(many, 0.1), -1);
     });
   });
 
