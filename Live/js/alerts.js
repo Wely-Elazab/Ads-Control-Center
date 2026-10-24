@@ -486,13 +486,19 @@
     // الإعلان ده هو أغلب إنفاق إعلانات المبيعات في الحساب (٩٠٪ أو أكتر): «متوسط حسابك» هو تقريباً الإعلان نفسه — المقارنة بيه
     // كانت بتطلع «×٧٫٦ ومتوسط حسابك ×٧٫٦» و«أفضل من متوسط حسابك» لإعلان بيقارَن بنفسه (حساب فيه إعلان مبيعات واحد)
     var selfAcc = profitAd && purch.spend > 0 && spendW >= purch.spend * 0.9;
-    var evidenceCpr = ownCpr || avgCpr;
-    // كفاية نحكم على الأسبوع: ٣ نتائج، أو إنفاق يكفي لـ٣ بمتوسط الحساب
-    var weekEvidence = resW >= 3 || !!(avgCpr && spendW >= 3 * avgCpr);
     var roasW = spendW > 0 ? salesW / spendW : null;
     // ---- الدليل (ق١ — المرحلة ٥): كل حكم أداء باحتمال الصدفة بمعيار الملخص (fewerP / salesBelowP فوق) ----
     // المرجع للعدّ: باقي الحساب (من غير الإعلان ده) بنفس نوع النتيجة على أيام الحكم نفسها
     var restK = peer ? Math.max(0, peer.results - resW) : 0, restE = peer ? Math.max(0, peer.spend - spendW) : 0;
+    // المرجع للمقارنة وللأرقام في النص = متوسط باقي إعلاناتك (المراجعة الثانية للمرحلة ٥ — «ترك واحد» leave-one-out، نفس مرجع
+    // اختبار الدليل fewerP). قبل كده متوسط الحساب كله والإعلان نفسه جوّاه: إعلان واخد نص إنفاق نوعه كان بيتقارن بمتوسط نصه هو —
+    // النسبة الظاهرة = الحصة + الفرق الحقيقي × (١ − الحصة)، فإعلان أغلى ١٫٦ مرة وحصته ٤٠٪ كان بيبان ١٫٣٦ (مفيش تنبيه خالص)،
+    // وإعلان صفر نتائج «كان يكفي لنحو ٢٩» والحقيقي ٩٨ (حساب حقيقي ٢٤ أكتوبر: إعلانين في مشتريات Meta واخدين ٥٤٪ و٤٥٪ من إنفاقها).
+    // avgCpr بيفضل شرط وجود مرجع زي ما هو، ولو باقي الإعلانات مجابتش ولا نتيجة بيفضل هو (ومفيش مقارنة أصلاً — othersHave)
+    var refCpr = avgCpr ? (restK > 0 && restE > 0 ? restE / restK : avgCpr) : null;
+    var evidenceCpr = ownCpr || avgCpr;
+    // كفاية نحكم على الأسبوع: ٣ نتائج، أو إنفاق يكفي لـ٣ بمتوسط باقي الإعلانات
+    var weekEvidence = resW >= 3 || !!(avgCpr && spendW >= 3 * avgCpr);
     // تكلفة النتيجة أعلى من باقي الحساب (أو صفر نتائج): احتمال الصدفة في أيام الحكم
     var judgedDays = YESTERDAY - weekStart + 1;
     var pFew = c.results != null && avgCpr && spendW > 0 ? fewerP(restK, restE, resW, spendW, judgedDays) : 1;
@@ -573,7 +579,7 @@
         var pv = { count: countText(resW, c.resultKey, fmt), need: countText(2, c.resultKey, fmt), one: one,
           cmp: t('pend.cmp.' + key, { target: fmt.num(s.roasTarget), be: fmt.num(s.roasBreakEven) }) };
         if (profitAd) { pv.roas = rr(roasW); return t('pend.prelim.profit', pv); }
-        pv.cpr = money(spendW / resW); pv.avg = money(avgCpr);
+        pv.cpr = money(spendW / resW); pv.avg = money(refCpr);
         return t('pend.prelim.cpr', pv);
       }
       if (key === 'little' && profitAd && resW > 0) {
@@ -651,9 +657,9 @@
 
     // إعلان جديد (فترة التعلّم) صرف ٣ أضعاف تكلفة النتيجة في الحساب من غير ولا نتيجة: «مهم» حتى قبل ما يكمّل التعلّم —
     // بشرط إن الصفر ده صعب يكون صدفة (أقل من ٥٪ — ق١). Meta نفسها: نتائج فترة التعلّم «مش بالضرورة مؤشر على الأداء الجاي»
-    if (learning && c.results === 0 && avgCpr && c.spend >= 3 * avgCpr && pFew < P_LIKELY) {
+    if (learning && c.results === 0 && avgCpr && c.spend >= 3 * refCpr && pFew < P_LIKELY) {
       issues.push(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteNew.t'),
-        t('al.wasteNew.d', { name: name, spend: money(c.spend), label: label, expPhrase: countText(Math.round(c.spend / avgCpr), c.resultKey, fmt) }),
+        t('al.wasteNew.d', { name: name, spend: money(c.spend), label: label, expPhrase: countText(Math.round(c.spend / refCpr), c.resultKey, fmt) }),
         t('al.wasteNew.a'), c.spend, 'waste-new'), 'waste', spend3 / 3));
     }
 
@@ -662,7 +668,7 @@
       // الأساس: مضاعف من متوسط تكلفة النتيجة في الحساب. ولو الحساب ملوش متوسط (ولا إعلان جاب نتيجة)،
       // بنقارن بمتوسط صرف الإعلان الواحد في يومين — عشان التنبيه ميختفيش في أسوأ الحالات
       var accountHasResults = !!(group && group.results > 0);
-      var threshold = avgCpr ? avgCpr * s.wasteCprMultiple
+      var threshold = avgCpr ? refCpr * s.wasteCprMultiple
         : ((!accountHasResults && acc.avgAdSpend2 > 0) ? acc.avgAdSpend2 : null);
       // 4أ) ولا نتيجة طول الأسبوع: الإنفاق كله مقارنةً بتكلفة النتيجة في الحساب (نفس مضاعف «إنفاق دون نتائج»).
       //     قبل كده الحكم كان على آخر يومين بس، فإعلان بيصرف شوية كل يوم من غير ولا طلب فضل «جيد» طول الأسبوع
@@ -684,8 +690,8 @@
           t('al.wasteView' + vk + '.d', { name: name, spend: money(spendW), label: label, plat: countText(platOnly, c.resultKey, fmt) }),
           t('al.wasteView' + vk + '.a'), spendW, 'waste-view'), 'wasteClick', spend3 / 3));
       } else if (weekDry) {
-        var wVars = { name: name, spend: money(spendW), label: label, one: one, avg: money(avgCpr),
-          expPhrase: countText(Math.round(Math.max(1, spendW / avgCpr)), c.resultKey, fmt) };
+        var wVars = { name: name, spend: money(spendW), label: label, one: one, avg: money(refCpr),
+          expPhrase: countText(Math.round(Math.max(1, spendW / refCpr)), c.resultKey, fmt) };
         if (spendW >= threshold && dryUrgent) {
           wasteRaised = true;
           issues.push(withMoney(makeIssue('critical', ['spend', 'results'], t('al.wasteWeek.t'), t('al.wasteWeek.d', wVars), t('al.waste.a'), spendW, 'waste-week', true), 'waste', spend3 / 3));
@@ -700,8 +706,8 @@
       if (!weekDry && res2 === 0 && spend2 > 0 && threshold) {
         var dry2Urgent = avgCpr && !reLearn ? urgentOk(p2) : false;   // ق٦: اليومين دول هم بالظبط أيام إعادة التعلّم
         var wasteDetail = avgCpr
-          ? t('al.waste.d', { name: name, spend: money(spend2), label: label, one: one, avg: money(avgCpr),
-              expPhrase: countText(Math.round(Math.max(1, spend2 / avgCpr)), c.resultKey, fmt) })
+          ? t('al.waste.d', { name: name, spend: money(spend2), label: label, one: one, avg: money(refCpr),
+              expPhrase: countText(Math.round(Math.max(1, spend2 / refCpr)), c.resultKey, fmt) })
           : t('al.waste.dNoAvg', { name: name, spend: money(spend2), label: label });
         if (spend2 >= threshold && dry2Urgent) {
           wasteRaised = true;
@@ -782,16 +788,16 @@
       // على أيام الحكم نفسها (الأسبوع، أو اللي بعد آخر تعديل) زي باقي القواعد — قبل كده كانت على الأسبوع كله دايماً
       // الدليل (ق١): مقارنةً بباقي الحساب بتشتت — «مهم» تحت ٥٪، و«عاجل» تحت حد الحساب المصحّح (كان بواسون بلا تشتت، ١٠٪ و١٪)
       if (!profitAd && avgCpr && resW >= 1 && ownCpr != null) {
-        var ratio = ownCpr / avgCpr;
+        var ratio = ownCpr / refCpr;
         if (ratio >= s.cprWarnMultiple && pFew < P_LIKELY) {
           // جوه حملة ميزانيتها على مستوى الحملة: «مهم» بس — Meta مبتسمحش بإشعار مبني على التكلفة لإعلان أو مجموعة هناك لأنه ممكن
           // يضر الأداء (مركز المساعدة ٥١١١٠٧٢٣٣٤٢٠٥٢٨)، والإعلان الأغلى ظاهرياً ممكن يكون الأكفأ عندها (الأثر التفصيلي — المرحلة ٥ ق٢)
           var critical = ratio >= s.cprCriticalMultiple && !c.campaignBudget && !reLearn && urgentOk(pFew);
           var oldNote = age != null && age >= s.oldAdDays ? t('al.cpr.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '';
           issues.push(withMoney(makeIssue(critical ? 'critical' : 'warning', ['cpr'], t('al.cpr.t', { label: label, one1: one }),
-            t('al.cpr.d', { one: one, name: name, cpr: money(ownCpr), old: oldNote, pct: fmt.int((ratio - 1) * 100), avg: money(avgCpr) }),
+            t('al.cpr.d', { one: one, name: name, cpr: money(ownCpr), old: oldNote, pct: fmt.int((ratio - 1) * 100), avg: money(refCpr) }),
             t('al.cpr.a'),
-            spendW - resW * avgCpr, 'cpr'), 'extra', 0));
+            spendW - resW * refCpr, 'cpr'), 'extra', 0));
         }
       }
 
@@ -824,7 +830,7 @@
     // حد أدنى (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): الزيادة نفسها لازم تساوي تكلفة نتيجة واحدة بمتوسط الحساب على الأقل —
     // إعلان صرفه نط من ٥ لـ١٢ كان بيطلع «صرف أعلى من المعتاد». من غير متوسط في الحساب مفيش أساس نقيس عليه، فمفيش تنبيه
     var priorSpendDays = daily.slice(weekStart, YESTERDAY).filter(function (v) { return v > 0; }).length;
-    var spikeFloor = avgCpr || accountCpr;
+    var spikeFloor = refCpr || accountCpr;
     if (!learning && !wasteRaised && priorSpendDays >= 3 && prevSpendAvg > 0 && spendY >= prevSpendAvg * s.spikeMultiple &&
       spikeFloor && spendY - prevSpendAvg >= spikeFloor) {
       var yCpr = resY > 0 ? spendY / resY : null;
@@ -835,7 +841,7 @@
       var rateY = priorS > 0 && priorR > 0 ? priorR / priorS : (spikeFloor ? 1 / spikeFloor : 0);
       var spikeEvid = rateY > 0 && countBelowP(resY, spendY * rateY, 1) < P_LIKELY;
       // «النتائج مزادتش معاه» = تكلفة النتيجة أمس أعلى بوضوح (نفس حد «تكلفة مرتفعة») — مش أعلى من المتوسط بسنت
-      if (spikeEvid && (!avgCpr || yCpr == null || yCpr > avgCpr * s.cprWarnMultiple)) {
+      if (spikeEvid && (!avgCpr || yCpr == null || yCpr > refCpr * s.cprWarnMultiple)) {
         issues.push(withMoney(makeIssue('warning', ['spend'], t('al.spike.t'),
           t('al.spike.d', { name: name, spend: money(spendY), times: global.I18N ? global.I18N.timesPhrase(spendY / prevSpendAvg, fmt.num) : fmt.num(spendY / prevSpendAvg) + '×', avg: money(prevSpendAvg) }),
           t('al.spike.a'), spendY - prevSpendAvg, 'spike'), 'spike', 0));
@@ -851,12 +857,12 @@
         // الزهق «بيضر» (عاجل) زي تعريف Meta للإرهاق (Creative fatigue — مركز مساعدة Meta ١٣٤٦٨١٦١٤٢٣٢٧٨٥٨): مرات ظهور كتير
         // و**ضعف** التكلفة أو أكتر — وبدليل (ق١). بين ١٫٥ وضعفين «مهم» زي «Creative limited» عندها. كان ١٫٥ ضعف = عاجل (المرحلة ٥ ق٤).
         // إعلان المبيعات العاجل بتاعه قاعدة الخسارة فوق
-        var hurting = !profitAd && !learning && !reLearn && !c.campaignBudget && avgCpr && ownCpr != null && ownCpr >= avgCpr * FATIGUE_X && urgentOk(pFew);
+        var hurting = !profitAd && !learning && !reLearn && !c.campaignBudget && avgCpr && ownCpr != null && ownCpr >= refCpr * FATIGUE_X && urgentOk(pFew);
         // التكرار العالي لوحده مش مشكلة (جمهور إعادة الاستهداف صغير وبيبقى مربح): «مهم» بس لو في أداء الإعلان علامة ضعف،
         // وغير كده ملاحظة «للعلم» — أفضل إعلان في الحساب كان بيطلع «يحتاج إلى تحسين» بسبب التكرار بس
         var weakPerf = profitWeak || issues.some(function (i) {
           return (i.level === 'critical' || i.level === 'warning') && i.metrics.some(function (m) { return m === 'results' || m === 'cpr' || m === 'roas'; });
-        }) || (!profitAd && !!(avgCpr && ownCpr != null && ownCpr >= avgCpr * s.cprWarnMultiple && pFew < P_LIKELY));
+        }) || (!profitAd && !!(avgCpr && ownCpr != null && ownCpr >= refCpr * s.cprWarnMultiple && pFew < P_LIKELY));
         var fVars = { name: name, freq: global.I18N ? global.I18N.timesText(c.frequency, fmt.num, true) : fmt.num(c.frequency) + ' times', old: isOld ? t('al.fatigue.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '' };
         var fDetail = t('al.fatigue.d', fVars);
         if (hurting || weakPerf) {
@@ -879,7 +885,9 @@
       // الميزانية» على ٣ نتائج رخيصة بالحظ بيصرف فلوس حقيقية
       var peer3 = acc.labelIn(c.resultKey, RECENT3, YESTERDAY);
       var p3 = peer3 ? moreP(Math.max(0, peer3.results - res3), Math.max(0, peer3.spend - spend3), res3, spend3, 3) : 1;
-      if (!hasProblem && cpr3 <= avgCpr * s.scaleCprRatio && p3 < P_LIKELY) {
+      // المرجع: باقي الإعلانات على نفس الـ٣ أيام (نفس الاختبار p3 — المراجعة الثانية للمرحلة ٥). كان متوسط الأسبوع والإعلان جوّاه
+      var rest3K = peer3 ? peer3.results - res3 : 0, ref3 = rest3K > 0 ? (peer3.spend - spend3) / rest3K : refCpr;
+      if (!hasProblem && cpr3 <= ref3 * s.scaleCprRatio && p3 < P_LIKELY) {
         // لو عليه تنبيه "عائد ممتاز"، ندمجه هنا بدل تنبيهين لنفس الإعلان ونفس النصيحة
         var greatIdx = -1;
         issues.forEach(function (i, idx) { if (i.code === 'roas-great') greatIdx = idx; });
@@ -891,7 +899,7 @@
           issues.splice(greatIdx, 1);
         }
         issues.push(makeIssue('opportunity', ['results', 'cpr', 'roas'], t('al.scale.t'),
-          t('al.scale.d', { name: name, count: countText(res3, c.resultKey, fmt), cpr: money(cpr3), one1: one, pct: fmt.int((1 - cpr3 / avgCpr) * 100), avg: money(avgCpr), note: roasNote }),
+          t('al.scale.d', { name: name, count: countText(res3, c.resultKey, fmt), cpr: money(cpr3), one1: one, pct: fmt.int((1 - cpr3 / ref3) * 100), avg: money(ref3), note: roasNote }),
           t('al.scale.a'), 0, 'scale'));
       }
     }
@@ -962,7 +970,7 @@
     // نتيجة على الأقل وإنفاق ≥ تكلفة نتيجة بمتوسط الحساب: حكم مبدئي بالمقارنة (مع المستهدف لإعلان المبيعات، ومع الحساب لغيره)
     if (pend === 'little' && resW > 0 && avgCpr && spendW >= avgCpr) {
       if (profitAd) pend = roasW < s.roasBreakEven ? 'prelimLoss' : (roasW < s.roasTarget ? 'prelimBelow' : 'prelimAbove');
-      else { var rel = spendW / resW / avgCpr; pend = rel <= 0.85 ? 'prelimBetter' : (rel >= 1.15 ? 'prelimWorse' : 'prelimSimilar'); }
+      else { var rel = spendW / resW / refCpr; pend = rel <= 0.85 ? 'prelimBetter' : (rel >= 1.15 ? 'prelimWorse' : 'prelimSimilar'); }
     }
 
     // سطر «على أي أساس الحكم» في تفاصيل الإعلان — حتى الإعلان «الجيد» بيقول ليه
@@ -972,7 +980,7 @@
     else if (profitAd && profitEvidence) {
       basis = t('basis.profit', { roas: rr(roasW), target: fmt.num(s.roasTarget) }) + (purch.roas != null && !selfAcc ? t('basis.vsAcc', { acc: rx(purch.roas, roasW) }) : '');
     } else if (avgCpr && ownCpr != null) {
-      basis = t('basis.cpr', { one: one, cpr: money(ownCpr), avg: money(avgCpr) });
+      basis = t('basis.cpr', { one: one, cpr: money(ownCpr), avg: money(refCpr) });
     }
     // التعديل الأخير (ملاحظة ١٠ أكتوبر): حديث = الحكم بيستنى، والملاحظات «المهمة» بتبقى «للعلم» لأن نتيجة التعديل لسه
     // مظهرتش — والعاجل (هدر واضح) بيفضل زي ما هو. أقدم = الحكم على اللي بعده، وسطر «بعده مقابل قبله» في أساس الحكم
@@ -1018,7 +1026,7 @@
     var tones = {};
     if (weekStart) { /* من غير ألوان */ }
     else if (profitAd && profitEvidence && roasW != null) tones.roas = roasW >= s.roasTarget ? 1 : (roasW < s.roasBreakEven ? -1 : 0);
-    else if (!profitAd && avgCpr && ownCpr && othersHave) tones.cpr = ownCpr <= avgCpr * 0.85 ? 1 : (ownCpr >= avgCpr * 1.15 ? -1 : 0);
+    else if (!profitAd && avgCpr && ownCpr && othersHave) tones.cpr = ownCpr <= refCpr * 0.85 ? 1 : (ownCpr >= refCpr * 1.15 ? -1 : 0);
     // سبب «لم يُحكم بعد» والإعلان عليه تنبيه مهم أو عاجل (المراجعة الثانية للمرحلة ٥): الحالة «يحتاج إلى تحسين» وسبب الحكم تحتها
     // «لا نحكم على الإعلان قبل أن يُكمل ٣ أيام» — جملتين بيناقضوا بعض. سبب الحكم العام بيفضل، ومعاه التنبيه اللي حدّد الحالة
     var raisedTop = issues.filter(function (i) { return (i.level === 'critical' || i.level === 'warning') && !i.quiet; })

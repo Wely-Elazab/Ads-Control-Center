@@ -1026,9 +1026,11 @@
       var base = [ad('g1', { daily: steady(100), res: steady(5), key: 'lead' }), ad('g2', { daily: steady(100), res: steady(5), key: 'lead' })];
       var drop = details(engine(base.concat([ad('d1', { daily: steady(100), res: [5, 5, 5, 5, 5, 0, 4], key: 'lead' })])), 'd1');
       ok(drop.indexOf('لم يحقق') > -1 && drop.indexOf('أي عملاء محتملين') > -1 && drop.indexOf('٠') === -1, drop);
-      // ولا نتيجة طول الأسبوع = الحكم على الأسبوع كله (٦٠٠ ÷ ٣٠ = ٢٠ — المنصوب مع ١١–٩٩)
+      // ولا نتيجة طول الأسبوع = الحكم على الأسبوع كله — «كان يكفي لنحو» بمتوسط باقي الإعلانات (المراجعة الثانية للمرحلة ٥): باقيها
+      // ١٥٠٠ ÷ ٧٠ ≈ ٢١٫٤ (مساعد الاختبار بيحسب إنفاق النهارده في الإجمالي)، فـ٦٠٠ ÷ ٢١٫٤ ≈ ٢٨ — كان ٢٠ والإعلان نفسه جوّه المتوسط
+      // (٢١٠٠ ÷ ٧٠ = ٣٠). المنصوب مع ١١–٩٩
       var waste = details(engine(base.concat([ad('w1', { daily: steady(100), res: steady(0), key: 'lead' })])), 'w1');
-      ok(waste.indexOf('دون أي عملاء محتملين') > -1 && waste.indexOf('لنحو ٢٠ عميلاً محتملاً') > -1, waste);
+      ok(waste.indexOf('دون أي عملاء محتملين') > -1 && waste.indexOf('لنحو ٢٨ عميلاً محتملاً') > -1 && waste.indexOf('باقي إعلاناتك') > -1, waste);
       // نتائج قبل كده في الأسبوع ويومين من غير = قاعدة آخر يومين (٢٠٠ ÷ ~٢٣ ≈ ٩ — المجرور بعد ٣–١٠)
       var dry2 = details(engine(base.concat([ad('w2', { daily: steady(100), res: [5, 5, 5, 5, 0, 0, 0], key: 'lead' })])), 'w2');
       ok(dry2.indexOf('خلال آخر يومين') > -1 && dry2.indexOf('نحو ٩ عملاء محتملين') > -1, dry2);
@@ -1438,6 +1440,16 @@
       // صفر نتائج والمتوقع ٥: بيطلع — تنبيه واحد (كان «إنفاق أعلى من المعتاد» و«انخفاض النتائج» عن نفس اليوم)
       var real = engine(baseAccount().concat([ad('l', { daily: [40, 40, 40, 40, 40, 100, 0], res: [2, 2, 2, 2, 2, 0, 0] })]));
       ok(has(real, 'l', 'spike', 'warning') && perfOf(real, 'l').length === 1, list(real, 'l'));
+    });
+    test('الإعلان الكبير بيتقارن بباقي إعلاناته مش بمتوسط هو نفسه جوّاه (ترك واحد): أغلى ~١٫٧ مرة وحصته ٣٩٪ = «تكلفة مرتفعة»', function () {
+      // متوسط الحساب كله وفيه الإعلان: النسبة الظاهرة = الحصة + الفرق × (١ − الحصة) ≈ ١٫٤٩ — تحت حد «مهم» (١٫٥) فمكانش فيه تنبيه
+      var r = withLang('ar', function () {
+        return engine([ad('g1', { daily: steady(140), res: steady(7) }), ad('g2', { daily: steady(140), res: steady(7) }), ad('dom', { daily: steady(180), res: steady(5) })]);
+      });
+      var cpr = r.byAd.dom.issues.filter(function (i) { return i.code === 'cpr'; })[0];
+      ok(cpr && /باقي إعلاناتك/.test(cpr.detail), cpr ? cpr.detail : list(r, 'dom'));
+      // ومن غير ما «لا يأخذ إنفاقاً كافياً» يتأثر: الإعلانين الكويسين حكمهم زي ما هو
+      eq([health(r, 'g1'), health(r, 'g2')], ['good', 'good']);
     });
     test('إعلان جديد = «لم يُحكم بعد» بسببه، وإنفاق كبير من غير نتائج وهو جديد = «مهم»', function () {
       var r = engine(baseAccount().concat([ad('n1', { daily: [0, 0, 0, 0, 0, 10, 5], age: 1 }), ad('n2', { daily: [0, 0, 0, 0, 0, 200, 100], age: 1 })]));
@@ -5450,8 +5462,8 @@
       var e = r.byAd.e;
       ok(issuesOf(r, 'e').every(function (x) { return x.indexOf('cpr:') !== 0; }), 'no full-week cost alert: ' + issuesOf(r, 'e'));
       ok(e.health !== 'improve' && e.health !== 'review', e.health);
-      // تكلفته بعد التعديل ٥٠، ومتوسط الحساب في نفس الأيام ٥٠ (مش ٧٣ من الأسبوع كله)
-      ok(/٥٠ ر\.س، ومتوسط حسابك في الفترة نفسها ٥٠ ر\.س/.test(e.basis), e.basis);
+      // تكلفته بعد التعديل ٥٠، ومتوسط باقي الإعلانات في نفس الأيام ٥٠ (٦٠٠ ÷ ١٢ — مش ٧٣ من الأسبوع كله)
+      ok(/٥٠ ر\.س، ومتوسط باقي إعلاناتك في الفترة نفسها ٥٠ ر\.س/.test(e.basis), e.basis);
       eq([e.days, JSON.stringify(e.tones)], [3, '{}'], 'judged days, and no colour on the full-week numbers');
       // من غير تعديل: الأسبوع كله زي ما هو
       eq(r.byAd.b.days, null);
