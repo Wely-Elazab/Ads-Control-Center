@@ -151,6 +151,8 @@
     else if (platform === 'tiktok') tiktokAccessToken = null;
     Object.keys(accountInfo).forEach(function (k) { if (k.indexOf(platform + ':') === 0) delete accountInfo[k]; });
     Object.keys(sourceCache).forEach(function (k) { if (k.indexOf(platform + ':') === 0) delete sourceCache[k]; });
+    // إعدادات حسابات المنصة دي اللي جت من السيرفر — اللي يربط بعده (حتى من نفس الصفحة) بيجيبها بمفتاحه هو
+    Object.keys(acctSettings).concat(Object.keys(acctPulling)).forEach(function (k) { if (k.indexOf(platform + ':') === 0) { delete acctSettings[k]; delete acctPulling[k]; } });
     setPlatformState(platform, null);
     forgetAccount(platform);
     setPlatformOptions(platform, []); // بيحفظ الجلسة كمان
@@ -308,6 +310,71 @@
   function storeAlertSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); return true; } catch (e) { return false; } }
   var alertSettings = loadAlertSettings();
 
+  // ---------- إعدادات كل حساب إعلاني على السيرفر (مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦ — قرار صاحب المنتج: «على مستوى الحساب وليس الجهاز أو المتصفح») ----------
+  // سجل واحد للحساب (supabase/functions/sync/settings.ts): كل اللي عندهم وصول للحساب في منصته بيشوفوه من أي جهاز، والتغيير بيظهر عند
+  // الكل، والبريد بيقراه هو كمان (runner.ts). Meta وSnapchat بس — السيرفر بيسأل المنصة نفسها إن صاحب المفتاح شايف الحساب. Google وTikTok
+  // لسه على الجهاز (alertSettings) لحد ما إثبات الوصول ليهم يتعمل في السيرفر.
+  // نسخة الجهاز القديمة (alertSettings) بتتنقل مرة واحدة لأول حساب من كل منصة يتفتح بعد التحديث ومالوش سجل — ده غالباً الحساب اللي
+  // اتظبطت عشانه. أي حساب تاني من غير سجل بيبدأ بقيم البداية وحكم الربح بيستنى: أأمن من إنه ياخد مستهدف متجر تاني من غير ما حد يعرف
+  var SERVER_SETTINGS = { meta: true, snapchat: true };
+  var acctSettings = {};    // { 'meta:act_1': {...} | null } — رد السيرفر (null = الحساب مالوش سجل)
+  var acctPulling = {};     // طلب جاري (أو خلص) للحساب في الجلسة دي
+  var MIGRATED_KEY = 'pauseproof.alertSettings.migrated.v1';
+  function migratedPlatforms() {
+    try { var v = JSON.parse(localStorage.getItem(MIGRATED_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
+    catch (e) { return {}; }
+  }
+  function markMigrated(platform) {
+    try { var v = migratedPlatforms(); v[platform] = 1; localStorage.setItem(MIGRATED_KEY, JSON.stringify(v)); } catch (e) { /* التخزين مقفول: النقل ممكن يتكرر لحساب جديد — نفس سلوك قبل التحديث */ }
+  }
+  function serverSettingsOn(source) { return !!SERVER_SETTINGS[platformOfSource(source)]; }
+  function settingsKnown(source) { return Object.prototype.hasOwnProperty.call(acctSettings, source); }
+  // الإعدادات اللي بتتحكم في الحساب: سجله على السيرفر لما يوصل، وقبلها (وفي Google وTikTok) نسخة الجهاز
+  function settingsFor(source) { return serverSettingsOn(source) && settingsKnown(source) ? (acctSettings[source] || {}) : alertSettings; }
+  function sourceOf(platform) { return activeSources[platform] ? platform + ':' + activeSources[platform] : null; }
+  function platformTokenOf(platform) {
+    if (platform === 'meta') return metaAccessToken();
+    if (platform === 'snapchat') return validToken(sessionTokens.snapchat) || snapchatAccessToken;
+    return null;
+  }
+  function settingsCall(action, source, extra) {
+    var platform = platformOfSource(source), token = platformTokenOf(platform);
+    if (!token) { var e = new Error('no session'); e.code = 'session'; return Promise.reject(e); }
+    return syncCall(Object.assign({ action: action, platform: platform, accountId: source.slice(platform.length + 1), platformToken: token }, extra || {}));
+  }
+  // أول ما الحساب يتفتح في الجلسة: نجيب سجله (بالتوازي مع تحميل الإعلانات). الفشل (شبكة، الجلسة خلصت) = نسخة الجهاز، ونحاول تاني المرة الجاية
+  function pullAccountSettings() {
+    Object.keys(activeSources).forEach(function (platform) {
+      var source = sourceOf(platform);
+      if (!source || !SERVER_SETTINGS[platform] || acctPulling[source] || !platformTokenOf(platform)) return;
+      acctPulling[source] = true;
+      settingsCall('settings.get', source).then(function (res) {
+        var rec = res && res.settings && typeof res.settings === 'object' && !Array.isArray(res.settings) ? res.settings : null;
+        if (!rec && Object.keys(alertSettings).length && !migratedPlatforms()[platform]) {
+          // نقل نسخة الجهاز القديمة للحساب ده (مرة واحدة للمنصة) — والإعدادات بتشتغل بيها على طول حتى لو الحفظ فشل.
+          // العلامة بعد ما الحفظ ينجح بس: لو فشل، أول حساب من المنصة دي يتفتح الجلسة الجاية بياخدها
+          acctSettings[source] = alertSettings;
+          return settingsCall('settings.set', source, { settings: alertSettings }).then(function (r) {
+            markMigrated(platform);
+            if (r && r.settings) acctSettings[source] = r.settings;
+          }, function () { /* الجلسة دي بنسخة الجهاز */ });
+        }
+        if (rec) markMigrated(platform);
+        acctSettings[source] = rec;
+      }).then(function () { settingsArrived(source); render(); }, function () { acctPulling[source] = false; settingsArrived(source); });
+    });
+  }
+  // done(stored) بعد الحفظ (stored = false: المتصفح رفض التخزين)، fail(e) لو السيرفر مأكدش — سجل الحساب بيفضل زي ما هو.
+  // حساب على الجهاز (Google وTikTok) بيخلص على طول
+  function saveAccountSettings(source, values, done, fail) {
+    if (!serverSettingsOn(source)) { alertSettings = values; done(storeAlertSettings(values)); return; }
+    settingsCall('settings.set', source, { settings: values }).then(function (r) {
+      acctSettings[source] = (r && r.settings) || values;
+      markMigrated(platformOfSource(source));
+      done(true);
+    }, fail);
+  }
+
   var ALERT_FMT = { money: money, currencyLabel: currencyLabel, num: numAr, num2: numAr2, int: function (n) { return ar(Math.round(n || 0)); } };
   var analysis = PauseProofAlerts.analyze([], {}, alertSettings, ALERT_FMT);
 
@@ -330,7 +397,13 @@
     });
     return meta;
   }
-  function runAnalysis() { analysis = PauseProofAlerts.analyze(candidates, accountsMeta(), alertSettings, ALERT_FMT); }
+  // كل حساب بإعداداته (متجرين بهامشين مختلفين = حدّين خسارة مختلفين)
+  function runAnalysis() {
+    pullAccountSettings();
+    var bySource = {};
+    candidates.forEach(function (c) { if (!bySource[c.source]) bySource[c.source] = settingsFor(c.source); });
+    analysis = PauseProofAlerts.analyze(candidates, accountsMeta(), { bySource: bySource }, ALERT_FMT);
+  }
   function adAnalysis(c) { return analysis.byAd[c.id] || { health: c.active ? 'pending' : 'inactive', issues: [], metricLevels: {}, pending: null, basis: null }; }
   // كلاس اللون لمقياس معيّن لو عليه ملاحظة (أحمر/أصفر/أخضر)
   function mv(c, metric) { var lv = adAnalysis(c).metricLevels[metric]; return lv ? ' mv-' + lv : ''; }
@@ -883,28 +956,9 @@
   }
   // حساب Meta المفتوح أياً كان عرض الملخص (من ١١ أكتوبر ٢٠٢٦ البطاقة في «الإعدادات» — قبل كده عرض Meta لوحده في الملخص بس)
   function digestAccount() { var id = activeSources.meta; return /^act_\d{1,30}$/.test(id || '') ? id : null; }
-  // المستهدف وحد الخسارة من إعدادات التنبيهات (قرار ٧ أكتوبر ٢٠٢٦): بيتبعتوا مع الملخص التلقائي عشان رسالة الملخص فيها نفس
-  // سطر «العائد أقل من المستهدف…» اللي هنا، والتنبيهات العاجلة بالبريد بنفس حد الخسارة (digest.ts cleanTarget)
-  // ومعاهم حساسية التنبيهات نفسها (المرحلة ٥ ق٥): القيم الفعلية بعد النمط والتعديلات — من غيرها البريد العاجل كان بالإعدادات
-  // الافتراضية حتى لو العميل اختار «هادي» (digest.ts cleanSens، runner.ts urgentAlerts)
-  // جهاز مفيهوش إعدادات محفوظة (أول مرة على المتصفح ده) مبيبعتش حاجة، واللي محفوظ للبريد بيفضل زي ما هو (المراجعة الثانية للمرحلة ٥،
-  // ٢٤ أكتوبر ٢٠٢٦): كان بيبعت القيم الافتراضية كأنها اختيار العميل — فتح الأداة من متصفح تاني رجّع حد الخسارة في البريد من ×٥ لـ×١
-  // (اتشاف حياً). وتفعيل الملخص من جهاز زي ده = من غير سطر المستهدف لحد ما العميل يحفظ إعداداته (مش مستهدف ×٣ ماختاروش)
-  function digestTarget() {
-    if (!alertSettings || !Object.keys(alertSettings).length) return {};
-    var s = PauseProofAlerts.mergeSettings(alertSettings), sens = {};
-    Object.keys(s).forEach(function (k) { if (k !== 'roasTarget' && k !== 'roasBreakEven') sens[k] = s[k]; });
-    return { target: s.roasTarget, be: s.roasBreakEven, sens: sens };
-  }
-  // العميل غيّر إعدادات التنبيهات: الحسابات اللي الملخص مفعّل لها في الجلسة دي بتاخد المستهدف وحد الخسارة الجداد
-  function digestPushTarget() {
-    var token = metaAccessToken();
-    if (!DIGEST_ON || !token) return;
-    Object.keys(digestKnown).forEach(function (account) {
-      if (digestKnown[account] !== true) return;
-      syncCall(Object.assign({ action: 'digest.update', token: token, accountId: account }, digestTarget())).catch(function () { /* فتح الحساب الجاي بيبعتهم تاني */ });
-    });
-  }
+  // المستهدف وحد الخسارة وحدود التنبيهات في البريد: من سجل الحساب نفسه على السيرفر (runner.ts effectiveSettings — مراجعة الإعدادات
+  // ٢٤ أكتوبر ٢٠٢٦). قبل كده كل متصفح كان بيبعت نسخته مع الملخص («آخر جهاز يفوز»: فتح الأداة من متصفح تاني رجّع حد الخسارة في البريد
+  // من ×٥ لـ×١ — اتشاف حياً)؛ دلوقتي المتصفح مبيبعتهمش خالص، والنسخة القديمة اللي في الملخص بتشتغل بس لحساب مالوش سجل لسه
   function digestCall(action, extra) {
     var token = metaAccessToken(), account = digestAccount();
     if (!token || !account) { var e = new Error('no session'); e.code = 'session'; return Promise.reject(e); }
@@ -1046,7 +1100,7 @@
     digestUi.busy = true;
     digestUi.msg = null;
     renderDigestPanel();
-    var extra = Object.assign({ email: email, days: days, hour: hour, lang: isAr() ? 'ar' : 'en' }, digestTarget());
+    var extra = { email: email, days: days, hour: hour, lang: isAr() ? 'ar' : 'en' };
     if (!editing) extra.consent = true;
     var account = digestUi.account;
     digestCall(editing ? 'digest.update' : 'digest.enable', extra).then(function (res) {
@@ -1093,7 +1147,7 @@
     if (!token) return;
     digestRefreshed[accountId] = true;
     // الرد بيقول كمان الملخص مفعّل ولا لأ — ده اللي بيقرر تلميح التفعيل يظهر ولا لأ (من غير طلب زيادة)
-    syncCall(Object.assign({ action: 'digest.refresh', token: token, accountId: accountId }, digestTarget())).then(function (res) {
+    syncCall({ action: 'digest.refresh', token: token, accountId: accountId }).then(function (res) {
       if (res && typeof res.enabled === 'boolean') { digestKnown[accountId] = res.enabled; renderDigest(); }
     }, function () { digestRefreshed[accountId] = false; });
   }
@@ -1323,15 +1377,14 @@
     var loading = dxOn && dxState.status === 'loading', o = null;
     if (dxOn && dxState.status === 'ready') {
       // الهدف وحد الخسارة من إعدادات التنبيهات (نفس اللي بيتحكم بيهم على الإعلانات) — الربح أولاً في الملخص كمان
-      var s = PauseProofAlerts.mergeSettings(alertSettings);
-      o = DX.compose(dxState.report, { target: { roas: s.roasTarget, be: s.roasBreakEven } });
+      o = DX.compose(dxState.report, { target: dxGoals() });
     }
     dxState.composed = o;
     copy.hidden = !o;
     // أرقام الملخص (طلبات، مبيعات، عائد…) — مفيش مشتريات = شريط الإنفاق والنتائج مكانها
     var nums = !!(o && o.kpis && o.kpis.length);
     renderKpis(!nums && !loading, dxViewPlatforms());
-    var lines = nums ? storeLines(dxViewPlatforms()) : [];
+    var lines = (nums ? storeLines(dxViewPlatforms()) : []).concat(costVsMax(dxViewPlatforms()));
     document.getElementById('dxToday').innerHTML = lines.map(function (l) { return '<p>' + esc(l.text) + '</p>'; }).join('');
     // بين قوسين مش «·» — النقطة جنب الأرقام العربية بتتقري «٠»
     period.textContent = nums ? o.period + (lines.some(function (l) { return l.today; }) ? ' (' + t('dx.fullDays') + ')' : '') : '';
@@ -1379,6 +1432,17 @@
   }
   // منصات العرض الظاهر في الملخص («كل المنصات» = المنصات اللي اتجمعت فيه — من غير اللي مفيش مشتريات بتوصلها) — null = مفيش
   // عروض، كل الإعلانات
+  // مستهدف العرض: حساب واحد = إعداداته. «كل المنصات» = المستهدف المشترك لو كل الحسابات متفقة عليه، وإلا مفيش سطر مستهدف
+  // (مستهدف متجر على عائد مجمّع من حسابين بهامشين مختلفين = حكم غلط)
+  function dxGoals() {
+    var goals = (dxViewPlatforms() || []).map(function (p) {
+      var s = PauseProofAlerts.mergeSettings(settingsFor(sourceOf(p) || ''));
+      return { roas: s.roasTarget, be: s.roasBreakEven };
+    });
+    var g = goals[0];
+    if (!g || !(g.roas > 0)) return null;
+    return goals.every(function (x) { return x.roas === g.roas && x.be === g.be; }) ? g : null;
+  }
   function dxViewPlatforms() {
     var views = dxState.views || [];
     if (!views.length) return null;
@@ -1409,6 +1473,27 @@
   }
   // سطور تحت أرقام الملخص: النهارده لوحده (الأرقام فوق أيام مكتملة — لو الفترة المختارة فيها النهارده)، والنتائج اللي
   // مش مشتريات (محادثات، عملاء محتملين…) اللي الملخص مبيحسبهاش — عشان متختفيش من الصفحة بعد ما شريط «ملخص الأداء» اتشال
+  // التكلفة مقابل أقصى تكلفة مقبولة (مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦): لكل نوع نتيجة ليه حد في الحساب — أرقام بس من غير حكم (تنبيه
+  // «التكلفة أعلى من المقبول» هو اللي بيحكم بدليل). عرض حساب واحد بس (حسابين بحدّين مختلفين في رقم واحد = مقارنة غلط)، ونفس إعلانات
+  // المحرك (costAds)، والحملات اللي ليها حد خاص برّه الرقم (بتتقاس بحدها هي). بيظهر كمان في حساب من غير مبيعات — هو أكتر حد محتاجه
+  function costVsMax(platforms) {
+    if (!platforms || platforms.length !== 1) return [];
+    var source = sourceOf(platforms[0]);
+    if (!source) return [];
+    var s = PauseProofAlerts.mergeSettings(settingsFor(source)), parts = [], skipped = false, cur = null;
+    Object.keys(s.maxCost).forEach(function (key) {
+      var spend = 0, results = 0;
+      costAds(source).forEach(function (c) {
+        if (c.resultKey !== key) return;
+        if (c.campaignId && s.campaignMaxCost[c.campaignId]) { skipped = true; return; }
+        var p = periodOf(c);
+        spend += p.spend || 0; results += p.results || 0; cur = cur || c.currency;
+      });
+      if (results > 0 && spend > 0) parts.push(t('dx.costMax.part', { cpr: money(spend / results, cur), one: t('res1.' + key), max: money(s.maxCost[key], cur) }));
+    });
+    if (!parts.length) return [];
+    return [{ text: t('dx.costMax', { p: periodLabel(), list: DX.listText(parts) }) + (skipped ? ' ' + t('dx.costMax.campNote') : '') }];
+  }
   function storeLines(platforms) {
     var mine = candidates.filter(function (c) { return onPlatforms(c, platforms); }), out = [];
     if (!mine.length) return out;
@@ -2520,8 +2605,109 @@
       '</fieldset>';
   }
 
+  // الحساب اللي النافذة بتعدّل إعداداته (كل حساب إعلاني ليه إعداداته — مراجعة الإعدادات ٢٤ أكتوبر). الافتراضي: منصة الفلتر لو
+  // مختارة، وإلا أول حساب متصل
+  var settingsSrc = null, settingsFormState = 'none', settingsSaving = false;
+  var settingsSaveBtn = document.getElementById('settingsSave');
+  function settingsSources() { return PLATFORMS.map(sourceOf).filter(Boolean); }
+  function sourceLabel(source) {
+    var p = platformOfSource(source), name = activeSources[p] && sourceOf(p) === source ? accountLabel(p) : '';
+    return PLATFORM_NAMES[p] + (name ? ' — ' + name : '');
+  }
+  function pickSettingsSource() {
+    var list = settingsSources();
+    if (settingsSrc && list.indexOf(settingsSrc) > -1) return settingsSrc;
+    var byFilter = filters.platform !== 'all' ? sourceOf(filters.platform) : null;
+    return byFilter || list[0] || null;
+  }
+  // الحالة: none (مفيش حساب متصل) / loading (سجل الحساب لسه جاي) / error (معرفناش نجيبه) / ready
+  function settingsStateOf(source) {
+    if (!source) return 'none';
+    if (!serverSettingsOn(source) || settingsKnown(source)) return 'ready';
+    return acctPulling[source] ? 'loading' : 'error';
+  }
+  function settingsAccountHtml(source) {
+    var list = settingsSources();
+    var p = platformOfSource(source);
+    var where = t(!serverSettingsOn(source) ? 'settings.where.device' : p === 'meta' ? 'settings.where.serverMeta' : 'settings.where.server', { platform: PLATFORM_NAMES[p] });
+    var pick = list.length > 1
+      ? '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(t('settings.account')) + '</span></span>' +
+        '<span class="setting-input"><select id="settingsAccount">' + list.map(function (s) {
+          return '<option value="' + esc(s) + '"' + (s === source ? ' selected' : '') + '>' + esc(sourceLabel(s)) + '</option>';
+        }).join('') + '</select></span></label>'
+      : '<p class="settings-account-name">' + esc(t('settings.accountOne', { account: sourceLabel(source) })) + '</p>';
+    return '<div class="settings-account">' + pick + '<p class="settings-where">' + esc(where) + '</p></div>';
+  }
+
+  // ---------- أقصى تكلفة مقبولة لكل نتيجة (مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦ — قرار صاحب المنتج) ----------
+  // للإعلانات اللي بيتحكم عليها بالتكلفة مش بالعائد — نفس شرط المحرك (alerts.js maxCost): نتائج معروفة ومفيش قيمة مبيعات. إعلان
+  // المبيعات اللي بيسجّل قيمة الطلبات بيتحكم عليه بالعائد، والعائد بيراعي فرق الأسعار لوحده. لكل نوع نتيجة في الحساب، ولكل حملة لوحدها
+  // (متجر بفئات أسعار مختلفة: تكلفة الطلب بتختلف من حملة لحملة) — الحملة قبل الحساب. الأنواع والحملات من إعلانات الحساب المحمّلة،
+  // واللي محفوظ ومش ظاهر دلوقتي (حملة خلصت، أو الإعلانات لسه بتتحمّل) بيظهر برقمه عشان يتعدّل أو يتشال
+  function costAds(source) {
+    return candidates.filter(function (c) { return c.source === source && c.results != null && !(c.dailySales || []).some(function (v) { return v > 0; }); });
+  }
+  function costNow(spend, results, key, cur) {
+    return results > 0 && spend > 0 ? t('settings.cost.now', { cpr: money(spend / results, cur), one: t('res1.' + (key || 'generic')) }) : '';
+  }
+  function costTargets(source, current) {
+    var types = {}, camps = {}, cur = null;
+    costAds(source).forEach(function (c) {
+      var p = periodOf(c), sp = p.spend || 0, rs = p.results || 0;
+      cur = cur || c.currency;
+      if (c.resultKey) { var tp = types[c.resultKey] || (types[c.resultKey] = { key: c.resultKey, spend: 0, results: 0 }); tp.spend += sp; tp.results += rs; }
+      if (c.campaignId) {
+        var cp = camps[c.campaignId] || (camps[c.campaignId] = { id: String(c.campaignId), name: c.campaignName || '', spend: 0, results: 0, keys: {} });
+        cp.spend += sp; cp.results += rs;
+        if (c.resultKey) cp.keys[c.resultKey] = true;
+      }
+    });
+    Object.keys(current.maxCost).forEach(function (k) { if (!types[k]) types[k] = { key: k, spend: 0, results: 0 }; });
+    Object.keys(current.campaignMaxCost).forEach(function (id) { if (!camps[id]) camps[id] = { id: id, name: '', spend: 0, results: 0, keys: {} }; });
+    var bySpend = function (a, b) { return b.spend - a.spend; };
+    cur = cur || (accountInfo[source] && accountInfo[source].currency) || null;
+    return { types: Object.keys(types).map(function (k) { return types[k]; }).sort(bySpend), camps: Object.keys(camps).map(function (k) { return camps[k]; }).sort(bySpend), currency: cur };
+  }
+  function costRow(name, label, help, value, unit, placeholder) {
+    return '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(label) + '</span>' + (help ? '<span class="setting-help">' + esc(help) + '</span>' : '') + '</span>' +
+      '<span class="setting-input"><input type="text" inputmode="decimal" dir="ltr" autocomplete="off" spellcheck="false" data-cost="' + esc(name) + '" value="' + (value != null ? esc(String(value)) : '') + '"' +
+      (placeholder ? ' placeholder="' + esc(placeholder) + '"' : '') + '><span class="setting-unit">' + esc(unit) + '</span></span></label>';
+  }
+  function costSectionHtml(source, current) {
+    var tg = costTargets(source, current), unit = currencyLabel(tg.currency);
+    var typeRows = tg.types.map(function (x) {
+      return costRow('type:' + x.key, t('settings.cost.type', { one: t('res1.' + x.key) }), costNow(x.spend, x.results, x.key, tg.currency), current.maxCost[x.key], unit);
+    }).join('');
+    var campRows = tg.camps.map(function (x) {
+      var keys = Object.keys(x.keys), one = keys.length === 1 ? keys[0] : null;
+      var inherited = one && current.maxCost[one] ? String(current.maxCost[one]) : '';
+      var help = [DX.listText(keys.map(function (k) { return t('res.' + k); })), costNow(x.spend, x.results, one, tg.currency)].filter(Boolean).join(' — ');
+      return costRow('camp:' + x.id, x.name || t('settings.cost.campId', { id: x.id }), help, current.campaignMaxCost[x.id], unit, inherited);
+    }).join('');
+    var anyCamp = Object.keys(current.campaignMaxCost).length > 0;
+    return '<fieldset class="settings-group" data-cost-section><legend>' + esc(t('settings.cost.title')) + '</legend>' +
+      '<p class="settings-where">' + esc(t('settings.cost.help')) + '</p>' +
+      (typeRows || '<p class="settings-where">' + esc(t('settings.cost.none')) + '</p>') +
+      (campRows ? '<details class="settings-camps"' + (anyCamp ? ' open' : '') + '><summary>' + esc(t('settings.cost.camps')) + '</summary>' +
+        '<p class="settings-where">' + esc(t('settings.cost.campsHelp')) + '</p>' + campRows + '</details>' : '') +
+      '</fieldset>';
+  }
   function renderSettingsForm() {
-    var current = PauseProofAlerts.mergeSettings(alertSettings);
+    var source = settingsSrc = pickSettingsSource();
+    var state = settingsFormState = settingsStateOf(source);
+    var errEl = document.getElementById('settingsError');
+    if (errEl) errEl.textContent = '';
+    settingsSaveBtn.disabled = state !== 'ready' || settingsSaving;
+    if (state === 'none') { settingsForm.innerHTML = '<p class="settings-where">' + esc(t('settings.noAccount')) + '</p>'; return; }
+    if (state !== 'ready') {
+      var noSession = state === 'error' && !platformTokenOf(platformOfSource(source));
+      settingsForm.innerHTML = settingsAccountHtml(source) + (state === 'loading'
+        ? '<p class="settings-where" role="status">' + esc(t('settings.loading')) + '</p>'
+        : '<p class="settings-where err" role="status">' + esc(t(noSession ? 'settings.err.session' : 'settings.err.load')) + '</p>' +
+          (noSession ? '' : '<div class="settings-retry"><button type="button" class="ghost-btn" data-settings-retry>' + esc(t('settings.retry')) + '</button></div>'));
+      return;
+    }
+    var current = PauseProofAlerts.mergeSettings(settingsFor(source));
     var groups = {};
     PauseProofAlerts.SETTINGS_META.forEach(function (m) {
       if (MAIN_SETTINGS[m.key]) return;
@@ -2531,12 +2717,24 @@
       Object.keys(groups).map(function (g) {
         return '<fieldset class="settings-group"><legend>' + esc(g) + '</legend>' + groups[g].map(function (m) { return settingRow(m, current[m.key]); }).join('') + '</fieldset>';
       }).join('') + '</details>';
-    settingsForm.innerHTML = settingsCoreHtml(current) + advancedHtml;
-    var errEl = document.getElementById('settingsError');
-    if (errEl) errEl.textContent = '';
+    settingsForm.innerHTML = settingsAccountHtml(source) + settingsCoreHtml(current) + costSectionHtml(source, current) + advancedHtml;
   }
+  // سجل الحساب وصل والنافذة مستنياه — بنرسمها (مش وهو بيكتب: الخانات مبتظهرش غير في حالة ready)
+  function settingsArrived(source) {
+    if (!settingsOverlay.classList.contains('hidden') && source === settingsSrc && settingsFormState !== 'ready') renderSettingsForm();
+  }
+  settingsForm.addEventListener('change', function (e) {
+    if (e.target && e.target.id === 'settingsAccount') { settingsSrc = e.target.value; renderSettingsForm(); }
+  });
+  settingsForm.addEventListener('click', function (e) {
+    if (!e.target.closest('[data-settings-retry]')) return;
+    acctPulling[settingsSrc] = false;
+    pullAccountSettings();
+    renderSettingsForm();
+  });
 
-  function openAlertSettings() { renderSettingsForm(); settingsOverlay.classList.remove('hidden'); }
+  // فتح النافذة بيعيد طلب سجل الحساب لو المحاولة الأولى فشلت (النافذة محتاجاه — مش بنعرض خانات قبل ما نعرف اللي محفوظ)
+  function openAlertSettings() { settingsSrc = null; pullAccountSettings(); renderSettingsForm(); settingsOverlay.classList.remove('hidden'); }
   document.getElementById('openSettingsBtn').addEventListener('click', openAlertSettings);
   // نفس النافذة من صفحة «الإعدادات» كمان (كل الإعدادات في مكان واحد)
   document.querySelectorAll('[data-open-settings]').forEach(function (b) { b.addEventListener('click', openAlertSettings); });
@@ -2606,51 +2804,116 @@
     PauseProofAlerts.SETTINGS_ORDER.forEach(function (o) {
       if (eff[o[0]] != null && eff[o[1]] != null && eff[o[0]] > eff[o[1]] && inputOf(o[1])) errors.push({ input: inputOf(o[1]), text: t(o[2]) });
     });
-    return { values: next, errors: errors };
+    // أقصى تكلفة لكل نوع نتيجة ولكل حملة (لو القسم ظاهر): فاضي = مفيش حد، وأي مبلغ أكبر من صفر. فاصل الآلاف زي خانات الأيام:
+    // «1,500» = ١٥٠٠ مش ١٫٥، و«12,5» = ١٢٫٥. managed = اللي النافذة بتتحكم فيه (فاضي = اتشال)، والباقي بيفضل زي ما هو في السجل
+    var managed = [];
+    if (root.querySelector('[data-cost-section]')) {
+      managed = ['maxCost', 'campaignMaxCost'];
+      var maps = { type: {}, camp: {} };
+      root.querySelectorAll('[data-cost]').forEach(function (input) {
+        var txt = settingNumberText(input.value, true);
+        if (txt === '') return;
+        var raw = /^\d*\.?\d+$/.test(txt) ? parseFloat(txt) : NaN;
+        if (!isFinite(raw) || raw <= 0 || raw > 1e9) { errors.push({ input: input, text: t('set.err.cost') }); return; }
+        var name = input.getAttribute('data-cost'), cut = name.indexOf(':');
+        maps[name.slice(0, cut)][name.slice(cut + 1)] = Math.round(raw * 100) / 100;
+      });
+      if (Object.keys(maps.type).length) next.maxCost = maps.type;
+      if (Object.keys(maps.camp).length) next.campaignMaxCost = maps.camp;
+    }
+    return { values: next, errors: errors, managed: managed };
   }
-  document.getElementById('settingsSave').addEventListener('click', function () {
+  // اللي النافذة مبتعرضوش بيفضل زي ما هو في سجل الحساب (KEPT_KEYS — حماية لو القسم مش ظاهر)
+  var KEPT_KEYS = ['maxCost', 'campaignMaxCost'];
+  function withKept(source, values, managed) {
+    var cur = settingsFor(source) || {}, out = Object.assign({}, values);
+    KEPT_KEYS.forEach(function (k) { if ((managed || []).indexOf(k) < 0 && !(k in out) && cur[k]) out[k] = cur[k]; });
+    return out;
+  }
+  // الحفظ في سجل الحساب (السيرفر) — النافذة بتفضل مفتوحة لحد ما يتأكد، والفشل بيظهر فيها بسببه
+  function saveErrText(e) { return t(e && (e.code === 'session' || e.code === 'not verified') ? 'settings.err.session' : 'settings.err.save'); }
+  function setSaving(btn, on, idleKey) {
+    settingsSaving = on;
+    btn.disabled = on;
+    btn.textContent = t(on ? 'settings.saving' : idleKey);
+  }
+  settingsSaveBtn.addEventListener('click', function () {
+    if (settingsSaving || settingsFormState !== 'ready') return;
     clearSettingsErrors();
     var r = readSettingsForm();
     if (showSettingsErrors(r, settingsErrorEl)) return;
-    alertSettings = r.values;
-    var saved = storeAlertSettings(alertSettings);
-    settingsOverlay.classList.add('hidden');
-    render();
-    digestPushTarget();
-    if (!saved) setStatus(msg('settings.notSaved'));
+    var source = settingsSrc;
+    setSaving(settingsSaveBtn, true, 'settings.save');
+    saveAccountSettings(source, withKept(source, r.values, r.managed), function (stored) {
+      setSaving(settingsSaveBtn, false, 'settings.save');
+      // شاف سؤال المستهدف هنا وساب الخانتين فاضيين بقصد — نافذة أول مرة متسألهوش تاني بعد الحفظ على طول
+      markWelcomeSeen(source);
+      settingsOverlay.classList.add('hidden');
+      render();
+      if (stored === false) setStatus(msg('settings.notSaved'));
+    }, function (e) {
+      setSaving(settingsSaveBtn, false, 'settings.save');
+      settingsErrorEl.textContent = saveErrText(e);
+    });
   });
 
-  // ---------- نافذة أول مرة: ضبط التنبيهات على أهداف المتجر ----------
-  // أول ما العميل يربط حساب (أي منصة) وهو لسه مسجّلش إعدادات، بتظهر مرة واحدة: السؤالين عن الفلوس (المستهدف وحد الخسارة)،
-  // مع توضيح إنها بتتعدّل في أي وقت من «الإعدادات» ← «إعدادات التنبيهات». بتظهر وهو الحساب بيتحمّل، فوقت الانتظار
-  // بيتستغل ومش بتغطي النتيجة بعد ما تظهر. «لاحقاً» أو ✕ أو Esc = حكم الربح بيستنى (مراجعة الإعدادات ٢٤ أكتوبر)، ومش بتظهر تاني.
+  // ---------- نافذة أول مرة لكل حساب: ضبط التنبيهات على أهداف المتجر ----------
+  // أول ما حساب يتفتح ومالوش مستهدف وحد خسارة (وسجله وصل من السيرفر)، بتظهر مرة واحدة للحساب ده على الجهاز ده: السؤالين عن الفلوس،
+  // مع توضيح إنها بتتعدّل في أي وقت من «الإعدادات» ← «إعدادات التنبيهات». لكل حساب لوحده لأن كل متجر ليه هامشه (مراجعة الإعدادات
+  // ٢٤ أكتوبر). «لاحقاً» أو ✕ أو Esc = حكم الربح بيستنى، ومش بتظهر تاني للحساب ده.
   var welcomeOverlay = document.getElementById('welcomeOverlay');
   var welcomeForm = document.getElementById('welcomeForm');
   var welcomeErrorEl = document.getElementById('welcomeError');
-  var WELCOME_KEY = 'acc.welcome.v1';
-  function welcomeDone() { try { return localStorage.getItem(WELCOME_KEY) === '1'; } catch (e) { return true; } }
-  function markWelcomeDone() { try { localStorage.setItem(WELCOME_KEY, '1'); } catch (e) { /* مش مهم */ } }
+  var welcomeSaveBtn = document.getElementById('welcomeSave');
+  var WELCOME_KEY = 'acc.welcome.accounts.v1', welcomeSrc = null;
+  function welcomeSeenAll() {
+    try { var v = JSON.parse(localStorage.getItem(WELCOME_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
+    catch (e) { return null; }   // التخزين مقفول: منسألش (من غيرها كانت هتظهر في كل رسم)
+  }
+  function markWelcomeSeen(source) {
+    try { var v = welcomeSeenAll() || {}; v[source] = 1; localStorage.setItem(WELCOME_KEY, JSON.stringify(v)); } catch (e) { /* مش مهم */ }
+  }
+  function welcomeCandidate() {
+    var seen = welcomeSeenAll();
+    if (!seen) return null;
+    return settingsSources().filter(function (s) {
+      if (seen[s] || (serverSettingsOn(s) && !settingsKnown(s))) return false;
+      return PauseProofAlerts.mergeSettings(settingsFor(s)).roasTarget == null;
+    })[0] || null;
+  }
   function maybeShowWelcome() {
-    if (!welcomeOverlay || welcomeDone() || !welcomeOverlay.classList.contains('hidden') || !PLATFORMS.some(isConnected)) return;
-    // عميل ظبط إعداداته قبل الميزة دي — منسألهوش
-    if (Object.keys(alertSettings).length) { markWelcomeDone(); return; }
+    if (!welcomeOverlay || !welcomeOverlay.classList.contains('hidden')) return;
     // نافذة تانية مفتوحة (اختيار المنصة مثلاً) — نستنى الرسم الجاي
     if (document.querySelector('.expand-overlay:not(.hidden)')) return;
-    welcomeForm.innerHTML = settingsCoreHtml(PauseProofAlerts.mergeSettings({}));
+    var source = welcomeCandidate();
+    if (!source) return;
+    welcomeSrc = source;
+    welcomeForm.innerHTML = '<p class="settings-account-name">' + esc(t('settings.accountOne', { account: sourceLabel(source) })) + '</p>' +
+      settingsCoreHtml(PauseProofAlerts.mergeSettings(settingsFor(source)));
     clearSettingsErrors(welcomeForm, welcomeErrorEl);
     welcomeOverlay.classList.remove('hidden');
   }
-  function closeWelcome() { markWelcomeDone(); welcomeOverlay.classList.add('hidden'); }
-  document.getElementById('welcomeSave').addEventListener('click', function () {
+  function closeWelcome() {
+    if (welcomeSrc) markWelcomeSeen(welcomeSrc);
+    welcomeSrc = null;
+    welcomeOverlay.classList.add('hidden');
+  }
+  welcomeSaveBtn.addEventListener('click', function () {
+    if (settingsSaving || !welcomeSrc) return;
     clearSettingsErrors(welcomeForm, welcomeErrorEl);
     var r = readSettingsForm(welcomeForm);
     if (showSettingsErrors(r, welcomeErrorEl)) return;
-    alertSettings = Object.assign({}, alertSettings, r.values);
-    var saved = storeAlertSettings(alertSettings);
-    closeWelcome();
-    render();
-    digestPushTarget();
-    if (!saved) setStatus(msg('settings.notSaved'));
+    var source = welcomeSrc;
+    setSaving(welcomeSaveBtn, true, 'welcome.save');
+    saveAccountSettings(source, Object.assign({}, settingsFor(source), r.values), function (stored) {
+      setSaving(welcomeSaveBtn, false, 'welcome.save');
+      closeWelcome();
+      render();
+      if (stored === false) setStatus(msg('settings.notSaved'));
+    }, function (e) {
+      setSaving(welcomeSaveBtn, false, 'welcome.save');
+      welcomeErrorEl.textContent = saveErrText(e);
+    });
   });
   document.getElementById('welcomeSkip').addEventListener('click', closeWelcome);
   document.getElementById('welcomeClose').addEventListener('click', closeWelcome);

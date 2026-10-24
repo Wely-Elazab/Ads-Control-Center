@@ -390,6 +390,10 @@
   @media (max-width: 520px) { .summary-boxes.summary-boxes-3 { grid-template-columns: 1fr; } }
   .settings-advanced { margin-top: 14px; }
   .settings-advanced summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink-soft); padding: 8px 0; }
+  /* تخصيص أقصى تكلفة لكل حملة (مراجعة الإعدادات ٢٤ أكتوبر) — جوه قسم التكلفة */
+  .settings-camps { margin: 6px 0 8px; }
+  .settings-camps summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--ink-soft); padding: 6px 0; }
+  .setting-input input::placeholder { color: var(--ink-soft); opacity: .55; }
   .settings-group { border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px 2px; margin: 14px 0 0; }
   .settings-group legend { font-size: 12px; font-weight: 700; color: var(--ink-soft); padding: 0 6px; }
   .setting-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px dashed var(--line); }
@@ -401,6 +405,15 @@
   .setting-input input { width: 78px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 8px; font-size: 16px; font-family: inherit; color: var(--ink); background: var(--paper); text-align: center; }
   .setting-input input:focus-visible { outline: 2px solid var(--verified); outline-offset: 1px; }
   .setting-unit { font-size: 12px; color: var(--ink-soft); min-width: 28px; }
+  /* الحساب اللي الإعدادات بتاعته (كل حساب إعلاني ليه إعداداته — مراجعة الإعدادات ٢٤ أكتوبر) */
+  .settings-account { margin: 12px 0 0; padding: 8px 14px 10px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); }
+  .settings-account .setting-row { padding: 4px 0; border-bottom: none; }
+  .settings-account select { max-width: min(240px, 55vw); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: 14px; font-family: inherit; color: var(--ink); background: var(--card); }
+  .settings-account select:focus-visible { outline: 2px solid var(--verified); outline-offset: 1px; }
+  .settings-account-name { font-size: 13.5px; font-weight: 600; margin: 4px 0 0; overflow-wrap: anywhere; }
+  .settings-where { font-size: 12px; color: var(--ink-soft); line-height: 1.6; margin: 6px 0 0; }
+  .settings-where.err { color: var(--alert); font-weight: 600; }
+  .settings-retry { margin-top: 10px; }
   .settings-actions { display: flex; gap: 10px; flex-wrap: wrap; position: sticky; bottom: 0; background: var(--card); padding: 14px 0 4px; margin-top: 8px; }
   @media (max-width: 420px) { .setting-row { flex-wrap: wrap; } }
 

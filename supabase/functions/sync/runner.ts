@@ -254,12 +254,29 @@ async function storedTarget(account: string): Promise<Target> {
   return targetOf(Array.isArray(rows) && rows[0] ? rows[0] : null);
 }
 // حساسية التنبيهات اللي العميل اختارها في الأداة (المرحلة ٥ ق٥ — digest.ts cleanSens). null = لسه مبعتهاش: الإعدادات الافتراضية
-type Sens = Record<string, number> | null;
+type Sens = Record<string, unknown> | null;
 async function storedSens(account: string): Promise<Sens> {
   const r = await db('digest_settings?select=alert_settings&account_id=eq.' + account, { method: 'GET' }).catch(() => null);
   const rows = r ? await r.json().catch(() => null) : null;
   const v = Array.isArray(rows) && rows[0] ? rows[0].alert_settings : null;
   return v && typeof v === 'object' ? v : null;
+}
+// إعدادات الحساب الإعلاني (settings.ts — مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦): المصدر الواحد للأداة والبريد. لو الحساب لسه ملوش سجل
+// (اتفعّل له الملخص قبل كده ومحدش فتح الأداة من وقتها)، النسخة القديمة اللي في digest_settings زي ما هي
+async function accountSettingsOf(account: string): Promise<Record<string, unknown> | null> {
+  const r = await db('account_settings?select=settings&platform=eq.meta&account_id=eq.' + account, { method: 'GET' }).catch(() => null);
+  const rows = r ? await r.json().catch(() => null) : null;
+  const v = Array.isArray(rows) && rows[0] ? rows[0].settings : null;
+  return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+}
+// سجل الحساب لو موجود (والمستهدف منه — مش محدد = حكم الربح بيستنى في البريد كمان)، وإلا النسخة القديمة
+export function settingsChoice(acs: Record<string, unknown> | null, legacyTarget: Target, legacySens: Sens): { target: Target; sens: Sens } {
+  if (!acs) return { target: legacyTarget, sens: legacySens };
+  const r = Number(acs.roasTarget), b = Number(acs.roasBreakEven);
+  return { target: r > 0 && b > 0 ? { roas: r, be: b } : null, sens: acs };
+}
+async function effectiveSettings(account: string, legacyTarget: Target, legacySens: Sens): Promise<{ target: Target; sens: Sens }> {
+  return settingsChoice(await accountSettingsOf(account), legacyTarget, legacySens);
 }
 // محرك الأداة بحساسية العميل (ق٥ — قبل كده الإعدادات الافتراضية هنا وحساسية العميل في متصفحه بس، فالبريد كان بيطلع بحساسية
 // «متوازن» لعميل اختار «هادي»)، والمستهدف وحد الخسارة لو بعتهم. العاجل بس. mergeSettings في المحرك بيتحقق من حدود كل قيمة
@@ -799,12 +816,14 @@ async function checkAccount(s: Settings): Promise<string> {
 
     const cands = await loadCandidates(account, acct);
     if (!cands) { await saveMarks(account, keep); return 'meta-retry'; }
+    // إعدادات الحساب (سجل الحساب لو موجود، وإلا النسخة القديمة) — نفس اللي الأداة بتحكم بيه
+    const eff = await effectiveSettings(account, targetOf(s), s.alert_settings || null);
 
     let outcome = doUrgent ? 'ok' : 'summary-only';
     if (doUrgent) {
       // التعديلات من آخر فحص (أو آخر ساعتين لأول فحص)
       const editsSince = s.checked_at ? Date.parse(s.checked_at) : now - 2 * 3600000;
-      const all = await allUrgent(account, acct, cands, editsSince, targetOf(s), s.alert_settings || null);
+      const all = await allUrgent(account, acct, cands, editsSince, eff.target, eff.sens);
       const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], sentRows: Mark[] = [], seen: Record<string, boolean> = {};
       for (const a of all.urgent) {
         // البصمة بالعيلة (familyOf) — والنوع نفسه في last_code. التذكير بيعرض نص التنبيه الحالي، فلو المشكلة زادت («يومان» بقت
@@ -840,8 +859,8 @@ async function checkAccount(s: Settings): Promise<string> {
     // الملخص: رسالة منفصلة عن التنبيهات العاجلة (قرار صاحب المنتج). لو فشل (Meta أو البريد) بيتحاول تاني الساعة الجاية
     if (due) {
       keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });   // «حُلّت/مستمرة» بحالة الساعة دي
-      const sum = await buildSummary(account, acct, due.since, due.until, targetOf(s));
-      const alerts = alertStatusHtml(marks, cands, due.since, acct.timezone_name || tz, en, targetOf(s));
+      const sum = await buildSummary(account, acct, due.since, due.until, eff.target);
+      const alerts = alertStatusHtml(marks, cands, due.since, acct.timezone_name || tz, en, eff.target);
       if (await send(account, 'summary', s.email, summaryMail(account, acct.name || account, due.since, due.until, sum, alerts, s, en, stop))) {
         await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_summary_until: due.until }) });
         outcome += '+summary';
@@ -850,8 +869,8 @@ async function checkAccount(s: Settings): Promise<string> {
     // الملخص الشهري: رسالة منفصلة (لو فشل بيتحاول تاني في التشغيلات الجاية لحد آخر اليوم — monthlyDue = الأحد بس)
     if (monthly) {
       keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });
-      const sum = await buildSummary(account, acct, monthly.since, monthly.until, targetOf(s));
-      const alerts = alertStatusHtml(marks, cands, monthly.since, acct.timezone_name || tz, en, targetOf(s));
+      const sum = await buildSummary(account, acct, monthly.since, monthly.until, eff.target);
+      const alerts = alertStatusHtml(marks, cands, monthly.since, acct.timezone_name || tz, en, eff.target);
       if (await send(account, 'monthly', s.email, summaryMail(account, acct.name || account, monthly.since, monthly.until, sum, alerts, s, en, stop, true))) {
         await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_monthly: monthly.month }) });
         outcome += '+monthly';
@@ -927,8 +946,9 @@ export async function previewSummary(token: string, accountId: string, lang: str
       if (!win) return { error: 'window' };
       const s: Settings = { account_id: accountId, email: '', lang: en ? 'en' : 'ar', timezone: tz, summary_days: [0, 3], summary_hour: 9, last_summary_until: null };
       const cands = (await loadCandidates(accountId, acct)) || [];
-      const sum = await buildSummary(accountId, acct, win.since, win.until, await storedTarget(accountId));
-      const alerts = alertStatusHtml(await marksOf(accountId), cands, win.since, tz, en, await storedTarget(accountId));
+      const eff = await effectiveSettings(accountId, await storedTarget(accountId), await storedSens(accountId));
+      const sum = await buildSummary(accountId, acct, win.since, win.until, eff.target);
+      const alerts = alertStatusHtml(await marksOf(accountId), cands, win.since, tz, en, eff.target);
       const mail = summaryMail(accountId, acct.name || accountId, win.since, win.until, sum, alerts, s, en, await stopUrl(accountId), monthly);
       return { engineCommit: ENGINE_COMMIT, engineOutdated: outdated, metaUsage: usage, since: win.since, until: win.until, subject: mail.subject, html: mail.html, text: mail.text };
     } finally {
@@ -952,7 +972,8 @@ export async function preview(token: string, accountId: string, lang: string): P
       const cands = await loadCandidates(accountId, acct);
       if (!cands) return { error: 'retry' };
       // المعاينة: التعديلات الكبيرة من آخر ٢٤ ساعة (عشان تبان أمثلة)
-      const urgent = (await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, await storedTarget(accountId), await storedSens(accountId))).urgent;
+      const eff = await effectiveSettings(accountId, await storedTarget(accountId), await storedSens(accountId));
+      const urgent = (await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, eff.target, eff.sens)).urgent;
       const mail = urgentMail(accountId, acct.name || accountId, urgent, [], acct.timezone_name || 'UTC', en, await stopUrl(accountId));
       return {
         engineCommit: ENGINE_COMMIT, engineOutdated: outdated, metaUsage: usage, ads: cands.length,

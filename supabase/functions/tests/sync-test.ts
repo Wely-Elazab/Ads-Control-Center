@@ -9,7 +9,8 @@ import { corsHeaders, esc, reply } from '../sync/lib.ts';
 import { cleanEmail, cleanSens, cleanTarget, daysText, hourText, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
-import { byOwner, callTimeout, familyOf, freshUsage, markMap, normName, ownPausedIds, readUsage, resolveNow } from '../sync/runner.ts';
+import { byOwner, callTimeout, familyOf, freshUsage, markMap, normName, ownPausedIds, readUsage, resolveNow, settingsChoice } from '../sync/runner.ts';
+import { cleanAccountSettings, handleSettings } from '../sync/settings.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
 Deno.env.set('TOKEN_ENC_KEY', btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))));
@@ -246,4 +247,48 @@ Deno.test('«حُلّت» بس لما المشكلة تختفي فعلاً: «م
   assertEquals(resolveNow(track, false, { site: true, edits: false, links: false }, now), 'keep');
   assertEquals(resolveNow(track, false, { site: false, edits: false, links: true }, now), 'resolve');
   assertEquals(resolveNow({ kind: 'link-broken', last_seen_at: '2026-10-23T06:00:00Z' }, false, { site: false, edits: false, links: true }, now), 'keep');
+});
+
+// ---------- إعدادات التنبيهات لكل حساب إعلاني (مراجعة الإعدادات ٢٤ أكتوبر) ----------
+Deno.test('إعدادات الحساب: المفاتيح المعروفة بس جوه حدودها، والمستهدف وحد الخسارة مع بعض، والتكلفة المقبولة أرقام موجبة', () => {
+  assertEquals(cleanAccountSettings({ cprWarnMultiple: 2, minSpendShare: 0.9, evil: 1, roasTarget: 5, roasBreakEven: 5,
+    maxCost: { lead: 30, message: -1, 'bad key!': 3 }, campaignMaxCost: { '123': 12 } }),
+    { cprWarnMultiple: 2, roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 }, campaignMaxCost: { '123': 12 } });
+  assertEquals(cleanAccountSettings({ roasTarget: 5 }), {}, 'a target alone is dropped');
+  assertEquals(cleanAccountSettings({ roasTarget: 2, roasBreakEven: 4 }), {}, 'a loss limit above the target is dropped');
+  assertEquals(cleanAccountSettings([1]), null);
+});
+Deno.test('إعدادات الحساب: من غير إثبات الوصول للحساب في منصته مفيش قراءة ولا حفظ', async () => {
+  let metaOk = true, snapOk = true, writes = 0;
+  stubFetch((url, init) => {
+    if (url.indexOf('graph.facebook.com') > -1) return metaOk ? json({ id: 'act_123', name: 'X' }) : json({ error: { code: 100 } }, 400);
+    if (url.indexOf('adsapi.snapchat.com') > -1) return snapOk ? json({ adaccounts: [{ adaccount: { id: 'aaaa-1111' } }] }) : json({ request_status: 'ERROR' }, 403);
+    if (url.indexOf('/rest/v1/account_settings') > -1) {
+      if (init && init.method === 'POST') { writes++; return new Response(null, { status: 201 }); }
+      return json([{ settings: { roasTarget: 5, roasBreakEven: 5 }, updated_at: '2026-10-24T00:00:00Z' }]);
+    }
+    throw new Error('unexpected fetch ' + url);
+  });
+  try {
+    const T = 'TOKEN_abcdefghijklmnopqrstuvwxyz';
+    const get = await handleSettings('settings.get', { platform: 'meta', accountId: 'act_123', platformToken: T }, null);
+    assertEquals(get.status, 200);
+    assertEquals((await get.json()).settings, { roasTarget: 5, roasBreakEven: 5 });
+    metaOk = false;
+    const denied = await handleSettings('settings.set', { platform: 'meta', accountId: 'act_123', platformToken: T, settings: { roasTarget: 1, roasBreakEven: 1 } }, null);
+    assertEquals([denied.status, writes], [403, 0], 'no access on Meta: nothing written');
+    const set = await handleSettings('settings.set', { platform: 'snapchat', accountId: 'aaaa-1111', platformToken: T, settings: { roasTarget: 4, roasBreakEven: 2, evil: 9 } }, null);
+    assertEquals([set.status, writes], [200, 1]);
+    assertEquals((await set.json()).settings, { roasTarget: 4, roasBreakEven: 2 });
+    snapOk = false;
+    assertEquals((await handleSettings('settings.get', { platform: 'snapchat', accountId: 'aaaa-1111', platformToken: T }, null)).status, 403);
+    assertEquals((await handleSettings('settings.get', { platform: 'google', accountId: '1', platformToken: T }, null)).status, 400);
+    assertEquals((await handleSettings('settings.get', { platform: 'meta', accountId: '123', platformToken: T }, null)).status, 400);
+  } finally { restoreFetch(); }
+});
+Deno.test('البريد بيقرا سجل الحساب لو موجود (والمستهدف منه)، وإلا النسخة القديمة', () => {
+  assertEquals(settingsChoice(null, { roas: 3, be: 1 }, { cprWarnMultiple: 2 }), { target: { roas: 3, be: 1 }, sens: { cprWarnMultiple: 2 } });
+  const acs = { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 } };
+  assertEquals(settingsChoice(acs, { roas: 3, be: 1 }, null), { target: { roas: 5, be: 5 }, sens: acs });
+  assertEquals(settingsChoice({ cprWarnMultiple: 2 }, { roas: 3, be: 1 }, null).target, null, 'a record without goals: profit waits (not the old copy)');
 });
