@@ -78,7 +78,12 @@
     return c;
   }
   function steady(n) { return [n, n, n, n, n, n, n]; }
-  function engine(ads, meta, settings) { return PauseProofAlerts.analyze(ads, meta || {}, settings || {}, ALERT_FMT); }
+  // حساب متحدد ليه المستهدف ×٣ وحد الخسارة ×١ (مراجعة الإعدادات ٢٤ أكتوبر: مبقاش ليهم قيمة ابتدائية — حكم الربح بيستنى لحد ما
+  // يتحددوا). الاختبارات القديمة مكتوبة على الحالة دي؛ وحالة «من غير مستهدف» ليها اختبارها لوحدها (noGoal: true)
+  function engine(ads, meta, settings) {
+    var s = settings && settings.noGoal ? {} : Object.assign({ roasTarget: 3, roasBreakEven: 1 }, settings || {});
+    return PauseProofAlerts.analyze(ads, meta || {}, s, ALERT_FMT);
+  }
   // حساب فيه إعلانين كويسين عشان يبقى فيه متوسط تكلفة نتيجة
   function baseAccount() {
     return [ad('good1', { daily: steady(100), res: steady(5) }), ad('good2', { daily: steady(100), res: steady(5) })];
@@ -1314,10 +1319,14 @@
       eq([issuesOf(r, 'a1').length, issuesOf(r, 'a2').length], [0, 0]);
       eq(r.alerts.filter(function (a) { return a.title === t('al.acctStopped.t'); }).length, 1);
     });
-    test('الإعدادات الناقصة بتاخد قيمة النمط المختار', function () {
-      eq(PauseProofAlerts.mergeSettings({ _preset: 'calm' }).minSpendShare, 0.05);
-      eq(PauseProofAlerts.mergeSettings({ _preset: 'calm', minSpendShare: 0.1 }).minSpendShare, 0.1);
-      eq(PauseProofAlerts.mergeSettings({}).minSpendShare, 0.02);
+    // مراجعة الإعدادات (٢٤ أكتوبر): من غير أنماط — الحد الناقص بقيمة البداية، والمستهدف وحد الخسارة فاضيين، والتكلفة المقبولة أرقام موجبة بس
+    test('الإعدادات: الحد الناقص بقيمة البداية، والمستهدف وحد الخسارة مالهمش قيمة ابتدائية، و١١ إعداداً بس', function () {
+      var s = PauseProofAlerts.mergeSettings({ minSpendShare: 0.1, _preset: 'calm' });
+      eq([s.minSpendShare, s.cprWarnMultiple, s.roasTarget, s.roasBreakEven], [0.1, 1.5, null, null]);
+      eq(PauseProofAlerts.SETTINGS_META.length, 11);
+      ok(!('PRESETS' in PauseProofAlerts) && !('presetSettings' in PauseProofAlerts), 'no presets');
+      var m = PauseProofAlerts.mergeSettings({ maxCost: { lead: 30, message: -5, x: 'a' }, campaignMaxCost: { c1: 12 } });
+      eq([JSON.stringify(m.maxCost), JSON.stringify(m.campaignMaxCost)], ['{"lead":30}', '{"c1":12}']);
     });
     test('نصوص التنبيهات بالإنجليزي', function () {
       var ads = baseAccount().concat([ad('waste', { daily: [100, 100, 100, 100, 100, 100, 20], res: [5, 5, 5, 5, 0, 0, 0] })]);
@@ -1450,6 +1459,49 @@
       ok(cpr && /باقي إعلاناتك/.test(cpr.detail), cpr ? cpr.detail : list(r, 'dom'));
       // ومن غير ما «لا يأخذ إنفاقاً كافياً» يتأثر: الإعلانين الكويسين حكمهم زي ما هو
       eq([health(r, 'g1'), health(r, 'g2')], ['good', 'good']);
+    });
+
+    // ---- مراجعة الإعدادات (٢٤ أكتوبر — قرارات صاحب المنتج) ----
+    test('حساب من غير مستهدف وحد خسارة: حكم الربح بيستنى («حدّد هدف الربح») ومفيش تنبيه ربح ولا فرصة، والهدر شغّال', function () {
+      var ads = [ad('g1', { daily: steady(100), res: steady(2), sales: steady(600) }), ad('g2', { daily: steady(100), res: steady(2), sales: steady(600) }),
+        ad('lossy', { daily: steady(150), res: steady(3), sales: steady(45) }),      // ×٠٫٣ بدليل
+        ad('star', { daily: steady(100), res: steady(4), sales: steady(1800) }),     // ×١٨ (كانت «عائد ممتاز» و«فرصة»)
+        ad('dry', { daily: steady(120) })];                                          // صفر طلبات
+      var r = withLang('ar', function () { return engine(ads, {}, { noGoal: true }); });
+      eq([r.byAd.lossy.pending, r.byAd.star.pending], ['noTarget', 'noTarget']);
+      // ومنها فخ JavaScript: «رقم ≥ قيمة فاضية» = صح — «فرصة الزيادة» و«نتائج جيدة بإنفاق قليل» كانوا هيطلعوا على أي إعلان مبيعات
+      ok(!r.alerts.some(function (a) { return /^(loss|low-roas|roas-great|roas-drop|scale|underspend-win)$/.test(a.code); }), r.alerts.map(function (a) { return a.code; }).join(' '));
+      ok(/حدّد/.test(r.byAd.lossy.basis), r.byAd.lossy.basis);
+      ok(has(r, 'dry', 'waste-week'), list(r, 'dry'));
+      // ونفس الحساب بمستهدف محدد: الخسارة بتطلع
+      var withGoal = engine(ads);
+      ok(has(withGoal, 'lossy', 'loss'), list(withGoal, 'lossy'));
+    });
+    test('أقصى تكلفة مقبولة لكل نتيجة: أعلى منها بدليل = تنبيه، وقيمة الحملة مقدَّمة على قيمة الحساب', function () {
+      // الإعلانين ٢٥ للعميل (زي بعض، فمفيش «تكلفة مرتفعة» بالمقارنة) — كل الحساب غالي على النشاط ومكانش فيه ولا تنبيه
+      var ads = function () { return [ad('l1', { daily: steady(100), res: steady(4), key: 'lead', cid: 'cA' }), ad('l2', { daily: steady(100), res: steady(4), key: 'lead', cid: 'cB' })]; };
+      var r = withLang('ar', function () { return engine(ads(), {}, { maxCost: { lead: 10 } }); });
+      ok(has(r, 'l1', 'cost-max') && has(r, 'l2', 'cost-max'), list(r, 'l1') + ' | ' + list(r, 'l2'));
+      var d = r.byAd.l1.issues.filter(function (i) { return i.code === 'cost-max'; })[0];
+      ok(/في هذا الحساب/.test(d.detail), d.detail);
+      // الحملة A مقبولها ٥٠ للعميل (منتجات أغلى): إعلانها مبيطلعش عليه، والحملة B بقيمة الحساب
+      var r2 = withLang('ar', function () { return engine(ads(), {}, { maxCost: { lead: 10 }, campaignMaxCost: { cA: 50 } }); });
+      ok(!has(r2, 'l1', 'cost-max') && has(r2, 'l2', 'cost-max'), list(r2, 'l1') + ' | ' + list(r2, 'l2'));
+      ok(!has(engine(ads()), 'l1', 'cost-max'), 'no limit set: no alert');
+    });
+    test('حساب فيه إعلان واحد ومحدد له أقصى تكلفة: بيتحكم عليه بيها بدل «لا يوجد ما نقارن به»', function () {
+      var one = [ad('solo', { daily: steady(100), res: steady(10), key: 'lead' })];   // ١٠ للعميل
+      eq(engine(one).byAd.solo.pending, 'noRef');
+      var r = withLang('ar', function () { return engine(one, {}, { maxCost: { lead: 20 } }); });
+      eq([health(r, 'solo'), r.byAd.solo.pending], ['good', null]);
+      ok(/أقصى التكلفة المقبولة/.test(r.byAd.solo.basis), r.byAd.solo.basis);
+    });
+    test('إعدادات كل حساب إعلاني لوحده (bySource): متجرين بحدّين خسارة مختلفين بيتحكم عليهم كل واحد بحدّه', function () {
+      var A = ad('a', { daily: steady(100), res: steady(2), sales: steady(150), source: 'meta:act_A' });   // ×١٫٥
+      var B = ad('b', { daily: steady(100), res: steady(2), sales: steady(150), source: 'meta:act_B' });   // نفس الأرقام
+      var r = PauseProofAlerts.analyze([A, B], {}, { bySource: { 'meta:act_A': { roasTarget: 6, roasBreakEven: 4 }, 'meta:act_B': { roasTarget: 1.2, roasBreakEven: 1 } } }, ALERT_FMT);
+      ok(has(r, 'a', 'loss') && !has(r, 'b', 'loss'), list(r, 'a') + ' | ' + list(r, 'b'));
+      eq([r.settingsBySource['meta:act_A'].roasBreakEven, r.settingsBySource['meta:act_B'].roasBreakEven], [4, 1]);
     });
     test('إعلان جديد = «لم يُحكم بعد» بسببه، وإنفاق كبير من غير نتائج وهو جديد = «مهم»', function () {
       var r = engine(baseAccount().concat([ad('n1', { daily: [0, 0, 0, 0, 0, 10, 5], age: 1 }), ad('n2', { daily: [0, 0, 0, 0, 0, 200, 100], age: 1 })]));
@@ -2926,19 +2978,42 @@
 
   // ---------- إعدادات التنبيهات بلغة صاحب المتجر + نافذة أول مرة (ui.js) ----------
   describe('إعدادات التنبيهات لصاحب المتجر', function () {
-    test('الشاشة الأساسية: الحساسية وسؤالين عن الفلوس، وباقي الحدود (ومنها فترة التعلّم) في «المتقدمة» لمسؤول الإعلانات', function () {
-      renderSettingsForm();
-      var adv = settingsForm.querySelector('details.settings-advanced');
-      var main = Array.prototype.filter.call(settingsForm.querySelectorAll('input[type="text"]'), function (i) { return !adv.contains(i); }).map(function (i) { return i.name; });
-      eq(main, ['roasTarget', 'roasBreakEven']);
-      ok(adv.querySelector('[name="learningDays"]'), 'learning period moved to advanced');
-      eq(settingsForm.querySelectorAll('[name="_preset"]').length, 3);
-      var text = settingsForm.textContent;
-      ok(text.indexOf(t('goal.roasTarget')) > -1 && text.indexOf(t('goal.roasBreakEven')) > -1, 'money questions, not the technical names');
-      ok(text.indexOf(t('set.roasTarget')) < 0, 'no technical label on the main screen');
+    test('الشاشة الأساسية: سؤالين عن الفلوس وباقي الحدود في «المتقدمة» — من غير أنماط ولا «استعادة القيم الافتراضية» (مراجعة الإعدادات)', function () {
+      var keep = alertSettings;
+      try {
+        alertSettings = {};
+        renderSettingsForm();
+        var adv = settingsForm.querySelector('details.settings-advanced');
+        var main = Array.prototype.filter.call(settingsForm.querySelectorAll('input[type="text"]'), function (i) { return !adv.contains(i); }).map(function (i) { return i.name; });
+        eq(main, ['roasTarget', 'roasBreakEven']);
+        ok(adv.querySelector('[name="learningDays"]'), 'learning period in advanced');
+        eq(settingsForm.querySelectorAll('input[type="radio"]').length, 0, 'no presets');
+        ok(!document.getElementById('settingsReset'), 'no «back to defaults» button');
+        // المستهدف وحد الخسارة فاضيين لحد ما يتحددوا (مش ×٣ و×١)
+        eq([settingsForm.querySelector('[name="roasTarget"]').value, settingsForm.querySelector('[name="roasBreakEven"]').value], ['', '']);
+        // الحدود المتقدمة التسعة بس — السبعة المحذوفة مبقتش في الشاشة
+        eq(adv.querySelectorAll('input[type="text"]').length, 9);
+        ok(!adv.querySelector('[name="wasteCprMultiple"]') && !adv.querySelector('[name="scaleCprRatio"]'), 'removed settings are gone');
+        var text = settingsForm.textContent;
+        ok(text.indexOf(t('goal.roasTarget')) > -1 && text.indexOf(t('goal.roasBreakEven')) > -1, 'money questions, not the technical names');
+        ok(text.indexOf(t('set.roasTarget')) < 0, 'no technical label on the main screen');
+        // قيمة واحدة من الاتنين = خطأ (حكم الربح محتاج الاتنين)
+        settingsForm.querySelector('[name="roasTarget"]').value = '4';
+        var r = readSettingsForm();
+        ok(r.errors.length === 1 && r.errors[0].input.name === 'roasBreakEven', 'one goal alone is an error');
+      } finally { alertSettings = keep; }
+    });
+    test('إعدادات محفوظة بنمط قديم بتتحول مرة واحدة لقيمه الصريحة (اللي اختار «هادئ» حدوده متتغيرش)', function () {
+      var keep = localStorage.getItem(SETTINGS_KEY);
+      try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ _preset: 'calm', roasTarget: 5, roasBreakEven: 5, cprWarnMultiple: 1.8 }));
+        var v = loadAlertSettings();
+        eq([v._preset, v.roasTarget, v.cprWarnMultiple, v.cprCriticalMultiple, v.frequencyHigh], [undefined, 5, 1.8, 3, 8]);
+        ok(localStorage.getItem(SETTINGS_KEY).indexOf('_preset') < 0, 'stored back without the preset');
+      } finally { if (keep === null) localStorage.removeItem(SETTINGS_KEY); else localStorage.setItem(SETTINGS_KEY, keep); }
     });
 
-    test('نافذة أول مرة: تظهر مرة واحدة أول ما يتربط حساب، والحفظ بيتحقق من القيم، و«القيم المقترحة» أو Esc = الافتراضي', function () {
+    test('نافذة أول مرة: تظهر مرة واحدة أول ما يتربط حساب، وبتسأل عن المستهدف وحد الخسارة بس، و«لاحقاً» أو Esc = حكم الربح بيستنى', function () {
       var keepFlag = localStorage.getItem(WELCOME_KEY), keepSettings = alertSettings, hadMeta = activeSources.meta;
       try {
         localStorage.removeItem(WELCOME_KEY); alertSettings = {}; delete activeSources.meta;
@@ -2948,8 +3023,8 @@
         activeSources.meta = 'act_1';
         render();
         ok(!welcomeOverlay.classList.contains('hidden'), 'first account: the window opens');
-        eq(welcomeForm.querySelectorAll('[name="_welcomePreset"]').length, 3, 'its own radio group (not shared with the settings window)');
-        welcomeForm.querySelector('[name="_welcomePreset"][value="strict"]').checked = true;
+        eq(welcomeForm.querySelectorAll('input[type="radio"]').length, 0, 'no presets');
+        eq([welcomeForm.querySelector('[name="roasTarget"]').value, welcomeForm.querySelector('[name="roasBreakEven"]').value], ['', ''], 'goals start empty');
         welcomeForm.querySelector('[name="roasBreakEven"]').value = '٤';
         welcomeForm.querySelector('[name="roasTarget"]').value = '3';
         document.getElementById('welcomeSave').click();
@@ -2957,7 +3032,7 @@
         eq(JSON.stringify(alertSettings), '{}');
         welcomeForm.querySelector('[name="roasTarget"]').value = '5';
         document.getElementById('welcomeSave').click();
-        eq([alertSettings._preset, alertSettings.roasTarget, alertSettings.roasBreakEven], ['strict', 5, 4]);
+        eq([alertSettings._preset, alertSettings.roasTarget, alertSettings.roasBreakEven], [undefined, 5, 4]);
         ok(welcomeOverlay.classList.contains('hidden') && welcomeDone(), 'closed and never again');
         render();
         ok(welcomeOverlay.classList.contains('hidden'));
@@ -2965,12 +3040,12 @@
         localStorage.removeItem(WELCOME_KEY); alertSettings = {};
         render();
         closeOverlays();
-        ok(welcomeOverlay.classList.contains('hidden') && welcomeDone() && JSON.stringify(alertSettings) === '{}', 'Esc = suggested values, never again');
+        ok(welcomeOverlay.classList.contains('hidden') && welcomeDone() && JSON.stringify(alertSettings) === '{}', 'Esc = no goals (profit waits), never again');
 
         localStorage.removeItem(WELCOME_KEY); alertSettings = {};
         render();
         document.getElementById('welcomeSkip').click();
-        ok(welcomeDone() && JSON.stringify(alertSettings) === '{}', '«Use the suggested values»');
+        ok(welcomeDone() && JSON.stringify(alertSettings) === '{}', '«Later»: nothing saved, profit waits');
 
         localStorage.removeItem(WELCOME_KEY); alertSettings = { roasTarget: 4 };
         render();
@@ -3805,6 +3880,7 @@
         alertSettings = {};
         renderSettingsForm();
         inp('roasTarget').value = typed;
+        inp('roasBreakEven').value = '1';   // المستهدف وحد الخسارة مع بعض (مراجعة الإعدادات)
         document.getElementById('settingsSave').click();
         eq(alertSettings.roasTarget, 2.5, 'typed "' + typed + '"');
       });
@@ -3818,17 +3894,18 @@
     });
 
     // المراجعة التانية للمرحلة ٤ (ر٧٩): «1,000» في «أقل عدد نتائج» (حدّه ١٠٬٠٠٠) كان بيتحفظ ١ في صمت — الفاصلة كانت عشرية في كل الخانات
-    test('الإعدادات: «1,000» في خانة عدد = ألف مش ١، و«1,000» يوم برّه الحد = خطأ ظاهر (ر٧٩)', function () {
+    // من مراجعة الإعدادات الخانة الصحيحة الوحيدة «فترة التعلّم» (أيام، حدّها ٣٠) — «أقل عدد نتائج» و«يُعدّ قديماً» اتشالوا
+    test('الإعدادات: «1,000» في خانة أيام = ألف مش ١ (برّه الحد = خطأ ظاهر)، و«١٢» = ١٢ (ر٧٩)', function () {
       var inp = function (k) { return settingsForm.querySelector('[name="' + k + '"]'); };
       var save = function (k, typed) { alertSettings = {}; renderSettingsForm(); inp(k).value = typed; document.getElementById('settingsSave').click(); };
-      [['1,000', 1000], ['١٬٠٠٠', 1000], ['1,000 ', 1000], ['12', 12], ['١٢', 12]].forEach(function (x) {
-        save('scaleMinResults', x[0]);
-        eq(alertSettings.scaleMinResults, x[1], 'typed "' + x[0] + '"');
+      [['12', 12], ['١٢', 12], ['7 ', 7]].forEach(function (x) {
+        save('learningDays', x[0]);
+        eq(alertSettings.learningDays, x[1], 'typed "' + x[0] + '"');
       });
-      save('oldAdDays', '1,000');
-      eq(alertSettings.oldAdDays, undefined, 'not saved as 1 day');
-      ok(settingsForm.querySelector('.setting-row.invalid [name="oldAdDays"]'), 'out of range (730) is shown as an error');
-      save('roasTarget', '2,5');
+      save('learningDays', '1,000');
+      eq(alertSettings.learningDays, undefined, 'not saved as 1 day');
+      ok(settingsForm.querySelector('.setting-row.invalid [name="learningDays"]'), 'out of range (30) is shown as an error');
+      alertSettings = {}; renderSettingsForm(); inp('roasTarget').value = '2,5'; inp('roasBreakEven').value = '1'; document.getElementById('settingsSave').click();
       eq(alertSettings.roasTarget, 2.5, 'a multiplier keeps the decimal comma');
       settingsOverlay.classList.add('hidden');
     });
@@ -6115,15 +6192,16 @@
       });
     });
     // المرحلة ٥ (ق٥): البريد العاجل كان بالإعدادات الافتراضية حتى لو العميل اختار «هادي» — دلوقتي الحساسية الفعلية بتتبعت مع المستهدف
-    testAsync('تحديث الملخص بيبعت حساسية التنبيهات الفعلية (نمط «هادي») مع المستهدف وحد الخسارة', function () {
+    // من مراجعة الإعدادات من غير أنماط: القيم الصريحة المحفوظة هي اللي بتتبعت
+    testAsync('تحديث الملخص بيبعت حساسية التنبيهات الفعلية مع المستهدف وحد الخسارة', function () {
       var prev = alertSettings;
-      alertSettings = { _preset: 'calm', roasTarget: 4 };
+      alertSettings = { roasTarget: 4, roasBreakEven: 2, cprWarnMultiple: 2, minSpendShare: 0.05 };
       return withDigest(function () { return ok200({ ok: true }); }, function (calls) {
         digestAutoRefresh('act_9');
         var c = calls[0] || {};
         alertSettings = prev;
-        eq([c.action, c.target, c.sens && c.sens.wasteCprMultiple, c.sens && c.sens.minSpendShare, 'roasTarget' in (c.sens || {})],
-          ['digest.refresh', 4, 3, 0.05, false]);
+        eq([c.action, c.target, c.be, c.sens && c.sens.cprWarnMultiple, c.sens && c.sens.minSpendShare, 'roasTarget' in (c.sens || {})],
+          ['digest.refresh', 4, 2, 2, 0.05, false]);
       });
     });
     // المراجعة الثانية للمرحلة ٥ (٢٤ أكتوبر): جهاز مفيهوش إعدادات محفوظة كان بيبعت القيم الافتراضية كأنها اختيار العميل — فتح الأداة

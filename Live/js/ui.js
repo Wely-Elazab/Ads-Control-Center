@@ -283,7 +283,28 @@
 
   // إعدادات حدود التنبيهات بتتحفظ في متصفح المستخدم نفسه
   var SETTINGS_KEY = 'pauseproof.alertSettings.v1';
-  function loadAlertSettings() { try { var v = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch (e) { return {}; } }
+  // الأنماط اتشالت (مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦): اللي كان مختار «هادئ» أو «صارم» قيم نمطه بتتكتب صريحة مرة واحدة (نفس قيمه
+  // القديمة للحدود اللي فضلت) — من غيرها كانت حدوده هترجع لقيم البداية من غير ما يعرف. «متوازن» = قيم البداية نفسها
+  var LEGACY_PRESETS = {
+    calm: { cprWarnMultiple: 2, cprCriticalMultiple: 3, lowDeliveryRatio: 0.1, spikeMultiple: 3, frequencyHigh: 8, accountSpikeMultiple: 2, accountDropRatio: 0.3, minSpendShare: 0.05 },
+    strict: { cprWarnMultiple: 1.3, cprCriticalMultiple: 1.7, lowDeliveryRatio: 0.3, spikeMultiple: 1.5, frequencyHigh: 5, accountSpikeMultiple: 1.3, accountDropRatio: 0.6, minSpendShare: 0.01 }
+  };
+  function withoutPreset(v) {
+    if (!v || !('_preset' in v)) return v;
+    var out = {}, p = LEGACY_PRESETS[v._preset] || {};
+    Object.keys(p).forEach(function (k) { out[k] = p[k]; });
+    Object.keys(v).forEach(function (k) { if (k !== '_preset') out[k] = v[k]; });
+    return out;
+  }
+  function loadAlertSettings() {
+    try {
+      var v = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+      var w = withoutPreset(v);
+      if (w !== v) localStorage.setItem(SETTINGS_KEY, JSON.stringify(w));
+      return w;
+    } catch (e) { return {}; }
+  }
   function storeAlertSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); return true; } catch (e) { return false; } }
   var alertSettings = loadAlertSettings();
 
@@ -359,7 +380,11 @@
       var v = period.preset === 'last7' && !mv(c, metric) ? (adAnalysis(c).tones || {})[metric] : 0;
       return v > 0 ? ' tone-good' : (v < 0 ? ' tone-bad' : '');
     };
-    var tnTip = function (metric) { var k = tn(metric); return k ? ' — ' + t('chip.tone.' + metric + (k === ' tone-good' ? '.good' : '.bad')) : ''; };
+    // اللون على التكلفة بالنسبة لأقصى التكلفة المقبولة لو محددة (tones.cprMax — مراجعة الإعدادات)، وإلا بالنسبة لباقي الإعلانات
+    var tnTip = function (metric) {
+      var k = tn(metric), key = metric === 'cpr' && (adAnalysis(c).tones || {}).cprMax ? 'cprMax' : metric;
+      return k ? ' — ' + t('chip.tone.' + key + (k === ' tone-good' ? '.good' : '.bad')) : '';
+    };
     var tip = ' — ' + periodLabel();
     // شبكة أرقام بعنوان صغير تحت كل رقم (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: الكارت فيه نص وتفاصيل كتير — أرقام من غير عناوين
     // في سطرين بأشكال مختلفة). نفس الألوان: ملاحظة التنبيه (mv-*) أو اللون الخفيف من التقييم (tone-*)
@@ -2466,46 +2491,37 @@
   alertsListEl.addEventListener('keydown', openAlertAd);
 
   // ---------- إعدادات التنبيهات ----------
-  // الشاشة الأساسية بلغة صاحب المتجر: حساسية التنبيهات + سؤالين عن الفلوس (كم تبيع مقابل كل ١ بتصرفه، وتحت أي قيمة بتخسر).
-  // باقي الحدود (١٦ رقم بمصطلحاتها) تحت «إعدادات متقدمة لمسؤول الإعلانات» — قرار صاحب المنتج ٣ أكتوبر ٢٠٢٦.
+  // الشاشة الأساسية بلغة صاحب المتجر: سؤالين عن الفلوس (كم تبيع مقابل كل ١ بتصرفه، وتحت أي قيمة بتخسر). باقي الحدود تحت «إعدادات
+  // متقدمة لمسؤول الإعلانات» — قرار صاحب المنتج ٣ أكتوبر ٢٠٢٦. من مراجعة الإعدادات (٢٤ أكتوبر): من غير أنماط (هادئ/متوازن/صارم) ولا
+  // «استعادة القيم الافتراضية» (قرار صاحب المنتج)، والمستهدف وحد الخسارة فاضيين لحد ما العميل يحددهم.
   // نفس الجزء الأساسي بيظهر في نافذة أول مرة (welcomeOverlay تحت)
   var settingsOverlay = document.getElementById('settingsOverlay');
   var settingsForm = document.getElementById('settingsForm');
   var SETTING_UNITS = i18nMap({ multiple: 'unit.multiple', ratio: 'unit.ratio', days: 'unit.days', times: 'unit.times', count: 'unit.count' });
   var MAIN_SETTINGS = { roasTarget: true, roasBreakEven: true };
   var MAIN_ORDER = ['roasTarget', 'roasBreakEven'];
-  var PRESET_LABELS = {
-    calm: i18nMap({ name: 'preset.calm', help: 'preset.calm.help' }),
-    balanced: i18nMap({ name: 'preset.balanced', help: 'preset.balanced.help' }),
-    strict: i18nMap({ name: 'preset.strict', help: 'preset.strict.help' })
-  };
 
   // copyKey = نص الشاشة الأساسية بلغة صاحب المتجر (goal.*) بدل اسم الحد الفني (set.*) اللي في «المتقدمة»
+  // value = null (المستهدف أو حد الخسارة لسه مش محددين) = خانة فاضية
   function settingRow(m, value, copyKey) {
-    var shown = m.kind === 'ratio' ? Math.round(value * 100) : value;
+    var shown = value == null ? '' : (m.kind === 'ratio' ? Math.round(value * 100) : value);
     var step = m.kind === 'multiple' ? '0.1' : '1';
     var label = copyKey ? t(copyKey) : m.label, help = copyKey ? t(copyKey + '.help') : m.help;
     // نص مش number: خانة الأرقام بتعتبر «٢٫٥» أو «2,5» قيمة فاضية، فكانت بتتشال في صمت وترجع للافتراضي
     return '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(label) + '</span><span class="setting-help">' + esc(help) + '</span></span>' +
       '<span class="setting-input"><input type="text" inputmode="decimal" dir="ltr" autocomplete="off" spellcheck="false" data-step="' + step + '" name="' + m.key + '" value="' + shown + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
   }
-  // الحساسية + أهداف المتجر — radioName مختلف لكل نافذة: أزرار الاختيار برا <form> بتتجمّع بالاسم في الصفحة كلها
-  function settingsCoreHtml(current, preset, radioName) {
+  // أهداف المتجر (المستهدف وحد الخسارة)
+  function settingsCoreHtml(current) {
     var byKey = {};
     PauseProofAlerts.SETTINGS_META.forEach(function (m) { byKey[m.key] = m; });
-    return '<fieldset class="settings-group"><legend>' + t('settings.sensitivity') + '</legend><div class="preset-options">' +
-      Object.keys(PRESET_LABELS).map(function (p) {
-        return '<label class="preset-option"><input type="radio" name="' + radioName + '" value="' + p + '"' + (p === preset ? ' checked' : '') + '>' +
-          '<span class="preset-name">' + PRESET_LABELS[p].name + '</span><span class="preset-help">' + PRESET_LABELS[p].help + '</span></label>';
-      }).join('') + '</div></fieldset>' +
-      '<fieldset class="settings-group"><legend>' + t('settings.goals') + '</legend>' +
+    return '<fieldset class="settings-group"><legend>' + t('settings.goals') + '</legend>' +
       MAIN_ORDER.map(function (k) { return settingRow(byKey[k], current[k], 'goal.' + k); }).join('') +
       '</fieldset>';
   }
 
   function renderSettingsForm() {
     var current = PauseProofAlerts.mergeSettings(alertSettings);
-    var preset = alertSettings._preset || 'balanced';
     var groups = {};
     PauseProofAlerts.SETTINGS_META.forEach(function (m) {
       if (MAIN_SETTINGS[m.key]) return;
@@ -2515,21 +2531,10 @@
       Object.keys(groups).map(function (g) {
         return '<fieldset class="settings-group"><legend>' + esc(g) + '</legend>' + groups[g].map(function (m) { return settingRow(m, current[m.key]); }).join('') + '</fieldset>';
       }).join('') + '</details>';
-    settingsForm.innerHTML = settingsCoreHtml(current, preset, '_preset') + advancedHtml;
+    settingsForm.innerHTML = settingsCoreHtml(current) + advancedHtml;
     var errEl = document.getElementById('settingsError');
     if (errEl) errEl.textContent = '';
   }
-
-  // اختيار نمط بيملّي الحدود المتقدمة بقيمه على طول (والمستخدم يقدر يعدّل بعدها)
-  settingsForm.addEventListener('change', function (e) {
-    if (e.target.name !== '_preset') return;
-    var values = PauseProofAlerts.presetSettings(e.target.value);
-    PauseProofAlerts.SETTINGS_META.forEach(function (m) {
-      if (MAIN_SETTINGS[m.key]) return;
-      var input = settingsForm.querySelector('[name="' + m.key + '"]');
-      if (input) input.value = m.kind === 'ratio' ? Math.round(values[m.key] * 100) : values[m.key];
-    });
-  });
 
   function openAlertSettings() { renderSettingsForm(); settingsOverlay.classList.remove('hidden'); }
   document.getElementById('openSettingsBtn').addEventListener('click', openAlertSettings);
@@ -2537,12 +2542,6 @@
   document.querySelectorAll('[data-open-settings]').forEach(function (b) { b.addEventListener('click', openAlertSettings); });
   document.getElementById('settingsClose').addEventListener('click', function () { settingsOverlay.classList.add('hidden'); });
   settingsOverlay.addEventListener('click', function (e) { if (e.target === settingsOverlay) settingsOverlay.classList.add('hidden'); });
-  document.getElementById('settingsReset').addEventListener('click', function () {
-    alertSettings = {};
-    storeAlertSettings(alertSettings);
-    renderSettingsForm();
-    render();
-  });
   // التحقق قبل الحفظ: كل قيمة جوه حدودها، والحدود المرتبطة مترتبة (حد «مراجعة» أكبر من «تحسين»...).
   // قبل كده القيمة الغلط كانت بترجع للافتراضي من غير ما العميل يعرف، والحدود المتلخبطة كانت بتتقبل
   var settingsErrorEl = document.getElementById('settingsError');
@@ -2581,16 +2580,15 @@
     if (whole) s = s.replace(/[\u066C,](?=\d{3}(?!\d))/g, '');
     return s.replace(/[\u066B,]/g, '.').replace(/\s+/g, '');
   }
-  function readSettingsForm(root, radioName) {
+  function readSettingsForm(root) {
     root = root || settingsForm;
-    var picked = root.querySelector('[name="' + (radioName || '_preset') + '"]:checked');
-    var next = { _preset: picked ? picked.value : 'balanced' }, errors = [];
+    var next = {}, errors = [];
     var inputOf = function (key) { return root.querySelector('[name="' + key + '"]'); };
     PauseProofAlerts.SETTINGS_META.forEach(function (m) {
       var input = inputOf(m.key);
       if (!input) return;
       var txt = settingNumberText(input.value, m.kind === 'count' || m.kind === 'days');
-      if (txt === '') return; // فاضي = قيمة النمط المختار
+      if (txt === '') return; // فاضي: الحد بقيمة البداية، والمستهدف وحد الخسارة مش محددين (حكم الربح بيستنى)
       var raw = /^\d*\.?\d+$/.test(txt) ? parseFloat(txt) : NaN;
       if (!isFinite(raw) || raw < m.min || raw > m.max) {
         errors.push({ input: input, text: t('set.err.range', { min: numAr(m.min), max: numAr(m.max) }) });
@@ -2598,9 +2596,15 @@
       }
       next[m.key] = m.kind === 'ratio' ? raw / 100 : raw;
     });
+    // المستهدف وحد الخسارة مع بعض أو ولا واحد: حكم الربح محتاج الاتنين، وواحد لوحده كان هيتحفظ من غير أي أثر
+    var goalsIn = PauseProofAlerts.GOAL_KEYS.filter(function (k) { return next[k] != null; });
+    if (goalsIn.length === 1) {
+      var missing = PauseProofAlerts.GOAL_KEYS.filter(function (k) { return next[k] == null; })[0];
+      if (inputOf(missing)) errors.push({ input: inputOf(missing), text: t('set.err.goalPair') });
+    }
     var eff = PauseProofAlerts.mergeSettings(next);
     PauseProofAlerts.SETTINGS_ORDER.forEach(function (o) {
-      if (eff[o[0]] > eff[o[1]] && inputOf(o[1])) errors.push({ input: inputOf(o[1]), text: t(o[2]) });
+      if (eff[o[0]] != null && eff[o[1]] != null && eff[o[0]] > eff[o[1]] && inputOf(o[1])) errors.push({ input: inputOf(o[1]), text: t(o[2]) });
     });
     return { values: next, errors: errors };
   }
@@ -2617,11 +2621,9 @@
   });
 
   // ---------- نافذة أول مرة: ضبط التنبيهات على أهداف المتجر ----------
-  // أول ما العميل يربط حساب (أي منصة) وهو لسه مسجّلش إعدادات، بتظهر مرة واحدة: الحساسية + السؤالين عن الفلوس،
-  // مع توضيح إنها بتتعدّل في أي وقت من «التنبيهات» ← «إعدادات التنبيهات». بتظهر وهو الحساب بيتحمّل، فوقت الانتظار
-  // بيتستغل ومش بتغطي النتيجة بعد ما تظهر. «استخدم القيم المقترحة» أو ✕ أو Esc = الافتراضي، ومش بتظهر تاني.
-  // ملحوظة: الإعدادات دي محفوظة في المتصفح وبتأثر على التنبيهات جوه الأداة. البريد (runner.ts) بياخد منها المستهدف وحد الخسارة
-  // بس (digestTarget — من ٧ أكتوبر ٢٠٢٦)، وباقي الحساسية بالقيم الافتراضية
+  // أول ما العميل يربط حساب (أي منصة) وهو لسه مسجّلش إعدادات، بتظهر مرة واحدة: السؤالين عن الفلوس (المستهدف وحد الخسارة)،
+  // مع توضيح إنها بتتعدّل في أي وقت من «الإعدادات» ← «إعدادات التنبيهات». بتظهر وهو الحساب بيتحمّل، فوقت الانتظار
+  // بيتستغل ومش بتغطي النتيجة بعد ما تظهر. «لاحقاً» أو ✕ أو Esc = حكم الربح بيستنى (مراجعة الإعدادات ٢٤ أكتوبر)، ومش بتظهر تاني.
   var welcomeOverlay = document.getElementById('welcomeOverlay');
   var welcomeForm = document.getElementById('welcomeForm');
   var welcomeErrorEl = document.getElementById('welcomeError');
@@ -2634,16 +2636,16 @@
     if (Object.keys(alertSettings).length) { markWelcomeDone(); return; }
     // نافذة تانية مفتوحة (اختيار المنصة مثلاً) — نستنى الرسم الجاي
     if (document.querySelector('.expand-overlay:not(.hidden)')) return;
-    welcomeForm.innerHTML = settingsCoreHtml(PauseProofAlerts.mergeSettings({}), 'balanced', '_welcomePreset');
+    welcomeForm.innerHTML = settingsCoreHtml(PauseProofAlerts.mergeSettings({}));
     clearSettingsErrors(welcomeForm, welcomeErrorEl);
     welcomeOverlay.classList.remove('hidden');
   }
   function closeWelcome() { markWelcomeDone(); welcomeOverlay.classList.add('hidden'); }
   document.getElementById('welcomeSave').addEventListener('click', function () {
     clearSettingsErrors(welcomeForm, welcomeErrorEl);
-    var r = readSettingsForm(welcomeForm, '_welcomePreset');
+    var r = readSettingsForm(welcomeForm);
     if (showSettingsErrors(r, welcomeErrorEl)) return;
-    alertSettings = r.values;
+    alertSettings = Object.assign({}, alertSettings, r.values);
     var saved = storeAlertSettings(alertSettings);
     closeWelcome();
     render();

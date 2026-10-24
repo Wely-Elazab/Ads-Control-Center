@@ -388,11 +388,6 @@
   .stopped-note { margin: 0; max-width: 460px; text-align: center; font-size: 12px; line-height: 1.7; color: var(--ink-faint); }
   .summary-boxes.summary-boxes-3 { grid-template-columns: repeat(3, 1fr); }
   @media (max-width: 520px) { .summary-boxes.summary-boxes-3 { grid-template-columns: 1fr; } }
-  .preset-options { display: grid; gap: 8px; padding: 6px 0 10px; }
-  .preset-option { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
-  .preset-option input { grid-row: span 2; accent-color: var(--verified); width: 18px; height: 18px; }
-  .preset-name { font-size: 13.5px; font-weight: 700; }
-  .preset-help { font-size: 11.5px; color: var(--ink-soft); }
   .settings-advanced { margin-top: 14px; }
   .settings-advanced summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink-soft); padding: 8px 0; }
   .settings-group { border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px 2px; margin: 14px 0 0; }
@@ -1362,12 +1357,11 @@
     <button class="expand-close" id="settingsClose" aria-label="إغلاق" data-i18n-aria="btn.close">✕</button>
     <div class="expand-body" style="padding-top:24px;">
       <div class="expand-title" id="settingsTitle" data-i18n="settings.title">إعدادات التنبيهات</div>
-      <div class="expand-sub" data-i18n="settings.sub">القيم الافتراضية محسوبة وفق أداء حسابك نفسه، فتناسب أي حجم ميزانية. عدّلها إن كانت لديك أهداف مختلفة، وستُحفظ على هذا المتصفح.</div>
+      <div class="expand-sub" data-i18n="settings.sub">لهذا الحساب الإعلاني وحده. الحدود تُقاس بأداء الحساب نفسه فتناسب أي حجم ميزانية، أما المستهدف وحد الخسارة فمن هامش ربح متجرك، ولا نحكم على الربح قبل أن تحددهما.</div>
       <div id="settingsForm"></div>
       <div class="settings-error" id="settingsError" role="alert"></div>
       <div class="settings-actions">
         <button type="button" class="stop-btn" id="settingsSave" data-i18n="settings.save">حفظ</button>
-        <button type="button" class="ghost-btn" id="settingsReset" data-i18n="settings.reset">استعادة القيم الافتراضية</button>
       </div>
     </div>
   </div>
@@ -1379,12 +1373,12 @@
     <button class="expand-close" id="welcomeClose" aria-label="إغلاق" data-i18n-aria="btn.close">✕</button>
     <div class="expand-body" style="padding-top:24px;">
       <div class="expand-title" id="welcomeTitle" data-i18n="welcome.title">لنضبط التنبيهات على أهداف متجرك</div>
-      <div class="expand-sub" data-i18n="welcome.sub">ثلاثة اختيارات تكفي لتناسبك التنبيهات، ويمكنك تعديلها في أي وقت من تبويب «التنبيهات» ← «إعدادات التنبيهات».</div>
+      <div class="expand-sub" data-i18n="welcome.sub">سؤالان عن هامش ربحك يكفيان لنحكم على ربح إعلاناتك، ويمكنك تعديلهما في أي وقت من «الإعدادات» ← «إعدادات التنبيهات». وقبل أن تحددهما لا نحكم على الربح، وتعمل بقية التنبيهات.</div>
       <div id="welcomeForm"></div>
       <div class="settings-error" id="welcomeError" role="alert"></div>
       <div class="settings-actions">
         <button type="button" class="stop-btn" id="welcomeSave" data-i18n="welcome.save">حفظ</button>
-        <button type="button" class="ghost-btn" id="welcomeSkip" data-i18n="welcome.skip">استخدم القيم المقترحة</button>
+        <button type="button" class="ghost-btn" id="welcomeSkip" data-i18n="welcome.skip">لاحقاً</button>
       </div>
     </div>
   </div>
