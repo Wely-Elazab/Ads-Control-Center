@@ -58,7 +58,8 @@ for i in $(seq 1 24); do
   for f in $(git ls-tree --name-only "$sha" Live/js/ | grep '\.js$'); do
     if echo "$skip" | grep -qx "$f"; then continue; fi
     l=$(git show "$sha:$f" | tr -d '\r' | md5sum | cut -c1-32)
-    r=$(curl -s "$site/${f#Live/}?v=$RANDOM" | tr -d '\r' | md5sum | cut -c1-32)
+    # عطل اتصال عابر (curl 35 يوم ٢٥ أكتوبر) يتحسب ملف مش مطابق ونعيد اللفة، بدل ما set -e يقفل السكربت
+    r=$({ curl -s --retry 3 "$site/${f#Live/}?v=$RANDOM" || true; } | tr -d '\r' | md5sum | cut -c1-32)
     [ "$l" = "$r" ] || diff=$((diff + 1))
   done
   if [ "$diff" -eq 0 ]; then echo "live: every Live/js file matches ${sha:0:7}"; exit 0; fi

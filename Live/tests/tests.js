@@ -2801,6 +2801,16 @@
         eq(list.map(function (c) { return c.thumbUrl; }), ['https://adsapi.snapchat.com/t1', 'https://adsapi.snapchat.com/t1', 'https://adsapi.snapchat.com/t2', 'https://cdn.example/i.jpg']);
       }).then(restore, function (e) { restore(); throw e; });
     });
+    // طلب صاحب المنتج ٢٥ أكتوبر: «فيديوهات ميتا تظهر بمساحة إضافية فارغة داخل الكارت» — صفحة المعاينة بترسم الإعلان في صندوق بمقاس
+    // Meta بالظبط (فحص حي: ٣٢٠×٥٢٥ إنستغرام، ٣٣٥×٤٥٠ فيسبوك)، والإطار الثابت ٣٦٠×٧٦٠ كان بيضيف فراغ تحته
+    test('معاينة Meta بمقاس Meta نفسها للصيغة، والمقاس الثابت لو مقاس Meta مش معقول (ريلز ٢٧٤×٢١٣)', function () {
+      var body = function (w, h) { return '<iframe src="https://www.facebook.com/ads/api/preview_iframe.php?d=x" width="' + w + '" height="' + h + '" scrolling="yes"></iframe>'; };
+      eq(metaPreviewSize(body(320, 525), 'ig'), { w: 320, h: 525 });
+      eq(metaPreviewSize(body(335, 450), 'fb'), { w: 335, h: 450 });
+      eq(metaPreviewSize(body(274, 213), 'reels'), PREVIEW_SIZES.reels, 'too short: the fixed size');
+      eq(metaPreviewSize('<p>no frame</p>', 'ig'), PREVIEW_SIZES.ig);
+      ok(/width:320px;height:525px/.test(metaIframeHtml(body(320, 525), metaPreviewSize(body(320, 525), 'ig'))), 'the frame takes Meta\'s size');
+    });
     test('Snapchat: تغيير السجل ← تعديل بشكل Meta (الميزانية بالمايكرو، ٢٠٪ على الأقل، والإيقاف مش وسم)، واليوم بتوقيت الحساب', function () {
       var ch = function (level, at, fields) { return { level: level, id: 'x', at: at, fields: fields }; };
       eq(snapEditsOf(ch('adsquad', '2026-10-24T10:00:00.000Z', { daily_budget_micro: { before: 20000000, after: 25000000 }, targeting: { changed: true } }), 'Asia/Riyadh'), [

@@ -2418,8 +2418,19 @@
   // فيسبوك بتقول «No permission to access this profile» لو صفحة فيسبوك مقيّدة، ومنقدرش نعرف ده من برّه الإطار — حساب حقيقي).
   // الكتالوج: Meta بتختار منتجات من الكتالوج في المعاينة (كاروسيل = أكتر من منتج). الصور العادية بالملف الأصلي زي ما هي
   var PREVIEW_FORMATS = { ig: 'INSTAGRAM_STANDARD', reels: 'INSTAGRAM_REELS', fb: 'MOBILE_FEED_STANDARD' };
-  // مقاس ثابت لكل صيغة (مقاس Meta أصغر من المحتوى — core.js metaIframeHtml)، وبيتصغّر بنفس النسبة على الشاشة الضيقة (fitEmbeds)
+  // المقاس الثابت القديم — بيستخدم بس لو مقاس Meta مش معقول (metaPreviewSize)، وبيتصغّر بنفس النسبة على الشاشة الضيقة (fitEmbeds)
   var PREVIEW_SIZES = { ig: { w: 360, h: 760 }, reels: { w: 360, h: 720 }, fb: { w: 380, h: 720 } };
+  // مقاس Meta نفسها للصيغة (طلب صاحب المنتج ٢٥ أكتوبر: «فيديوهات ميتا تظهر بمساحة إضافية فارغة داخل الكارت»). فحص حي: صفحة المعاينة
+  // بترسم الإعلان في صندوق بمقاس Meta بالظبط وبتمرير جوّاه (٣٢٠×٥٢٥ لإنستغرام، و٣٣٥×٤٥٠ لفيسبوك) — الإطار الأكبر مكانش بيعرض محتوى
+  // زيادة، كان بيضيف فراغ تحت الصندوق. ارتفاع أقل من ٣٠٠ (ريلز رجّعت ٢٧٤×٢١٣) = المقاس الثابت القديم
+  function metaPreviewSize(html, k) {
+    try {
+      var f = new DOMParser().parseFromString(String(html || ''), 'text/html').querySelector('iframe');
+      var w = f && parseInt(f.getAttribute('width'), 10), h = f && parseInt(f.getAttribute('height'), 10);
+      if (w >= 200 && w <= 1000 && h >= 300 && h <= 2000) return { w: w, h: h };
+    } catch (e) { /* المقاس الثابت */ }
+    return PREVIEW_SIZES[k];
+  }
   var previewCache = {}, previewSeq = 0;
   function previewTabsHtml(order, cur) {
     return '<div class="pv-tabs" role="tablist">' + order.map(function (k) {
@@ -2443,7 +2454,7 @@
       if (previewCache[key]) { show(previewCache[key]); return; }
       metaApi('/' + c.id + '/previews', { ad_format: PREVIEW_FORMATS[k] }, function (resp) {
         if (openSeq !== expandSeq || mine !== previewSeq) return;
-        var frame = resp && resp.data && resp.data[0] && metaIframeHtml(resp.data[0].body, PREVIEW_SIZES[k]);
+        var frame = resp && resp.data && resp.data[0] && metaIframeHtml(resp.data[0].body, metaPreviewSize(resp.data[0].body, k));
         if (frame) { previewCache[key] = frame; show(frame); return; }
         // الصيغة الأولى فشلت في فيديو: بيانات الفيديو مباشرة زي الأول
         if (first && c.videoId) videoFallback(c, body, openSeq);
