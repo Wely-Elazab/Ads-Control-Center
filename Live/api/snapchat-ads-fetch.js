@@ -141,6 +141,13 @@ export function snapMedia(m) {
 export const CHANGE_IDS_MAX = 20;
 const CHANGE_PATH = { campaign: 'campaigns', adsquad: 'adsquads', ad: 'ads' };
 const CHANGE_FIELD = /^(status|creative_id|targeting.*|bid_micro|bid_strategy|auto_bid|target_bid|[a-z_]*budget_micro|[a-z_]*spend_cap_micro)$/;
+// الاستهداف «اتغيّر» بس لو قيمته قبل وبعد مختلفة فعلاً (بعد ترتيب المفاتيح): حساب حقيقي ٢٥ أكتوبر — كل خفض ميزانية في كل مجموعة
+// كان معاه «تعديل استهداف» في نفس الدقيقة، والأرجح إن Snapchat بيسجّل الحقل مع أي حفظ للمجموعة
+function canon(v) {
+  if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(function (k) { return JSON.stringify(k) + ':' + canon(v[k]); }).join(',') + '}';
+  return JSON.stringify(v === undefined ? null : v);
+}
 export function snapChanges(level, id, data) {
   const out = [];
   ((data && data.changelogs) || []).forEach(function (item) {
@@ -153,6 +160,8 @@ export function snapChanges(level, id, data) {
       if (!CHANGE_FIELD.test(f)) return;
       const r = recs[f] || {};
       const val = function (v) { return v == null || typeof v === 'object' ? null : v; };
+      // وأي حقل قيمته زي ما هي = مش تعديل (المزايدة والحالة كمان)
+      if (canon(r.before_value) === canon(r.after_value)) return;
       fields[f] = /^targeting/.test(f) ? { changed: true } : { before: val(r.before_value), after: val(r.after_value) };
     });
     if (Object.keys(fields).length) out.push({ level: level, id: String(id), at: String(at), fields: fields });

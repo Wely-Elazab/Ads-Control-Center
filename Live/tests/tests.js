@@ -2647,7 +2647,11 @@
           daily_budget_micro: { before_value: 20000000, after_value: 25000000 }, name: { before_value: 'x', after_value: 'y' },
           targeting: { before_value: { geos: [{ country_code: 'sa' }] }, after_value: { geos: [{ country_code: 'ae' }] } } } } }],
         a1: [{ changelog: { event_at: '2026-10-23T08:00:00.000Z', action: 'CREATED' } },
-          { changelog: { event_at: '2026-10-24T09:00:00.000Z', action: 'UPDATED', update_value_records: { creative_id: { before_value: 'cr1', after_value: 'cr2' } } } }]
+          { changelog: { event_at: '2026-10-24T09:00:00.000Z', action: 'UPDATED', update_value_records: { creative_id: { before_value: 'cr1', after_value: 'cr2' } } } }],
+        // حساب حقيقي ٢٥ أكتوبر: الاستهداف بيتسجّل مع خفض الميزانية بنفس قيمته (المفاتيح بترتيب تاني) — ده مش تعديل استهداف
+        s2: [{ changelog: { event_at: '2026-10-24T09:30:00.000Z', action: 'UPDATED', update_value_records: {
+          daily_budget_micro: { before_value: 100000000, after_value: 10000000 }, bid_micro: { before_value: 5, after_value: 5 },
+          targeting: { before_value: { geos: [{ country_code: 'sa' }], regulated_content: false }, after_value: { regulated_content: false, geos: [{ country_code: 'sa' }] } } } } }]
       };
       window.fetch = function (url) {
         var u = String(url), m = u.match(/\/v1\/(campaigns|adsquads|ads)\/([^/]+)\/external_changelogs\?limit=50$/);
@@ -2661,15 +2665,16 @@
       var mod = null;
       return import('/api/snapchat-ads-fetch.js').then(function (m) {
         mod = m;
-        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'changes', ids: { campaign: ['c1'], adsquad: ['s1'], ad: ['a1', 'bad'] } } }, res);
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'changes', ids: { campaign: ['c1'], adsquad: ['s1', 's2'], ad: ['a1', 'bad'] } } }, res);
       }).then(function () {
-        eq([out.asked, out.failed, asked.length], [4, 1, 4]);
+        eq([out.asked, out.failed, asked.length], [5, 1, 5]);
         var by = {};
         out.changes.forEach(function (ch) { by[ch.level + ':' + ch.id] = ch.fields; });
         eq(by['campaign:c1'], { status: { before: 'PAUSED', after: 'ACTIVE' } });
         eq(by['adsquad:s1'], { daily_budget_micro: { before: 20000000, after: 25000000 }, targeting: { changed: true } }, 'name dropped, targeting without its values');
+        eq(by['adsquad:s2'], { daily_budget_micro: { before: 100000000, after: 10000000 } }, 'same targeting (other key order) and same bid are not edits');
         eq(by['ad:a1'], { creative_id: { before: 'cr1', after: 'cr2' } });
-        eq(out.changes.length, 3, 'the CREATED entry without changed fields is dropped');
+        eq(out.changes.length, 4, 'the CREATED entry without changed fields is dropped');
         // لحد CHANGE_IDS_MAX عنصر في الطلب الواحد
         asked = [];
         var many = []; for (var i = 0; i < 30; i++) many.push('x' + i);
