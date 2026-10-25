@@ -2483,10 +2483,30 @@
         (vsrc ? '<a class="open-platform" href="' + esc(vsrc) + '" target="_blank" rel="noopener noreferrer">' + esc(t('x.pv.snapVideoFile')) + ' ↗</a>' : '') + '</div><div class="snap-page"></div>';
       pageBtn();
     };
-    if (!vsrc) {
-      // صورة أو كتالوج: اللي بيظهر زي ما هو (previewMarkup)، وتحته زرار معاينة الإعلان
+    if (!vsrc && c.snapProductSetId) {
+      // الكتالوج: منتجات المجموعة (snapchat.js loadSnapchatCatalog)، ومن غير زرار المعاينة لو ديناميكي (Snapchat بيقول «Preview Not
+      // Supported» — اتجرّب ٢٥ أكتوبر)
+      var showItems = function (items) {
+        if (openSeq !== expandSeq) return;
+        if (!items || !items.length) return;
+        el.innerHTML = catalogGridHtml(items.map(function (p) {
+          return { image: p.image, name: p.name, price: p.price && p.price.value > 0 ? money(p.price.value, p.price.currency || c.currency) : '', url: p.url };
+        })) + '<div class="snap-page"></div>';
+        if (!c.snapDynamic && c.snapCreativeId) ask().then(function () { if (openSeq === expandSeq) pageBtn(); });
+      };
       el.innerHTML = previewMarkup(c) + '<div class="snap-page"></div>';
-      if (c.snapCreativeId) ask().then(function () { if (openSeq === expandSeq) pageBtn(); });
+      if (typeof snapProducts !== 'undefined' && snapProducts[c.snapProductSetId]) showItems(snapProducts[c.snapProductSetId]);
+      else apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'products', productSetId: c.snapProductSetId }).then(function (res) {
+        var list = res.ok && res.data && Array.isArray(res.data.products) ? res.data.products : [];
+        if (typeof snapProducts !== 'undefined') snapProducts[c.snapProductSetId] = list;
+        showItems(list);
+      }, function () { /* المعاينة زي ما هي */ });
+      return;
+    }
+    if (!vsrc) {
+      // صورة: اللي بيظهر زي ما هو (previewMarkup)، وتحته زرار معاينة الإعلان
+      el.innerHTML = previewMarkup(c) + '<div class="snap-page"></div>';
+      if (c.snapCreativeId && !c.snapDynamic) ask().then(function () { if (openSeq === expandSeq) pageBtn(); });
       return;
     }
     el.innerHTML = '<div class="snap-video-wrap"><video class="real-video" controls playsinline preload="auto"' + (poster ? ' poster="' + esc(poster) + '"' : '') + '></video></div>' +
@@ -2510,7 +2530,7 @@
     });
     v.src = vsrc;
     play();
-    if (c.snapCreativeId) ask().then(function () { if (openSeq === expandSeq) pageBtn(); });
+    if (c.snapCreativeId && !c.snapDynamic) ask().then(function () { if (openSeq === expandSeq) pageBtn(); });
   }
   var CATALOG_MAX = 8;
   // «SAR329.00» → ٣٢٩ ر.س — وأي شكل تاني بيتعرض زي ما هو
@@ -2518,17 +2538,21 @@
     var m = /^([A-Z]{3})\s?([\d,]+(?:\.\d+)?)$/.exec(String(p || '').trim());
     return m ? money(parseFloat(m[2].replace(/,/g, '')), m[1]) : String(p || '');
   }
+  // شبكة منتجات الكتالوج (Meta: catalogGrid، وSnapchat: snapMediaView) — items = [{ image, name, price (نص جاهز), url }]
+  function catalogGridHtml(items) {
+    return '<p class="cat-title">' + esc(t('x.cat.title')) + '</p><div class="cat-grid">' + items.map(function (p) {
+      var img = safeUrl(p.image), href = safeUrl(p.url);
+      var inner = (img ? '<img class="cat-img" src="' + esc(img) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '<span class="cat-img"></span>') +
+        '<span class="cat-name" dir="auto">' + esc(p.name || '') + '</span>' + (p.price ? '<span class="cat-price">' + esc(p.price) + '</span>' : '');
+      return href ? '<a class="cat-item" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>' : '<div class="cat-item">' + inner + '</div>';
+    }).join('') + '</div><p class="pv-hint">' + esc(t('x.cat.note', { n: ar(items.length) })) + '</p>';
+  }
   function catalogGrid(c, el, openSeq, onFail) {
     metaApi('/' + c.productSetId + '/products', { fields: 'id,name,image_url,price,url', limit: CATALOG_MAX }, function (resp) {
       if (openSeq !== expandSeq) return;
       var items = (resp && !resp.error && resp.data) || [];
       if (!items.length) { onFail(); return; }
-      el.innerHTML = '<p class="cat-title">' + esc(t('x.cat.title')) + '</p><div class="cat-grid">' + items.map(function (p) {
-        var img = safeUrl(p.image_url), href = safeUrl(p.url);
-        var inner = (img ? '<img class="cat-img" src="' + esc(img) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '<span class="cat-img"></span>') +
-          '<span class="cat-name" dir="auto">' + esc(p.name || '') + '</span>' + (p.price ? '<span class="cat-price">' + esc(catalogPrice(p.price)) + '</span>' : '');
-        return href ? '<a class="cat-item" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>' : '<div class="cat-item">' + inner + '</div>';
-      }).join('') + '</div><p class="pv-hint">' + esc(t('x.cat.note', { n: ar(items.length) })) + '</p>';
+      el.innerHTML = catalogGridHtml(items.map(function (p) { return { image: p.image_url, name: p.name, price: p.price ? catalogPrice(p.price) : '', url: p.url }; }));
     });
   }
   function videoFallback(c, el, openSeq) {

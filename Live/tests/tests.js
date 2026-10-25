@@ -2605,7 +2605,7 @@
         window.fetch = realFetch;
         eq(out.ads.map(function (a) { return a.id; }), ['spent', 'live'], 'dead and not-delivering ads dropped');
         eq([out.squads.map(function (s) { return s.id; }), out.campaigns.map(function (c) { return c.id; })], [['sq1', 'sq2'], ['c1', 'c2']], 'only the squads and campaigns in use');
-        eq(out.creatives, { cr1: { type: 'WEB_VIEW', headline: 'Summer sale', brand: 'Shop', cta: 'SHOP_NOW', mediaId: 'm1', url: 'https://shop.example/p' } });
+        eq(out.creatives, { cr1: { type: 'WEB_VIEW', headline: 'Summer sale', brand: 'Shop', cta: 'SHOP_NOW', mediaId: 'm1', url: 'https://shop.example/p', dynamic: false, productSetId: null } });
         eq(out.media, { m1: { type: 'VIDEO', url: 'https://cdn.example/v.mp4', w: null, h: null, duration: 15 } });
         ok(!('_probe' in out), 'no debug data unless asked');
       }, function (e) { window.fetch = realFetch; throw e; });
@@ -2747,6 +2747,36 @@
           [null, null, null], 'http, a look-alike domain and a malformed preview link are refused');
       }).then(function () { window.fetch = realFetch; Object.assign(mod.CHANGE_TIMING, timing); },
         function (e) { window.fetch = realFetch; if (timing) Object.assign(mod.CHANGE_TIMING, timing); throw e; });
+    });
+    // إعلان الكتالوج كان «إعلان مجموعة منتجات» من غير صورة، ومعاينة Snapchat بتقول له «Preview Not Supported» (اتجرّب ٢٥ أكتوبر):
+    // منتجات المجموعة من الكتالوج (توثيق Snap: GET /product_sets/{id} ← catalog_id، وPOST /catalogs/{id}/products/search)
+    testAsync('Snapchat: منتجات إعلان الكتالوج (المجموعة ← الكتالوج ← البحث بالمجموعة)، والقصة بوسيط أول لقطة فيها', function () {
+      var realFetch = window.fetch, asked = [];
+      var json = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
+      window.fetch = function (url, init) {
+        var u = String(url);
+        asked.push((init && init.method || 'GET') + ' ' + u.replace(/^https:\/\/adsapi\.snapchat\.com\/v1/, '') + (init && init.body ? ' ' + init.body : ''));
+        if (/\/v1\/product_sets\/ps1$/.test(u)) return json({ request_status: 'SUCCESS', product_sets: [{ sub_request_status: 'SUCCESS', product_set: { id: 'ps1', catalog_id: 'cat1', name: 'In Stock' } }] });
+        if (/\/v1\/catalogs\/cat1\/products\/search$/.test(u)) return json({ request_status: 'SUCCESS', products: [
+          { sub_request_status: 'SUCCESS', product: { title: 'Diamond Cut', link: 'https://shop.example/p/1', image_link: 'https://shop.example/i/1.jpg', price: { value: '329.00', currency: 'SAR' } } },
+          { sub_request_status: 'SUCCESS', product: { title: 'Willow', link: 'javascript:alert(1)', image_link: 'http://shop.example/i/2.jpg', price: { value: '299', currency: 'SAR' }, sale_price: { value: '199', currency: 'SAR' } } }] });
+        return json({});
+      };
+      var out = null;
+      var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      var mod = null;
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        mod = m;
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'products', productSetId: 'ps1' } }, res);
+      }).then(function () {
+        eq(asked, ['GET /product_sets/ps1', 'POST /catalogs/cat1/products/search {"limit":50,"filter":{"PRODUCT_SET_ID":{"EQ":"ps1"}}}']);
+        eq(out.products, [
+          { name: 'Diamond Cut', image: 'https://shop.example/i/1.jpg', url: 'https://shop.example/p/1', price: { value: 329, currency: 'SAR' } },
+          { name: 'Willow', image: null, url: null, price: { value: 199, currency: 'SAR' } }], 'https only, and the sale price when there is one');
+        // الكتالوج الديناميكي بمجموعته، والقصة (COMPOSITE) ملهاش وسيط لوحدها
+        eq(mod.snapCreative({ type: 'COLLECTION', render_type: 'DYNAMIC', dynamic_render_properties: { product_set_id: 'ps1' }, collection_properties: {} }),
+          { type: 'COLLECTION', headline: null, brand: null, cta: null, mediaId: null, url: null, dynamic: true, productSetId: 'ps1' });
+      }).then(function () { window.fetch = realFetch; }, function (e) { window.fetch = realFetch; throw e; });
     });
     testAsync('Snapchat: صورة الفيديو بتوصل للكروت (كل الإعلانات اللي على نفس الوسيط)، والصور والإعلانات المتوقفة برّه الطلب', function () {
       var saved = { apiPost: window.apiPost, isCurrentLoad: window.isCurrentLoad, render: window.render, candidates: candidates }, calls = [];
@@ -4971,6 +5001,37 @@
       });
     });
 
+    testAsync('Snapchat: صورة أول منتج للكارت، والمنتجات جوه الإعلان من غير زرار المعاينة (Snapchat مبيدعمهاش للكتالوج)', function () {
+      return toolFrame(800, 600).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, asked = [];
+        w.apiPost = function (url, body) {
+          asked.push(body.action);
+          if (body.action === 'products') return Promise.resolve({ ok: true, data: { products: [
+            { name: 'Diamond Cut', image: 'https://shop.example/i/1.jpg', url: 'https://shop.example/p/1', price: { value: 329, currency: 'SAR' } }] } });
+          return Promise.resolve({ ok: true, data: { page: 'https://ad-preview.snapchat.com/?creative_id=x&expires_at=1&signature=s' } });
+        };
+        w.isCurrentLoad = function () { return true; };
+        var eight = function (n) { return [n, n, n, n, n, n, n, n]; };
+        var c = ad('cat', { daily: eight(10), res: eight(1) });
+        c.platform = 'Snapchat'; c.source = 'snapchat:acc1'; c.format = 'image'; c.badgeKey = 'card.snapCollection';
+        c.snapProductSetId = 'ps1'; c.snapCreativeId = 'cr1'; c.snapDynamic = true;
+        c.dailyDates = last7Days(TODAY).map(function (x) { return x.key; }); c.dailySales = eight(0);
+        w.candidates = [c];
+        var until = function (fn, n) { return fn() ? Promise.resolve(fn()) : (n > 0 ? sleep(20).then(function () { return until(fn, n - 1); }) : Promise.resolve(null)); };
+        return w.loadSnapchatCatalog('acc1', 'tok').then(function () {
+          eq(c.thumbUrl, 'https://shop.example/i/1.jpg', 'the card shows the first product');
+          w.render();
+          w.openExpand(c);
+          return until(function () { return d.querySelector('#expandPreview .cat-item'); }, 50);
+        }).then(function (item) {
+          ok(item && item.textContent.indexOf('Diamond Cut') > -1 && item.href === 'https://shop.example/p/1', item ? item.outerHTML.slice(0, 200) : 'no grid');
+          return sleep(60);
+        }).then(function () {
+          eq([asked, !!d.querySelector('#expandPreview .snap-page a')], [['products'], false], 'products asked once (cached), no Snapchat preview for a dynamic catalog ad');
+          f.remove();
+        });
+      });
+    });
     testAsync('أرقام العرض التوضيحي في الرئيسية بصيغة اللغة من أول لحظة', function () {
       var restore = keepStorage(['acc.lang']);
       var f = document.createElement('iframe');

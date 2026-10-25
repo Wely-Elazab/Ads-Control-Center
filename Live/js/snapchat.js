@@ -128,7 +128,7 @@
       render();
       loadSnapchatDiagnosis(adAccountId, payload.account || {}, token);
       // صور الفيديوهات الأول (بتبان على الكروت)، وبعدها سجل التعديلات — ورا بعض عشان حد سرعة Snapchat (١٠ في الثانية للمفتاح)
-      loadSnapchatThumbs(adAccountId, token).then(function () {
+      loadSnapchatThumbs(adAccountId, token).then(function () { return loadSnapchatCatalog(adAccountId, token); }).then(function () {
         loadSnapchatEdits(adAccountId, (payload.account && payload.account.timezone) || BROWSER_TZ, token);
       });
     }).catch(function (err) {
@@ -184,6 +184,32 @@
       });
       if (changed) render();
     }).catch(function () { /* من غير صور */ });
+  }
+  // منتجات إعلانات الكتالوج (طلب صاحب المنتج ٢٥ أكتوبر — إعلان الكتالوج كان «إعلان مجموعة منتجات» من غير صورة، ومعاينة Snapchat نفسها
+  // بتقول «Preview Not Supported» له): أول المنتجات في كل مجموعة (api/snapchat-ads-fetch.js action=products — طلبين لكل مجموعة)، صورة
+  // أول منتج للكارت، والمنتجات جوه الإعلان (ui.js snapMediaView). snapProducts[المجموعة] = المنتجات (فاضية = مفيش)
+  var snapProducts = {};
+  function loadSnapchatCatalog(adAccountId, token) {
+    var source = 'snapchat:' + adAccountId, sets = {};
+    candidates.forEach(function (c) { if (c.source === source && c.snapProductSetId && !(c.snapProductSetId in snapProducts)) sets[c.snapProductSetId] = 1; });
+    var all = Object.keys(sets), next = 0;
+    var step = function () {
+      if (next >= all.length || !isCurrentLoad('snapchat', token)) return Promise.resolve();
+      var id = all[next++];
+      return apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'products', productSetId: id }).then(function (res) {
+        if (res.ok && res.data && Array.isArray(res.data.products)) snapProducts[id] = res.data.products;
+      }, function () { /* من غير منتجات */ }).then(step);
+    };
+    return step().then(function () {
+      if (!isCurrentLoad('snapchat', token)) return;
+      var changed = false;
+      candidates.forEach(function (c) {
+        if (c.source !== source || !c.snapProductSetId || c.thumbUrl) return;
+        var first = (snapProducts[c.snapProductSetId] || []).filter(function (p) { return p && safeUrl(p.image); })[0];
+        if (first) { c.thumbUrl = safeUrl(first.image); changed = true; }
+      });
+      if (changed) render();
+    }).catch(function () { /* من غير منتجات */ });
   }
   // تعديلات الحملات والمجموعات والإعلانات الشغّالة في آخر ٨ أيام — وسم «عُدّل…» على الكارت زي Meta (meta.js loadAdEdits؛ طلب صاحب
   // المنتج ٢٥ أكتوبر: «الحملات والمجموعات والاعلانات ايضاً، واذا وجدنا مشكلة فيما بعد نلغي الاعلانات»). سجل لكل عنصر
@@ -395,6 +421,8 @@
         nativeId: ad.id,
         // صورة الفيديو (loadSnapchatThumbs) ومعاينة الوسيط والإعلان كاملاً عند فتحه (ui.js snapMediaView — action=preview)
         snapMediaId: (cr && cr.mediaId) || null, snapCreativeId: ad.creative_id || null,
+        // إعلان الكتالوج: منتجات المجموعة (loadSnapchatCatalog)، ومعاينة Snapchat مش مدعومة ليه (snapDynamic)
+        snapProductSetId: (cr && cr.productSetId) || null, snapDynamic: !!(cr && cr.dynamic),
         reviewStatus: /REJECT|DENY/i.test(ad.review_status || '') ? 'disapproved' : null,
         frequency: null,
         format: md && md.type === 'VIDEO' ? 'video' : 'image',

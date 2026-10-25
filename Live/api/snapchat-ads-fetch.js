@@ -116,11 +116,29 @@ export function snapAdLive(a) {
 export function snapCreative(c) {
   const web = c.web_view_properties || {}, col = c.collection_properties || {}, deep = c.deep_link_properties || {};
   const colWeb = col.web_view_properties || {};
+  // الكتالوج (توثيق Snap «Dynamic Collections»): render_type = DYNAMIC والمنتجات من dynamic_render_properties.product_set_id
+  // (أو showcase_properties). معاينة Snapchat نفسها بتقول «Preview Not Supported» للإعلان ده (اتجرّب ٢٥ أكتوبر) — صور المنتجات بدالها
+  const dyn = c.dynamic_render_properties || {}, show = col.showcase_properties || {};
   return {
     type: c.type || null, headline: c.headline || null, brand: c.brand_name || null, cta: c.call_to_action || null,
     mediaId: c.top_snap_media_id || null,
-    url: web.url || colWeb.url || deep.web_view_fallback_url || deep.deep_link_uri || null
+    url: web.url || colWeb.url || deep.web_view_fallback_url || deep.deep_link_uri || null,
+    dynamic: c.render_type === 'DYNAMIC', productSetId: dyn.product_set_id || show.product_set_id || null
   };
+}
+// منتجات الكتالوج بالشكل اللي الواجهة بتعرضه (توثيق Snap «Dynamic Product Ads — Product Search»: product.title وimage_link وprice
+// {value, currency} وlink) — الصور والروابط https بس
+export function snapProducts(data, max) {
+  const out = [];
+  ((data && data.products) || []).forEach(function (item) {
+    const p = item && (item.product || item);
+    if (!p || out.length >= max) return;
+    const https = function (u) { try { const x = new URL(String(u)); return x.protocol === 'https:' ? x.href : null; } catch (e) { return null; } };
+    const price = p.sale_price || p.price || null;
+    out.push({ name: p.title || null, image: https(p.image_link), url: https(p.link),
+      price: price && price.value != null ? { value: Number(price.value), currency: price.currency || null } : null });
+  });
+  return out;
 }
 // الوسيط: صورة أو فيديو ورابط تنزيله (رابط موقّع مؤقت من Snapchat)
 export function snapMedia(m) {
@@ -383,10 +401,14 @@ export default async function handler(req, res) {
       const campaigns = (campaignList || []).filter(function (c) { return !squadList || usedCampaigns[c.id]; }).map(function (c) {
         return { id: c.id, name: c.name || null, status: c.status, start_time: c.start_time || null, end_time: c.end_time || null };
       });
-      const creatives = {}, usedMedia = {};
+      const creatives = {}, usedMedia = {}, allCreatives = {};
+      (results[7] || []).forEach(function (c) { if (c && c.id) allCreatives[c.id] = c; });
       (results[7] || []).forEach(function (c) {
         if (!c || !usedCreatives[c.id]) return;
         creatives[c.id] = snapCreative(c);
+        // قصة من كذا لقطة (COMPOSITE) ملهاش وسيط لوحدها: وسيط أول لقطة فيها للكارت (طلب صاحب المنتج ٢٥ أكتوبر: «لا توجد صورة Preview»)
+        const kids = c.composite_properties && c.composite_properties.creative_ids;
+        if (!creatives[c.id].mediaId && Array.isArray(kids) && kids.length && allCreatives[kids[0]]) creatives[c.id].mediaId = allCreatives[kids[0]].top_snap_media_id || null;
         if (creatives[c.id].mediaId) usedMedia[creatives[c.id].mediaId] = 1;
       });
       const media = {};
@@ -439,6 +461,26 @@ export default async function handler(req, res) {
       const thumbs = {};
       got.results.forEach(function (d, i) { const u = d && snapLink(d.link); if (u) thumbs[ids[i]] = u; });
       res.status(200).json({ thumbs: thumbs, asked: ids.length, failed: got.failed, codes: got.codes });
+      return;
+    }
+
+    // منتجات إعلان الكتالوج (طلبين): المجموعة ← الكتالوج بتاعها (GET /product_sets/{id} — catalog_id)، وبعدين أول المنتجات في المجموعة
+    // (POST /catalogs/{catalog_id}/products/search بفلتر PRODUCT_SET_ID — أقل حد للصفحة ٥٠ في التوثيق). صورة أول منتج للكارت
+    // والباقي جوه الإعلان (ui.js snapCatalog). فشل = من غير منتجات
+    if (action === 'products') {
+      const setId = shaped(body.productSetId, /^[A-Za-z0-9-]{1,64}$/);
+      if (!setId) { badRequest(res, 'الحقل productSetId مطلوب.'); return; }
+      const sr = await fetch(SNAP_API + '/product_sets/' + encodeURIComponent(setId), { headers: headers });
+      const sd = await sr.json().catch(function () { return null; });
+      const set = sd && sd.product_sets && sd.product_sets[0] && (sd.product_sets[0].product_set || sd.product_sets[0]);
+      const catalogId = set && shaped(set.catalog_id, /^[A-Za-z0-9-]{1,64}$/);
+      if (!sr.ok || !catalogId) { res.status(200).json({ products: [], error: 'set' }); return; }
+      const pr = await fetch(SNAP_API + '/catalogs/' + encodeURIComponent(catalogId) + '/products/search', {
+        method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+        body: JSON.stringify({ limit: 50, filter: { PRODUCT_SET_ID: { EQ: setId } } })
+      });
+      const pd = await pr.json().catch(function () { return null; });
+      res.status(200).json({ products: pr.ok ? snapProducts(pd, 8) : [], error: pr.ok ? null : 'search' });
       return;
     }
 
@@ -567,7 +609,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    res.status(400).json({ error: 'قيمة action غير معروفة — استخدم accounts أو ads أو changes أو thumbs أو preview أو diagnosis.', code: 'BAD_REQUEST' });
+    res.status(400).json({ error: 'قيمة action غير معروفة — استخدم accounts أو ads أو changes أو thumbs أو products أو preview أو diagnosis.', code: 'BAD_REQUEST' });
   } catch (err) {
     // من غير نص الخطأ الداخلي في الرد (المرحلة ٣، أ٦ — OWASP ASVS: معالجة الأخطاء) — زي حارس الـ Worker
     res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم.', code: 'SERVER' });
