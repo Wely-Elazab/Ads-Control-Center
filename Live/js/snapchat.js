@@ -127,7 +127,10 @@
       setLoading('snapchat', false, connectedText(snapNotes));
       render();
       loadSnapchatDiagnosis(adAccountId, payload.account || {}, token);
-      loadSnapchatEdits(adAccountId, (payload.account && payload.account.timezone) || BROWSER_TZ, token);
+      // صور الفيديوهات الأول (بتبان على الكروت)، وبعدها سجل التعديلات — ورا بعض عشان حد سرعة Snapchat (١٠ في الثانية للمفتاح)
+      loadSnapchatThumbs(adAccountId, token).then(function () {
+        loadSnapchatEdits(adAccountId, (payload.account && payload.account.timezone) || BROWSER_TZ, token);
+      });
     }).catch(function (err) {
       if (!isCurrentLoad('snapchat', token)) return;
       fail(msg('s.adsFailed', { platform: 'Snapchat', msg: err.message }));
@@ -156,6 +159,32 @@
     }).catch(function (err) { dxFail('snapchat', key, err); });
   }
 
+  // صور فيديوهات الإعلانات للكروت ولغلاف الفيديو في التفاصيل (طلب صاحب المنتج ٢٥ أكتوبر: «لا توجد صورة Preview لإعلانات سناب شات
+  // من الخارج ولا من داخل الكارت»): توثيق Snap «Get Media Thumbnail» (VIDEO بس) — api/snapchat-ads-fetch.js action=thumbs، دفعات ورا
+  // بعض في الخلفية. الرابط موقّع وبيخلص، فبيتجاب مع كل تحميل. فشل = الكارت زي ما كان
+  function loadSnapchatThumbs(adAccountId, token) {
+    var source = 'snapchat:' + adAccountId, ids = {};
+    candidates.forEach(function (c) { if (c.source === source && c.format === 'video' && c.snapMediaId && !c.thumbUrl) ids[c.snapMediaId] = 1; });
+    var all = Object.keys(ids), found = {}, next = 0;
+    if (!all.length) return Promise.resolve();
+    var step = function () {
+      if (next >= all.length || !isCurrentLoad('snapchat', token)) return Promise.resolve();
+      var batch = all.slice(next, next + SNAP_CHANGE_BATCH);
+      next += SNAP_CHANGE_BATCH;
+      return apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'thumbs', media: batch }).then(function (res) {
+        if (res.ok && res.data && res.data.thumbs) Object.keys(res.data.thumbs).forEach(function (k) { found[k] = res.data.thumbs[k]; });
+      }, function () { /* الدفعة دي من غير صور */ }).then(step);
+    };
+    return step().then(function () {
+      if (!isCurrentLoad('snapchat', token)) return;
+      var changed = false;
+      candidates.forEach(function (c) {
+        var u = c.source === source && c.snapMediaId && safeUrl(found[c.snapMediaId]);
+        if (u && c.thumbUrl !== u) { c.thumbUrl = u; changed = true; }
+      });
+      if (changed) render();
+    }).catch(function () { /* من غير صور */ });
+  }
   // تعديلات الحملات والمجموعات والإعلانات الشغّالة في آخر ٨ أيام — وسم «عُدّل…» على الكارت زي Meta (meta.js loadAdEdits؛ طلب صاحب
   // المنتج ٢٥ أكتوبر: «الحملات والمجموعات والاعلانات ايضاً، واذا وجدنا مشكلة فيما بعد نلغي الاعلانات»). سجل لكل عنصر
   // (api/snapchat-ads-fetch.js action=changes) في دفعات (حد الطلبات في Cloudflare)، دفعة ورا دفعة (حد سرعة Snapchat — الخادم بيبعت ٥
@@ -364,6 +393,8 @@
         adsetId: ad.ad_squad_id || null,
         adsetName: (squad && squad.name) || null,
         nativeId: ad.id,
+        // صورة الفيديو (loadSnapchatThumbs) ومعاينة الوسيط والإعلان كاملاً عند فتحه (ui.js snapMediaView — action=preview)
+        snapMediaId: (cr && cr.mediaId) || null, snapCreativeId: ad.creative_id || null,
         reviewStatus: /REJECT|DENY/i.test(ad.review_status || '') ? 'disapproved' : null,
         frequency: null,
         format: md && md.type === 'VIDEO' ? 'video' : 'image',

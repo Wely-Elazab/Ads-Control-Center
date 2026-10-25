@@ -144,6 +144,43 @@ export const CHANGE_IDS_MAX = 20;
 // الاختبارات بتصفّر الأوقات (CHANGE_TIMING)
 export const CHANGE_TIMING = { group: 5, gap: 1100, retry: 1500 };
 const pause = function (ms) { return ms > 0 ? new Promise(function (r) { setTimeout(r, ms); }) : Promise.resolve(); };
+// طلب لكل عنصر بحد السرعة ده (سجل التعديلات وصور الفيديوهات): النتايج بنفس الترتيب (null = فشل)، وسبب الفشل لكل حالة (codes)
+async function pacedJson(list, urlOf, headers) {
+  const results = [], codes = {};
+  let failed = 0;
+  const one = async function (x, again) {
+    try {
+      const r = await fetch(urlOf(x), { headers: headers });
+      if (r.status === 429 && !again) { await pause(CHANGE_TIMING.retry); return one(x, true); }
+      const d = await r.json().catch(function () { return null; });
+      if (!r.ok || !d || d.request_status === 'ERROR') { failed++; codes[r.status] = (codes[r.status] || 0) + 1; return null; }
+      return d;
+    } catch (e) { failed++; codes.net = (codes.net || 0) + 1; return null; }
+  };
+  for (let i = 0; i < list.length; i += CHANGE_TIMING.group) {
+    if (i) await pause(CHANGE_TIMING.gap);
+    results.push.apply(results, await Promise.all(list.slice(i, i + CHANGE_TIMING.group).map(function (x) { return one(x, false); })));
+  }
+  return { results: results, failed: failed, codes: codes };
+}
+// رابط موقّع من Snapchat (صورة الفيديو، معاينة الوسيط، معاينة الإعلان) — https على نطاق Snapchat بس، عشان ميتحطش أي رابط في الصفحة
+export function snapLink(u) {
+  try {
+    const p = new URL(String(u));
+    return p.protocol === 'https:' && /(^|\.)(snapchat\.com|sc-cdn\.net|snap-dev\.net)$/i.test(p.hostname) ? p.href : null;
+  } catch (e) { return null; }
+}
+// رابط معاينة الإعلان على ad-preview.snapchat.com من creative_preview_link (توثيق Snap «Creatives — Creative Preview»: بنطلّع
+// creative_id وexpires_at وsignature منه، والصفحة من غير دخول ومتاحة ٩٠ يوم). الصفحة مبتتضمّنش في صفحة تانية (X-Frame-Options:
+// SAMEORIGIN — اتجرّب ٢٥ أكتوبر)، فبتتفتح في تبويب جديد
+export function snapPreviewPage(link) {
+  try {
+    const q = new URL(String(link)).searchParams;
+    const id = q.get('creative_id'), exp = q.get('expires_at'), sig = q.get('signature');
+    if (!id || !exp || !sig || !/^[A-Za-z0-9-]{1,64}$/.test(id) || !/^[0-9]{1,16}$/.test(exp)) return null;
+    return 'https://ad-preview.snapchat.com/?creative_id=' + encodeURIComponent(id) + '&expires_at=' + encodeURIComponent(exp) + '&signature=' + encodeURIComponent(sig);
+  } catch (e) { return null; }
+}
 const CHANGE_PATH = { campaign: 'campaigns', adsquad: 'adsquads', ad: 'ads' };
 const CHANGE_FIELD = /^(status|creative_id|targeting.*|bid_micro|bid_strategy|auto_bid|target_bid|[a-z_]*budget_micro|[a-z_]*spend_cap_micro)$/;
 // الاستهداف «اتغيّر» بس لو قيمته قبل وبعد مختلفة فعلاً (بعد ترتيب المفاتيح): حساب حقيقي ٢٥ أكتوبر — كل خفض ميزانية في كل مجموعة
@@ -386,24 +423,38 @@ export default async function handler(req, res) {
         });
       });
       if (!list.length) { badRequest(res, 'الحقل ids مطلوب لجلب سجل التعديلات.'); return; }
-      let failed = 0;
-      const codes = {};
-      const one = async function (x, again) {
-        try {
-          const r = await fetch(SNAP_API + '/' + CHANGE_PATH[x.level] + '/' + encodeURIComponent(x.id) + '/external_changelogs?limit=50', { headers: headers });
-          if (r.status === 429 && !again) { await pause(CHANGE_TIMING.retry); return one(x, true); }
-          const d = await r.json().catch(function () { return null; });
-          if (!r.ok || !d || d.request_status === 'ERROR') { failed++; codes[r.status] = (codes[r.status] || 0) + 1; return []; }
-          return snapChanges(x.level, x.id, d);
-        } catch (e) { failed++; codes.net = (codes.net || 0) + 1; return []; }
-      };
-      const parts = [];
-      for (let i = 0; i < list.length; i += CHANGE_TIMING.group) {
-        if (i) await pause(CHANGE_TIMING.gap);
-        parts.push.apply(parts, await Promise.all(list.slice(i, i + CHANGE_TIMING.group).map(function (x) { return one(x, false); })));
-      }
+      const got = await pacedJson(list, function (x) { return SNAP_API + '/' + CHANGE_PATH[x.level] + '/' + encodeURIComponent(x.id) + '/external_changelogs?limit=50'; }, headers);
+      const parts = got.results.map(function (d, i) { return d ? snapChanges(list[i].level, list[i].id, d) : []; });
       // codes = سبب الفشل لكل حالة (429 = حد السرعة، 403 = صلاحية) — للمتابعة بس
-      res.status(200).json({ changes: [].concat.apply([], parts), asked: list.length, failed: failed, codes: codes });
+      res.status(200).json({ changes: [].concat.apply([], parts), asked: list.length, failed: got.failed, codes: got.codes });
+      return;
+    }
+
+    // صور الفيديوهات للكروت (طلب صاحب المنتج ٢٥ أكتوبر: «لا توجد صورة Preview لإعلانات سناب شات»): توثيق Snap «Media — Get Media
+    // Thumbnail» — للوسيط من نوع VIDEO بس، ورابط موقّع بيخلص. لحد CHANGE_IDS_MAX في الطلب وبحد السرعة (pacedJson)
+    if (action === 'thumbs') {
+      const ids = (Array.isArray(body.media) ? body.media : []).map(function (v) { return shaped(v, /^[A-Za-z0-9-]{1,64}$/); }).filter(Boolean).slice(0, CHANGE_IDS_MAX);
+      if (!ids.length) { badRequest(res, 'الحقل media مطلوب لجلب صور الفيديوهات.'); return; }
+      const got = await pacedJson(ids, function (id) { return SNAP_API + '/media/' + encodeURIComponent(id) + '/thumbnail'; }, headers);
+      const thumbs = {};
+      got.results.forEach(function (d, i) { const u = d && snapLink(d.link); if (u) thumbs[ids[i]] = u; });
+      res.status(200).json({ thumbs: thumbs, asked: ids.length, failed: got.failed, codes: got.codes });
+      return;
+    }
+
+    // عند فتح الإعلان (طلبين بالكتير): معاينة الوسيط (توثيق Snap «Get Media Preview» — VIDEO/IMAGE، رابط موقّع: بديل لو ملف الفيديو
+    // الأصلي مشتغلش، زي HEVC من الآيفون) ومعاينة الإعلان كاملاً (snapPreviewPage)
+    if (action === 'preview') {
+      const mediaId = shaped(body.mediaId, /^[A-Za-z0-9-]{1,64}$/), creativeId = shaped(body.creativeId, /^[A-Za-z0-9-]{1,64}$/);
+      if (!mediaId && !creativeId) { badRequest(res, 'الحقل mediaId أو creativeId مطلوب.'); return; }
+      const get = function (url) {
+        return fetch(url, { headers: headers }).then(function (r) { return r.ok ? r.json().catch(function () { return null; }) : null; }).catch(function () { return null; });
+      };
+      const both = await Promise.all([
+        mediaId ? get(SNAP_API + '/media/' + encodeURIComponent(mediaId) + '/preview') : null,
+        creativeId ? get(SNAP_API + '/creatives/' + encodeURIComponent(creativeId) + '/creative_preview') : null
+      ]);
+      res.status(200).json({ video: (both[0] && snapLink(both[0].link)) || null, page: (both[1] && snapPreviewPage(both[1].creative_preview_link)) || null });
       return;
     }
 
@@ -516,7 +567,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    res.status(400).json({ error: 'قيمة action غير معروفة — استخدم accounts أو ads أو changes أو diagnosis.', code: 'BAD_REQUEST' });
+    res.status(400).json({ error: 'قيمة action غير معروفة — استخدم accounts أو ads أو changes أو thumbs أو preview أو diagnosis.', code: 'BAD_REQUEST' });
   } catch (err) {
     // من غير نص الخطأ الداخلي في الرد (المرحلة ٣، أ٦ — OWASP ASVS: معالجة الأخطاء) — زي حارس الـ Worker
     res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم.', code: 'SERVER' });

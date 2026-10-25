@@ -2431,21 +2431,7 @@
     var el = document.getElementById('expandPreview');
     el.innerHTML = previewMarkup(c);
     el.onclick = null;
-    // Snapchat: الفيديو نفسه من رابط ملفه — preload="none" لأن الملف عشرات الميجا (حساب حقيقي: ٤٣ ميجا لفيديو ٢٣ ثانية)،
-    // فمبيتحمّلش غير لما العميل يضغط تشغيل
-    var vsrc = c.videoSrc && safeUrl(c.videoSrc);
-    if (vsrc) {
-      el.innerHTML = '<div class="snap-video-wrap"><video class="real-video" controls playsinline preload="none" src="' + esc(vsrc) + '"></video></div>' +
-        '<p class="pv-hint">' + esc(t('x.pv.snapVideo')) + '</p>';
-      // الفيديو مفشلش بصوت: المشغّل كان بيفضل واقف على ٠:٠٠ من غير أي تفسير (حساب حقيقي ١١ أكتوبر ٢٠٢٦: ٤ من ١٣ فيديو
-      // مرفوعين HEVC من الآيفون، ومش كل متصفح بيشغّله — وفيديو منهم فشل مرة في التحميل نفسه). لو فشل: السبب + الملف نفسه
-      el.querySelector('video').addEventListener('error', function () {
-        if (openSeq !== expandSeq) return;
-        el.innerHTML = '<div class="snap-video-failed"><p>' + esc(t('x.pv.snapVideoFailed')) + '</p>' +
-          '<a class="open-platform" href="' + esc(vsrc) + '" target="_blank" rel="noopener noreferrer">' + esc(t('x.pv.snapVideoFile')) + ' ↗</a></div>';
-      });
-      return;
-    }
+    if (c.platform === 'Snapchat' && (c.videoSrc || c.snapCreativeId)) { snapMediaView(c, el, openSeq); return; }
     if (c.platform !== 'Meta' || !(c.videoId || c.catalog)) return;
     var order = c.igPreview ? ['ig', 'reels', 'fb'] : ['fb', 'ig', 'reels'], poster = el.innerHTML;
     var hint = '<p class="pv-hint">' + esc(t('x.pv.hint') + (c.catalog ? ' ' + t('x.pv.catalog') : '')) + '</p>';
@@ -2470,6 +2456,61 @@
     // الكتالوج: معاينة Meta بتقول «Preview Not Available» بكل الصيغ في إعلانات الكتالوج (حساب حقيقي ١٠ أكتوبر ٢٠٢٦)، فبنعرض
     // منتجات الكتالوج نفسه (الصورة والاسم والسعر ورابط المنتج). لو الطلب فشل: أزرار معاينة Meta
     if (c.productSetId) catalogGrid(c, el, openSeq, tabs); else tabs();
+  }
+  // Snapchat في التفاصيل (طلب صاحب المنتج ٢٥ أكتوبر: «فيديوهات سناب شات لا تشتغل تلقائياً عند فتح الكارت، وبعضها لا يعمل»، و«لا توجد
+  // صورة Preview من داخل الكارت»):
+  // - الفيديو بيشتغل أول ما الكارت يتفتح (بالصوت لو المتصفح سمح بعد الضغطة، وإلا من غير صوت) وغلافه صورة الفيديو (loadSnapchatThumbs).
+  //   قبل كده preload="none" ومن غير تشغيل لأن الملف كبير (٤٣ ميجا لفيديو ٢٣ ثانية) — المتصفح بيشغّل وهو بيحمّل
+  // - الملف الأصلي مشتغلش (حساب حقيقي ١١ أكتوبر: ٤ من ١٣ فيديو HEVC من الآيفون): معاينة الوسيط من Snapchat (Get Media Preview)،
+  //   ولو فشلت كمان: السبب وتنزيل الملف
+  // - زرار «شاهد الإعلان كما يظهر على سناب شات» (Creative Preview — صفحة Snapchat نفسها، من غير دخول) لكل إعلان، وده المعاينة الوحيدة
+  //   لإعلانات الكتالوج اللي ملهاش وسيط. الصفحة مبتتضمّنش هنا (X-Frame-Options: SAMEORIGIN)، فبتتفتح في تبويب جديد
+  function snapMediaView(c, el, openSeq) {
+    var vsrc = c.videoSrc && safeUrl(c.videoSrc), poster = safeUrl(c.thumbUrl);
+    var info = { video: null, page: null }, asked = null;
+    var ask = function () {
+      if (asked) return asked;
+      asked = apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'preview', mediaId: c.snapMediaId || null, creativeId: c.snapCreativeId || null })
+        .then(function (res) { if (res.ok && res.data) { info.video = safeUrl(res.data.video); info.page = safeUrl(res.data.page); } }, function () { /* من غير معاينة */ });
+      return asked;
+    };
+    var pageBtn = function () {
+      var box = el.querySelector('.snap-page');
+      if (box && info.page) box.innerHTML = '<a class="open-platform" href="' + esc(info.page) + '" target="_blank" rel="noopener noreferrer">' + esc(t('x.pv.snapPage')) + ' ↗</a>';
+    };
+    var failed = function () {
+      el.innerHTML = '<div class="snap-video-failed"><p>' + esc(t('x.pv.snapVideoFailed')) + '</p>' +
+        (vsrc ? '<a class="open-platform" href="' + esc(vsrc) + '" target="_blank" rel="noopener noreferrer">' + esc(t('x.pv.snapVideoFile')) + ' ↗</a>' : '') + '</div><div class="snap-page"></div>';
+      pageBtn();
+    };
+    if (!vsrc) {
+      // صورة أو كتالوج: اللي بيظهر زي ما هو (previewMarkup)، وتحته زرار معاينة الإعلان
+      el.innerHTML = previewMarkup(c) + '<div class="snap-page"></div>';
+      if (c.snapCreativeId) ask().then(function () { if (openSeq === expandSeq) pageBtn(); });
+      return;
+    }
+    el.innerHTML = '<div class="snap-video-wrap"><video class="real-video" controls playsinline preload="auto"' + (poster ? ' poster="' + esc(poster) + '"' : '') + '></video></div>' +
+      '<p class="pv-hint">' + esc(t('x.pv.snapVideo')) + '</p><div class="snap-page"></div>';
+    var v = el.querySelector('video'), usedPreview = false;
+    var play = function () {
+      var p = v.play();
+      // بالصوت لو المتصفح سمح (الكارت اتفتح بضغطة)، وإلا من غير صوت — الصوت من أزرار المشغّل
+      if (p && p.catch) p.catch(function () { v.muted = true; var q = v.play(); if (q && q.catch) q.catch(function () { /* المشغّل بأزراره */ }); });
+    };
+    v.addEventListener('error', function () {
+      if (openSeq !== expandSeq) return;
+      if (usedPreview) { failed(); return; }
+      usedPreview = true;
+      ask().then(function () {
+        if (openSeq !== expandSeq) return;
+        if (!info.video || info.video === vsrc) { failed(); return; }
+        v.src = info.video;
+        play();
+      });
+    });
+    v.src = vsrc;
+    play();
+    if (c.snapCreativeId) ask().then(function () { if (openSeq === expandSeq) pageBtn(); });
   }
   var CATALOG_MAX = 8;
   // «SAR329.00» → ٣٢٩ ر.س — وأي شكل تاني بيتعرض زي ما هو

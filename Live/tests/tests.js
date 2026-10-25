@@ -2712,6 +2712,65 @@
         ok(timing.group <= 5 && timing.gap >= 1000, JSON.stringify(timing));
       }, function (e) { window.fetch = realFetch; if (timing) Object.assign(mod.CHANGE_TIMING, timing); throw e; });
     });
+    // طلب صاحب المنتج ٢٥ أكتوبر: «لا توجد صورة Preview لإعلانات سناب شات» و«بعض الفيديوهات لا تعمل» — توثيق Snap: Get Media Thumbnail
+    // (VIDEO)، وGet Media Preview، وCreative Preview (صفحة ad-preview.snapchat.com من غير دخول). روابط Snapchat بس بتعدّي
+    testAsync('Snapchat: صور الفيديوهات (لحد ٢٠ في الطلب، وروابط Snapchat بس)، ومعاينة الوسيط وصفحة معاينة الإعلان عند الفتح', function () {
+      var realFetch = window.fetch, asked = [];
+      var json = function (obj, ok) { return Promise.resolve({ ok: ok !== false, status: ok === false ? 403 : 200, json: function () { return Promise.resolve(obj); } }); };
+      window.fetch = function (url) {
+        var u = String(url), m;
+        asked.push(u);
+        if ((m = u.match(/\/v1\/media\/([^/]+)\/thumbnail$/))) {
+          if (m[1] === 'denied') return json({ request_status: 'ERROR' }, false);
+          if (m[1] === 'evil') return json({ request_status: 'SUCCESS', link: 'https://evil.example/x.jpg' });
+          return json({ request_status: 'SUCCESS', expires_at: '2026-10-26T00:00:00Z', link: 'https://adsapi.snapchat.com/media/video_thumbnail?media_id=' + m[1] + '&signature=s' });
+        }
+        if (/\/v1\/media\/m1\/preview$/.test(u)) return json({ request_status: 'SUCCESS', link: 'https://adsapi.snapchat.com/media/video_preview?media_id=m1&signature=s' });
+        if (/\/v1\/creatives\/cr1\/creative_preview$/.test(u)) return json({ request_status: 'SUCCESS', creative_id: 'cr1', expires_at: '2026-10-26T00:00:00Z',
+          creative_preview_link: 'https://adsapi.snapchat.com/media/creative_preview?creative_id=cr1&expires_at=1768346953709&signature=abc%2Bdef' });
+        return json({});
+      };
+      var out = null;
+      var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      var mod = null, timing = null;
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        mod = m; timing = Object.assign({}, m.CHANGE_TIMING); m.CHANGE_TIMING.gap = 0; m.CHANGE_TIMING.retry = 0;
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'thumbs', media: ['v1', 'denied', 'evil', 'bad id!'] } }, res);
+      }).then(function () {
+        eq([out.asked, out.failed, Object.keys(out.thumbs)], [3, 1, ['v1']], 'an invalid id is dropped, a foreign link is dropped');
+        ok(/^https:\/\/adsapi\.snapchat\.com\/media\/video_thumbnail\?media_id=v1/.test(out.thumbs.v1), out.thumbs.v1);
+        return mod.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'preview', mediaId: 'm1', creativeId: 'cr1' } }, res);
+      }).then(function () {
+        eq(out, { video: 'https://adsapi.snapchat.com/media/video_preview?media_id=m1&signature=s',
+          page: 'https://ad-preview.snapchat.com/?creative_id=cr1&expires_at=1768346953709&signature=abc%2Bdef' });
+        eq([mod.snapLink('http://adsapi.snapchat.com/x'), mod.snapLink('https://snapchat.com.evil.example/x'), mod.snapPreviewPage('https://x/?creative_id=a&expires_at=b&signature=c')],
+          [null, null, null], 'http, a look-alike domain and a malformed preview link are refused');
+      }).then(function () { window.fetch = realFetch; Object.assign(mod.CHANGE_TIMING, timing); },
+        function (e) { window.fetch = realFetch; if (timing) Object.assign(mod.CHANGE_TIMING, timing); throw e; });
+    });
+    testAsync('Snapchat: صورة الفيديو بتوصل للكروت (كل الإعلانات اللي على نفس الوسيط)، والصور والإعلانات المتوقفة برّه الطلب', function () {
+      var saved = { apiPost: window.apiPost, isCurrentLoad: window.isCurrentLoad, render: window.render, candidates: candidates }, calls = [];
+      var mk = function (n, media, format) {
+        var c = ad('s-' + n, { daily: steady(10), res: steady(1), source: 'snapchat:acc1', platform: 'Snapchat' });
+        c.format = format || 'video'; c.snapMediaId = media; c.thumbUrl = format === 'image' ? 'https://cdn.example/i.jpg' : null;
+        return c;
+      };
+      var list = [mk('a', 'm1'), mk('b', 'm1'), mk('c', 'm2'), mk('d', 'm3', 'image')];
+      var restore = function () { window.apiPost = saved.apiPost; window.isCurrentLoad = saved.isCurrentLoad; window.render = saved.render; candidates = saved.candidates; };
+      window.apiPost = function (url, body) {
+        calls.push(body.media.slice().sort());
+        return Promise.resolve({ ok: true, data: { thumbs: { m1: 'https://adsapi.snapchat.com/t1', m2: 'https://adsapi.snapchat.com/t2' } } });
+      };
+      window.isCurrentLoad = function () { return true; };
+      window.render = function () {};
+      candidates = list;
+      var p;
+      try { p = loadSnapchatThumbs('acc1', 'tok'); } catch (e) { restore(); throw e; }
+      return p.then(function () {
+        eq(calls, [['m1', 'm2']], 'videos only, each media once');
+        eq(list.map(function (c) { return c.thumbUrl; }), ['https://adsapi.snapchat.com/t1', 'https://adsapi.snapchat.com/t1', 'https://adsapi.snapchat.com/t2', 'https://cdn.example/i.jpg']);
+      }).then(restore, function (e) { restore(); throw e; });
+    });
     test('Snapchat: تغيير السجل ← تعديل بشكل Meta (الميزانية بالمايكرو، ٢٠٪ على الأقل، والإيقاف مش وسم)، واليوم بتوقيت الحساب', function () {
       var ch = function (level, at, fields) { return { level: level, id: 'x', at: at, fields: fields }; };
       eq(snapEditsOf(ch('adsquad', '2026-10-24T10:00:00.000Z', { daily_budget_micro: { before: 20000000, after: 25000000 }, targeting: { changed: true } }), 'Asia/Riyadh'), [
@@ -4840,9 +4899,39 @@
         });
       });
     });
+    // من ٢٥ أكتوبر (طلب صاحب المنتج: «فيديوهات سناب شات لا تشتغل تلقائياً… وبعضها لا يعمل»): بيشتغل أول ما الكارت يتفتح، ولو الملف
+    // الأصلي فشل بنجرّب معاينة الوسيط من Snapchat (Get Media Preview) قبل رسالة الفشل، وزرار معاينة الإعلان على سناب شات
+    testAsync('فيديو Snapchat بيشتغل عند الفتح، ولو الملف فشل: معاينة الوسيط من Snapchat، وزرار «شاهد الإعلان كما يظهر على سناب شات»', function () {
+      return toolFrame(800, 600).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, asked = [];
+        var bad = location.origin + '/tests/index.html?not-a-video=' + Date.now(), alt = location.origin + '/tests/index.html?preview=' + Date.now();
+        var page = 'https://ad-preview.snapchat.com/?creative_id=cr1&expires_at=1&signature=s';
+        w.apiPost = function (url, body) { asked.push(body.action + ':' + body.mediaId + ':' + body.creativeId); return Promise.resolve({ ok: true, data: { video: alt, page: page } }); };
+        var c = snapVideoAd(bad);
+        c.snapMediaId = 'm1'; c.snapCreativeId = 'cr1'; c.thumbUrl = 'https://cdn.example/thumb.jpg';
+        w.candidates = [c];
+        w.render();
+        w.openExpand(c);
+        var v = d.querySelector('#expandPreview video');
+        eq([v.getAttribute('poster'), v.preload, v.src], ['https://cdn.example/thumb.jpg', 'auto', bad], 'plays the file at once, with the thumbnail as its poster');
+        var until = function (fn, n) { return fn() ? Promise.resolve(fn()) : (n > 0 ? sleep(20).then(function () { return until(fn, n - 1); }) : Promise.resolve(null)); };
+        return until(function () { return d.querySelector('#expandPreview .snap-page a'); }, 100).then(function (a) {
+          eq(a && [a.href, a.target, a.textContent], [page, '_blank', w.t('x.pv.snapPage') + ' ↗'], 'the Snapchat preview button');
+          eq(asked, ['preview:m1:cr1'], 'one request on opening');
+          v.dispatchEvent(new Event('error'));
+          return until(function () { return v.getAttribute('src') === alt; }, 100);
+        }).then(function (switched) {
+          ok(switched, 'the original file failed: Snapchat\'s media preview instead');
+          eq(asked.length, 1, 'no second request — already asked on opening');
+          f.remove();
+        });
+      });
+    });
     testAsync('فيديو Snapchat مقدرش يشتغل: السبب ورابط الملف بدل مشغّل واقف على ٠:٠٠ — ومن غير ما يكتب فوق إعلان تاني', function () {
       return toolFrame(800, 600).then(function (f) {
         var w = f.contentWindow, d = f.contentDocument;
+        // معاينة الوسيط من Snapchat مش متاحة (الطلب فشل): الرسالة بعد خطأ الملف الأصلي على طول
+        w.apiPost = function () { return Promise.resolve({ ok: false, data: {} }); };
         // صفحة HTML مش فيديو = نفس خطأ المتصفح لما الصيغة مش مدعومة
         var bad = location.origin + '/tests/index.html?not-a-video=' + Date.now(), c = snapVideoAd(bad);
         w.candidates = [c];
@@ -4858,8 +4947,9 @@
         });
         v.muted = true;
         v.play().catch(function () {});
-        return failed.then(function () { return sleep(0); }).then(function () {
-          return d.querySelector('#expandPreview .snap-video-failed');
+        var until = function (fn, n) { return fn() ? Promise.resolve(fn()) : (n > 0 ? sleep(20).then(function () { return until(fn, n - 1); }) : Promise.resolve(null)); };
+        return failed.then(function () {
+          return until(function () { return d.querySelector('#expandPreview .snap-video-failed'); }, 100);
         }).then(function (box) {
           ok(box, 'the failure box replaces the frozen player');
           eq(box && box.querySelector('p').textContent, w.t('x.pv.snapVideoFailed'));
