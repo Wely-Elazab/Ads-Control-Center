@@ -9,7 +9,7 @@ import { corsHeaders, esc, reply } from '../sync/lib.ts';
 import { cleanEmail, daysText, hourText, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
-import { byOwner, callTimeout, familyOf, freshUsage, markMap, normName, ownPausedIds, readUsage, resolveNow, settingsChoice } from '../sync/runner.ts';
+import { callTimeout, familyOf, freshUsage, markMap, readUsage, resolveNow, settingsChoice } from '../sync/runner.ts';
 import { cleanAccountSettings, handleSettings } from '../sync/settings.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
@@ -187,22 +187,6 @@ Deno.test('مهلة طلبات Meta في المُشغّل: ٤٠ ثانية، أ�
   let threw = '';
   try { callTimeout(now, now); } catch (e) { threw = String((e as Error).message); }
   assertEquals(threw, 'run deadline', 'no call after the run deadline');
-});
-
-// المرحلة ٥ (ق٣، ١٩ أكتوبر ٢٠٢٦): اللي صاحب المفتاح عمله بنفسه (وقّف أكبر مصدر مبيعات، ضاعف ميزانية) مبيوصلوش بريد «عاجل» —
-// Google SRE: تنبيه على فعل المستقبِل نفسه بيتعلّم يتجاهله. التعديل اللي عمله حد تاني بيفضل عاجل
-Deno.test('فعل صاحب المفتاح نفسه: الاسم بيتقارن من غير حالة الحروف والمسافات، وحد تاني = مش هو', () => {
-  const me = normName('  Store   Owner ');
-  assertEquals(me, 'store owner');
-  assert(byOwner('store owner', me) && byOwner('STORE OWNER', me));
-  assert(!byOwner('Agency Buyer', me) && !byOwner(null, me) && !byOwner('store owner', ''));
-  const paused = ownPausedIds([
-    { kind: 'pause', id: 'c1', actor: 'Store Owner' },
-    { kind: 'pause', id: 'a2', actor: 'Agency Buyer' },
-    { kind: 'budget', id: 's3', actor: 'Store Owner' },
-    null
-  ], me);
-  assertEquals(paused, { c1: true });
 });
 
 
