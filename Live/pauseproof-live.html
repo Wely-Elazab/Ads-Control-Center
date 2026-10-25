@@ -799,6 +799,22 @@
   .dx-views .chip { display: inline-flex; align-items: center; gap: 6px; }
   .dx-view-acct { display: inline-block; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; opacity: .8; }
   .dx-views + .dx-notes { margin: -4px 2px 10px; }
+  /* أزرار المنصات بلون كل منصة وشعارها (طلب صاحب المنتج ٢٥ أكتوبر) — الملخص وفلتر الإعلانات. ألوان العلامات: Meta ‎#0866FF،
+     Google ‎#1A73E8 (أزرق Google الأغمق: الأبيض عليه ٤٫٥:١ — WCAG AA)، Snapchat ‎#FFFC00 بالأسود، TikTok أسود (أبيض في الداكن).
+     الزرار المختار بلون المنصة، وغير المختار بالشعار ملوّن بس */
+  .plat-chip { display: inline-flex; align-items: center; gap: 6px; }
+  .plat-logo { width: 15px; height: 15px; flex: none; fill: currentColor; }
+  .plat-meta { --brand: #0866FF; --on-brand: #fff; }
+  .plat-google { --brand: #1A73E8; --on-brand: #fff; }
+  .plat-snapchat { --brand: #FFFC00; --on-brand: #000; }
+  .plat-tiktok { --brand: #000; --on-brand: #fff; }
+  [data-theme="dark"] .plat-tiktok { --brand: #fff; --on-brand: #000; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .plat-tiktok { --brand: #fff; --on-brand: #000; } }
+  /* «كل المنصات» من غير لون منصة — بستايل الزرار العادي */
+  .plat-chip:not([data-plat-pick="all"]):not(.active) .plat-logo { color: var(--brand); }
+  /* شعار Snapchat الأصفر مبيبانش على الخلفية الفاتحة: الشبح أسود على مربع أصفر */
+  .plat-chip.plat-snapchat:not([data-plat-pick="all"]):not(.active) .plat-logo { color: #000; background: var(--brand); border-radius: 4px; padding: 1px; }
+  .chip.plat-chip.active:not([data-plat-pick="all"]) { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
   .dx-wait { margin: 0; padding: 16px 18px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px; color: var(--ink-soft); }
   .dx-head { background: var(--card); border: 1px solid var(--line); border-inline-start: 4px solid var(--ink-faint); border-radius: var(--radius); padding: 16px 18px; }
   .dx-head.good { border-inline-start-color: var(--verified); }
@@ -1190,6 +1206,12 @@
           <button type="button" class="lang-toggle" id="langToggle" data-i18n="lang.toggle">EN</button>
         </div>
       </div>
+      <!-- عملة الأرقام المجمّعة (قرار صاحب المنتج ٢٥ أكتوبر) — على الجهاز. الخيارات من DX.PEGGED (ui.js renderCurrencyPref) -->
+      <div class="set-card">
+        <h3 class="set-card-title" data-i18n="set.page.currency">العملة</h3>
+        <p class="set-card-text" data-i18n="set.page.currencyText">عملة الأرقام حين تجمع الأداة حسابات بعملات مختلفة، بسعر الربط الرسمي بالدولار. أرقام كل حساب وحده تبقى بعملته كما في منصته.</p>
+        <select class="sort-select" id="currencyPref" aria-label="العملة" data-i18n-aria="set.page.currency"></select>
+      </div>
       <!-- بيظهر على الموبايل بس، ولو الأداة مش مثبّتة — installBtn في ui.js -->
       <div class="set-card" id="installCard" hidden>
         <h3 class="set-card-title" data-i18n="set.page.install">التثبيت على الهاتف</h3>
@@ -1248,15 +1270,10 @@
           <button class="chip" data-value="stopped"><span class="chip-dot h-inactive"></span><span data-i18n="health.inactive">متوقف</span> <span class="chip-count" data-health-count="stopped"></span></button>
         </div>
       </div>
-      <div class="filter-row">
+      <!-- أزرار المنصات المتصلة بلونها وشعارها — نفس اختيار ملخص المتجر (platChipsHtml في ui.js)، والصف مخفي لو منصة واحدة -->
+      <div class="filter-row" hidden>
         <span class="filter-label" data-i18n="filters.platform">المنصة</span>
-        <div class="filter-group" data-filter="platform">
-          <button class="chip active" data-value="all" data-i18n="filters.all">الكل</button>
-          <button class="chip" data-value="Meta">Meta</button>
-          <button class="chip" data-value="Google Ads">Google Ads</button>
-          <button class="chip" data-value="TikTok" hidden>TikTok</button>
-          <button class="chip" data-value="Snapchat">Snapchat</button>
-        </div>
+        <div class="filter-group" data-filter="platform"></div>
       </div>
       <div class="filter-row">
         <span class="filter-label" id="tLblFormat" data-i18n="filters.format">الصيغة</span>

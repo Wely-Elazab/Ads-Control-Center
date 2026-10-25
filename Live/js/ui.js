@@ -529,7 +529,7 @@
     var hide = !allStopped && hidesStopped();
     return candidates.filter(function (c) {
       if (hide && !c.active && adAnalysis(c).health !== 'review') return false;
-      if (filters.platform !== 'all' && c.platform !== filters.platform) return false;
+      if (!platPicked(platformOfSource(c.source))) return false;   // اختيار المنصات للصفحة كلها (platSel)
       if (filters.format !== 'all' && c.format !== filters.format) return false;
       // «متوقف» = كل الإعلانات المتوقفة. الإعلان اللي وقف فجأة وعليه تنبيه عاجل بيظهر كمان تحت «يحتاج مراجعة»
       if (filters.health === 'stopped') { if (c.active) return false; }
@@ -734,7 +734,7 @@
     // لو الحملة اللي كنت فاتحها مش موجودة تاني (بدّلت الحساب مثلاً) الفلتر بيتشال لوحده
     if (filters.campaign && !candidates.some(function (c) { return campaignKey(c) === filters.campaign; })) filters.campaign = null;
     var visible = sortCandidates(visibleCandidates(), filters.sort);
-    var signature = JSON.stringify([filters, viewMode, periodKey()]);
+    var signature = JSON.stringify([filters, platSel, viewMode, periodKey()]);
     // العميل غيّر الفلتر أو الترتيب أو طريقة العرض أو الفترة (مش أول رسم ولا مجرد تحميل منصة) — animateCards
     var reshuffled = !!renderSignature && signature !== renderSignature;
     if (signature !== renderSignature) { renderSignature = signature; renderLimit = RENDER_STEP; }
@@ -774,6 +774,7 @@
     });
     renderHealthCounts();
     renderFilterState();
+    renderCurrencyPref();
     renderAlerts();
     // ملخص المتجر كله: الحكم والأرقام وسطر النهارده و«يحتاج انتباهك الآن» (renderKpis وrenderTopAlerts جواه)
     renderDiagnosis();
@@ -1282,11 +1283,13 @@
     dxRecompute();
     return true;
   }
+  var dxGen = 0;
   function dxDone(platform, key, input) {
     var s = dxState.sources[platform];
     if (!s || s.key !== key) return;   // رد قديم (العميل بدّل الحساب أو الفترة)
     input.feedback = dxFbFor(s.accountId);
     s.input = input;
+    s.gen = ++dxGen;   // نسخة التقرير — مفتاح الجمع المحفوظ (dxSelection)
     s.report = DX.analyze(input);
     s.status = 'ready';
     dxRecompute();
@@ -1300,44 +1303,115 @@
     dxRecompute();
   }
   var DX_PLATFORM_ORDER = ['meta', 'google', 'snapchat'];
-  // العروض: كل منصة جاهزة لوحدها، و«كل المنصات» الأول لو فيه أكتر من منصة جاهزة بنفس العملة ونفس الفترة
-  // (جمع ريال مع دولار أو أسبوعين مختلفين يطلع رقم بلا معنى)
-  function dxRecompute() {
+  // ---------- اختيار المنصات للصفحة كلها (طلب صاحب المنتج ٢٥ أكتوبر) ----------
+  // «كل المنصات» افتراضياً، وجنبه زرار لكل منصة متصلة بلونها وشعارها. الضغط على منصة = هي بس، وعلى تانية = تتضاف، وعلى
+  // المختارة = تتشال (ولو اتشالت كلها أو اتختارت كلها = «كل المنصات»). اختيار واحد للصفحة كلها (قراره: «تتبع الاختيار»):
+  // ملخص المتجر و«يحتاج انتباهك الآن» ولوحة الهدر وقائمة الإعلانات. platSel = null (كل المنصات) أو منصات بترتيب ثابت
+  var platSel = null;
+  var PLAT_ORDER = ['meta', 'google', 'snapchat', 'tiktok'];
+  function connectedPlats() { return PLAT_ORDER.filter(function (p) { return PLATFORMS.indexOf(p) > -1 && isConnected(p); }); }
+  function platPicked(p) { return !platSel || platSel.indexOf(p) > -1; }
+  function pickPlat(p) {
+    var all = connectedPlats();
+    if (p === 'all') platSel = null;
+    else if (!platSel) platSel = [p];
+    else if (platSel.indexOf(p) > -1) platSel = platSel.filter(function (x) { return x !== p; });
+    else platSel = platSel.concat([p]);
+    if (platSel) platSel = all.filter(function (x) { return platSel.indexOf(x) > -1; });
+    if (platSel && (!platSel.length || platSel.length === all.length)) platSel = null;
+  }
+  // عملة الأرقام المجمّعة (قراره: «بسعر الربط الرسمي، وأضف اختياراً في الإعدادات لتحديد العملة»): المحفوظة على الجهاز، وإلا
+  // عملة الأكبر مبلغاً بين اللي بيتجمعوا (بالدولار للمقارنة). أرقام الحساب الواحد بتفضل بعملته زي منصته
+  var CUR_PREF_KEY = 'acc.currency';
+  function curPref() { try { var v = localStorage.getItem(CUR_PREF_KEY); return v && DX.pegRate(v, 'USD') ? v : null; } catch (e) { return null; } }
+  function setCurPref(v) { try { if (v && DX.pegRate(v, 'USD')) localStorage.setItem(CUR_PREF_KEY, v); else localStorage.removeItem(CUR_PREF_KEY); } catch (e) { /* مش مهم */ } }
+  function targetCurrency(amounts) {
+    var pref = curPref();
+    if (pref) return pref;
+    var best = null, bestUsd = -1;
+    Object.keys(amounts).forEach(function (k) {
+      var r = DX.pegRate(k, 'USD'), usd = r ? (amounts[k] || 0) * r : -1;
+      if (usd > bestUsd) { bestUsd = usd; best = k; }
+    });
+    return best;
+  }
+  // جمع منصات الاختيار في عرض واحد. المنصة اللي مفيش ولا عملية شراء بتوصلها (noPurchases) برّه أرقام المبيعات: مبيعاتها مش
+  // معروفة (مش صفر)، وجمع إنفاقها مع مبيعات غيرها بينزّل العائد (حساب حقيقي ١٨ أكتوبر: رسائل Meta + مبيعات Snapchat = ×١٫٨ «أقل
+  // من حد الخسارة» وSnapchat لوحده ×٣ — Kimball: القيمة المجهولة مش صفر). العملات المختلفة بتتحوّل بسعر الربط الرسمي (DX.pegRate)،
+  // وعملة مش مربوطة = منقدرش نجمع. والأيام: نفس الأيام المكتملة لازم، والتوقيت المختلف جملة (قبل كده كان بيمنع «كل المنصات»)
+  var dxCombos = {};
+  function dxSelection(sel) {
+    var S = dxState.sources;
+    if (!sel.length) return null;
+    if (sel.length === 1) { var s1 = S[sel[0]]; return { report: s1.report, account: s1.account, accountId: s1.accountId, plats: sel }; }
+    var sales = sel.filter(function (p) { return !S[p].report || S[p].report.status !== 'noPurchases'; });
+    var excluded = sel.filter(function (p) { return sales.indexOf(p) === -1; });
+    if (sales.length === 1) { var s = S[sales[0]]; return { report: s.report, account: s.account, accountId: s.accountId, plats: sales, excluded: excluded }; }
+    var group = sales.length ? sales : sel, f = S[group[0]].input;
+    if (!group.every(function (p) { return S[p].input.since === f.since && S[p].input.until === f.until; })) return { blocked: 'period', plats: group };
+    var curs = {}, amounts = {};
+    group.forEach(function (p) {
+      var c = S[p].input.currency || '';
+      curs[c] = 1;
+      amounts[c] = (amounts[c] || 0) + (S[p].input.daily || []).reduce(function (a, d) { return a + (Number(d.spend) || 0); }, 0);
+    });
+    var curList = Object.keys(curs), to = curList.length > 1 ? targetCurrency(amounts) : null;
+    if (curList.length > 1 && !curList.every(function (c) { return DX.pegRate(c, 'USD'); })) return { blocked: 'currency', plats: group, curs: curList };
+    var accId = 'all:' + group.map(function (p) { return S[p].accountId; }).join(',');
+    // المفتاح بنسخة كل تقرير (gen — dxDone) وتقييمات العميل: أرقام جديدة أو تقييم جديد = تحليل جديد
+    var fb = dxFbFor(accId);
+    var key = group.map(function (p) { return S[p].key + '#' + S[p].gen; }).join('|') + '|' + (to || '') + '|' + JSON.stringify(fb);
+    if (!dxCombos[key]) {
+      var input = DX.combine(group.map(function (p) {
+        var x = S[p].input;
+        return { platform: p, input: to && x.currency !== to ? DX.convertInput(x, DX.pegRate(x.currency, to), to) : x };
+      }));
+      input.feedback = fb;
+      dxCombos[key] = DX.attachPlatforms(DX.analyze(input), group.map(function (p) { return { platform: p, report: S[p].report }; }));
+    }
+    var tzs = group.map(function (p) { return S[p].input.timezone || ''; }).filter(function (z, i, a) { return a.indexOf(z) === i; });
+    return { report: dxCombos[key], plats: group, excluded: excluded, accountId: accId, multi: true,
+      account: group.map(function (p) { return S[p].account; }).filter(Boolean).join(' + '),
+      conv: to ? { to: to, from: curList.filter(function (c) { return c !== to; }) } : null, tzs: tzs.length > 1 ? tzs : null };
+  }
+  // خانة العملة في صفحة الإعدادات: «تلقائي» + العملات المربوطة بالدولار، بأسمائها بلغة الأداة (Intl.DisplayNames). بتترسم
+  // من جديد لو اللغة اتغيّرت بس
+  var curPrefLang = null;
+  function renderCurrencyPref() {
+    var el = document.getElementById('currencyPref');
+    if (!el || curPrefLang === I18N.lang) return;
+    curPrefLang = I18N.lang;
+    var names = null;
+    try { names = new Intl.DisplayNames([curPrefLang], { type: 'currency' }); } catch (e) { /* متصفح قديم: الرمز بس */ }
+    el.innerHTML = '<option value="">' + esc(t('set.page.currencyAuto')) + '</option>' + DX.PEGGED.map(function (c) {
+      var n = names ? names.of(c) : '';
+      return '<option value="' + c + '">' + esc((n && n !== c ? n + ' — ' : '') + (currencyLabel(c) || c)) + '</option>';
+    }).join('');
+    el.value = curPref() || '';
+  }
+  (function () {
+    var el = document.getElementById('currencyPref');
+    if (el) el.addEventListener('change', function () { setCurPref(el.value || null); dxBuild(); render(); });
+  })();
+  // العرض بالاختيار الحالي — من غير رسم (render بيرسم الملخص)
+  function dxBuild() {
+    // منصة اتفصلت بتتشال من الاختيار، ولو مفضلش غيرها = كل المنصات
+    if (platSel) { platSel = platSel.filter(isConnected); if (!platSel.length) platSel = null; }
     var S = dxState.sources, ids = DX_PLATFORM_ORDER.filter(function (p) { return S[p]; });
     var ready = ids.filter(function (p) { return S[p].status === 'ready'; });
-    var views = ready.map(function (p) { return { id: p, report: S[p].report, account: S[p].account, accountId: S[p].accountId }; });
-    // المنصة اللي مفيش ولا عملية شراء بتوصلها (noPurchases) برّه «كل المنصات»: مبيعاتها مش معروفة (مش صفر)، وجمع إنفاقها مع
-    // مبيعات غيرها بينزّل العائد. حساب حقيقي ١٨ أكتوبر: رسائل Meta (٣٧١ $) + مبيعات Snapchat = ×١٫٨ «أقل من حد الخسارة»، وSnapchat
-    // لوحده ×٣، وتحت شريحة Meta «لا يمكن تحليل المبيعات» (مراجعة المرحلة ٤ — Kimball: القيمة المجهولة مش صفر)
-    var sales = ready.filter(function (p) { return !S[p].report || S[p].report.status !== 'noPurchases'; });
-    if (sales.length >= 2) {
-      var f = S[sales[0]].input;
-      // والمنطقة الزمنية كمان: الأيام بتتجمع بالتاريخ، وتاريخ كل حساب بتوقيته — حسابين بتوقيتين مختلفين أيامهم مش نفس الأيام
-      // (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦ — Kimball: بُعد تاريخ واحد للكل)
-      var same = sales.every(function (p) { var x = S[p].input; return x.currency === f.currency && x.since === f.since && x.until === f.until && (x.timezone || '') === (f.timezone || ''); });
-      if (same) {
-        var accId = 'all:' + sales.map(function (p) { return S[p].accountId; }).join(',');
-        var input = DX.combine(sales.map(function (p) { return { platform: p, input: S[p].input }; }));
-        input.feedback = dxFbFor(accId);
-        var rep = DX.attachPlatforms(DX.analyze(input), sales.map(function (p) { return { platform: p, report: S[p].report }; }));
-        rep.excluded = ready.filter(function (p) { return sales.indexOf(p) === -1; });
-        views.unshift({ id: 'all', report: rep, platforms: sales, account: sales.map(function (p) { return S[p].account; }).filter(Boolean).join(' + '), accountId: accId });
-      }
-    }
-    dxState.views = views;
-    dxState.status = views.length ? 'ready' : (ids.some(function (p) { return S[p].status === 'loading'; }) ? 'loading' : (ids.length ? 'error' : 'idle'));
-    // العرض الافتراضي لحد ما العميل يختار بنفسه (picked): «كل المنصات» لو موجود، وإلا أول منصة بتوصلها مشتريات. قبل كده أول منصة
-    // تخلّص تحميل كانت بتفضل هي المعروضة حتى بعد ما «كل المنصات» يظهر — والصفحة بتفتح على «لا تُسجَّل مشتريات» وSnapchat بيبيع
-    if (!dxState.picked || !views.some(function (v) { return v.id === dxState.view; })) {
-      var first = views.filter(function (v) { return !v.report || v.report.status !== 'noPurchases'; })[0] || views[0];
-      dxState.view = first ? first.id : 'all';
-    }
-    var cur = views.filter(function (v) { return v.id === dxState.view; })[0];
-    dxState.report = cur ? cur.report : null;
-    dxState.account = cur ? cur.account : null;
-    dxState.accountId = cur ? cur.accountId : null;
-    renderDiagnosis();
+    dxState.views = ready.map(function (p) { return { id: p, report: S[p].report, account: S[p].account, accountId: S[p].accountId }; });
+    var mine = ids.filter(platPicked), sel = ready.filter(platPicked);
+    var cur = dxSelection(sel) || {};
+    dxState.sel = cur;
+    dxState.view = sel.length === 1 ? sel[0] : 'all';
+    dxState.report = cur.report || null;
+    dxState.account = cur.account || null;
+    dxState.accountId = cur.accountId || null;
+    // منصة مختارة ملخصها لسه مبدأش (الأرقام لسه جاية) = بيتحمّل
+    dxState.status = cur.report || cur.blocked ? 'ready' : (!ids.length ? 'idle'
+      : (mine.some(function (p) { return S[p].status === 'loading'; }) || (!mine.length && anyLoading()) ? 'loading' : 'error'));
   }
+  function dxRecompute() { dxBuild(); renderDiagnosis(); }
   // ---------- ملخص المتجر: قسم واحد (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦) ----------
   // قبل كده «ملخص الأداء» (أرقام شاملة النهارده) و«ملخص المتجر» (أيام مكتملة) كانوا قسمين بأرقام مختلفة لنفس الفترة،
   // ونفس المشكلة كانت بتظهر فيهم الاتنين. دلوقتي بالترتيب: الحكم والأرقام من الملخص، وسطر «اليوم حتى الآن» لوحده
@@ -1378,9 +1452,15 @@
     sec.hidden = !dxOn && !candidates.length;
     var body = document.getElementById('dxBody'), period = document.getElementById('dxPeriod'), copy = document.getElementById('dxCopy');
     var loading = dxOn && dxState.status === 'loading', o = null;
-    if (dxOn && dxState.status === 'ready') {
+    if (dxOn && dxState.status === 'ready' && dxState.report) {
       // الهدف وحد الخسارة من إعدادات التنبيهات (نفس اللي بيتحكم بيهم على الإعلانات) — الربح أولاً في الملخص كمان
       o = DX.compose(dxState.report, { target: dxGoals() });
+      // أكتر من حساب كلهم من غير مشتريات: العنوان بصيغة الجمع
+      if (o && dxState.sel && dxState.sel.multi && dxState.report.status === 'noPurchases') {
+        var one = o.title;
+        o.title = t('dx.head.noPurchasesMany');
+        (o.blocks || []).forEach(function (b) { if (b.title === one) b.title = o.title; });
+      }
     }
     dxState.composed = o;
     copy.hidden = !o;
@@ -1391,31 +1471,23 @@
     document.getElementById('dxToday').innerHTML = lines.map(function (l) { return '<p>' + esc(l.text) + '</p>'; }).join('');
     // بين قوسين مش «·» — النقطة جنب الأرقام العربية بتتقري «٠»
     period.textContent = nums ? o.period + (lines.some(function (l) { return l.today; }) ? ' (' + t('dx.fullDays') + ')' : '') : '';
+    // أزرار المنصات («كل المنصات» + كل منصة متصلة بلونها وشعارها) — اسم الحساب جنب المنصة: قائمة الحسابات فوق بتقول حساب منصة
+    // واحدة بس (حساب حقيقي ١١ أكتوبر ٢٠٢٦: القائمة على Snapchat والصفحة فيها إعلانات Meta ومفيش مكان بيقول أنهي حساب Meta)
+    var chips = platChipsHtml(true);
+    var tabs = chips ? '<div class="dx-views" role="group" aria-label="' + esc(t('dx.view.aria')) + '">' + chips + '</div>' : '';
+    // منصة مختارة لسه بتتحمّل بعد ما التانية خلصت
+    var pending = DX_PLATFORM_ORDER.filter(function (p) { return platPicked(p) && dxState.sources && dxState.sources[p] && dxState.sources[p].status === 'loading'; });
+    var more = pending.length ? '<p class="dx-notes">' + esc(t('dx.loadingMore', { platforms: DX.listText(pending.map(function (p) { return t('dx.plat.' + p); })) })) + '</p>' : '';
+    dxMixNotes().forEach(function (n) { more += '<p class="dx-notes">' + esc(n) + '</p>'; });
     if (!o) {
-      body.innerHTML = dxOn ? '<p class="dx-wait">' + esc(t(loading ? 'dx.loading' : 'dx.failed')) + '</p>' : '';
+      var wait = dxState.sel && dxState.sel.blocked ? '' : (dxOn ? '<p class="dx-wait">' + esc(t(loading ? 'dx.loading' : 'dx.failed')) + '</p>' : '');
+      body.innerHTML = dxOn ? tabs + more + wait : '';
       body.setAttribute('aria-busy', loading ? 'true' : 'false');
       renderVerdict(null);
       renderDxMore(null, renderTopAlerts(null));
       return;
     }
     body.setAttribute('aria-busy', 'false');
-    // أكتر من عرض: أزرار «كل المنصات / Meta / Google Ads / Snapchat»
-    var views = dxState.views || [], tabs = '';
-    if (views.length > 1) {
-      // اسم الحساب جنب المنصة: قائمة الحسابات فوق بتقول حساب منصة واحدة بس، والإعلانات والملخص فيهم حساب من كل منصة متصلة
-      // (حساب حقيقي ١١ أكتوبر ٢٠٢٦: القائمة على Snapchat والصفحة فيها إعلانات Meta ومفيش أي مكان بيقول أنهي حساب Meta)
-      tabs = '<div class="dx-views" role="group" aria-label="' + esc(t('dx.view.aria')) + '">' + views.map(function (v) {
-        var on = v.id === dxState.view, acct = v.id === 'all' ? '' : accountLabel(v.id);
-        return '<button type="button" class="chip' + (on ? ' active' : '') + '" data-dx-view="' + esc(v.id) + '" aria-pressed="' + on + '"' +
-          (acct ? ' title="' + esc(acct) + '"' : '') + '>' + esc(t(v.id === 'all' ? 'dx.view.all' : 'dx.plat.' + v.id)) +
-          (acct ? '<span class="dx-view-acct" dir="auto">' + esc(acct) + '</span>' : '') + '</button>';
-      }).join('') + '</div>';
-    }
-    // منصة لسه بتتحمّل بعد ما التانية خلصت
-    var pending = DX_PLATFORM_ORDER.filter(function (p) { return dxState.sources && dxState.sources[p] && dxState.sources[p].status === 'loading'; });
-    var more = pending.length ? '<p class="dx-notes">' + esc(t('dx.loadingMore', { platforms: DX.listText(pending.map(function (p) { return t('dx.plat.' + p); })) })) + '</p>' : '';
-    var ex = dxExcludedNote();
-    if (ex) more += '<p class="dx-notes">' + esc(ex) + '</p>';
     body.innerHTML = tabs + more + '<div class="dx-head ' + esc(o.tone) + '"><p class="dx-headline">' + esc(o.title) + '</p>' +
       (o.basis ? '<p class="dx-basis">' + esc(o.basis) + '</p>' : '') +
       (nums ? '<div class="dx-kpis">' + o.kpis.map(dxKpiHtml).join('') + '</div>' : '') +
@@ -1438,7 +1510,8 @@
   // مستهدف العرض: حساب واحد = إعداداته. «كل المنصات» = المستهدف المشترك لو كل الحسابات متفقة عليه، وإلا مفيش سطر مستهدف
   // (مستهدف متجر على عائد مجمّع من حسابين بهامشين مختلفين = حكم غلط)
   function dxGoals() {
-    var goals = (dxViewPlatforms() || []).map(function (p) {
+    // منصات أرقام المبيعات بس (اللي مفيش مشتريات بتوصلها برّه — dxSelection)
+    var goals = ((dxState.sel && dxState.sel.plats) || dxViewPlatforms() || []).map(function (p) {
       var s = PauseProofAlerts.mergeSettings(settingsFor(sourceOf(p) || ''));
       return { roas: s.roasTarget, be: s.roasBreakEven };
     });
@@ -1446,20 +1519,25 @@
     if (!g || !(g.roas > 0)) return null;
     return goals.every(function (x) { return x.roas === g.roas && x.be === g.be; }) ? g : null;
   }
-  function dxViewPlatforms() {
-    var views = dxState.views || [];
-    if (!views.length) return null;
-    if (dxState.view === 'all') {
-      var all = views.filter(function (v) { return v.id === 'all'; })[0];
-      return all && all.platforms ? all.platforms.slice() : views.filter(function (v) { return v.id !== 'all'; }).map(function (v) { return v.id; });
+  // المنصات المختارة المتصلة (شريط الأرقام وسطر النهارده والتكلفة مقابل الحد) — null = كل الإعلانات
+  function dxViewPlatforms() { return platSel ? platSel.slice() : null; }
+  // جمل فوق أرقام الملخص وفي النص المنسوخ: منصة برّه أرقام المبيعات (مفيش مشتريات بتوصلها)، والتحويل بسعر الربط، والتوقيت
+  // المختلف، ومنقدرش نجمع (عملة مش مربوطة أو أيام مختلفة)
+  function dxMixNotes() {
+    var sel = dxState.sel || {}, out = [];
+    var names = function (list) { return DX.listText((list || []).map(function (p) { return t('dx.plat.' + p); })); };
+    if (sel.blocked === 'currency') out.push(t('dx.view.blockedCur', { platforms: names(sel.plats), curs: sel.curs.join('، ') }));
+    if (sel.blocked === 'period') out.push(t('dx.view.blockedPeriod', { platforms: names(sel.plats) }));
+    if (sel.excluded && sel.excluded.length) out.push(t('dx.view.excluded', { platforms: names(sel.excluded) }));
+    if (sel.conv) {
+      out.push(t('dx.view.conv', { to: currencyLabel(sel.conv.to) || sel.conv.to, parts: DX.listText(sel.conv.from.map(function (c) {
+        return money(1, c) + ' = ' + money(DX.pegRate(c, sel.conv.to), sel.conv.to);
+      })) }));
     }
-    return [dxState.view];
+    if (sel.tzs) out.push(t('dx.view.tz'));
+    return out;
   }
-  // «كل المنصات» من غير منصة مفيش مشتريات بتوصلها (dxRecompute): بنقول كده فوق الأرقام وفي النص المنسوخ
-  function dxExcludedNote() {
-    var r = dxState.view === 'all' && dxState.report, ex = r && r.excluded;
-    return ex && ex.length ? t('dx.view.excluded', { platforms: DX.listText(ex.map(function (p) { return t('dx.plat.' + p); })) }) : '';
-  }
+  function dxExcludedNote() { return dxMixNotes().join(' '); }
   function onPlatforms(c, platforms) {
     return !platforms || platforms.some(function (p) { return String(c.source || '').indexOf(p + ':') === 0; });
   }
@@ -1469,9 +1547,15 @@
       return k === 'purchase' ? DX.ordersText(map[k]) : fmtNum(map[k]) + ' ' + I18N.resultNoun(map[k], k);
     });
   }
-  // مجموع لكل عملة على حدة — جمع ريال مع دولار يطلع رقم بلا معنى. صفر بعملة الحساب المعروض
+  // مجموع بعملات مختلفة: كلها مربوطة بالدولار بسعر رسمي = مبلغ واحد بالعملة المختارة (قرار ٢٥ أكتوبر — DX.pegRate)، وإلا كل عملة
+  // لوحدها (جمع جنيه مع دولار من غير سعر رسمي يطلع رقم بلا معنى). صفر بعملة الحساب المعروض
   function moneyByCur(map) {
     var keys = Object.keys(map).filter(function (k) { return map[k] > 0; });
+    if (keys.length > 1 && keys.every(function (k) { return k && DX.pegRate(k, 'USD'); })) {
+      var to = targetCurrency(map), sum = 0;
+      keys.forEach(function (k) { sum += map[k] * DX.pegRate(k, to); });
+      return money(sum, to);
+    }
     return keys.length ? keys.map(function (k) { return money(map[k], k || null); }).join(' + ') : money(0, defaultCurrency());
   }
   // سطور تحت أرقام الملخص: النهارده لوحده (الأرقام فوق أيام مكتملة — لو الفترة المختارة فيها النهارده)، والنتائج اللي
@@ -1557,13 +1641,37 @@
         '<span>' + esc(b.title === o.title ? t('dx.more.verdict') : b.title) + '</span></summary>' + dxBlockHtml(b, i, true) + '</details>';
     }).join('') + (o.notes || []).map(function (n) { return '<p class="dx-notes">' + esc(n) + '</p>'; }).join('');
   }
+  // أزرار المنصات بلون كل منصة وشعارها (طلب صاحب المنتج ٢٥ أكتوبر). الشعارات من Simple Icons (CC0 — رموز العلامات نفسها ملك
+  // أصحابها، وبتتعرض هنا للتعريف بالمنصة المتصلة بس). نفس الأزرار في ملخص المتجر وفلتر الإعلانات — اختيار واحد (platSel)
+  var PLAT_LOGO = {
+    meta: 'M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z',
+    google: 'M3.9998 22.9291C1.7908 22.9291 0 21.1383 0 18.9293s1.7908-3.9998 3.9998-3.9998 3.9998 1.7908 3.9998 3.9998-1.7908 3.9998-3.9998 3.9998zm19.4643-6.0004L15.4632 3.072C14.3586 1.1587 11.9121.5028 9.9988 1.6074S7.4295 5.1585 8.5341 7.0718l8.0009 13.8567c1.1046 1.9133 3.5511 2.5679 5.4644 1.4646 1.9134-1.1046 2.568-3.5511 1.4647-5.4644zM7.5137 4.8438L1.5645 15.1484A4.5 4.5 0 0 1 4 14.4297c2.5597-.0075 4.6248 2.1585 4.4941 4.7148l3.2168-5.5723-3.6094-6.25c-.4499-.7793-.6322-1.6394-.5878-2.4784z',
+    snapchat: 'M12.206.793c.99 0 4.347.276 5.93 3.821.529 1.193.403 3.219.299 4.847l-.003.06c-.012.18-.022.345-.03.51.075.045.203.09.401.09.3-.016.659-.12 1.033-.301.165-.088.344-.104.464-.104.182 0 .359.029.509.09.45.149.734.479.734.838.015.449-.39.839-1.213 1.168-.089.029-.209.075-.344.119-.45.135-1.139.36-1.333.81-.09.224-.061.524.12.868l.015.015c.06.136 1.526 3.475 4.791 4.014.255.044.435.27.42.509 0 .075-.015.149-.045.225-.24.569-1.273.988-3.146 1.271-.059.091-.12.375-.164.57-.029.179-.074.36-.134.553-.076.271-.27.405-.555.405h-.03c-.135 0-.313-.031-.538-.074-.36-.075-.765-.135-1.273-.135-.3 0-.599.015-.913.074-.6.104-1.123.464-1.723.884-.853.599-1.826 1.288-3.294 1.288-.06 0-.119-.015-.18-.015h-.149c-1.468 0-2.427-.675-3.279-1.288-.599-.42-1.107-.779-1.707-.884-.314-.045-.629-.074-.928-.074-.54 0-.958.089-1.272.149-.211.043-.391.074-.54.074-.374 0-.523-.224-.583-.42-.061-.192-.09-.389-.135-.567-.046-.181-.105-.494-.166-.57-1.918-.222-2.95-.642-3.189-1.226-.031-.063-.052-.15-.055-.225-.015-.243.165-.465.42-.509 3.264-.54 4.73-3.879 4.791-4.02l.016-.029c.18-.345.224-.645.119-.869-.195-.434-.884-.658-1.332-.809-.121-.029-.24-.074-.346-.119-1.107-.435-1.257-.93-1.197-1.273.09-.479.674-.793 1.168-.793.146 0 .27.029.383.074.42.194.789.3 1.104.3.234 0 .384-.06.465-.105l-.046-.569c-.098-1.626-.225-3.651.307-4.837C7.392 1.077 10.739.807 11.727.807l.419-.015h.06z',
+    tiktok: 'M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z'
+  };
+  function platLogo(p) {
+    return PLAT_LOGO[p] ? '<svg class="plat-logo" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="' + PLAT_LOGO[p] + '"/></svg>' : '';
+  }
+  // مفيش أزرار لو منصة واحدة بس متصلة. withAcct = اسم الحساب جنب المنصة (الملخص)
+  function platChipsHtml(withAcct) {
+    var all = connectedPlats();
+    if (all.length < 2) return '';
+    var chip = function (p, on, label, acct) {
+      return '<button type="button" class="chip plat-chip' + (p !== 'all' ? ' plat-' + p : '') + (on ? ' active' : '') + '" data-plat-pick="' + p + '" aria-pressed="' + on + '"' +
+        (acct ? ' title="' + esc(acct) + '"' : '') + '>' + platLogo(p) + '<span>' + esc(label) + '</span>' +
+        (acct ? '<span class="dx-view-acct" dir="auto">' + esc(acct) + '</span>' : '') + '</button>';
+    };
+    return chip('all', !platSel, t('dx.view.all'), '') + all.map(function (p) {
+      return chip(p, !!platSel && platSel.indexOf(p) > -1, t('dx.plat.' + p), withAcct ? accountLabel(p) : '');
+    }).join('');
+  }
   document.addEventListener('click', function (e) {
-    var b = e.target.closest && e.target.closest('[data-dx-view]');
+    var b = e.target.closest && e.target.closest('[data-plat-pick]');
     if (!b) return;
-    dxState.view = b.getAttribute('data-dx-view');
-    dxState.picked = true;   // اختيار العميل بيفضل — dxRecompute مبيرجّعش العرض الافتراضي
+    pickPlat(b.getAttribute('data-plat-pick'));
     dxFbOpen = null;
-    dxRecompute();
+    dxBuild();
+    render();   // الملخص وقائمة الإعلانات بنفس الاختيار
   });
   // النسخ: الملخص كله أو بلوك واحد (عشان يتبعت لمسؤول الإعلانات على الواتساب)
   function dxCopyText(text, btn) {
@@ -1692,16 +1800,24 @@
   };
   function activeFilterList() {
     var out = [];
-    ['health', 'format', 'platform'].forEach(function (k) {
+    ['health', 'format'].forEach(function (k) {
       if (filters[k] === 'all') return;
       var label = (FILTER_LABELS[k] && FILTER_LABELS[k][filters[k]]) || filters[k];
       out.push({ key: k, label: label });
     });
+    if (platSel) out.push({ key: 'platform', label: platSel.map(function (p) { return PLATFORM_NAMES[p] || p; }).join(' + ') });
     if (filters.text) out.push({ key: 'text', label: t('filters.searchChip', { q: filters.text }) });
     if (filters.campaign) out.push({ key: 'campaign', label: t('filters.campaignChip', { name: filters.campaignName || t('camp.noName') }) });
     return out;
   }
   function renderFilterState() {
+    // فلتر المنصة في صفحة الإعلانات = نفس أزرار ملخص المتجر (اختيار واحد — platSel)، ومن غير صف لو منصة واحدة متصلة
+    var pg = document.querySelector('.filter-group[data-filter="platform"]');
+    if (pg) {
+      var chips = platChipsHtml(false);
+      if (pg.innerHTML !== chips) pg.innerHTML = chips;
+      if (pg.parentNode) pg.parentNode.hidden = !chips;
+    }
     var list = activeFilterList();
     document.getElementById('filterCount').textContent = list.length ? ar(list.length) : '';
     document.getElementById('activeFilters').innerHTML = list.map(function (f) {
@@ -1713,6 +1829,7 @@
     var key = btn.dataset.filterKey;
     if (key === 'text') { filters.text = ''; textFilter.value = ''; }
     else if (key === 'campaign') { filters.campaign = null; }
+    else if (key === 'platform') { platSel = null; dxBuild(); }
     else {
       var group = document.querySelector('.filter-group[data-filter="' + key + '"]');
       if (group) setFilterChip(group, 'all'); else filters[key] = 'all';
@@ -1846,8 +1963,9 @@
   function fillTopAlerts(el, o) {
     var shown = {};
     if (!candidates.length && !o) { el.innerHTML = ''; renderWastePanel(null, []); return shown; }
-    var views = dxState.views || [], pick = views.length > 1 && dxState.view !== 'all' ? dxState.view : null;
-    var alerts = analysis.alerts.filter(function (a) { return !pick || String(a.source || '').indexOf(pick + ':') === 0; });
+    // المنصات المختارة (platSel) — null = كل المنصات
+    var pick = dxViewPlatforms();
+    var alerts = analysis.alerts.filter(function (a) { return onPlatforms(a, pick); });
     var items = DX.attention(o ? o.blocks : [], alerts, candidates);
     renderWastePanel(pick, alerts);
     // «تحتاج مراجعة»: شارة بتفلتر الإعلانات دي («معرّض للهدر» و«دون طلبات منذ…» بقوا لوحة الهدر فوق — renderWastePanel)
@@ -1855,9 +1973,9 @@
     // Snapchat كانت «إعلانات تحتاج إلى مراجعة: ٢» والاتنين في Meta. والضغط بيفتح الإعلانات دي بفلتر المنصة نفسها
     var review = candidates.filter(function (c) {
       var a = analysis.byAd[c.id];
-      return a && a.health === 'review' && (!pick || String(c.source || '').indexOf(pick + ':') === 0);
+      return a && a.health === 'review' && onPlatforms(c, pick);
     }).length;
-    var chips = review ? '<button type="button" class="attn-chip" data-kpi="review"' + (pick ? ' data-plat="' + esc(pick) + '"' : '') + '>' + esc(t('attn.review', { n: ar(review) })) + '</button>' : '';
+    var chips = review ? '<button type="button" class="attn-chip" data-kpi="review">' + esc(t('attn.review', { n: ar(review) })) + '</button>' : '';
     var head = '<div class="top-alerts-head"><h3 class="top-alerts-title">' + esc(t('sec.attn')) + '</h3>' + (chips ? '<span class="attn-chips">' + chips + '</span>' : '') + '</div>';
     if (!items.length) {
       // لسه بيتحمّل (القفل اتشال بعد ٣٠ ثانية): منقولش «لا شيء عاجل» قبل ما الأرقام تيجي
@@ -1896,8 +2014,9 @@
     // خانة لكل حساب في شريحته، و«كل الحسابات» في الآخر في كل الشرائح (طلب صاحب المنتج ١٨ أكتوبر ٢٠٢٦) لو حسابين أو أكتر فيهم هدر.
     // الحساب اللي مفيش ولا شراء بيوصله في الشهر برّه المجموع: هدره مجهول مش صفر (زي «كل المنصات» — مراجعة المرحلة ٤ ر٦٥)،
     // والعملات كل واحدة لوحدها من غير تحويل (م٦: مفيش رقم بيجمع عملتين)
-    var all = MONTH_PLATFORMS.map(monthOf).filter(function (m) { return m && m.w.spend > 0; });
-    var months = all.filter(function (m) { return !pick || pick === m.p; });
+    // المنصات المختارة بس (platSel — قرار ٢٥ أكتوبر: التفاصيل كلها بتتغيّر بالاختيار)، والمجموع على المختارة لو اتنين أو أكتر
+    var all = MONTH_PLATFORMS.map(monthOf).filter(function (m) { return m && m.w.spend > 0 && (!pick || pick.indexOf(m.p) > -1); });
+    var months = all;
     var inTotal = all.filter(function (m) { return m.w.purchases > 0; }), total = null;
     if (inTotal.length >= 2) {
       total = { parts: inTotal, byCur: {}, spendCur: {}, ads: 0, since: inTotal[0].w.since,
@@ -1946,7 +2065,12 @@
     });
     if (d.total) {
       var T = d.total, curs = Object.keys(T.byCur);
-      var share = curs.length === 1 && T.spendCur[curs[0]] > 0 ? t('waste.total.share', { pct: pctText(T.byCur[curs[0]] / T.spendCur[curs[0]]) }) : t('waste.total.cur');
+      // عملات مختلفة كلها مربوطة بالدولار: المبلغ والنسبة بعد التحويل بسعر الربط (قرار ٢٥ أكتوبر — moneyByCur)، وإلا كل عملة لوحدها
+      var pegged = curs.length > 1 && curs.every(function (c) { return c && DX.pegRate(c, 'USD'); }), to = pegged ? targetCurrency(T.byCur) : null;
+      var conv = function (map) { return Object.keys(map).reduce(function (s, c) { return s + map[c] * DX.pegRate(c, to); }, 0); };
+      var share = curs.length === 1 && T.spendCur[curs[0]] > 0 ? t('waste.total.share', { pct: pctText(T.byCur[curs[0]] / T.spendCur[curs[0]]) })
+        : (pegged ? (conv(T.spendCur) > 0 ? t('waste.total.share', { pct: pctText(conv(T.byCur) / conv(T.spendCur)) }) : '') + t('waste.total.conv', { to: currencyLabel(to) || to })
+          : t('waste.total.cur'));
       var parts = DX.listText(T.parts.map(function (m) { return t('waste.total.part', { plat: PLATFORM_NAMES[m.p], v: money(m.w.spend, m.w.currency) }); }));
       tiles += tile(' total', t('waste.total.k', { since: fmtKey(T.since) }), moneyByCur(T.byCur), t('waste.total.s', { parts: parts, share: share, n: ar(T.ads),
         ex: T.out.length ? t('waste.total.ex', { plats: DX.listText(T.out.map(function (p) { return PLATFORM_NAMES[p]; })) }) : '' }));
@@ -1963,12 +2087,11 @@
   }
   // «تحتاج مراجعة» بيفلتر الإعلانات دي وينزل لها، و«معرّض للهدر» بيفتح التنبيهات اللي وراه
   // plat = المنصة المختارة في الملخص (الشارة جت من شريحتها) — الإعلانات بتتفلتر بيها هي كمان
-  function kpiAction(kind, plat) {
+  // المنصة: اختيار الصفحة نفسه (platSel) — الإعلانات بتتفلتر بيه من غير ما نغيّره
+  function kpiAction(kind) {
     if (kind === 'risk') { openAlertsView('risk'); return; }
     var group = document.querySelector('.filter-group[data-filter="health"]');
     if (group) setFilterChip(group, 'review');
-    var pg = document.querySelector('.filter-group[data-filter="platform"]');
-    if (pg) setFilterChip(pg, plat && PLATFORM_NAMES[plat] ? PLATFORM_NAMES[plat] : 'all');
     // بنعرض الإعلانات من غير ما نغيّر طريقة العرض المحفوظة — في صفحة «الإعلانات» من أولها
     viewMode = 'ads';
     showView('ads');
@@ -1981,13 +2104,14 @@
   });
   document.getElementById('topAlerts').addEventListener('click', function (e) {
     var el;
-    if ((el = e.target.closest('[data-kpi]'))) { kpiAction(el.dataset.kpi, el.dataset.plat || null); return; }
+    if ((el = e.target.closest('[data-kpi]'))) { kpiAction(el.dataset.kpi); return; }
     if ((el = e.target.closest('[data-campaign]'))) { openCampaign(el); return; }
     if ((el = e.target.closest('[data-ad-id]'))) { var c = findCandidate(el.getAttribute('data-ad-id')); if (c) openExpand(c); return; }
     if (e.target.closest('[data-go-alerts]')) openAlertsView('urgent');
   });
 
   document.querySelectorAll('.filter-group').forEach(function (group) {
+    if (group.dataset.filter === 'platform') return;   // أزرار المنصات ليها معالجها (data-plat-pick)
     group.addEventListener('click', function (e) {
       var btn = e.target.closest('.chip'); if (!btn) return;
       setFilterChip(group, btn.dataset.value);
@@ -2628,7 +2752,7 @@
   function pickSettingsSource() {
     var list = settingsSources();
     if (settingsSrc && list.indexOf(settingsSrc) > -1) return settingsSrc;
-    var byFilter = filters.platform !== 'all' ? sourceOf(filters.platform) : null;
+    var byFilter = platSel && platSel.length === 1 ? sourceOf(platSel[0]) : null;
     return byFilter || list[0] || null;
   }
   // الحالة: none (مفيش حساب متصل) / loading (سجل الحساب لسه جاي) / error (معرفناش نجيبه) / ready
@@ -2937,6 +3061,7 @@
     document.querySelectorAll('.filter-group').forEach(function (g) { g.querySelectorAll('.chip').forEach(function (ch) { ch.classList.toggle('active', ch.dataset.value === 'all'); }); });
     filters.platform = 'all'; filters.format = 'all'; filters.health = 'all'; filters.text = '';
     filters.campaign = null;
+    platSel = null;
     textFilter.value = '';
   }
 

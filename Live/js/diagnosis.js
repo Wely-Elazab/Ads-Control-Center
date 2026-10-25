@@ -862,6 +862,28 @@ var DX = (function () {
   //  - تقسيم «المنصة» بيتضاف (أرقام كل منصة في كل فترة) — ده اللي بيكشف «المشكلة في Snapchat بس»
   //  - الحملات بتتحط جنب بعض بمفتاح فيه المنصة («google:123»)، والدول بتتجمع بالرمز —
   //    بس لو كل المنصات رجّعت التقسيم ده (وإلا مجموعه مش هيطابق الإجمالي، والمحرك كان هيشيله أصلاً)
+  // أسعار الربط الرسمية بالدولار (وحدات العملة لكل ١ دولار) — قرار صاحب المنتج ٢٥ أكتوبر: جمع المنصات بعملات مختلفة بسعر الربط
+  // الرسمي. البنوك المركزية: مؤسسة النقد السعودي ٣٫٧٥، المصرف المركزي الإماراتي ٣٫٦٧٢٥، مصرف قطر المركزي ٣٫٦٤ (مرسوم ٣٤ لسنة
+  // ٢٠٠١)، مصرف البحرين المركزي ٠٫٣٧٦، البنك المركزي العُماني ٠٫٣٨٤٥، البنك المركزي الأردني ٠٫٧٠٩. الدينار الكويتي مربوط بسلة
+  // عملات والجنيه المصري معوّم — برّه الجدول (مبالغهم بتتعرض جنب بعض من غير جمع)
+  var USD_PEG = { USD: 1, SAR: 3.75, AED: 3.6725, QAR: 3.64, BHD: 0.376, OMR: 0.3845, JOD: 0.709 };
+  // كام وحدة من «to» في الوحدة الواحدة من «from» — null لو واحدة منهم مش مربوطة
+  function pegRate(from, to) {
+    from = String(from || '').toUpperCase(); to = String(to || '').toUpperCase();
+    if (from === to && from) return 1;
+    return USD_PEG[from] && USD_PEG[to] ? USD_PEG[to] / USD_PEG[from] : null;
+  }
+  // نسخة من مدخل منصة بمبالغ محوّلة (الإنفاق والمبيعات ورقم مبيعات المنصة) — قبل combine لما العملات مختلفة
+  function convertInput(input, rate, currency) {
+    var money = function (b) { if (!b) return b; var o = Object.assign({}, b); ['spend', 'rev', 'prev'].forEach(function (f) { if (o[f] != null) o[f] = Number(o[f]) * rate; }); return o; };
+    return Object.assign({}, input, {
+      currency: currency,
+      daily: (input.daily || []).map(money),
+      dims: (input.dims || []).map(function (d) {
+        return d && Object.assign({}, d, { segs: (d.segs || []).map(function (sg) { return Object.assign({}, sg, { w: (sg.w || []).map(money) }); }) });
+      })
+    });
+  }
   function combine(sources) {
     var first = sources[0].input, ws = windowsFor(first.since, first.until, !!first.consecutive).slice(0, 3);
     var norm = function (list) { return (list || []).filter(function (d) { return d && d.date; }).map(function (d) { var b = bundle(d); b.date = d.date; return b; }); };
@@ -2084,6 +2106,9 @@ var DX = (function () {
   return {
     analyze: analyze,
     combine: combine,
+    pegRate: pegRate,
+    convertInput: convertInput,
+    PEGGED: Object.keys(USD_PEG),
     attachPlatforms: attachPlatforms,
     compose: compose,
     attention: attention,

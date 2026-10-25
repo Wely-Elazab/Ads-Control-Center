@@ -2123,21 +2123,41 @@
     });
     // حساب حقيقي ١٨ أكتوبر: شريحة Meta (حساب رسائل من غير مشتريات) كان عنوانها «لا تُسجَّل مشتريات» وتحته «١٦ عملية شراء» وإنفاق
     // ٩٠٧ $ — أرقام Meta وSnapchat مع بعض. الشريط بيتبع شريحة الملخص المختارة زي العنوان
-    test('الشريط بيتبع شريحة الملخص المختارة (Meta لوحدها) — مش كل المنصات', function () {
+    test('الشريط بيتبع اختيار المنصات (Meta لوحدها) — مش كل المنصات', function () {
       candidates = [
         ad('m1', { daily: steady(50), res: steady(7), key: 'message' }),
         ad('s1', { daily: steady(70), res: [3, 3, 2, 2, 2, 2, 2], key: 'purchase', source: 'snapchat:a1', platform: 'Snapchat' })
       ];
       candidates.forEach(function (c) { c.currency = 'USD'; });
-      dxState.views = [{ id: 'all' }, { id: 'meta' }, { id: 'snapchat' }];
-      dxState.view = 'meta';
-      render();
-      var v = document.querySelectorAll('#kpiStrip .kpi-value');
-      ok(v[0].textContent.indexOf(fmtNum(350)) > -1 && v[0].textContent.indexOf(fmtNum(840)) === -1, v[0].textContent);
-      ok(v[1].textContent.indexOf(t('res1.purchase')) === -1 && v[1].textContent.indexOf(t('res.purchase')) === -1, v[1].textContent);
-      dxState.view = 'all';
-      render();
-      ok(document.querySelectorAll('#kpiStrip .kpi-value')[0].textContent.indexOf(fmtNum(840)) > -1, 'all platforms = combined');
+      try {
+        platSel = ['meta'];
+        render();
+        var v = document.querySelectorAll('#kpiStrip .kpi-value');
+        ok(v[0].textContent.indexOf(fmtNum(350)) > -1 && v[0].textContent.indexOf(fmtNum(840)) === -1, v[0].textContent);
+        ok(v[1].textContent.indexOf(t('res1.purchase')) === -1 && v[1].textContent.indexOf(t('res.purchase')) === -1, v[1].textContent);
+        // وقائمة الإعلانات بنفس الاختيار (قراره: «تتبع الاختيار»)
+        eq(visibleCandidates().map(function (c) { return c.id; }), ['m1']);
+        platSel = ['meta', 'snapchat'];
+        eq(visibleCandidates().map(function (c) { return c.id; }).sort(), ['m1', 's1']);
+        platSel = null;
+        render();
+        ok(document.querySelectorAll('#kpiStrip .kpi-value')[0].textContent.indexOf(fmtNum(840)) > -1, 'all platforms = combined');
+      } finally { platSel = null; }
+    });
+    // قرار صاحب المنتج ٢٥ أكتوبر: «بسعر الربط الرسمي» — مجموع بعملتين مربوطتين بالدولار = مبلغ واحد بالعملة المختارة
+    test('مجموع بعملتين مربوطتين بالدولار (ريال ودولار) = مبلغ واحد بسعر الربط، وعملة مش مربوطة = كل عملة لوحدها', function () {
+      var kept = localStorage.getItem('acc.currency');
+      var restore = function () { if (kept == null) localStorage.removeItem('acc.currency'); else localStorage.setItem('acc.currency', kept); };
+      try {
+        setCurPref('SAR');
+        eq(moneyByCur({ SAR: 100, USD: 10 }), money(137.5, 'SAR'));
+        setCurPref('USD');
+        eq(moneyByCur({ SAR: 375, USD: 10 }), money(110, 'USD'));
+        setCurPref(null);
+        eq(moneyByCur({ SAR: 1000, USD: 10 }), money(1037.5, 'SAR'), 'automatic: the bigger amount (in dollars) decides');
+        eq(moneyByCur({ EGP: 500, USD: 10 }), money(500, 'EGP') + ' + ' + money(10, 'USD'), 'the Egyptian pound floats: side by side');
+        eq([DX.pegRate('SAR', 'USD'), DX.pegRate('USD', 'AED'), DX.pegRate('KWD', 'USD'), DX.pegRate('SAR', 'SAR')], [1 / 3.75, 3.6725, null, 1]);
+      } finally { restore(); }
     });
   });
 
@@ -2786,7 +2806,8 @@
       ok(btn.disabled && btn.classList.contains('soon'), 'disabled + soon');
       eq(btn.querySelector('.platform-item-sub').textContent, t('pf.tiktok'));
       eq(t('pf.tiktok'), 'قريباً');
-      ok(document.querySelector('#appUnderTest .chip[data-value="TikTok"]').hasAttribute('hidden'), 'TikTok filter chip hidden');
+      // أزرار المنصات للمتصلة بس (platChipsHtml) — TikTok مش متصل
+      ok(!document.querySelector('#appUnderTest [data-plat-pick="tiktok"]'), 'no TikTok chip');
     });
     test('تسجيل دخول TikTok مبيبدأش حتى لو اتنادى', function () {
       eq(TIKTOK_ENABLED, false);
@@ -3658,17 +3679,20 @@
       activeSources.meta = 'act_1'; activeSources.snapchat = 'abc-1';
       acctSettings['meta:act_1'] = { roasTarget: 4, roasBreakEven: 2 };
       acctSettings['snapchat:abc-1'] = { roasTarget: 3, roasBreakEven: 1 };
-      dxState.views = [{ id: 'meta' }, { id: 'snapchat' }, { id: 'all', platforms: ['meta', 'snapchat'] }];
-      dxState.view = 'meta';
-      eq(dxGoals(), { roas: 4, be: 2 });
-      dxState.view = 'snapchat';
-      eq(dxGoals(), { roas: 3, be: 1 });
-      dxState.view = 'all';
-      eq(dxGoals(), null, 'different goals: no target line');
-      acctSettings['snapchat:abc-1'] = { roasTarget: 4, roasBreakEven: 2 };
-      eq(dxGoals(), { roas: 4, be: 2 }, 'same goals: shared');
-      acctSettings['snapchat:abc-1'] = null;
-      eq(dxGoals(), null, 'one account without goals: no target line');
+      // منصات أرقام المبيعات في العرض المختار (dxState.sel.plats — dxSelection)
+      var saved = dxState.sel;
+      try {
+        dxState.sel = { plats: ['meta'] };
+        eq(dxGoals(), { roas: 4, be: 2 });
+        dxState.sel = { plats: ['snapchat'] };
+        eq(dxGoals(), { roas: 3, be: 1 });
+        dxState.sel = { plats: ['meta', 'snapchat'] };
+        eq(dxGoals(), null, 'different goals: no target line');
+        acctSettings['snapchat:abc-1'] = { roasTarget: 4, roasBreakEven: 2 };
+        eq(dxGoals(), { roas: 4, be: 2 }, 'same goals: shared');
+        acctSettings['snapchat:abc-1'] = null;
+        eq(dxGoals(), null, 'one account without goals: no target line');
+      } finally { dxState.sel = saved; }
     });
 
     // ---------- أقصى تكلفة مقبولة لكل نتيجة: للحساب ولكل حملة (مراجعة الإعدادات ٢٤ أكتوبر — قرار صاحب المنتج) ----------
@@ -5028,24 +5052,28 @@
       }, function (e) { restore(); throw e; });
     });
     // طلب صاحب المنتج ١٨ أكتوبر ٢٠٢٦: اللوحة كانت لـ Meta بس — دلوقتي خانة لكل حساب في شريحته، و«كل الحسابات» في الآخر
-    test('هدر الشهر لكل حساب، و«كل الحسابات» في الآخر: كل عملة لوحدها، ومن غير الحساب اللي مفيش شراء بيوصله', function () {
-      var keys = ['meta', 'snapchat', 'google'], old = { act: {}, mw: Object.assign({}, monthWaste), plats: MONTH_PLATFORMS };
+    // من ٢٥ أكتوبر (قرارات صاحب المنتج): العملات المربوطة بالدولار بتتجمع بسعر الربط، و«كل الحسابات» على المنصات المختارة بس
+    test('هدر الشهر لكل حساب، و«كل الحسابات» في الآخر: بسعر الربط بين ريال ودولار، ومن غير الحساب اللي مفيش شراء بيوصله', function () {
+      var keys = ['meta', 'snapchat', 'google'], old = { act: {}, mw: Object.assign({}, monthWaste), plats: MONTH_PLATFORMS, cur: localStorage.getItem('acc.currency') };
       keys.forEach(function (p) { old.act[p] = activeSources[p]; });
       var mk = function (spend, total, ads, purchases, cur) {
         return { since: '2026-10-01', until: '2026-10-17', spend: spend, total: total, ads: ads, ids: [], spendById: {}, purchases: purchases, currency: cur };
       };
       var html = function (pick) { return withLang('ar', function () { return wastePanelHtml(wasteData(pick || null, [])); }); };
       try {
+        localStorage.removeItem('acc.currency');
         activeSources.meta = 'act_7'; activeSources.snapchat = 'sn7';
         monthWaste['meta:act_7'] = mk(1500, 7500, 20, 42, 'SAR');
         monthWaste['snapchat:sn7'] = mk(40, 500, 3, 16, 'USD');
         var h = html();
         eq((h.match(/class="waste-tile[ "]/g) || []).length, 3, 'two accounts and the total');
         ok(/منذ ١ أكتوبر \(Meta\)/.test(h) && /منذ ١ أكتوبر \(Snapchat\)/.test(h), 'one tile per account');
-        ok(/كل الحسابات منذ ١ أكتوبر/.test(h) && /١٬٥٠٠ ر\.س \+ ٤٠ \$/.test(h) && /كل عملة على حدة، دون تحويل بين العملات/.test(h) && /عدد الإعلانات ٢٣/.test(h), h);
-        // شريحة Snapchat: خانته هو بس، و«كل الحسابات» بيفضل في الآخر
-        var s = html('snapchat');
-        ok(!/\(Meta\)/.test(s) && /\(Snapchat\)/.test(s) && /كل الحسابات/.test(s) && s.indexOf('(Snapchat)') < s.indexOf('كل الحسابات'), s);
+        // ٤٠ $ = ١٥٠ ر.س بسعر الربط (العرض بالريال: الأكبر مبلغاً) → ١٬٦٥٠ ر.س، من إنفاق ٧٬٥٠٠ + ١٬٨٧٥ = ١٨٪
+        ok(/كل الحسابات منذ ١ أكتوبر/.test(h) && /<b class="waste-v">١٬٦٥٠ ر\.س<\/b>/.test(h) && /أي ١٨٪ من إنفاق الشهر/.test(h) &&
+          /المبالغ بعملة ر\.س بسعر الربط الرسمي بالدولار/.test(h) && /عدد الإعلانات ٢٣/.test(h), h);
+        // Snapchat لوحده: خانته هو بس، ومن غير «كل الحسابات» (التفاصيل بتتبع الاختيار)
+        var s = html(['snapchat']);
+        ok(!/\(Meta\)/.test(s) && /\(Snapchat\)/.test(s) && !/كل الحسابات/.test(s), s);
         // نفس العملة: رقم واحد ونسبته من إنفاق الحسابات دي
         monthWaste['snapchat:sn7'] = mk(500, 2500, 3, 16, 'SAR');
         h = html();
@@ -5060,6 +5088,7 @@
         h = html();
         ok(/<b class="waste-v">٨٠٠ ر\.س<\/b>/.test(h) && /ولا يشمل Meta، لأنه لم تصل إليها أي عملية شراء هذا الشهر/.test(h), h);
       } finally {
+        if (old.cur == null) localStorage.removeItem('acc.currency'); else localStorage.setItem('acc.currency', old.cur);
         MONTH_PLATFORMS = old.plats;
         keys.forEach(function (p) { if (old.act[p] === undefined) delete activeSources[p]; else activeSources[p] = old.act[p]; });
         Object.keys(monthWaste).forEach(function (k) { if (!(k in old.mw)) delete monthWaste[k]; });
@@ -5974,31 +6003,55 @@
       ok(Math.abs(sa.w[0].spend - sum) < 1e-6, 'countries summed');
       withLang('ar', function () { eq(DX.segName('campaign', 'google:c1', 'Search'), 'حملة «⁨Search⁩» على Google Ads'); });
     });
-    test('العروض: «كل المنصات» الأول لو العملة والفترة واحدة، والأزرار بتبدّل العرض', function () {
+    // طلب صاحب المنتج ٢٥ أكتوبر: «كل المنصات» افتراضياً وجنبه كل منصة متصلة بلونها وشعارها، وأكتر من منصة مع بعض، والعملات
+    // المختلفة بسعر الربط الرسمي (كانت: عملة مختلفة = مفيش «كل المنصات»)
+    test('اختيار المنصات: «كل المنصات» افتراضياً وكل منصة بلونها وشعارها، والضغط بيضيف ويشيل، والعملات بسعر الربط', function () {
       var a = src('meta', 21), b = src('google', 23);
       var oldOpts = { meta: platformOptions.meta, google: platformOptions.google };
+      var kept = localStorage.getItem('acc.currency');
       DX_ON = true; activeSources.meta = 'act_1'; activeSources.google = '123';
       platformOptions.meta = [{ value: 'act_1', label: 'Meta — Store One' }];
       platformOptions.google = [{ value: '123', label: 'Google Ads — G Store' }];
+      var chips = function () {
+        return Array.prototype.map.call(document.querySelectorAll('#dxBody [data-plat-pick]'), function (x) { return x.getAttribute('data-plat-pick') + (x.classList.contains('active') ? '*' : ''); });
+      };
       try {
-        dxState.sources = { meta: { status: 'ready', key: 'm', input: a.input, report: DX.analyze(a.input), account: 'M', accountId: 'meta:1' },
-          google: { status: 'ready', key: 'g', input: b.input, report: DX.analyze(b.input), account: 'G', accountId: 'google:1' } };
+        platSel = null;
+        dxState.sources = { meta: { status: 'ready', key: 'm', gen: 1, input: a.input, report: DX.analyze(a.input), account: 'M', accountId: 'meta:1' },
+          google: { status: 'ready', key: 'g', gen: 1, input: b.input, report: DX.analyze(b.input), account: 'G', accountId: 'google:1' } };
         dxRecompute();
-        eq(dxState.views.map(function (v) { return v.id; }), ['all', 'meta', 'google']);
-        ok(document.querySelector('#dxBody [data-dx-view="google"]'), 'tabs shown');
+        eq([chips(), dxState.view, dxState.accountId], [['all*', 'meta', 'google'], 'all', 'all:meta:1,google:1']);
+        ok(Math.abs(dxState.report.cur.spend - DX.analyze(a.input).cur.spend - DX.analyze(b.input).cur.spend) < 1e-6, 'both platforms added up');
+        ok(document.querySelector('#dxBody .plat-meta .plat-logo') && document.querySelector('#dxBody .plat-google .plat-logo'), 'each platform with its logo');
         // اسم الحساب جنب المنصة (القائمة فوق بتقول حساب منصة واحدة بس)
-        var chip = document.querySelector('#dxBody [data-dx-view="meta"]'), name = chip.querySelector('.dx-view-acct');
+        var chip = document.querySelector('#dxBody [data-plat-pick="meta"]'), name = chip.querySelector('.dx-view-acct');
         eq([name && name.textContent, chip.title], ['Store One', 'Store One'], 'the chip names its account');
-        ok(!document.querySelector('#dxBody [data-dx-view="all"] .dx-view-acct'), '«all platforms» has no single account');
-        // الضغط على اسم الحساب نفسه (جوه الزرار) بيبدّل العرض
-        document.querySelector('#dxBody [data-dx-view="google"] .dx-view-acct').click();
-        eq([dxState.view, dxState.accountId], ['google', 'google:1']);
-        // عملة مختلفة = مفيش «كل المنصات»
+        ok(!document.querySelector('#dxBody [data-plat-pick="all"] .dx-view-acct'), '«all platforms» has no single account');
+        // منصة لوحدها (الضغط على اسم الحساب جوه الزرار كمان)، وتانية بتتضاف، والمختارة بتتشال
+        document.querySelector('#dxBody [data-plat-pick="google"] .dx-view-acct').click();
+        eq([platSel, chips(), dxState.view, dxState.accountId], [['google'], ['all', 'meta', 'google*'], 'google', 'google:1']);
+        document.querySelector('#dxBody [data-plat-pick="meta"]').click();
+        eq([platSel, chips()], [null, ['all*', 'meta', 'google']], 'both picked = all platforms');
+        document.querySelector('#dxBody [data-plat-pick="meta"]').click();
+        document.querySelector('#dxBody [data-plat-pick="meta"]').click();
+        eq(platSel, null, 'nothing left = all platforms');
+        // عملة مختلفة مربوطة بالدولار: بيتجمعوا بسعر الربط (Google بالدولار ×٣٫٧٥ لو العرض بالريال) وجملة بتقول كده
         b.input.currency = 'USD';
-        dxState.sources.google.input = b.input;
-        dxRecompute();
-        eq(dxState.views.map(function (v) { return v.id; }), ['meta', 'google']);
+        dxState.sources.google = Object.assign({}, dxState.sources.google, { input: b.input, report: DX.analyze(b.input), gen: 2 });
+        setCurPref('SAR');
+        withLang('ar', function () { dxRecompute(); });
+        ok(dxState.report && dxState.sel.conv && dxState.sel.conv.to === 'SAR', JSON.stringify(dxState.sel.conv));
+        ok(Math.abs(dxState.report.cur.spend - DX.analyze(a.input).cur.spend - DX.analyze(b.input).cur.spend * 3.75) < 1e-6, 'dollars converted at 3.75');
+        ok(/بسعر الربط الرسمي بالدولار/.test(document.getElementById('dxBody').textContent), 'the note says so');
+        // عملة مش مربوطة (الجنيه المصري): منقدرش نجمع، والملخص بيقول اختار منصة
+        b.input.currency = 'EGP';
+        dxState.sources.google = Object.assign({}, dxState.sources.google, { gen: 3 });
+        withLang('ar', function () { dxRecompute(); });
+        eq([dxState.sel.blocked, !!dxState.report], ['currency', false]);
+        ok(/اختر منصة واحدة لترى ملخصها/.test(document.getElementById('dxBody').textContent) && chips().length === 3, 'note and chips stay');
       } finally {
+        platSel = null;
+        if (kept == null) localStorage.removeItem('acc.currency'); else localStorage.setItem('acc.currency', kept);
         platformOptions.meta = oldOpts.meta; platformOptions.google = oldOpts.google;
         DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
       }
@@ -6045,53 +6098,61 @@
         ok(!o2.basis, o2.basis);
       });
     });
-    test('حسابين بمنطقتين زمنيتين مختلفتين: مفيش «كل المنصات» (الأيام بتتجمع بالتاريخ وتاريخ كل حساب بتوقيته)', function () {
+    // من ٢٥ أكتوبر («كل المنصات» افتراضياً دايماً): التوقيت المختلف بنفس الأيام المكتملة = بيتجمعوا وجملة بتقول إن كل يوم بتوقيت
+    // حسابه (كان بيمنع «كل المنصات»)، وأيام مكتملة مختلفة = منقدرش نجمع (Kimball: بُعد تاريخ واحد للكل)
+    test('حسابين بمنطقتين زمنيتين مختلفتين: بيتجمعوا بجملة التوقيت لو الأيام المكتملة نفسها، وإلا «اختر منصة»', function () {
       var a = src('meta', 51), b = src('snapchat', 53);
       a.input.timezone = 'Asia/Riyadh'; b.input.timezone = 'America/Los_Angeles';
-      var rd = function (x, id) { return { status: 'ready', key: id, input: x.input, report: DX.analyze(x.input), account: id, accountId: id }; };
+      var rd = function (x, id, gen) { return { status: 'ready', key: id, gen: gen, input: x.input, report: DX.analyze(x.input), account: id, accountId: id }; };
+      var act = Object.assign({}, activeSources);
       try {
-        DX_ON = true;
-        dxState.sources = { meta: rd(a, 'meta:1'), snapchat: rd(b, 'snapchat:1') };
-        dxRecompute();
-        eq(dxState.views.map(function (v) { return v.id; }), ['meta', 'snapchat'], 'different time zones');
-        b.input.timezone = 'Asia/Riyadh';
-        dxState.sources.snapchat = rd(b, 'snapchat:1');
-        dxRecompute();
-        eq(dxState.views.map(function (v) { return v.id; }), ['all', 'meta', 'snapchat'], 'same time zone');
-      } finally { DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true; }
+        DX_ON = true; platSel = null; activeSources.meta = 'act_1'; activeSources.snapchat = 'sn1';
+        dxState.sources = { meta: rd(a, 'meta:1', 1), snapchat: rd(b, 'snapchat:1', 1) };
+        withLang('ar', function () { dxRecompute(); });
+        ok(dxState.report && dxState.sel.tzs && dxState.sel.tzs.length === 2, 'combined, with the time zones noted');
+        ok(/بتوقيت حسابه/.test(document.getElementById('dxBody').textContent), 'the time zone note');
+        b.input.until = shiftKey(b.input.until, -1);
+        dxState.sources.snapchat = rd(b, 'snapchat:1', 2);
+        withLang('ar', function () { dxRecompute(); });
+        eq([dxState.sel.blocked, !!dxState.report], ['period', false]);
+        ok(/آخر يوم مكتمل يختلف بينها/.test(document.getElementById('dxBody').textContent), 'says why');
+      } finally {
+        ['meta', 'snapchat'].forEach(function (p) { if (p in act) activeSources[p] = act[p]; else delete activeSources[p]; });
+        platSel = null; DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
+      }
     });
     // حساب حقيقي ١٨ أكتوبر: رسائل Meta (مفيش مشتريات خالص) + مبيعات Snapchat — «كل المنصات» ×١٫٨ «أقل من حد الخسارة» وSnapchat لوحده ×٣
-    test('منصة مفيش مشتريات بتوصلها خالص برّه «كل المنصات»، والعرض الافتراضي أول منصة بتبيع لحد ما العميل يختار (مراجعة المرحلة ٤)', function () {
+    test('منصة مفيش مشتريات بتوصلها خالص برّه أرقام المبيعات بجملة تقول كده، والاختيار بيفضل زي ما العميل اختاره (مراجعة المرحلة ٤)', function () {
       var noPur = function (x) { x.input.daily.forEach(function (d) { d.pur = 0; d.rev = 0; d.atc = 0; d.ic = 0; }); return x; };
       var m = noPur(src('meta', 31)), g = src('google', 37), s = src('snapchat', 41);
       var old = { opts: Object.assign({}, platformOptions), act: Object.assign({}, activeSources), copy: window.dxCopyText }, copied = null;
       DX_ON = true; activeSources.meta = 'act_1'; activeSources.google = '123'; activeSources.snapchat = 'sn1';
-      var rd = function (x, id) { return { status: 'ready', key: id, input: x.input, report: DX.analyze(x.input), account: id, accountId: id }; };
+      var rd = function (x, id) { return { status: 'ready', key: id, gen: 1, input: x.input, report: DX.analyze(x.input), account: id, accountId: id }; };
       try {
+        platSel = null;
         eq(DX.analyze(m.input).status, 'noPurchases', 'meta records no purchases');
-        // منصتين، واحدة منهم مفيهاش مشتريات: مفيش «كل المنصات»، والملخص بيفتح على اللي بتبيع (مش أول واحدة في الترتيب)
+        // منصتين، واحدة منهم مفيهاش مشتريات: «كل المنصات» = أرقام اللي بتبيع، وMeta برّه بجملة
         dxState.sources = { meta: rd(m, 'meta:1'), snapchat: rd(s, 'snapchat:1') };
         dxRecompute();
-        eq([dxState.views.map(function (v) { return v.id; }), dxState.view], [['meta', 'snapchat'], 'snapchat']);
-        // تلاتة: «كل المنصات» = Google + Snapchat بس، وبيرجع هو الافتراضي لما يظهر
+        eq([dxState.view, dxState.report === dxState.sources.snapchat.report, dxState.sel.excluded], ['all', true, ['meta']]);
+        // تلاتة: Google + Snapchat مع بعض، وMeta برّه
         dxState.sources.google = rd(g, 'google:1');
         dxRecompute();
-        var all = dxState.views[0];
-        eq([all.id, all.platforms, all.report.excluded, dxState.view], ['all', ['google', 'snapchat'], ['meta'], 'all']);
-        ok(Math.abs(all.report.cur.spend - DX.analyze(g.input).cur.spend - DX.analyze(s.input).cur.spend) < 1e-6, 'meta spend left out: ' + all.report.cur.spend);
-        eq(dxViewPlatforms(), ['google', 'snapchat'], 'the KPI strip follows the same platforms');
+        eq([dxState.view, dxState.sel.plats, dxState.sel.excluded], ['all', ['google', 'snapchat'], ['meta']]);
+        ok(Math.abs(dxState.report.cur.spend - DX.analyze(g.input).cur.spend - DX.analyze(s.input).cur.spend) < 1e-6, 'meta spend left out: ' + dxState.report.cur.spend);
         withLang('ar', function () {
           dxRecompute();
-          ok(document.getElementById('dxBody').textContent.indexOf('لا يشمل «كل المنصات» Meta') > -1, 'note above the numbers');
+          ok(document.getElementById('dxBody').textContent.indexOf('لا تدخل Meta في أرقام المبيعات هنا') > -1, 'note above the numbers');
           window.dxCopyText = function (txt) { copied = txt; };
           document.getElementById('dxCopy').click();
-          ok(copied && copied.indexOf('لا يشمل «كل المنصات» Meta') > -1, 'in the copied text: ' + (copied || '').slice(0, 80));
+          ok(copied && copied.indexOf('لا تدخل Meta في أرقام المبيعات هنا') > -1, 'in the copied text: ' + (copied || '').slice(0, 80));
         });
         // العميل اختار Meta بنفسه: بيفضل عليها
-        document.querySelector('#dxBody [data-dx-view="meta"]').click();
+        document.querySelector('#dxBody [data-plat-pick="meta"]').click();
         dxRecompute();
-        eq(dxState.view, 'meta', 'the user pick stays');
+        eq([dxState.view, platSel], ['meta', ['meta']], 'the user pick stays');
       } finally {
+        platSel = null;
         window.dxCopyText = old.copy;
         ['meta', 'google', 'snapchat'].forEach(function (p) {
           if (p in old.opts) platformOptions[p] = old.opts[p]; else delete platformOptions[p];
@@ -7538,20 +7599,20 @@
       });
     });
     // تحت شريحة Snapchat كانت «إعلانات تحتاج إلى مراجعة: ٢» والاتنين في Meta
-    testAsync('«تحتاج مراجعة» في «يحتاج انتباهك الآن» بعدد إعلانات الشريحة المختارة، والضغط بيفلتر بمنصتها', function () {
+    // من ٢٥ أكتوبر الاختيار واحد للصفحة كلها (platSel): الشارة بتفلتر الإعلانات بالحالة، والمنصة هي اختيار الصفحة نفسه
+    testAsync('«تحتاج مراجعة» في «يحتاج انتباهك الآن» بعدد إعلانات المنصات المختارة، والضغط بيعرض الإعلانات دي بنفس الاختيار', function () {
       return frame('').then(function (f) {
         var w = f.contentWindow, d = f.contentDocument;
         w.candidates = [ad('m1', { daily: steady(10), res: steady(1) }), ad('s1', { daily: steady(10), res: steady(1), platform: 'Snapchat', source: 'snapchat:sn1' })];
         w.runAnalysis();
         w.analysis.byAd.m1.health = 'review';
-        w.dxState.views = [{ id: 'meta' }, { id: 'snapchat' }];
         var el = d.getElementById('topAlerts'), chip = function () { return el.querySelector('[data-kpi="review"]'); };
-        w.dxState.view = 'snapchat'; w.fillTopAlerts(el, null);
+        w.eval('platSel = ["snapchat"]'); w.fillTopAlerts(el, null);
         ok(!chip(), 'no review chip under Snapchat: ' + el.textContent.slice(0, 80));
-        w.dxState.view = 'meta'; w.fillTopAlerts(el, null);
-        ok(chip() && chip().textContent.indexOf(w.ar(1)) > -1 && chip().dataset.plat === 'meta', chip() ? chip().textContent : 'no chip');
+        w.eval('platSel = ["meta"]'); w.fillTopAlerts(el, null);
+        ok(chip() && chip().textContent.indexOf(w.ar(1)) > -1, chip() ? chip().textContent : 'no chip');
         chip().click();
-        eq([w.filters.health, w.filters.platform], ['review', 'Meta']);
+        eq([w.filters.health, w.eval('platSel')], ['review', ['meta']], 'the page pick stays — the ads follow it');
         f.remove();
       });
     });
