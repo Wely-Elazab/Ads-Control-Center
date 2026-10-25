@@ -127,6 +127,7 @@
       setLoading('snapchat', false, connectedText(snapNotes));
       render();
       loadSnapchatDiagnosis(adAccountId, payload.account || {}, token);
+      loadSnapchatEdits(adAccountId, (payload.account && payload.account.timezone) || BROWSER_TZ, token);
     }).catch(function (err) {
       if (!isCurrentLoad('snapchat', token)) return;
       fail(msg('s.adsFailed', { platform: 'Snapchat', msg: err.message }));
@@ -153,6 +154,76 @@
       dxDone('snapchat', key, { since: p.since, until: p.until, currency: account.currency || null, timezone: tz,
         daily: res.data.daily || [], dims: res.data.dims || [] });
     }).catch(function (err) { dxFail('snapchat', key, err); });
+  }
+
+  // تعديلات الحملات والمجموعات والإعلانات الشغّالة في آخر ٨ أيام — وسم «عُدّل…» على الكارت زي Meta (meta.js loadAdEdits؛ طلب صاحب
+  // المنتج ٢٥ أكتوبر: «الحملات والمجموعات والاعلانات ايضاً، واذا وجدنا مشكلة فيما بعد نلغي الاعلانات»). سجل لكل عنصر
+  // (api/snapchat-ads-fetch.js action=changes) في دفعات (حد الطلبات في Cloudflare)، دفعتين في نفس الوقت، في الخلفية بعد ما الأرقام
+  // تظهر. فشل أي دفعة = عناصرها من غير وسم. لم يُختبر على حساب حقيقي قبل النشر
+  var SNAP_CHANGE_BATCH = 20, SNAP_CHANGE_PARALLEL = 2, SNAP_EDIT_DAYS = 8;
+  var SNAP_EDIT_LEVEL = { campaign: 'campaign', adsquad: 'adset', ad: 'ad' };
+  // تغيير واحد في السجل ← تعديلات بشكل Meta ({kind, level, date, time, from, to}). الميزانية بالمايكرو (unit — alerts.js editText)، وأقل
+  // من ٢٠٪ مش تعديل (نفس حد Meta: diagnosis.js ACT_MIN_BUDGET). المزايدة نوع لسناب شات بس. الإيقاف مش وسم (الإعلان المتوقف مبيتحكمش عليه)
+  function snapEditsOf(ch, tz) {
+    var level = ch && SNAP_EDIT_LEVEL[ch.level], date = level && ch.at ? DX._.keyInTz(ch.at, tz) : null, f = (ch && ch.fields) || {}, out = [];
+    if (!date) return out;
+    var add = function (kind, extra) {
+      if (kind !== 'budget' && out.some(function (e) { return e.kind === kind; })) return;
+      out.push(Object.assign({ kind: kind, level: level, date: date, time: String(ch.at), from: null, to: null }, extra || {}));
+    };
+    Object.keys(f).forEach(function (k) {
+      var r = f[k] || {};
+      if (/budget_micro$|spend_cap_micro$/.test(k)) {
+        var o = Number(r.before), n = Number(r.after);
+        if (o > 0 && n > 0 && Math.abs(n / o - 1) >= 0.2) add('budget', { from: o, to: n, unit: 1e6 });
+      } else if (/^targeting/.test(k)) add('targeting');
+      else if (/^(bid_micro|bid_strategy|auto_bid|target_bid)$/.test(k)) add('bid');
+      else if (k === 'creative_id' && r.before != null && r.after != null && String(r.before) !== String(r.after)) add('creative');
+      else if (k === 'status' && /^paused$/i.test(String(r.before)) && /^active$/i.test(String(r.after))) add('resume');
+    });
+    return out;
+  }
+  function loadSnapchatEdits(adAccountId, tz, token) {
+    if (!window.DX || !DX._ || typeof DX._.keyInTz !== 'function') return;
+    var source = 'snapchat:' + adAccountId, want = { campaign: {}, adsquad: {}, ad: {} };
+    candidates.forEach(function (c) {
+      if (c.source !== source || !c.active) return;
+      if (c.campaignId) want.campaign[c.campaignId] = 1;
+      if (c.adsetId) want.adsquad[c.adsetId] = 1;
+      if (c.nativeId) want.ad[c.nativeId] = 1;
+    });
+    var all = [];
+    ['campaign', 'adsquad', 'ad'].forEach(function (l) { Object.keys(want[l]).forEach(function (id) { all.push({ level: l, id: id }); }); });
+    if (!all.length) return;
+    var batches = [];
+    for (var i = 0; i < all.length; i += SNAP_CHANGE_BATCH) batches.push(all.slice(i, i + SNAP_CHANGE_BATCH));
+    var found = [], next = 0;
+    var worker = function () {
+      if (next >= batches.length || !isCurrentLoad('snapchat', token)) return Promise.resolve();
+      var ids = { campaign: [], adsquad: [], ad: [] };
+      batches[next++].forEach(function (x) { ids[x.level].push(x.id); });
+      return apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'changes', ids: ids }).then(function (res) {
+        if (res.ok && res.data && Array.isArray(res.data.changes)) found = found.concat(res.data.changes);
+      }, function () { /* الدفعة دي من غير وسم */ }).then(worker);
+    };
+    var pool = [];
+    for (var w = 0; w < SNAP_CHANGE_PARALLEL; w++) pool.push(worker());
+    Promise.all(pool).then(function () {
+      if (!isCurrentLoad('snapchat', token)) return;
+      var since = shiftKey(todayKeyInTz(tz), -SNAP_EDIT_DAYS), byObj = {};
+      found.forEach(function (ch) {
+        snapEditsOf(ch, tz).forEach(function (e) { if (e.date >= since) (byObj[ch.level + ':' + ch.id] = byObj[ch.level + ':' + ch.id] || []).push(e); });
+      });
+      var changed = false;
+      candidates.forEach(function (c) {
+        if (c.source !== source) return;
+        var list = [].concat(byObj['ad:' + c.nativeId] || [], (c.adsetId && byObj['adsquad:' + c.adsetId]) || [], (c.campaignId && byObj['campaign:' + c.campaignId]) || [])
+          .sort(function (x, y) { return x.time < y.time ? -1 : (x.time > y.time ? 1 : 0); });
+        var v = list.length ? list : null;
+        if (JSON.stringify(c.edits || null) !== JSON.stringify(v)) { c.edits = v; changed = true; }
+      });
+      if (changed) render();
+    }).catch(function () { /* من غير وسم */ });
   }
 
   // حالة التشغيل الفعلية لإعلان Snapchat: الإعلان نفسه + المجموعة (Ad Squad) + الحملة، ومواعيد البداية والنهاية

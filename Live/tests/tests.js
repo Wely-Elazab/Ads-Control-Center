@@ -2636,6 +2636,98 @@
         eq(mod.snapMonthWaste({ total_stats: [{ total_stat: { breakdown_stats: { ad: [{ id: 'old', stats: { spend: 5000000 } }] } } }] }, [], [], first, today), null, 'no purchase numbers');
       }, function (e) { window.fetch = realFetch; throw e; });
     });
+    // طلب صاحب المنتج ٢٥ أكتوبر: وسم «عُدّل…» على كروت سناب شات زي Meta — الحملات والمجموعات والإعلانات (توثيق Snap: Audit Logs،
+    // سجل لكل عنصر). الخادم بيرجّع الحقول اللي بتهمّ الوسم بس، ولحد CHANGE_IDS_MAX عنصر في الطلب (حد الطلبات في Cloudflare)
+    testAsync('Snapchat: سجل التعديلات لكل عنصر — الحقول المهمة بس (الاستهداف من غير قيمه)، والعنصر اللي فشل بيتعد', function () {
+      var realFetch = window.fetch, asked = [];
+      var json = function (obj, ok) { return Promise.resolve({ ok: ok !== false, status: ok === false ? 403 : 200, json: function () { return Promise.resolve(obj); } }); };
+      var logs = {
+        c1: [{ changelog: { event_at: '2026-10-24T10:00:00.000Z', action: 'UPDATED', update_value_records: { status: { before_value: 'PAUSED', after_value: 'ACTIVE' } } } }],
+        s1: [{ changelog: { event_at: '2026-10-24T10:00:00.000Z', action: 'UPDATED', update_value_records: {
+          daily_budget_micro: { before_value: 20000000, after_value: 25000000 }, name: { before_value: 'x', after_value: 'y' },
+          targeting: { before_value: { geos: [{ country_code: 'sa' }] }, after_value: { geos: [{ country_code: 'ae' }] } } } } }],
+        a1: [{ changelog: { event_at: '2026-10-23T08:00:00.000Z', action: 'CREATED' } },
+          { changelog: { event_at: '2026-10-24T09:00:00.000Z', action: 'UPDATED', update_value_records: { creative_id: { before_value: 'cr1', after_value: 'cr2' } } } }]
+      };
+      window.fetch = function (url) {
+        var u = String(url), m = u.match(/\/v1\/(campaigns|adsquads|ads)\/([^/]+)\/external_changelogs\?limit=50$/);
+        asked.push(u);
+        if (!m) return json({});
+        if (m[2] === 'bad') return json({ request_status: 'ERROR', debug_message: 'E3002' }, false);
+        return json({ request_status: 'SUCCESS', changelogs: logs[m[2]] || [] });
+      };
+      var out = null;
+      var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      var mod = null;
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        mod = m;
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'changes', ids: { campaign: ['c1'], adsquad: ['s1'], ad: ['a1', 'bad'] } } }, res);
+      }).then(function () {
+        eq([out.asked, out.failed, asked.length], [4, 1, 4]);
+        var by = {};
+        out.changes.forEach(function (ch) { by[ch.level + ':' + ch.id] = ch.fields; });
+        eq(by['campaign:c1'], { status: { before: 'PAUSED', after: 'ACTIVE' } });
+        eq(by['adsquad:s1'], { daily_budget_micro: { before: 20000000, after: 25000000 }, targeting: { changed: true } }, 'name dropped, targeting without its values');
+        eq(by['ad:a1'], { creative_id: { before: 'cr1', after: 'cr2' } });
+        eq(out.changes.length, 3, 'the CREATED entry without changed fields is dropped');
+        // لحد CHANGE_IDS_MAX عنصر في الطلب الواحد
+        asked = [];
+        var many = []; for (var i = 0; i < 30; i++) many.push('x' + i);
+        return mod.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'changes', ids: { ad: many } } }, res);
+      }).then(function () {
+        window.fetch = realFetch;
+        eq([asked.length, out.asked], [mod.CHANGE_IDS_MAX, mod.CHANGE_IDS_MAX]);
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+    test('Snapchat: تغيير السجل ← تعديل بشكل Meta (الميزانية بالمايكرو، ٢٠٪ على الأقل، والإيقاف مش وسم)، واليوم بتوقيت الحساب', function () {
+      var ch = function (level, at, fields) { return { level: level, id: 'x', at: at, fields: fields }; };
+      eq(snapEditsOf(ch('adsquad', '2026-10-24T10:00:00.000Z', { daily_budget_micro: { before: 20000000, after: 25000000 }, targeting: { changed: true } }), 'Asia/Riyadh'), [
+        { kind: 'budget', level: 'adset', date: '2026-10-24', time: '2026-10-24T10:00:00.000Z', from: 20000000, to: 25000000, unit: 1e6 },
+        { kind: 'targeting', level: 'adset', date: '2026-10-24', time: '2026-10-24T10:00:00.000Z', from: null, to: null }]);
+      eq(snapEditsOf(ch('adsquad', '2026-10-24T10:00:00.000Z', { daily_budget_micro: { before: 20000000, after: 22000000 } }), 'UTC'), [], '10% is not an edit');
+      eq(snapEditsOf(ch('campaign', '2026-10-24T22:30:00.000Z', { status: { before: 'PAUSED', after: 'ACTIVE' } }), 'Asia/Riyadh').map(function (e) { return [e.kind, e.level, e.date]; }),
+        [['resume', 'campaign', '2026-10-25']], 'the day in the account time zone');
+      eq(snapEditsOf(ch('ad', '2026-10-24T10:00:00.000Z', { status: { before: 'ACTIVE', after: 'PAUSED' } }), 'UTC'), [], 'a pause is not a tag');
+      eq(snapEditsOf(ch('ad', '2026-10-24T10:00:00.000Z', { creative_id: { before: 'a', after: 'b' }, bid_micro: { before: 1, after: 2 } }), 'UTC').map(function (e) { return e.kind; }), ['creative', 'bid']);
+      // ونص الوسم في المحرك: الميزانية بالمايكرو بالعملة الصح
+      var c = ad('sn', { daily: steady(100), res: steady(5), cid: 'cs' });
+      c.edits = [{ kind: 'budget', level: 'adset', date: KEYS[5], time: KEYS[5] + 'T10:00:00.000Z', from: 20000000, to: 25000000, unit: 1e6 }];
+      var r = withLang('ar', function () { return engine(baseAccount().concat([c])); });
+      eq(r.byAd.sn.editTag && r.byAd.sn.editTag.what, 'رفع ميزانية المجموعة الإعلانية من ٢٠ ر.س إلى ٢٥ ر.س');
+      c.edits = [{ kind: 'bid', level: 'adset', date: KEYS[5], time: KEYS[5] + 'T10:00:00.000Z', from: null, to: null }];
+      eq(withLang('ar', function () { return engine(baseAccount().concat([c])); }).byAd.sn.editTag.what, 'تعديل مزايدة المجموعة الإعلانية');
+    });
+    testAsync('Snapchat: الكروت بتاخد تعديلات إعلانها ومجموعته وحملته، والطلبات دفعات لحد ٢٠ عنصر', function () {
+      var saved = { apiPost: window.apiPost, isCurrentLoad: window.isCurrentLoad, render: window.render, candidates: candidates }, calls = [];
+      var mk = function (n, sq, camp, active) {
+        var c = ad('s-' + n, { daily: steady(10), res: steady(1), source: 'snapchat:acc1', platform: 'Snapchat', active: active !== false });
+        c.nativeId = n; c.adsetId = sq; c.campaignId = camp;
+        return c;
+      };
+      var list = [mk('a1', 's1', 'c1'), mk('a2', 's1', 'c1'), mk('a3', 's2', 'c1', false)];
+      for (var i = 0; i < 20; i++) list.push(mk('z' + i, 's3', 'c2'));
+      window.apiPost = function (url, body) {
+        calls.push(body.ids);
+        var ch = [];
+        if ((body.ids.adsquad || []).indexOf('s1') > -1) ch.push({ level: 'adsquad', id: 's1', at: KEYS[5] + 'T09:00:00.000Z', fields: { targeting: { changed: true } } });
+        if ((body.ids.ad || []).indexOf('a2') > -1) ch.push({ level: 'ad', id: 'a2', at: KEYS[5] + 'T11:00:00.000Z', fields: { creative_id: { before: 'x', after: 'y' } } });
+        return Promise.resolve({ ok: true, status: 200, data: { changes: ch } });
+      };
+      window.isCurrentLoad = function () { return true; };
+      window.render = function () {};
+      candidates = list;
+      var restore = function () { window.apiPost = saved.apiPost; window.isCurrentLoad = saved.isCurrentLoad; window.render = saved.render; candidates = saved.candidates; };
+      try { loadSnapchatEdits('acc1', 'UTC', 'tok'); } catch (e) { restore(); throw e; }
+      return new Promise(function (r) { setTimeout(r, 30); }).then(function () {
+        var asked = calls.reduce(function (n, ids) { return n + ids.campaign.length + ids.adsquad.length + ids.ad.length; }, 0);
+        // الشغّالة بس: ٢٢ إعلان + مجموعتين (s1، s3) + حملتين = ٢٦ عنصر ← دفعتين
+        eq([calls.length, asked], [2, 26]);
+        ok(calls.every(function (ids) { return ids.campaign.length + ids.adsquad.length + ids.ad.length <= 20; }), 'batches of 20 at most');
+        eq(list[0].edits.map(function (e) { return e.kind + ':' + e.level; }), ['targeting:adset'], 'the ad set edit reaches its ads');
+        eq(list[1].edits.map(function (e) { return e.kind + ':' + e.level; }), ['targeting:adset', 'creative:ad'], 'sorted by time');
+        eq([list[2].edits || null, list[3].edits || null], [null, null]);
+      }).then(restore, function (e) { restore(); throw e; });
+    });
   });
 
   describe('الأسعار', function () {

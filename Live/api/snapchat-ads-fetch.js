@@ -132,6 +132,34 @@ export function snapMedia(m) {
   };
 }
 
+// سجل التعديلات (طلب صاحب المنتج ٢٥ أكتوبر: وسم «عُدّل…» على كروت سناب شات زي Meta — الحملات والمجموعات والإعلانات): توثيق Snap
+// Marketing API «Audit Logs» — سجل لكل عنصر لوحده (/{campaigns|adsquads|ads}/{id}/external_changelogs، آخر ٥٠ تغيير)، مش سجل
+// للحساب كله زي Meta. طلب لكل عنصر، والخطة المجانية في Cloudflare = ٥٠ طلب خارجي في الاستدعاء الواحد (وتحميل الإعلانات نفسه
+// بياخد نحو ٢٠)، فده استدعاء لوحده والواجهة بتبعت العناصر دفعات (CHANGE_IDS_MAX). بنرجّع الحقول اللي بتهمّ الوسم بس (الحالة
+// والميزانية والاستهداف والمزايدة والتصميم) — الاستهداف «اتغيّر» من غير قيمه. فشل عنصر (صلاحية E3002 مثلاً) بيتعد ومبيوقفش الباقي.
+// الصفحة الأولى بس (آخر ٥٠ تغيير للعنصر) — الوسم محتاج آخر ٨ أيام. لم يُختبر على حساب حقيقي قبل النشر
+export const CHANGE_IDS_MAX = 20;
+const CHANGE_PATH = { campaign: 'campaigns', adsquad: 'adsquads', ad: 'ads' };
+const CHANGE_FIELD = /^(status|creative_id|targeting.*|bid_micro|bid_strategy|auto_bid|target_bid|[a-z_]*budget_micro|[a-z_]*spend_cap_micro)$/;
+export function snapChanges(level, id, data) {
+  const out = [];
+  ((data && data.changelogs) || []).forEach(function (item) {
+    const ch = item && (item.changelog || item);
+    const at = ch && (ch.event_at || ch.created_at);
+    if (!at) return;
+    const recs = (ch.update_value_records && typeof ch.update_value_records === 'object') ? ch.update_value_records : {};
+    const fields = {};
+    Object.keys(recs).forEach(function (f) {
+      if (!CHANGE_FIELD.test(f)) return;
+      const r = recs[f] || {};
+      const val = function (v) { return v == null || typeof v === 'object' ? null : v; };
+      fields[f] = /^targeting/.test(f) ? { changed: true } : { before: val(r.before_value), after: val(r.after_value) };
+    });
+    if (Object.keys(fields).length) out.push({ level: level, id: String(id), at: String(at), fields: fields });
+  });
+  return out;
+}
+
 export default async function handler(req, res) {
   if (!guardRequest(req, res)) return;
 
@@ -333,6 +361,30 @@ export default async function handler(req, res) {
       return;
     }
 
+    // سجل تعديلات العناصر (snapChanges فوق) — ids = { campaign: [...], adsquad: [...], ad: [...] }، لحد CHANGE_IDS_MAX في الطلب
+    if (action === 'changes') {
+      const ids = body.ids && typeof body.ids === 'object' ? body.ids : {};
+      const list = [];
+      Object.keys(CHANGE_PATH).forEach(function (level) {
+        (Array.isArray(ids[level]) ? ids[level] : []).forEach(function (v) {
+          const id = shaped(v, /^[A-Za-z0-9-]{1,64}$/);
+          if (id && list.length < CHANGE_IDS_MAX) list.push({ level: level, id: id });
+        });
+      });
+      if (!list.length) { badRequest(res, 'الحقل ids مطلوب لجلب سجل التعديلات.'); return; }
+      let failed = 0;
+      const parts = await Promise.all(list.map(async function (x) {
+        try {
+          const r = await fetch(SNAP_API + '/' + CHANGE_PATH[x.level] + '/' + encodeURIComponent(x.id) + '/external_changelogs?limit=50', { headers: headers });
+          const d = await r.json().catch(function () { return null; });
+          if (!r.ok || !d || d.request_status === 'ERROR') { failed++; return []; }
+          return snapChanges(x.level, x.id, d);
+        } catch (e) { failed++; return []; }
+      }));
+      res.status(200).json({ changes: [].concat.apply([], parts), asked: list.length, failed: failed });
+      return;
+    }
+
     // ملخص المتجر: الحساب يوم بيوم + الحملات والدول لكل فترة من الـ ٣ (بشكل js/diagnosis.js). قراءة بس.
     // لم يُختبر على حساب Snapchat حقيقي بعد — التقسيم بالدولة بالذات (report_dimension) مش مضمون الشكل،
     // فلو ماتفهمش بيتشال، ومحرك التشخيص كمان بيشيل أي تقسيم أرقامه مش مطابقة لإجمالي الحساب
@@ -442,7 +494,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    res.status(400).json({ error: 'قيمة action غير معروفة — استخدم accounts أو ads أو diagnosis.', code: 'BAD_REQUEST' });
+    res.status(400).json({ error: 'قيمة action غير معروفة — استخدم accounts أو ads أو changes أو diagnosis.', code: 'BAD_REQUEST' });
   } catch (err) {
     // من غير نص الخطأ الداخلي في الرد (المرحلة ٣، أ٦ — OWASP ASVS: معالجة الأخطاء) — زي حارس الـ Worker
     res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم.', code: 'SERVER' });

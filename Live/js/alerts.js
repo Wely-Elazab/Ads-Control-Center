@@ -612,8 +612,10 @@
     // التعديل بكلام واضح: «رفع ميزانية الحملة من ٢٠٠ إلى ٤٠٠ ر.س»، «تعديل استهداف المجموعة الإعلانية»…
     function editText(e) {
       var lvl = t('edit.lvl.' + e.level);
+      // الوحدة: Meta بأصغر وحدة في العملة (الهللة، السنت — unitOf)، وسناب شات بالمايكرو (e.unit = مليون — snapchat.js snapEditsOf)
       if (e.kind === 'budget' && e.from > 0 && e.to > 0) {
-        return t(e.to > e.from ? 'edit.budget.up' : 'edit.budget.down', { lvl: lvl, from: fmt.money(e.from / unitOf(cur), cur), to: fmt.money(e.to / unitOf(cur), cur) });
+        var u = e.unit || unitOf(cur);
+        return t(e.to > e.from ? 'edit.budget.up' : 'edit.budget.down', { lvl: lvl, from: fmt.money(e.from / u, cur), to: fmt.money(e.to / u, cur) });
       }
       return t('edit.' + e.kind, { lvl: lvl });
     }
