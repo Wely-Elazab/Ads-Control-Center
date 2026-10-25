@@ -436,6 +436,32 @@
   /* الأسماء «Snapchat — اسم الحساب»: بالعربي النص الطويل كان بيتقص من أوله («pchat — Store Self Service» — حساب حقيقي ١١ أكتوبر ٢٠٢٦)
      فاسم المنصة نفسه بيضيع. من الشمال لليمين = القص من آخر الاسم */
   .account-select { max-width: 230px; direction: ltr; }
+  /* القائمة الأصلية مخفية دايماً — الزرار والقائمة اللي تحته (ui.js renderAccountPicker — طلب صاحب المنتج ٢٦ أكتوبر ٢٠٢٦) */
+  #accountSelect { display: none !important; }
+  .acct-picker { position: relative; min-width: 0; }
+  .acct-picker[hidden] { display: none; }
+  .acct-pick-btn { display: flex; align-items: center; gap: 10px; max-width: 420px; min-width: 0; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--ink);
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; cursor: pointer; }
+  .acct-pick-btn:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .acct-pick-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+  .acct-pick-item .plat-logo { width: 15px; height: 15px; flex: 0 0 auto; }
+  .acct-pick-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+  .acct-pick-caret { flex: 0 0 auto; color: var(--ink-soft); font-size: 11px; }
+  .acct-panel { position: absolute; top: calc(100% + 6px); inset-inline-end: 0; z-index: 70; width: min(380px, calc(100vw - 24px)); max-height: min(70vh, 520px);
+    display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 34px -14px rgba(22, 26, 31, .45); padding: 8px; }
+  .acct-panel[hidden] { display: none; }
+  .acct-search { font-family: inherit; font-size: 14px; color: var(--ink); background: var(--bg, var(--card)); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; margin-bottom: 6px; }
+  .acct-search:focus-visible { outline: 2px solid var(--verified); outline-offset: 1px; }
+  .acct-list { overflow-y: auto; min-height: 0; }
+  .acct-group { display: flex; align-items: center; gap: 6px; margin: 8px 6px 4px; font-size: 12px; font-weight: 800; color: var(--ink-soft); }
+  .acct-group .plat-logo { width: 14px; height: 14px; }
+  .acct-opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: start; font-family: inherit; font-size: 13.5px; color: var(--ink);
+    background: none; border: none; border-radius: 8px; padding: 9px 10px; cursor: pointer; }
+  .acct-opt:hover, .acct-opt:focus-visible { background: var(--sending-bg); outline: none; }
+  .acct-opt.on { background: var(--verified-bg); color: var(--verified); font-weight: 700; }
+  .acct-opt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .acct-opt-check { flex: 0 0 auto; font-size: 13px; }
+  .acct-empty { margin: 10px 6px; font-size: 13px; color: var(--ink-soft); }
   .appbar-icons { display: flex; align-items: center; gap: 8px; }
   .install-btn { border-color: var(--verified); color: var(--verified); }
   .install-btn[hidden] { display: none; }
@@ -454,6 +480,9 @@
     .appbar-spacer { display: none; }
     .appbar-actions { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; justify-content: flex-end; }
     .account-select { flex: 1 1 auto; min-width: 0; max-width: none; }
+    .acct-picker { flex: 1 1 auto; display: flex; justify-content: flex-end; }
+    .acct-pick-btn { max-width: 100%; }
+    .acct-pick-name { max-width: 90px; }
     .brand-tag { display: none; }
   }
 
@@ -972,7 +1001,16 @@
     </a>
     <span class="appbar-spacer"></span>
     <div class="appbar-actions">
-      <select id="accountSelect" class="sort-select account-select hidden" aria-label="الحساب الإعلاني" data-i18n-aria="account.aria"></select>
+      <!-- القائمة الأصلية مصدر الخيارات بس (setPlatformOptions) ومخفية دايماً. الظاهر: زرار بالحساب المختار في كل منصة متصلة بشعارها،
+           وقائمة فيها بحث بالاسم وعلامة ✓ جنب المختار (طلب صاحب المنتج ٢٦ أكتوبر ٢٠٢٦ — ui.js renderAccountPicker) -->
+      <select id="accountSelect" class="sort-select account-select hidden" aria-label="الحساب الإعلاني" data-i18n-aria="account.aria" tabindex="-1" aria-hidden="true"></select>
+      <div class="acct-picker" id="acctPicker" hidden>
+        <button type="button" class="acct-pick-btn" id="acctPickBtn" aria-haspopup="listbox" aria-expanded="false" aria-controls="acctPanel" aria-label="الحسابات الإعلانية المختارة" data-i18n-aria="acct.pick.aria"></button>
+        <div class="acct-panel" id="acctPanel" hidden>
+          <input type="search" id="acctSearch" class="acct-search" autocomplete="off" placeholder="ابحث باسم الحساب" data-i18n-placeholder="acct.search" aria-label="ابحث باسم الحساب" data-i18n-aria="acct.search">
+          <div id="acctList" class="acct-list" role="listbox" aria-label="الحسابات الإعلانية" data-i18n-aria="acct.list"></div>
+        </div>
+      </div>
       <button type="button" class="icon-toggle" id="resetAllBtn" title="تحديث البيانات" aria-label="تحديث البيانات" data-i18n-title="btn.refresh" data-i18n-aria="btn.refresh">↻</button>
     </div>
   </div>

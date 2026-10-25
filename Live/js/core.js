@@ -622,6 +622,8 @@
     sel.classList.toggle('hidden', !sel.options.length);
     platformOptions[platform] = items;
     saveSession();
+    // الزرار الظاهر في الشريط العلوي (ui.js) بيتبني من الخيارات دي
+    if (typeof renderAccountPicker === 'function') renderAccountPicker();
   }
 
   var themeToggle = document.getElementById('themeToggle');

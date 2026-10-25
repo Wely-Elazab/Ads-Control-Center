@@ -31,7 +31,7 @@
       ['الصفة', req.role], // «أنت:» في النموذج — join.ts بيبعتها بالاسم العربي، والطلبات القديمة من غيرها
       ['الاسم', req.name], ['النشاط', req.business], ['المتجر', req.store], ['البلد', req.country],
       ['المنصات', (req.platforms || []).map(function (p) { return NAMES[p] || p; }).join('، ')],
-      ['فيسبوك', req.fb], ['بريد Google Ads', req.googleEmail], ['البريد', req.email], ['واتساب', req.whatsapp],
+      ['فيسبوك', req.fb], ['بريد Google Ads', req.googleEmail], ['بريد Snapchat', req.snapEmail], ['البريد', req.email], ['واتساب', req.whatsapp],
       ['لغة الرسائل', req.lang === 'en' ? 'الإنجليزية' : 'العربية'], ['تاريخ الطلب', day(req.createdAt)]
     ];
     var body = document.getElementById('invDetails');

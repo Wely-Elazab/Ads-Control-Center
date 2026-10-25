@@ -3219,15 +3219,25 @@
         function set(id, v) { d.getElementById(id).value = v; }
         set('jName', 'Test'); set('jBusiness', 'Shop'); set('jStore', 'shop.example'); set('jCountry', 'مصر');
         set('jFb', 'facebook.com/test.user'); set('jEmail', 'a@b.co');
+        // بريد Snapchat (٢٦ أكتوبر): بيظهر مع Snapchat زي Google، والغلط فيه بيتقال
+        var snapBox = d.querySelector('[data-for="snapchat"]');
+        ok(snapBox && snapBox.hidden, 'snapchat email hidden before choosing Snapchat');
+        form.querySelector('input[value="snapchat"]').click();
+        ok(!snapBox.hidden, 'snapchat email shows with Snapchat');
+        set('jSnap', 'not-an-email');
         var sent = null;
         w.fetch = function (url, init) { sent = JSON.parse(init.body); return Promise.resolve(new w.Response('{"ok":true}', { status: 200 })); };
+        form.requestSubmit();
+        eq([sent, d.activeElement && d.activeElement.id], [null, 'jSnap'], 'a wrong Snapchat email is caught');
+        set('jSnap', 'snap@b.co');
         form.requestSubmit();
         eq([sent, d.activeElement && d.activeElement.id], [null, 'jConsent'], 'consent is required before sending');
         d.getElementById('jConsent').click();
         form.requestSubmit();
         return new Promise(function (r) { setTimeout(r, 30); }).then(function () {
           ok(sent, 'sent');
-          eq([sent.action, sent.role, sent.platforms, sent.fb, sent.email, sent.googleEmail, sent.consent, sent.hp], ['join', 'agency', ['meta'], 'facebook.com/test.user', 'a@b.co', '', true, '']);
+          eq([sent.action, sent.role, sent.platforms, sent.fb, sent.email, sent.googleEmail, sent.snapEmail, sent.consent, sent.hp],
+            ['join', 'agency', ['meta', 'snapchat'], 'facebook.com/test.user', 'a@b.co', '', 'snap@b.co', true, '']);
           ok(sent.ms >= 0, 'fill time');
           ok(d.querySelector('[data-join-state="form"]').hidden && !d.querySelector('[data-join-state="done"]').hidden, 'done state');
         });
@@ -6308,6 +6318,42 @@
     });
     // طلب صاحب المنتج ٢٥ أكتوبر: «كل المنصات» افتراضياً وجنبه كل منصة متصلة بلونها وشعارها، وأكتر من منصة مع بعض، والعملات
     // المختلفة بسعر الربط الرسمي (كانت: عملة مختلفة = مفيش «كل المنصات»)
+    // طلب صاحب المنتج ٢٦ أكتوبر: «يظهر اسم آخر حساب فقط، ولا تحديد للحسابات المختارة، ولا بحث»
+    test('اختيار الحسابات: الزرار بالحساب المختار في كل منصة متصلة، والقائمة فيها ✓ جنب المختار وبحث بالاسم، والاختيار بيحمّل الحساب', function () {
+      var old = { opts: Object.assign({}, platformOptions), act: Object.assign({}, activeSources), load: window.loadSource }, asked = [];
+      try {
+        platformOptions.meta = [{ value: 'act_1', label: 'Meta — Level Up' }, { value: 'act_2', label: 'Meta — Second Store' }];
+        platformOptions.snapchat = [{ value: 'sn1', label: 'Snapchat — levelupkwt Self Service' }];
+        delete platformOptions.google; delete platformOptions.tiktok;
+        activeSources.meta = 'act_1'; activeSources.snapchat = 'sn1';
+        window.loadSource = function (p, id) { asked.push([p, id]); };
+        withLang('ar', function () {
+          renderAccountPicker();
+          var btn = document.getElementById('acctPickBtn');
+          ok(!document.getElementById('acctPicker').hidden, 'shown');
+          eq(Array.prototype.map.call(btn.querySelectorAll('.acct-pick-name'), function (s) { return s.textContent; }), ['Level Up', 'levelupkwt Self Service'], 'both platforms');
+          btn.click();
+          var list = document.getElementById('acctList');
+          ok(!document.getElementById('acctPanel').hidden, 'panel open');
+          eq(Array.prototype.map.call(list.querySelectorAll('.acct-opt.on'), function (b) { return b.getAttribute('data-acct-id'); }), ['act_1', 'sn1'], 'the selected one in each platform');
+          eq(list.querySelectorAll('.acct-opt-check').length, 2, '✓ beside them');
+          var search = document.getElementById('acctSearch');
+          search.value = 'second'; search.dispatchEvent(new Event('input'));
+          eq(Array.prototype.map.call(list.querySelectorAll('[data-acct-id]'), function (b) { return b.getAttribute('data-acct-id'); }), ['act_2'], 'search by name');
+          search.value = 'zzz'; search.dispatchEvent(new Event('input'));
+          ok(/لا توجد حسابات بهذا الاسم/.test(list.textContent), 'no match');
+          search.value = 'act_2'; search.dispatchEvent(new Event('input'));
+          list.querySelector('[data-acct-id="act_2"]').click();
+          eq(asked, [['meta', 'act_2']], 'picking loads the account');
+          ok(document.getElementById('acctPanel').hidden, 'panel closed');
+        });
+      } finally {
+        Object.keys(platformOptions).forEach(function (k) { delete platformOptions[k]; }); Object.assign(platformOptions, old.opts);
+        Object.keys(activeSources).forEach(function (k) { delete activeSources[k]; }); Object.assign(activeSources, old.act);
+        window.loadSource = old.load;
+        renderAccountPicker();
+      }
+    });
     test('اختيار المنصات: من منصة لتانية بضغطة لو الاتنين = كل المنصات، والجمع بيفضل لو فيه منصة تالتة', function () {
       var prev = window.connectedPlats;
       try {

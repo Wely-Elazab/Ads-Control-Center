@@ -1,5 +1,6 @@
 // طلبات الانضمام للتجربة المغلقة (نموذج /join) — بدل رسالة البريد الجاهزة (mailto) اللي كانت بتضيع لو مفيش برنامج بريد
-//   join          ← { lang, role, name, business, store, country, platforms, fb?, googleEmail?, email, whatsapp?, consent: true, hp, ms }
+//   join          ← { lang, role, name, business, store, country, platforms, fb?, googleEmail?, snapEmail?, email, whatsapp?, consent: true, hp, ms }
+//                    snapEmail (من ٢٦ أكتوبر ٢٠٢٦): بريد Snapchat لو اختاره — بيوصلنا في الإشعار بس، ومش محتاجينه في التفعيل
 //                    role = «أنت:» في النموذج (من ٥ أكتوبر ٢٠٢٦): media_buyer / agency / owner_self / owner_managed
 //                    عام (من غير دخول): بيتحفظ في pilot_requests، ويوصلنا إشعار على support@ فيه البيانات وزرار «أرسلت الدعوة»
 //   join.peek     ← { id, sig }  صفحة /invited (الرابط الموقّع اللي في إشعارنا): بيانات الطلب عشان نراجعها قبل الإرسال
@@ -17,8 +18,8 @@
 import { META_APP_ID, SITE, MAIL_REPLY_TO, db, reply, esc, sendEmail, mailHtml } from './lib.ts';
 import { linkSig, sameString, cleanEmail } from './digest.ts';
 
-// نسخة الشروط وسياسة الخصوصية اللي وافق عليها مقدّم الطلب — ٢٥ أكتوبر ٢٠٢٦: سجل التنبيهات العاجلة (episodes.ts) في سياسة الخصوصية
-const CONSENT_VERSION = '2026-10-25';
+// نسخة الشروط وسياسة الخصوصية اللي وافق عليها مقدّم الطلب — ٢٥ أكتوبر ٢٠٢٦: سجل التنبيهات العاجلة (episodes.ts)، و٢٦ أكتوبر: بريد Snapchat
+const CONSENT_VERSION = '2026-10-26';
 const SIG_LABEL = 'ads-center/join-invited/v1:';
 const PLATFORMS = ['meta', 'google', 'snapchat', 'tiktok'];
 // «أنت:» — لازم تطابق join.html وقيد الجدول (pilot_requests.role). الأسماء دي اللي بتظهر في إشعارنا وصفحة /invited
@@ -37,10 +38,10 @@ const FB_REQUESTS = 'https://www.facebook.com/settings/?tab=applications';
 
 type Req = {
   id: string; email: string; role: string | null; name: string; business: string; store_url: string; country: string; platforms: string[];
-  fb_profile: string | null; google_email: string | null; whatsapp: string | null; lang: string; status: string;
+  fb_profile: string | null; google_email: string | null; snap_email: string | null; whatsapp: string | null; lang: string; status: string;
   submissions: number; activated_at: string | null; created_at: string; updated_at: string;
 };
-const COLUMNS = 'id,email,role,name,business,store_url,country,platforms,fb_profile,google_email,whatsapp,lang,status,submissions,activated_at,created_at,updated_at';
+const COLUMNS = 'id,email,role,name,business,store_url,country,platforms,fb_profile,google_email,snap_email,whatsapp,lang,status,submissions,activated_at,created_at,updated_at';
 
 // ---------- تنظيف المدخلات ----------
 // سطر واحد: من غير رموز تحكم ولا علامات اتجاه (بتلخبط العرض في الإشعار)، والمسافات الزيادة بتتشال.
@@ -96,7 +97,7 @@ const sigOf = (id: string) => linkSig(SIG_LABEL, 'join:' + id);
 function publicView(r: Req) {
   return {
     role: r.role ? ROLES[r.role] || r.role : null, name: r.name, business: r.business, email: r.email, store: r.store_url, country: r.country, platforms: r.platforms,
-    fb: r.fb_profile, googleEmail: r.google_email, whatsapp: r.whatsapp, lang: r.lang, status: r.status,
+    fb: r.fb_profile, googleEmail: r.google_email, snapEmail: r.snap_email, whatsapp: r.whatsapp, lang: r.lang, status: r.status,
     submissions: r.submissions, activatedAt: r.activated_at, createdAt: r.created_at
   };
 }
@@ -139,6 +140,7 @@ async function adminMail(r: Req, repeat: boolean, remind?: { elapsed: number; le
     row('المنصات', esc(r.platforms.map((p) => NAMES[p] || p).join('، '))),
     r.fb_profile ? row('فيسبوك', link(r.fb_profile)) : '',
     r.google_email ? row('بريد Google Ads', esc(r.google_email)) : '',
+    r.snap_email ? row('بريد Snapchat', esc(r.snap_email)) : '',
     row('البريد', esc(r.email)),
     r.whatsapp ? row('واتساب', '<span dir="ltr">' + link('https://wa.me/' + r.whatsapp.replace(/\D/g, ''), r.whatsapp) + '</span>') : '',
     row('لغة الرسائل', r.lang === 'en' ? 'الإنجليزية' : 'العربية'),
@@ -278,6 +280,8 @@ async function submit(b: any, origin: string | null): Promise<Response> {
   const email = cleanEmail(b.email); if (!email) return bad('email');
   let google: string | null = null;
   if (platforms.indexOf('google') > -1) { google = b.googleEmail ? cleanEmail(b.googleEmail) : email; if (!google) return bad('googleEmail'); }
+  let snap: string | null = null;
+  if (platforms.indexOf('snapchat') > -1) { snap = b.snapEmail ? cleanEmail(b.snapEmail) : email; if (!snap) return bad('snapEmail'); }
   let whatsapp: string | null = null;
   if (b.whatsapp) { whatsapp = cleanPhone(b.whatsapp); if (!whatsapp) return bad('whatsapp'); }
   if (b.consent !== true) return bad('consent');
@@ -287,7 +291,7 @@ async function submit(b: any, origin: string | null): Promise<Response> {
   if (Array.isArray(recent) && recent.length > HOURLY_MAX) return reply(429, { error: 'busy' }, origin);
 
   const now = new Date().toISOString();
-  const fields = { role, name, business, store_url: store, country, platforms, fb_profile: fb, google_email: google, whatsapp, lang,
+  const fields = { role, name, business, store_url: store, country, platforms, fb_profile: fb, google_email: google, snap_email: snap, whatsapp, lang,
     consent_at: now, consent_version: CONSENT_VERSION, updated_at: now };
   const prev = await one('email=eq.' + encodeURIComponent(email));
   let row: Req;

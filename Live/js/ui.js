@@ -80,6 +80,80 @@
     if (opt) loadSource(opt.dataset.platform, opt.value);
   });
 
+  // ---------- اختيار الحسابات في الشريط العلوي (طلب صاحب المنتج ٢٦ أكتوبر ٢٠٢٦) ----------
+  // «يظهر اسم آخر حساب إعلاني تم اختياره فقط رغم الاتصال بأكثر من منصة، ولا يظهر تحديد يوضح الحسابات المختارة، ولا يوجد بحث».
+  // القائمة الأصلية (select#accountSelect) بتفضل مصدر الخيارات ومخفية. الزرار: الحساب المختار في كل منصة متصلة بشعارها. القائمة:
+  // بحث بالاسم أو الرقم، ومجموعة لكل منصة، و✓ جنب المختار. اختيار حساب = نفس «change» القديم (loadSource)
+  var acctPicker = document.getElementById('acctPicker'), acctPickBtn = document.getElementById('acctPickBtn');
+  var acctPanel = document.getElementById('acctPanel'), acctSearch = document.getElementById('acctSearch'), acctList = document.getElementById('acctList');
+  // «Meta — اسم الحساب» ← «اسم الحساب» (الشعار بيقول المنصة)
+  function acctName(label) { return String(label || '').replace(/^[^—]*—\s*/, ''); }
+  function acctPlats() { return PLAT_ORDER.filter(function (p) { return (platformOptions[p] || []).length; }); }
+  function renderAccountPicker() {
+    if (!acctPicker) return;
+    var plats = acctPlats();
+    acctPicker.hidden = !plats.length;
+    acctPickBtn.innerHTML = plats.map(function (p) {
+      var cur = (platformOptions[p] || []).filter(function (o) { return o.value === activeSources[p]; })[0], name = cur ? acctName(cur.label) : t('acct.pick.none');
+      return '<span class="acct-pick-item" title="' + esc(PLATFORM_NAMES[p] + ' — ' + name) + '">' + platLogo(p) +
+        '<span class="acct-pick-name" dir="auto">' + esc(name) + '</span></span>';
+    }).join('') + '<span class="acct-pick-caret" aria-hidden="true">▾</span>';
+    if (!acctPanel.hidden) renderAccountList();
+  }
+  function renderAccountList() {
+    var q = String(acctSearch.value || '').trim().toLowerCase(), html = '', any = false;
+    acctPlats().forEach(function (p) {
+      var opts = (platformOptions[p] || []).filter(function (o) {
+        return !q || acctName(o.label).toLowerCase().indexOf(q) > -1 || String(o.value).toLowerCase().indexOf(q) > -1;
+      });
+      if (!opts.length) return;
+      any = true;
+      html += '<div class="acct-group" role="presentation">' + platLogo(p) + esc(PLATFORM_NAMES[p]) + '</div>';
+      opts.forEach(function (o) {
+        var on = o.value === activeSources[p];
+        html += '<button type="button" class="acct-opt' + (on ? ' on' : '') + '" role="option" aria-selected="' + on + '" data-acct-plat="' + esc(p) + '" data-acct-id="' + esc(o.value) + '">' +
+          '<span class="acct-opt-name" dir="auto">' + esc(acctName(o.label)) + '</span>' +
+          (on ? '<span class="acct-opt-check" role="img" aria-label="' + esc(t('acct.selected')) + '">✓</span>' : '') + '</button>';
+      });
+    });
+    acctList.innerHTML = any ? html : '<p class="acct-empty">' + esc(t('acct.none')) + '</p>';
+  }
+  function openAccountPanel(open) {
+    acctPanel.hidden = !open;
+    acctPickBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) { acctSearch.value = ''; renderAccountList(); acctSearch.focus(); }
+  }
+  if (acctPickBtn) {
+    acctPickBtn.addEventListener('click', function () { openAccountPanel(acctPanel.hidden); });
+    acctSearch.addEventListener('input', renderAccountList);
+    // Enter = أول نتيجة، والسهم لتحت = القائمة
+    acctSearch.addEventListener('keydown', function (e) {
+      var first = acctList.querySelector('[data-acct-id]');
+      if (e.key === 'Enter' && first) { e.preventDefault(); first.click(); }
+      if (e.key === 'ArrowDown' && first) { e.preventDefault(); first.focus(); }
+    });
+    acctList.addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      var all = Array.prototype.slice.call(acctList.querySelectorAll('[data-acct-id]')), i = all.indexOf(document.activeElement);
+      if (i < 0) return;
+      e.preventDefault();
+      if (e.key === 'ArrowUp' && i === 0) acctSearch.focus(); else if (all[i + (e.key === 'ArrowDown' ? 1 : -1)]) all[i + (e.key === 'ArrowDown' ? 1 : -1)].focus();
+    });
+    acctList.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-acct-id]');
+      if (!b) return;
+      var p = b.getAttribute('data-acct-plat'), id = b.getAttribute('data-acct-id');
+      openAccountPanel(false);
+      acctPickBtn.focus();
+      if (activeSources[p] === id) return;
+      accountSelect.value = id;
+      loadSource(p, id);
+      renderAccountPicker();
+    });
+    document.addEventListener('click', function (e) { if (!acctPanel.hidden && !acctPicker.contains(e.target)) openAccountPanel(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !acctPanel.hidden) { openAccountPanel(false); acctPickBtn.focus(); } });
+  }
+
   // ---------- انتهاء الجلسة، إعادة المحاولة، والفصل ----------
   // الجلسة انتهت (Google بعد ساعة تقريباً، Snapchat بعد ساعة (توثيق Snapchat: ٣٦٠٠ ثانية)، أو Meta لو الجلسة اتلغت):
   // لو الربط محفوظ على الجهاز (Google وSnapchat) بنجدد الجلسة بهدوء ونكمّل اللي كان بيحصل — مرة كل دقيقة
@@ -731,6 +805,7 @@
 
   function render() {
     runAnalysis();
+    renderAccountPicker();
     // الحملة اللي في الرابط (js/route.js) بتتطبّق أول ما إعلاناتها توصل — قبل السطر اللي تحت ما يشيلها
     if (typeof routeBeforeRender === 'function') routeBeforeRender();
     // لو الحملة اللي كنت فاتحها مش موجودة تاني (بدّلت الحساب مثلاً) الفلتر بيتشال لوحده
