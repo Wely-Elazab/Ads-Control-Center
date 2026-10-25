@@ -158,9 +158,9 @@
 
   // تعديلات الحملات والمجموعات والإعلانات الشغّالة في آخر ٨ أيام — وسم «عُدّل…» على الكارت زي Meta (meta.js loadAdEdits؛ طلب صاحب
   // المنتج ٢٥ أكتوبر: «الحملات والمجموعات والاعلانات ايضاً، واذا وجدنا مشكلة فيما بعد نلغي الاعلانات»). سجل لكل عنصر
-  // (api/snapchat-ads-fetch.js action=changes) في دفعات (حد الطلبات في Cloudflare)، دفعتين في نفس الوقت، في الخلفية بعد ما الأرقام
-  // تظهر. فشل أي دفعة = عناصرها من غير وسم. لم يُختبر على حساب حقيقي قبل النشر
-  var SNAP_CHANGE_BATCH = 20, SNAP_CHANGE_PARALLEL = 2, SNAP_EDIT_DAYS = 8;
+  // (api/snapchat-ads-fetch.js action=changes) في دفعات (حد الطلبات في Cloudflare)، دفعة ورا دفعة (حد سرعة Snapchat — الخادم بيبعت ٥
+  // في الثانية)، في الخلفية بعد ما الأرقام تظهر. فشل أي عنصر = من غير وسم. فحص حي ٢٥ أكتوبر: دفعتين في نفس الوقت = ٣٦ من ٨٠ فشلوا
+  var SNAP_CHANGE_BATCH = 20, SNAP_CHANGE_PARALLEL = 1, SNAP_EDIT_DAYS = 8;
   var SNAP_EDIT_LEVEL = { campaign: 'campaign', adsquad: 'adset', ad: 'ad' };
   // تغيير واحد في السجل ← تعديلات بشكل Meta ({kind, level, date, time, from, to}). الميزانية بالمايكرو (unit — alerts.js editText)، وأقل
   // من ٢٠٪ مش تعديل (نفس حد Meta: diagnosis.js ACT_MIN_BUDGET). المزايدة نوع لسناب شات بس. الإيقاف مش وسم (الإعلان المتوقف مبيتحكمش عليه)

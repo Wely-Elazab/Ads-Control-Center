@@ -139,6 +139,11 @@ export function snapMedia(m) {
 // والميزانية والاستهداف والمزايدة والتصميم) — الاستهداف «اتغيّر» من غير قيمه. فشل عنصر (صلاحية E3002 مثلاً) بيتعد ومبيوقفش الباقي.
 // الصفحة الأولى بس (آخر ٥٠ تغيير للعنصر) — الوسم محتاج آخر ٨ أيام. لم يُختبر على حساب حقيقي قبل النشر
 export const CHANGE_IDS_MAX = 20;
+// السرعة (توثيق Snap «Rate Limits»: ١٠ طلبات في الثانية لكل مفتاح، و٢٠ للتطبيق كله — بيتقسموا على كل عملاء الأداة): ٥ طلبات وبعدهم
+// ثانية، ولو اترفض بـ429 بنعيد مرة واحدة بعد شوية. فحص حي ٢٥ أكتوبر: ٢٠ طلب مع بعض ودفعتين في نفس الوقت = ٣٦ من ٨٠ عنصر فشلوا.
+// الاختبارات بتصفّر الأوقات (CHANGE_TIMING)
+export const CHANGE_TIMING = { group: 5, gap: 1100, retry: 1500 };
+const pause = function (ms) { return ms > 0 ? new Promise(function (r) { setTimeout(r, ms); }) : Promise.resolve(); };
 const CHANGE_PATH = { campaign: 'campaigns', adsquad: 'adsquads', ad: 'ads' };
 const CHANGE_FIELD = /^(status|creative_id|targeting.*|bid_micro|bid_strategy|auto_bid|target_bid|[a-z_]*budget_micro|[a-z_]*spend_cap_micro)$/;
 // الاستهداف «اتغيّر» بس لو قيمته قبل وبعد مختلفة فعلاً (بعد ترتيب المفاتيح): حساب حقيقي ٢٥ أكتوبر — كل خفض ميزانية في كل مجموعة
@@ -382,15 +387,23 @@ export default async function handler(req, res) {
       });
       if (!list.length) { badRequest(res, 'الحقل ids مطلوب لجلب سجل التعديلات.'); return; }
       let failed = 0;
-      const parts = await Promise.all(list.map(async function (x) {
+      const codes = {};
+      const one = async function (x, again) {
         try {
           const r = await fetch(SNAP_API + '/' + CHANGE_PATH[x.level] + '/' + encodeURIComponent(x.id) + '/external_changelogs?limit=50', { headers: headers });
+          if (r.status === 429 && !again) { await pause(CHANGE_TIMING.retry); return one(x, true); }
           const d = await r.json().catch(function () { return null; });
-          if (!r.ok || !d || d.request_status === 'ERROR') { failed++; return []; }
+          if (!r.ok || !d || d.request_status === 'ERROR') { failed++; codes[r.status] = (codes[r.status] || 0) + 1; return []; }
           return snapChanges(x.level, x.id, d);
-        } catch (e) { failed++; return []; }
-      }));
-      res.status(200).json({ changes: [].concat.apply([], parts), asked: list.length, failed: failed });
+        } catch (e) { failed++; codes.net = (codes.net || 0) + 1; return []; }
+      };
+      const parts = [];
+      for (let i = 0; i < list.length; i += CHANGE_TIMING.group) {
+        if (i) await pause(CHANGE_TIMING.gap);
+        parts.push.apply(parts, await Promise.all(list.slice(i, i + CHANGE_TIMING.group).map(function (x) { return one(x, false); })));
+      }
+      // codes = سبب الفشل لكل حالة (429 = حد السرعة، 403 = صلاحية) — للمتابعة بس
+      res.status(200).json({ changes: [].concat.apply([], parts), asked: list.length, failed: failed, codes: codes });
       return;
     }
 

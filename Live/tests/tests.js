@@ -2653,21 +2653,27 @@
           daily_budget_micro: { before_value: 100000000, after_value: 10000000 }, bid_micro: { before_value: 5, after_value: 5 },
           targeting: { before_value: { geos: [{ country_code: 'sa' }], regulated_content: false }, after_value: { regulated_content: false, geos: [{ country_code: 'sa' }] } } } } }]
       };
+      var slowSeen = 0;
       window.fetch = function (url) {
         var u = String(url), m = u.match(/\/v1\/(campaigns|adsquads|ads)\/([^/]+)\/external_changelogs\?limit=50$/);
         asked.push(u);
         if (!m) return json({});
         if (m[2] === 'bad') return json({ request_status: 'ERROR', debug_message: 'E3002' }, false);
+        // حد سرعة Snapchat (429) أول مرة: بيتعاد مرة واحدة
+        if (m[2] === 'slow' && !slowSeen++) return Promise.resolve({ ok: false, status: 429, json: function () { return Promise.resolve({ request_status: 'ERROR' }); } });
         return json({ request_status: 'SUCCESS', changelogs: logs[m[2]] || [] });
       };
       var out = null;
       var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
-      var mod = null;
+      var mod = null, timing = null;
       return import('/api/snapchat-ads-fetch.js').then(function (m) {
         mod = m;
-        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'changes', ids: { campaign: ['c1'], adsquad: ['s1', 's2'], ad: ['a1', 'bad'] } } }, res);
+        timing = Object.assign({}, m.CHANGE_TIMING);
+        m.CHANGE_TIMING.gap = 0; m.CHANGE_TIMING.retry = 0;
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'changes', ids: { campaign: ['c1'], adsquad: ['s1', 's2'], ad: ['a1', 'bad', 'slow'] } } }, res);
       }).then(function () {
-        eq([out.asked, out.failed, asked.length], [5, 1, 5]);
+        // slow اتطلب مرتين (429 وبعدين نجح) — ٦ عناصر و٧ طلبات، وbad بس فشل وسببه مكتوب
+        eq([out.asked, out.failed, asked.length, out.codes], [6, 1, 7, { 403: 1 }]);
         var by = {};
         out.changes.forEach(function (ch) { by[ch.level + ':' + ch.id] = ch.fields; });
         eq(by['campaign:c1'], { status: { before: 'PAUSED', after: 'ACTIVE' } });
@@ -2680,9 +2686,11 @@
         var many = []; for (var i = 0; i < 30; i++) many.push('x' + i);
         return mod.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'changes', ids: { ad: many } } }, res);
       }).then(function () {
-        window.fetch = realFetch;
+        window.fetch = realFetch; Object.assign(mod.CHANGE_TIMING, timing);
         eq([asked.length, out.asked], [mod.CHANGE_IDS_MAX, mod.CHANGE_IDS_MAX]);
-      }, function (e) { window.fetch = realFetch; throw e; });
+        // ٥ طلبات في المجموعة وبعدها انتظار (١٠ في الثانية لكل مفتاح عند Snapchat)
+        ok(timing.group <= 5 && timing.gap >= 1000, JSON.stringify(timing));
+      }, function (e) { window.fetch = realFetch; if (timing) Object.assign(mod.CHANGE_TIMING, timing); throw e; });
     });
     test('Snapchat: تغيير السجل ← تعديل بشكل Meta (الميزانية بالمايكرو، ٢٠٪ على الأقل، والإيقاف مش وسم)، واليوم بتوقيت الحساب', function () {
       var ch = function (level, at, fields) { return { level: level, id: 'x', at: at, fields: fields }; };
@@ -2725,8 +2733,8 @@
       try { loadSnapchatEdits('acc1', 'UTC', 'tok'); } catch (e) { restore(); throw e; }
       return new Promise(function (r) { setTimeout(r, 30); }).then(function () {
         var asked = calls.reduce(function (n, ids) { return n + ids.campaign.length + ids.adsquad.length + ids.ad.length; }, 0);
-        // الشغّالة بس: ٢٢ إعلان + مجموعتين (s1، s3) + حملتين = ٢٦ عنصر ← دفعتين
-        eq([calls.length, asked], [2, 26]);
+        // الشغّالة بس: ٢٢ إعلان + مجموعتين (s1، s3) + حملتين = ٢٦ عنصر ← دفعتين، ورا بعض (حد سرعة Snapchat)
+        eq([calls.length, asked, SNAP_CHANGE_PARALLEL], [2, 26, 1]);
         ok(calls.every(function (ids) { return ids.campaign.length + ids.adsquad.length + ids.ad.length <= 20; }), 'batches of 20 at most');
         eq(list[0].edits.map(function (e) { return e.kind + ':' + e.level; }), ['targeting:adset'], 'the ad set edit reaches its ads');
         eq(list[1].edits.map(function (e) { return e.kind + ':' + e.level; }), ['targeting:adset', 'creative:ad'], 'sorted by time');
