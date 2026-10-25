@@ -1345,7 +1345,9 @@
     if (!sel.length) return null;
     if (sel.length === 1) { var s1 = S[sel[0]]; return { report: s1.report, account: s1.account, accountId: s1.accountId, plats: sel }; }
     var sales = sel.filter(function (p) { return !S[p].report || S[p].report.status !== 'noPurchases'; });
-    var excluded = sel.filter(function (p) { return sales.indexOf(p) === -1; });
+    // «برّه أرقام المبيعات» بس لو فيه أرقام مبيعات أصلاً — كلهم من غير مشتريات = مفيش حاجة اتشالت (فحص حي ٢٥ أكتوبر: الجملة
+    // كانت بتطلع على حسابين رسائل وسوايب)
+    var excluded = sales.length ? sel.filter(function (p) { return sales.indexOf(p) === -1; }) : [];
     if (sales.length === 1) { var s = S[sales[0]]; return { report: s.report, account: s.account, accountId: s.accountId, plats: sales, excluded: excluded }; }
     var group = sales.length ? sales : sel, f = S[group[0]].input;
     if (!group.every(function (p) { return S[p].input.since === f.since && S[p].input.until === f.until; })) return { blocked: 'period', plats: group };
@@ -1530,9 +1532,11 @@
     if (sel.blocked === 'period') out.push(t('dx.view.blockedPeriod', { platforms: names(sel.plats) }));
     if (sel.excluded && sel.excluded.length) out.push(t('dx.view.excluded', { platforms: names(sel.excluded) }));
     if (sel.conv) {
-      out.push(t('dx.view.conv', { to: currencyLabel(sel.conv.to) || sel.conv.to, parts: DX.listText(sel.conv.from.map(function (c) {
-        return money(1, c) + ' = ' + money(DX.pegRate(c, sel.conv.to), sel.conv.to);
-      })) }));
+      // السعر بصيغته الرسمية «١ $ = ٣٫٧٥ ر.س» لكل عملة غير الدولار في الجمع (فحص حي ٢٥ أكتوبر: «١ ر.س = ٠٫٢٧ $» مقرّب ومش مألوف)
+      var curs = [sel.conv.to].concat(sel.conv.from).filter(function (c, i, a) { return c !== 'USD' && a.indexOf(c) === i; });
+      out.push(t('dx.view.conv', { to: currencyLabel(sel.conv.to) || sel.conv.to, parts: DX.listText(curs.map(function (c) {
+        return '1 $ = ' + DX.pegRate('USD', c) + ' ' + (currencyLabel(c) || c);
+      })).replace(/[0-9]+(\.[0-9]+)?/g, function (n) { return ar(n.replace('.', decSep())); }) }));
     }
     if (sel.tzs) out.push(t('dx.view.tz'));
     return out;

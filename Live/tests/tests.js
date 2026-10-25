@@ -6042,7 +6042,7 @@
         withLang('ar', function () { dxRecompute(); });
         ok(dxState.report && dxState.sel.conv && dxState.sel.conv.to === 'SAR', JSON.stringify(dxState.sel.conv));
         ok(Math.abs(dxState.report.cur.spend - DX.analyze(a.input).cur.spend - DX.analyze(b.input).cur.spend * 3.75) < 1e-6, 'dollars converted at 3.75');
-        ok(/بسعر الربط الرسمي بالدولار/.test(document.getElementById('dxBody').textContent), 'the note says so');
+        ok(/بسعر الربط الرسمي بالدولار \(١ \$ = ٣٫٧٥ ر\.س\)/.test(document.getElementById('dxBody').textContent), 'the note says so, with the official rate: ' + document.getElementById('dxBody').textContent.slice(0, 300));
         // عملة مش مربوطة (الجنيه المصري): منقدرش نجمع، والملخص بيقول اختار منصة
         b.input.currency = 'EGP';
         dxState.sources.google = Object.assign({}, dxState.sources.google, { gen: 3 });
@@ -6131,6 +6131,12 @@
       try {
         platSel = null;
         eq(DX.analyze(m.input).status, 'noPurchases', 'meta records no purchases');
+        // الاتنين من غير مشتريات (فحص حي ٢٥ أكتوبر: رسائل Meta وسوايب Snapchat): عنوان بصيغة الجمع، ومن غير «لا تدخل…» — مفيش أرقام مبيعات اتشال منها حاجة
+        dxState.sources = { meta: rd(m, 'meta:1'), snapchat: rd(noPur(src('snapchat', 43)), 'snapchat:2') };
+        withLang('ar', function () { dxRecompute(); });
+        var tx = document.getElementById('dxBody').textContent;
+        eq([dxState.sel.excluded, dxState.report.status], [[], 'noPurchases']);
+        ok(tx.indexOf('لا تُسجَّل مشتريات في الحسابات المختارة') > -1 && tx.indexOf('لا تدخل') === -1, tx.slice(0, 200));
         // منصتين، واحدة منهم مفيهاش مشتريات: «كل المنصات» = أرقام اللي بتبيع، وMeta برّه بجملة
         dxState.sources = { meta: rd(m, 'meta:1'), snapchat: rd(s, 'snapchat:1') };
         dxRecompute();
