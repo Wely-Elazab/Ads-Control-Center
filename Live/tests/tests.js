@@ -1632,6 +1632,22 @@
       ok(dc && dc.level === 'warning' && /ليست بيعاً ولا عميلاً/.test(dc.levelWhy), dc ? dc.level + ' ' + dc.levelWhy : list(clicks, 'dear'));
       ok(dl && dl.level === 'critical', dl ? dl.level : list(leads, 'dear'));
     });
+    test('إعلانين مختلفين بنفس الاسم في مجموعتين وعلى كل واحد تنبيه: اسم المجموعة الإعلانية جنب الاسم في القائمة (مش تناقض ظاهري)', function () {
+      var x = ad('x', { aid: 'sa', daily: steady(300), res: steady(1), key: 'lead' }), y = ad('y', { aid: 'sb', daily: steady(100), res: steady(0), key: 'lead' });
+      x.offer = y.offer = 'Same creative'; x.adsetName = 'Set A'; y.adsetName = 'Set B';
+      candidates = [ad('g1', { daily: steady(100), res: steady(5), key: 'lead' }), ad('g2', { daily: steady(100), res: steady(5), key: 'lead' }), x, y];
+      withLang('ar', function () {
+        runAnalysis();
+        var al = analysis.alerts.filter(function (a) { return a.adName === 'Same creative' && (a.level === 'critical' || a.level === 'warning'); });
+        eq(al.length, 2, al.map(function (a) { return a.code; }).join(' '));
+        var html = al.map(function (a) { return alertMarkup(a, 0) + attnAlertHtml(a); }).join('');
+        ok(/Set A/.test(html) && /Set B/.test(html), html.slice(0, 300));
+        // اسم من غير تكرار: من غير إضافة
+        var g = analysis.alerts.filter(function (a) { return a.adName !== 'Same creative' && a.adId; })[0];
+        ok(!g || !/المجموعة الإعلانية:/.test(alertMarkup(g, 0)));
+      });
+      candidates = []; runAnalysis();
+    });
 
     // ---- مراجعة الإعدادات (٢٤ أكتوبر — قرارات صاحب المنتج) ----
     test('حساب من غير مستهدف وحد خسارة: حكم الربح بيستنى («حدّد هدف الربح») ومفيش تنبيه ربح ولا فرصة، والهدر شغّال', function () {

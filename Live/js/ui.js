@@ -1813,9 +1813,17 @@
     if ((a.code === 'stopped' || a.code === 'top-stopped') && sales > 0) return moneyPill('sales', money(sales, a.currency || null), false);
     return moneyPill('spend', money(sp, a.currency || null), false);
   }
+  // اسم الإعلان في التنبيه: لو تنبيه تاني لإعلان مختلف بنفس الاسم (نفس التصميم في أكتر من مجموعة إعلانية) بنضيف اسم مجموعته —
+  // «تكلفة مرتفعة» و«فرصة زيادة» على اسم واحد كانوا بيتقروا تناقض (حساب حقيقي ٢٥ أكتوبر: إعلانين بنفس الاسم في مجموعتين)
+  function alertAdName(a) {
+    var name = a.adName || '';
+    var dup = analysis.alerts.some(function (o) { return o !== a && o.adId && o.adId !== a.adId && o.adName === name; });
+    var c = dup && a.adId ? findCandidate(a.adId) : null, set = c && (c.adsetName || c.campaignName);
+    return set ? t('alert.adInSet', { name: name, set: set }) : name;
+  }
   function attnAlertHtml(a) {
     var target = a.adId && findCandidate(a.adId) ? ' data-ad-id="' + esc(a.adId) + '"' : ' data-go-alerts';
-    var src = a.adName ? (a.platform || '') + ' · ' + a.adName : (a.accountName || a.platform || '');
+    var src = a.adName ? (a.platform || '') + ' · ' + alertAdName(a) : (a.accountName || a.platform || '');
     return '<button type="button" class="top-alert ' + LEVELS[a.level].cls + '"' + target + '>' +
       '<span class="top-alert-level">' + LEVELS[a.level].label + '</span>' +
       '<span class="top-alert-text"><span class="top-alert-title">' + esc(a.title) + '</span>' +
@@ -2497,7 +2505,7 @@
   function alertMarkup(a, i) {
     var clickable = a.adId && findCandidate(a.adId);
     // اسم الحساب فيه اسم المنصة أصلاً (مثال: "Meta — متجري")، فمنكررهاش
-    var source = a.adName ? esc(a.platform || '') + ' · ' + esc(a.adName) : esc(a.accountName || a.platform || '');
+    var source = a.adName ? esc(a.platform || '') + ' · ' + esc(alertAdName(a)) : esc(a.accountName || a.platform || '');
     return '<article class="alert-item ' + LEVELS[a.level].cls + (clickable ? ' clickable' : '') + '" style="--i:' + Math.min(i || 0, 10) + '"' +
         (clickable ? ' data-ad-id="' + esc(a.adId) + '" tabindex="0" role="button"' : '') + '>' +
       '<div class="alert-head"><span class="alert-level">' + LEVELS[a.level].label + '</span><span class="alert-source" dir="auto">' + source + '</span></div>' +

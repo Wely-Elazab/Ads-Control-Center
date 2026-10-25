@@ -445,6 +445,7 @@
       'settings.notSaved': 'طُبّقت الإعدادات، لكن المتصفح لا يسمح بحفظها — ستعود القيم السابقة عند إغلاق الصفحة.',
       // إعدادات كل حساب إعلاني على الخادم (مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦)
       'settings.account': 'الحساب الإعلاني',
+      'alert.adInSet': '{name} (المجموعة الإعلانية: {set})',
       'settings.accountOne': 'الحساب: {account}',
       'settings.where.server': 'تُحفظ لهذا الحساب نفسه، فتظهر لكل من يصل إليه من أي جهاز، وأي تعديل يظهر عندهم جميعاً.',
       'settings.where.serverMeta': 'تُحفظ لهذا الحساب نفسه، فتظهر لكل من يصل إليه من أي جهاز، وأي تعديل يظهر عندهم جميعاً، ويعمل بها الملخص والتنبيهات العاجلة بالبريد.',
@@ -1855,6 +1856,7 @@
       'welcome.skip': 'Later',
       'settings.notSaved': 'Settings applied, but the browser won\'t let us save them — they\'ll go back to the previous values when you close the page.',
       'settings.account': 'Ad account',
+      'alert.adInSet': '{name} (ad set: {set})',
       'settings.accountOne': 'Account: {account}',
       'settings.where.server': 'Saved on the account itself, so everyone with access sees them on any device, and any change shows for all of them.',
       'settings.where.serverMeta': 'Saved on the account itself, so everyone with access sees them on any device, and any change shows for all of them. The email summary and urgent email alerts use them too.',
