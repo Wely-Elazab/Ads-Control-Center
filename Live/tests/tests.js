@@ -5278,25 +5278,51 @@
       eq(metaImageUrl({ creative: { asset_feed_spec: { videos: [{ video_id: '1', thumbnail_url: small }] } } }), small);
       withLang('ar', function () { eq(landingText('https://www.shop.com/products/%D9%86%D8%B8%D8%A7%D8%B1%D8%A9/?utm_source=x'), 'shop.com/products/نظارة'); });
     });
-    test('Meta: معاينة الفيديو والكتالوج بأزرار صيغ — إنستغرام الأول لو الإعلان ليه حساب إنستغرام، وفيسبوك الأول لو مالوش', function () {
-      var hadFB = 'FB' in window, prevFB = window.FB, asked = [];
-      window.FB = { api: function (p, params, cb) { asked.push(params.ad_format || params.fields); cb({ data: [{ body: '<iframe src="https://business.facebook.com/ads/api/preview_iframe.php?d=1" width="320" height="560"></iframe>' }] }); } };
+    // ٢٥ أكتوبر («لازال مقاس عرض الفيديوهات في ميتا لم يتعالج»): الفيديو بيبدأ بالريلز بمقاس ٣٢٠×٦٤٠ (الفيديو بطوله من غير فراغ)
+    test('Meta: معاينة الفيديو والكتالوج بأزرار صيغ — الفيديو بالريلز الأول، والكتالوج بإنستغرام الأول، وفيسبوك الأول لو مالوش حساب إنستغرام', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, asked = [], sizes = [];
+      window.FB = { api: function (p, params, cb) { asked.push(params.ad_format || params.fields); sizes.push(params.width ? params.width + 'x' + params.height : '-'); cb({ data: [{ body: '<iframe src="https://business.facebook.com/ads/api/preview_iframe.php?d=1" width="320" height="560"></iframe>' }] }); } };
       try {
         withLang('ar', function () {
           var el = document.getElementById('expandPreview');
           showMedia({ id: 'PV1', platform: 'Meta', format: 'video', videoId: 'v1', igPreview: true, themeClass: 'pv-t0' });
-          eq(asked[0], 'INSTAGRAM_STANDARD');
-          eq([].map.call(el.querySelectorAll('[data-pv]'), function (b) { return b.getAttribute('data-pv'); }), ['ig', 'reels', 'fb']);
+          eq(asked[0], 'INSTAGRAM_REELS');
+          eq(sizes[0], '320x640', 'reels asked at the size that fits the video');
+          eq([].map.call(el.querySelectorAll('[data-pv]'), function (b) { return b.getAttribute('data-pv'); }), ['reels', 'ig', 'fb']);
           ok(el.querySelector('.pv-body iframe'), 'preview frame');
           el.querySelector('[data-pv="fb"]').click();
           eq(asked[1], 'MOBILE_FEED_STANDARD');
+          eq(sizes[1], '-', 'Meta\'s own size for the other formats');
           ok(el.querySelector('[data-pv="fb"]').classList.contains('on'), 'fb tab on');
           showMedia({ id: 'PV2', platform: 'Meta', format: 'image', catalog: true, igPreview: false, themeClass: 'pv-t0' });
           eq(asked[2], 'MOBILE_FEED_STANDARD');
+          showMedia({ id: 'PV4', platform: 'Meta', format: 'image', catalog: true, igPreview: true, themeClass: 'pv-t0' });
+          eq(asked[3], 'INSTAGRAM_STANDARD', 'catalog: Instagram first');
           ok(/الكتالوج/.test(el.textContent), 'catalog note');
           asked = [];
           showMedia({ id: 'PV3', platform: 'Meta', format: 'image', thumbUrl: 'https://x.fbcdn.net/i.jpg', themeClass: 'pv-t0' });
           eq(asked, []);   // صورة عادية: الملف الأصلي من غير معاينة
+        });
+      } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
+    });
+    test('Meta: لو أول صيغة فشلت وقت فتح الإعلان بنجرّب اللي بعدها، ولو كلهم فشلوا بيانات الفيديو مباشرة', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, asked = [], okFormats = ['INSTAGRAM_STANDARD'];
+      window.FB = { api: function (p, params, cb) {
+        asked.push(params.ad_format || params.fields);
+        if (params.fields) { cb({ error: { message: 'no' } }); return; }
+        cb(okFormats.indexOf(params.ad_format) > -1 ? { data: [{ body: '<iframe src="https://business.facebook.com/ads/api/preview_iframe.php?d=1" width="320" height="525"></iframe>' }] } : { error: { message: 'no' } });
+      } };
+      try {
+        withLang('ar', function () {
+          var el = document.getElementById('expandPreview');
+          showMedia({ id: 'PF1', platform: 'Meta', format: 'video', videoId: 'v1', igPreview: true, themeClass: 'pv-t0' });
+          eq(asked, ['INSTAGRAM_REELS', 'INSTAGRAM_STANDARD']);
+          ok(el.querySelector('[data-pv="ig"].on') && el.querySelector('.pv-body iframe'), 'Instagram shown after reels failed');
+          okFormats = []; asked = [];
+          showMedia({ id: 'PF2', platform: 'Meta', format: 'video', videoId: 'v2', igPreview: true, themeClass: 'pv-t0' });
+          eq(asked.slice(0, 3), ['INSTAGRAM_REELS', 'INSTAGRAM_STANDARD', 'MOBILE_FEED_STANDARD']);
+          eq(asked.length, 4, 'then the video itself');
+          ok(/source/.test(asked[3]), asked[3]);
         });
       } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
     });

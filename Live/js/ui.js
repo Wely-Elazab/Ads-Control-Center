@@ -2418,6 +2418,11 @@
   // فيسبوك بتقول «No permission to access this profile» لو صفحة فيسبوك مقيّدة، ومنقدرش نعرف ده من برّه الإطار — حساب حقيقي).
   // الكتالوج: Meta بتختار منتجات من الكتالوج في المعاينة (كاروسيل = أكتر من منتج). الصور العادية بالملف الأصلي زي ما هي
   var PREVIEW_FORMATS = { ig: 'INSTAGRAM_STANDARD', reels: 'INSTAGRAM_REELS', fb: 'MOBILE_FEED_STANDARD' };
+  // مقاس الطلب (width/height في توثيق previews = مقاس الصندوق اللي Meta بترسم الإعلان جوّاه). فحص حي ٢٥ أكتوبر بعد «لازال مقاس عرض
+  // الفيديوهات في ميتا لم يتعالج»: الريلز من غير مقاس بترجع ٢٧٤×٢١٣ ومبتتعرضش، وبـ ٣٢٠×٦٤٠ الفيديو بيملأ الصندوق لآخره (فيديوهين
+  // طوليين). إنستغرام العادية بطاقة ارتفاعها ثابت وجوّاها فراغ بعد نص الإعلان من صفحة Meta نفسها — أي مقاس مبيشيلوش، فالفيديو
+  // بيبدأ بالريلز (showMedia)
+  var PREVIEW_REQUEST = { reels: { width: 320, height: 640 } };
   // المقاس الثابت القديم — بيستخدم بس لو مقاس Meta مش معقول (metaPreviewSize)، وبيتصغّر بنفس النسبة على الشاشة الضيقة (fitEmbeds)
   var PREVIEW_SIZES = { ig: { w: 360, h: 760 }, reels: { w: 360, h: 720 }, fb: { w: 380, h: 720 } };
   // مقاس Meta نفسها للصيغة (طلب صاحب المنتج ٢٥ أكتوبر: «فيديوهات ميتا تظهر بمساحة إضافية فارغة داخل الكارت»). فحص حي: صفحة المعاينة
@@ -2444,7 +2449,8 @@
     el.onclick = null;
     if (c.platform === 'Snapchat' && (c.videoSrc || c.snapCreativeId)) { snapMediaView(c, el, openSeq); return; }
     if (c.platform !== 'Meta' || !(c.videoId || c.catalog)) return;
-    var order = c.igPreview ? ['ig', 'reels', 'fb'] : ['fb', 'ig', 'reels'], poster = el.innerHTML;
+    // الفيديو بحساب إنستغرام: الريلز الأول (الفيديو بطوله من غير فراغ — PREVIEW_REQUEST)
+    var order = c.igPreview ? (c.videoId ? ['reels', 'ig', 'fb'] : ['ig', 'reels', 'fb']) : ['fb', 'ig', 'reels'], poster = el.innerHTML;
     var hint = '<p class="pv-hint">' + esc(t('x.pv.hint') + (c.catalog ? ' ' + t('x.pv.catalog') : '')) + '</p>';
     var load = function (k, first) {
       var mine = ++previewSeq, key = c.id + '|' + k;
@@ -2452,12 +2458,17 @@
       var body = el.querySelector('.pv-body');
       var show = function (frame) { body.innerHTML = '<div class="video-embed-wrap">' + frame + '</div>'; fitEmbeds(body); };
       if (previewCache[key]) { show(previewCache[key]); return; }
-      metaApi('/' + c.id + '/previews', { ad_format: PREVIEW_FORMATS[k] }, function (resp) {
+      var params = { ad_format: PREVIEW_FORMATS[k] }, size = PREVIEW_REQUEST[k];
+      if (size) { params.width = size.width; params.height = size.height; }
+      metaApi('/' + c.id + '/previews', params, function (resp) {
         if (openSeq !== expandSeq || mine !== previewSeq) return;
         var frame = resp && resp.data && resp.data[0] && metaIframeHtml(resp.data[0].body, metaPreviewSize(resp.data[0].body, k));
         if (frame) { previewCache[key] = frame; show(frame); return; }
-        // الصيغة الأولى فشلت في فيديو: بيانات الفيديو مباشرة زي الأول
-        if (first && c.videoId) videoFallback(c, body, openSeq);
+        if (!first) return;
+        // أول ما الإعلان يتفتح: الصيغة اللي بعدها، ولو كلهم فشلوا في فيديو: بيانات الفيديو مباشرة زي الأول
+        var next = order[order.indexOf(k) + 1];
+        if (next) load(next, true);
+        else if (c.videoId) videoFallback(c, body, openSeq);
       });
     };
     var tabs = function () {
