@@ -19,7 +19,7 @@ import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
 import { joinReminders } from './join.ts';
 
-const ENGINE_COMMIT = '00cdb1567f54b7cfe895c6115ce952166534710d';
+const ENGINE_COMMIT = '44647293c0d91506e65faec4bb43486d68eba3bd';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
@@ -667,7 +667,7 @@ function blockHtml(b: any): string {
 // عنوان سطر الملخص من آخر نوع ظهر (last_code). المراجعة الثانية للمرحلة ٥: تنبيه الأداء على الإعلان ممكن يبقى أي نوع من عيلته
 // (والإرهاق بيعلّي مستوى «انخفاض النتائج» أو «إنفاق أعلى من المعتاد» لـ«عاجل») — كانوا بيقعوا على «توقف الإعلان» لأنهم مش هنا
 const KIND_TITLE: Record<string, string> = {
-  waste: 'al.waste.t', 'waste-week': 'al.wasteWeek.t', 'waste-early': 'al.wasteEarly.t', loss: 'al.loss.t', 'cost-max': 'al.costMax.t', stopped: 'al.stopped.t', cpr: 'al.cpr.t', fatigue: 'al.fatigue.t',
+  waste: 'al.waste3.t', 'waste-week': 'al.wasteWeek.t', 'waste-early': 'al.wasteEarly.t', loss: 'al.loss.t', 'cost-max': 'al.costMax.t', stopped: 'al.stopped.t', cpr: 'al.cpr.t', fatigue: 'al.fatigue.t',
   'waste-view': 'al.wasteView.t', 'waste-new': 'al.wasteNew.t', 'roas-drop': 'al.roasDrop.t', 'low-roas': 'al.lowRoas.t', spike: 'al.spike.t', drop: 'al.drop.t',
   'acct-status': 'al.acct.t', 'spend-cap': 'al.cap.t', 'acct-stopped': 'al.acctStopped.t', 'acct-zero': 'al.acctZero.t', 'acct-drop': 'al.acctDrop.t',
   'top-stopped': 'al.topStopped.t', 'spend-cap-near': 'al.capNear.t', 'tracking-off': 'al.trackOff.t', 'lpv-drop': 'al.lpvDrop.t',
