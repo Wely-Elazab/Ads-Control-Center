@@ -2502,7 +2502,7 @@
         if (!items || !items.length) return;
         el.innerHTML = catalogGridHtml(items.map(function (p) {
           return { image: p.image, name: p.name, price: p.price && p.price.value > 0 ? money(p.price.value, p.price.currency || c.currency) : '', url: p.url };
-        })) + '<div class="snap-page"></div>';
+        }), t('dx.plat.snapchat')) + '<div class="snap-page"></div>';
         if (!c.snapDynamic && c.snapCreativeId) ask().then(function () { if (openSeq === expandSeq) pageBtn(); });
       };
       el.innerHTML = previewMarkup(c) + '<div class="snap-page"></div>';
@@ -2550,20 +2550,21 @@
     return m ? money(parseFloat(m[2].replace(/,/g, '')), m[1]) : String(p || '');
   }
   // شبكة منتجات الكتالوج (Meta: catalogGrid، وSnapchat: snapMediaView) — items = [{ image, name, price (نص جاهز), url }]
-  function catalogGridHtml(items) {
+  // platform = اسم المنصة اللي بتختار المنتجات في الملاحظة (فحص حي ٢٥ أكتوبر: إعلان سناب شات كان مكتوب تحته «تختار Meta»)
+  function catalogGridHtml(items, platform) {
     return '<p class="cat-title">' + esc(t('x.cat.title')) + '</p><div class="cat-grid">' + items.map(function (p) {
       var img = safeUrl(p.image), href = safeUrl(p.url);
       var inner = (img ? '<img class="cat-img" src="' + esc(img) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '<span class="cat-img"></span>') +
         '<span class="cat-name" dir="auto">' + esc(p.name || '') + '</span>' + (p.price ? '<span class="cat-price">' + esc(p.price) + '</span>' : '');
       return href ? '<a class="cat-item" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>' : '<div class="cat-item">' + inner + '</div>';
-    }).join('') + '</div><p class="pv-hint">' + esc(t('x.cat.note', { n: ar(items.length) })) + '</p>';
+    }).join('') + '</div><p class="pv-hint">' + esc(t('x.cat.note', { n: ar(items.length), platform: platform })) + '</p>';
   }
   function catalogGrid(c, el, openSeq, onFail) {
     metaApi('/' + c.productSetId + '/products', { fields: 'id,name,image_url,price,url', limit: CATALOG_MAX }, function (resp) {
       if (openSeq !== expandSeq) return;
       var items = (resp && !resp.error && resp.data) || [];
       if (!items.length) { onFail(); return; }
-      el.innerHTML = catalogGridHtml(items.map(function (p) { return { image: p.image_url, name: p.name, price: p.price ? catalogPrice(p.price) : '', url: p.url }; }));
+      el.innerHTML = catalogGridHtml(items.map(function (p) { return { image: p.image_url, name: p.name, price: p.price ? catalogPrice(p.price) : '', url: p.url }; }), t('dx.plat.meta'));
     });
   }
   function videoFallback(c, el, openSeq) {

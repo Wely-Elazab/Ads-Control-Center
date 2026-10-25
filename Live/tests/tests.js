@@ -2811,6 +2811,14 @@
       eq(metaPreviewSize('<p>no frame</p>', 'ig'), PREVIEW_SIZES.ig);
       ok(/width:320px;height:525px/.test(metaIframeHtml(body(320, 525), metaPreviewSize(body(320, 525), 'ig'))), 'the frame takes Meta\'s size');
     });
+    // فحص حي ٢٥ أكتوبر: منتجات إعلان كتالوج سناب شات كان مكتوب تحتها «تختار Meta…»
+    test('ملاحظة منتجات الكتالوج باسم منصة الإعلان نفسها', function () {
+      var items = [{ image: 'https://cdn.example/p.jpg', name: 'P', price: '', url: '' }];
+      var snap = catalogGridHtml(items, I18N.t('dx.plat.snapchat')), meta = catalogGridHtml(items, I18N.t('dx.plat.meta'));
+      ok(/Snapchat/.test(snap) && !/Meta/.test(snap), 'Snapchat ad: ' + snap);
+      ok(/Meta/.test(meta) && !/Snapchat/.test(meta), 'Meta ad');
+      ok(!/\{platform\}/.test(snap + meta), 'no raw placeholder');
+    });
     test('Snapchat: تغيير السجل ← تعديل بشكل Meta (الميزانية بالمايكرو، ٢٠٪ على الأقل، والإيقاف مش وسم)، واليوم بتوقيت الحساب', function () {
       var ch = function (level, at, fields) { return { level: level, id: 'x', at: at, fields: fields }; };
       eq(snapEditsOf(ch('adsquad', '2026-10-24T10:00:00.000Z', { daily_budget_micro: { before: 20000000, after: 25000000 }, targeting: { changed: true } }), 'Asia/Riyadh'), [
