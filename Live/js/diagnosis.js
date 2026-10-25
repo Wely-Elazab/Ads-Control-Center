@@ -1622,11 +1622,14 @@ var DX = (function () {
   function drvPhrase(d, p, M) {
     return t('dx.drv.' + p.id + '.' + (p.to > p.from ? 'up' : 'down'), { v: drvAmount(d, p.v, M), from: M(p.from), to: M(p.to) });
   }
-  // العوامل اللي بتتقال: ١٠٪ من الفرق على الأقل (ولو الفرق قريب من صفر: ٥٪ من مبيعات الفترة السابقة)، وأكبر عامل في اتجاه الفرق دايماً
+  // العوامل اللي بتتقال: ١٠٪ من الفرق على الأقل (ولو الفرق قريب من صفر: ٥٪ من مبيعات الفترة السابقة)، وأكبر عامل في اتجاه الفرق دايماً.
+  // العامل العكسي من نص الحد (٥٪): فحص حي ٢٦ أكتوبر (سناب شات) — «نحو ٣٬١٧٥ $… ونحو ٢٬٢٤٨ $…» مجموعهم ٥٬٤٢٣ $ والزيادة ٤٬٩٧٩ $،
+  // والفرق (٤٤٤ $ من تكلفة طلب أعلى، ٩٪) كان بيتشال فالأرقام مبتتجمعش لمن يحسبها
   function drvParts(d) {
     var bar = d.flat ? 0.05 * d.from : DRV_MIN * Math.abs(d.diff);
-    var big = d.parts.filter(function (p) { return Math.abs(p.v) >= bar && p.v !== 0; }).sort(function (x, y) { return Math.abs(y.v) - Math.abs(x.v); });
-    var same = big.filter(function (p) { return sign(p.v) === sign(d.diff); }), counter = big.filter(function (p) { return sign(p.v) !== sign(d.diff); });
+    var big = d.parts.filter(function (p) { return p.v !== 0; }).sort(function (x, y) { return Math.abs(y.v) - Math.abs(x.v); });
+    var same = big.filter(function (p) { return sign(p.v) === sign(d.diff) && Math.abs(p.v) >= bar; });
+    var counter = big.filter(function (p) { return sign(p.v) !== sign(d.diff) && Math.abs(p.v) >= bar / 2; });
     if (!same.length && !d.flat) {
       var top = d.parts.filter(function (p) { return sign(p.v) === sign(d.diff); }).sort(function (x, y) { return Math.abs(y.v) - Math.abs(x.v); })[0];
       if (top) same = [top];

@@ -6200,6 +6200,12 @@
         ok(/^انخفضت المبيعات ١٠٬٤٨٢ \$ \(٣٤٪\): نحو ٦٬٤٣١ \$ لأن متوسط قيمة الطلب نزل من .* ونحو ٤٬٠٧٩ \$ لأن تكلفة الطلب ارتفعت من /.test(L) &&
           !/الإنفاق/.test(L), 'spend (0.3% of it) is left out: ' + L);
       });
+      // فحص حي ٢٦ أكتوبر (سناب شات): العامل العكسي ٩٪ من الفرق بيتقال — وإلا الأرقام المذكورة مجموعها أكبر من الزيادة
+      var sn = DX._.salesDrivers({ prev: { spend: 656, pur: 17, rev: 1172 }, cur: { spend: 1386, pur: 31, rev: 6151 } });
+      withLang('ar', function () {
+        var L2 = DX._.driversLine(sn, function (v) { return money(v, 'USD'); });
+        ok(/^ارتفعت المبيعات ٤٬٩٧٩ \$/.test(L2) && /وقلّل من الزيادة نحو .* لأن تكلفة الطلب ارتفعت/.test(L2), L2);
+      });
       // من غير قيمة مبيعات: الطلبات = الإنفاق ÷ تكلفة الطلب
       var p = DX._.salesDrivers({ prev: { spend: 1000, pur: 50, rev: 0 }, cur: { spend: 500, pur: 25, rev: 0 } });
       eq([p.metric, p.parts.length, Math.round(p.parts[0].v), Math.round(p.parts[1].v)], ['pur', 2, -25, 0]);
