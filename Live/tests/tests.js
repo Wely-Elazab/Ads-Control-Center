@@ -6233,6 +6233,22 @@
         ok(flat.main < 0 || (flat.blocks[flat.main].lines || []).every(function (l) { return !/المبيعات/.test(l); }), 'flat: no repeated line');
       });
     });
+    // فحص حي ٢٦ أكتوبر: الأزرار كانت في آخر الصندوق، والاسم الإنجليزي بيتقلب جوه النص العربي
+    test('«لماذا تغيّرت مبيعاتك؟»: زرار إعلانات كل حملة من أكبر المساهمين تحت سطرها على طول، واسمها معزول الاتجاه', function () {
+      var old = candidates;
+      try {
+        candidates = [{ id: 'a1', source: 'meta:act_1', platform: 'Meta', campaignId: 'c9', campaignName: '[KW]-Sales-Catalogue' }];
+        withLang('ar', function () {
+          var line = t('dx.drv.movers.up', { list: 'X' });
+          var b = { lines: ['L1', line], movers: { dim: 'campaign', list: [{ key: 'c9', name: '[KW]-Sales-Catalogue' }, { key: 'gone', name: 'Gone' }] } };
+          var html = withMovers('<article><p>L1</p><p>' + esc(line) + '</p><p>after</p></article>', b);
+          var at = html.indexOf('class="dx-movers"');
+          ok(at > html.indexOf(esc(line)) && at < html.indexOf('<p>after'), html);
+          eq((html.match(/data-campaign=/g) || []).length, 1, 'only campaigns with ads in the list');
+          ok(html.indexOf('⁨[KW]-Sales-Catalogue⁩') > -1, 'isolated name');
+        });
+      } finally { candidates = old; }
+    });
     test('«لماذا تغيّرت مبيعاتك؟» ظاهر بين الأرقام والتنبيهات بلون الحكم، ومبيتكررش في الشرح المطوي — والحساب الهادي من غير صندوق', function () {
       var r = scenarios().filter(function (x) { return withLang('ar', function () { return DX.compose(x).main >= 0; }); })[0];
       try {

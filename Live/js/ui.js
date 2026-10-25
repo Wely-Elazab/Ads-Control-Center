@@ -1512,7 +1512,18 @@
     // مفيش حاجة تتقال غير أرقام الخانات (المبيعات زي ما هي ومفيش سياق): مفيش صندوق — العنوان والأرقام كفاية
     if (b && !(b.lines || []).length && !(b.bullets || []).length && !(b.after || []).length && !b.check) b = null;
     el.innerHTML = b ? '<div class="dx-verdict ' + esc(o.tone) + '"><p class="dx-verdict-title">' + esc(b.verdictTitle || t('dx.verdict.title')) + '</p>' +
-      dxBlockHtml(b, o.main, true) + verdictMoversHtml(b) + '</div>' : '';
+      withMovers(dxBlockHtml(b, o.main, true), b) + '</div>' : '';
+  }
+  // أزرار إعلانات الحملات تحت سطر «أكثر ما ساهم…» على طول (فحص حي ٢٦ أكتوبر: كانت في آخر الصندوق بعد سؤال التقييم)
+  function withMovers(html, b) {
+    var btns = verdictMoversHtml(b);
+    if (!btns) return html;
+    var pre = ['down', 'up'].map(function (d) { return t('dx.drv.movers.' + d, { list: '\u0000' }).split('\u0000')[0]; });
+    var line = (b.lines || []).filter(function (l) { return pre.some(function (p) { return l.indexOf(p) === 0; }); })[0];
+    var at = line ? html.indexOf('<p>' + esc(line) + '</p>') : -1;
+    if (at < 0) return html.replace(/<\/article>$/, btns + '</article>');
+    at += ('<p>' + esc(line) + '</p>').length;
+    return html.slice(0, at) + btns + html.slice(at);
   }
   function verdictMoversHtml(b) {
     var mv = b.movers;
@@ -1520,10 +1531,11 @@
     var btns = mv.list.map(function (x) {
       var camp = candidates.filter(function (c) { return DX.segHas({ dim: 'campaign', key: x.key }, c); })[0];
       var name = String((camp && camp.campaignName) || x.name || '');
+      // الاسم معزول الاتجاه (أسماء إنجليزي جوه نص عربي كانت بتتقلب على الزرار)
       return camp ? '<button type="button" class="ghost-btn" data-campaign="' + esc(campaignKey(camp)) + '" title="' + esc(name) + '">' +
-        esc(t('dx.drv.open', { name: name.length > 40 ? name.slice(0, 39) + '…' : name })) + '</button>' : '';
+        esc(t('dx.drv.open', { name: '⁨' + (name.length > 40 ? name.slice(0, 39) + '…' : name) + '⁩' })) + '</button>' : '';
     }).join('');
-    return btns ? '<div class="attn-camp dx-movers">' + btns + '</div>' : '';
+    return btns ? '<div class="dx-movers">' + btns + '</div>' : '';
   }
   document.getElementById('dxVerdict').addEventListener('click', function (e) {
     var el = e.target.closest('[data-campaign]');
