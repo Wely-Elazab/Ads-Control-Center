@@ -36,8 +36,8 @@
     learningDays: 3,          // الإعلان الأحدث من كده في فترة تعلّم — منقيّمش أداءه لسه
     minSpendShare: 0.02,      // حد الإعلان الصغير: التنبيه بيطلع بس لو صرف الإعلان ≥ النسبة دي من صرف الحساب
                               // (أو ≥ تكلفة نتيجة واحدة و≥ ربع النسبة) — أصغر من كده ملاحظاته "للعلم" بس
-    cprWarnMultiple: 1.5,     // تكلفة النتيجة أعلى من متوسط باقي الإعلانات بالمضاعف ده (وبدليل) = يحتاج تحسين
-    cprCriticalMultiple: 2,   // ... وبالمضاعف ده (وبدليل مصحّح) = يحتاج مراجعة
+    cprWarnMultiple: 1.5,     // تكلفة النتيجة أعلى من متوسط باقي الإعلانات بالمضاعف ده = «مهم». ومضاعف «مراجعة» (عاجل) اتشال ٢٥ أكتوبر:
+                              // «عاجل» للتكلفة بأقصى تكلفة يحددها صاحب الحساب بس (قراره — الحكم بحدودك)
     lowDeliveryRatio: 0.2,    // صرف أمس أقل من النسبة دي من متوسطه اليومي = وصول ضعيف
     spikeMultiple: 2,         // صرف أمس ≥ المضاعف ده × متوسطه = صرف غير معتاد
     frequencyHigh: 6,         // نفس الشخص شاف الإعلان المرات دي أو أكتر = الجمهور زهق
@@ -76,7 +76,7 @@
   // التنبيهات تطلع على كل حاجة أو متطلعش خالص (مثلاً مضاعف «أعلى من المتوسط» أقل من ١)
   var SETTINGS_META = [
     ['learningDays', 'days', 'general', 0, 30], ['minSpendShare', 'ratio', 'general', 0, 50],
-    ['cprWarnMultiple', 'multiple', 'cost', 1, 20], ['cprCriticalMultiple', 'multiple', 'cost', 1, 20],
+    ['cprWarnMultiple', 'multiple', 'cost', 1, 20],
     ['roasBreakEven', 'multiple', 'roas', 0.1, 50], ['roasTarget', 'multiple', 'roas', 0.1, 50],
     ['lowDeliveryRatio', 'ratio', 'spend', 1, 100], ['spikeMultiple', 'multiple', 'spend', 1.1, 20],
     ['frequencyHigh', 'times', 'audience', 1, 50],
@@ -97,7 +97,6 @@
   });
   // حدود لازم تكون مترتبة: [الأصغر، الأكبر، مفتاح الرسالة]
   var SETTINGS_ORDER = [
-    ['cprWarnMultiple', 'cprCriticalMultiple', 'set.err.cprOrder'],
     ['roasBreakEven', 'roasTarget', 'set.err.roasOrder']
   ];
 
@@ -175,7 +174,7 @@
   //    الاختبارات فاضلة بس للفرص (زوّد الميزانية — الصرف على حظ بيصرف فلوس حقيقية)، ولانخفاض/ارتفاع يوم واحد، ولـ«أغلى قليلاً»
   var AD_CV2 = 0.09, VALUE_VAR = 1.64, P_LIKELY = 0.05;
   function phiOf(lambda, days) { return 1 + Math.max(0, lambda || 0) * AD_CV2 / Math.max(1, days || 1); }
-  var FATIGUE_X = 2;   // الإرهاق «عاجل» عند ضعف تكلفة النتيجة — تعريف Meta (Creative fatigue)
+  var FATIGUE_X = 2;   // الإرهاق «بيضر» عند ضعف تكلفة النتيجة — تعريف Meta (Creative fatigue)
   // log-gamma (Lanczos — نفس diagnosis.js)
   function gammaln(x) {
     var c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
@@ -430,6 +429,8 @@
     var name = t('al.name', { name: c.offer || c.headline || c.id });
     var cur = c.currency;
     var money = function (n) { return fmt.money(n, cur); };
+    // المبلغ اللي الحكم محتاجه بيتقرّب لفوق («حين يبلغ إنفاقه ١٢ $» مش «١١ $» وهو صرف ١٠٫٩٨ وظاهر ١١) — عشان ميبانش إنه وصل له
+    var moneyUp = function (n) { return money(n >= 10 ? Math.ceil(n) : n); };
     // الجمع هنا بييجي بعد «أي» («دون أي عملاء محتملين») — فبنستخدم الصيغة المجرورة لو موجودة
     var label = global.I18N ? global.I18N.resultAny(c.resultKey) : pluralOf(c.resultKey);
     var one = singularOf(c.resultKey);
@@ -455,7 +456,9 @@
       if (i >= 0 && i <= TODAY) edit = { e: e, idx: i };   // مترتبة بالوقت — الأخير يكسب
     });
     var editFresh = !!edit && YESTERDAY - edit.idx < 3;
-    var weekStart = edit && !editFresh ? edit.idx + 1 : 0;
+    // الحكم على أرقام الكارت دايماً (قرار صاحب المنتج ٢٥ أكتوبر — كان ١٠ أكتوبر على الأيام اللي بعد آخر تعديل بس): إعلان على كارته
+    // ٥١ $ اتحكم عليه بـ٣٥ $ بعد التعديل، فطلع «مهم» وكارته بيقول إنه عدّى الحد. التعديل الأقدم من ٣ أيام جملة في أساس الحكم بس
+    var weekStart = 0;
     WEEK_AD = weekStart ? (fmt && fmt.int ? fmt.int(YESTERDAY - weekStart + 1) : String(YESTERDAY - weekStart + 1)) : null;
     // إعلانات الحساب من نفس نوع النتيجة على نفس أيام الحكم (كل الأسبوع، أو اللي بعد آخر تعديل) — المقارنة «في الفترة نفسها»
     // لازم تبقى فعلاً على نفس الأيام (مراجعة المرحلة ٤، ١٧ أكتوبر ٢٠٢٦: إعلان اتحكم عليه بـ٣ أيام بعد تعديله تكلفته فيهم ٥٠ وطلع
@@ -554,6 +557,8 @@
     //  ٣) غير كده: تكلفة النتيجة المعتادة في باقي إعلاناتك (حملته أو حسابك) — مفيش مستهدف نقيس بيه
     // الحكم بيبدأ بعد إنفاق R، و«عاجل» محتاج ضعفه — قاعدة الإيقاف المعروفة عند مشتري الإعلانات (١٫٥–٢ ضعف التكلفة المستهدفة خلال
     // ٣ أيام من غير شراء)، وقواعد Meta الآلية نفسها (شرط المقياس مع شرط إنفاق)
+    // وقرار صاحب المنتج (٢٥ أكتوبر، الجولة الرابعة): «عاجل» في الأداء بأقصى تكلفة كتبها هو بس — من غيرها التنبيه «مهم» وبيقول إن
+    // تحديدها بيخلّيه عاجل عند ضعفها. R من ٢ و٣ فوق بيفضل حد «لم يُحكم بعد» و«مهم» بس
     var usualOne = othersHave && refCpr ? refCpr : null;   // تكلفة النتيجة عند باقي إعلاناتك — مش الإعلان نفسه
     var targetOne = salesLike && aovW ? aovW / s.roasTarget : null;
     var refKind = maxCost ? 'max' : (targetOne ? 'target' : (usualOne ? 'usual' : null));
@@ -590,20 +595,13 @@
     // «عاجل» للإعلان المؤثر الشغّال اللي خلّص التعلّم وصرف ضعف R على الأقل في أيام القاعدة، وتخطّى خط أحمر من خطوط الإعدادات —
     // بين R وضعفه «مهم» (قراءة مبكرة)، وقبل R «لم يُحكم بعد» بالمبلغ اللي محتاجه
     var urgentEligible = material && c.active && !learning && c.results != null;
-    // «الفرق أكبر من طلب واحد» (قاعدة لابلاس للتتابع — نزوّد مشاهدة واحدة قبل الحكم): الخط الأحمر بنتائج «عاجل» بس لو الإعلان يفضل
-    // وراه حتى لو جاله طلب كمان بمتوسط قيمة طلباتك (أو نتيجة كمان في التكلفة)، وقريب منه كده «مهم» بالسبب ده. والخط الأصفر (تحت
-    // المستهدف) بيظهر بس لو الفرق أكبر من طلب. محاكاة حساب سليم تماماً (العائد الحقيقي ×٤٫٥ والمستهدف ×٣) بالرقم المقاس لوحده: تلت
-    // الإعلانات عليها تنبيه كل أسبوع و٧٪ «عاجل» — أغلبها إعلانات بطلبين أو تلاتة، وقيمة الطلب الواحد بتقلب العائد. كروت صاحب المنتج
-    // (×٠٫٢–×٦٫٥ وحد الخسارة ×١٥) بعيدة عن حدها بأضعاف طلب، فبتفضل «عاجل». الصفر (مفيش طلبات أصلاً) قاعدته الإنفاق بس
-    var beyondRoas = function (sa, sp, bar) { return !(aovW > 0) || (sa + aovW) / sp < bar; };
-    var beyondCost = function (sp, k, bar) { return sp / (k + 1) > bar; };
-    var redLv = function (sp, beyond) { return urgentEligible && sp >= 2 * R && beyond ? 'critical' : 'warning'; };
-    var redWhy = function (line, sp, beyond, v, near) { return sp < 2 * R || beyond ? { line: line, sp: sp, v: v } : { cap: near, v: v }; };
-    // الصفر (ولا نتيجة): «عاجل» من ضعف R لو R رقم صاحب الحساب نفسه (أقصى تكلفة، أو المستهدف لإعلان المبيعات)، ومن ٣ أضعافه لو R تقديرنا
-    // إحنا (التكلفة المعتادة في باقي إعلاناته — مفيش مستهدف): المعتادة أقل من المستهدف عادةً، فضعفها = نتيجتين متوقعتين بس، والمحاكاة
-    // (حساب عملاء محتملين سليم تماماً): ٣٫٦ رسالة عاجلة كاذبة في الأسبوع. اللي عايز الحد بتاعه يحدد أقصى تكلفة لكل نتيجة
-    var zeroX = refKind === 'usual' ? 3 : 2;
-    var zeroLv = function (sp) { return urgentEligible && sp >= zeroX * R ? 'critical' : 'warning'; };
+    // الخط الأحمر (تحت حد الخسارة، فوق أقصى تكلفة، أو من غير ولا نتيجة) = «عاجل» بعد إنفاق ضعف أقصى تكلفة حددتها، بالرقم المقاس زي ما
+    // هو — قرار صاحب المنتج (٢٥ أكتوبر، الجولة الرابعة): من غير استثناء «طلب واحد زيادة كان هيرجّعه» (كان «مهم» — قاعدة لابلاس)،
+    // ومن غير أقصى تكلفة محددة مفيش «عاجل» (المحاكاة: بريد عاجل على حساب مبيعات سليم تماماً ٢٫٩ في الأسبوع بالحد ده، وكشف إعلان تكلفته
+    // ×٣ «عاجل» ٢١١ من ٣٠٠)
+    var redLv = function (sp) { return urgentEligible && maxCost && sp >= 2 * R ? 'critical' : 'warning'; };
+    // سبب «مهم»: من غير أقصى تكلفة = حدّدها عشان يبقى عاجل؛ وبيها وقبل ضعفها = المبلغ اللي يخلّيه عاجل (levelWhy)
+    var redWhy = function (line, sp, v) { return maxCost ? { line: line, sp: sp, v: v } : { cap: 'noMax', v: v, red: true }; };
     // سبب مستوى التنبيه (صاحب المنتج ٢٥ أكتوبر: «لم أفهم سبب أن بعض الإعلانات تظهر بتنبيه عاجل وأخرى بمهم رغم أنه نفس السبب»):
     // why = { line: الخط اللي اتخطّى، sp: إنفاق أيام القاعدة، v: أرقام الخط } أو { cap: سبب ثابت يخلّيه «مهم» } — levelWhy تحت بتكتب
     // الجملة بعد كل الدمج والتخفيض
@@ -636,8 +634,8 @@
       // حددتها لكل عملية شراء)»، أو «حين يحقق عمليتي شراء» لو صرف ضعف R بنتيجة واحدة. الصفر بيتحكم عليه من R (مهم) زي القاعدة
       var needText = function () {
         var what = t('ref.what.' + refKind, { one: one, target: fmt.num(s.roasTarget || 0) });
-        if (spendW < R || resW === 0) return t('pend.need.one', { need: money(R), what: what });
-        return spendW < 2 * R ? t('pend.need.two', { need: money(2 * R), what: what }) : t('pend.need.second', { two: countText(2, c.resultKey, fmt) });
+        if (spendW < R || resW === 0) return t('pend.need.one', { need: moneyUp(R), what: what });
+        return spendW < 2 * R ? t('pend.need.two', { need: moneyUp(2 * R), what: what }) : t('pend.need.second', { two: countText(2, c.resultKey, fmt) });
       };
       if (/^prelim/.test(key)) {
         var pv = { count: countText(resW, c.resultKey, fmt), need: needText(), one: one,
@@ -664,15 +662,15 @@
     function levelWhy(i) {
       var w = i.why;
       if (!w || (i.level !== 'critical' && i.level !== 'warning')) return null;
-      if (w.cap) return i.level === 'warning' ? t('lv.why.cap.' + w.cap, w.v || {}) : null;
-      var kind = w.kind || refKind, r = w.r || R;
-      if (!kind || !r) return null;
-      // الصفر بمضاعفه هو (ضعف أو ٣ أضعاف — zeroX فوق). جملة لكل خط فيها رقمه نفسه (العائد، أو تكلفة الطلب) — «تخطّى حد الخسارة»
-      // مكانتش بتتقري طبيعي على العائد، و«أقصى تكلفة… وهو ضعف أقصى تكلفة» كانت بتكرر نفسها (فحص كروت حساب حقيقي ٢٥ أكتوبر)
-      var x = w.line === 'zero' ? zeroX : 2;
-      var v = { spend: money(w.sp), r: money(r), need: money(x * r), label: label, one: one,
-        times: global.I18N ? global.I18N.timesPhrase(x, fmt.num) : x + '×',
-        what: t('ref.what.' + kind, { one: one, target: fmt.num(s.roasTarget || 0) }) };
+      var base = { one: one, label: label };
+      if (w.cap) {
+        Object.keys(w.v || {}).forEach(function (k) { base[k] = w.v[k]; });
+        return i.level === 'warning' ? t('lv.why.cap.' + w.cap, base) : null;
+      }
+      if (!maxCost) return null;
+      // جملة لكل خط فيها رقمه نفسه (العائد، أو تكلفة الطلب) — «تخطّى حد الخسارة» مكانتش بتتقري طبيعي على العائد، و«أقصى تكلفة… وهو
+      // ضعف أقصى تكلفة» كانت بتكرر نفسها (فحص كروت حساب حقيقي ٢٥ أكتوبر). «عاجل» بعد ضعف أقصى تكلفة حددتها، وقبله «مهم» بالمبلغ
+      var v = { spend: money(w.sp), max: money(maxCost), need: moneyUp(2 * maxCost), label: label, one: one };
       Object.keys(w.v || {}).forEach(function (k) { v[k] = w.v[k]; });
       var hot = i.level === 'critical';
       if (w.line === 'zero') return t(hot ? 'lv.why.redZero' : 'lv.why.earlyZero', v);
@@ -753,41 +751,34 @@
       // عشان التنبيه ميختفيش في أسوأ الحالات
       var accountHasResults = !!(group && group.results > 0);
       var noRefFloor = !R && !accountHasResults && acc.avgAdSpend2 > 0 ? acc.avgAdSpend2 : null;
-      // 4أ) ولا نتيجة طول أيام الحكم: «مهم» من R و«عاجل» من ضعفه (قاعدة الإيقاف عند مشتري الإعلانات). قبل كده باحتمال الصدفة — حساب
-      //     حقيقي ٢٥ أكتوبر: ٩١ $ من غير ولا طلب «لم يُحكم بعد»، و٧٠ $ والحد ٢٠ $ «مهم»
+      // 4أ) ولا نتيجة طول الفترة: «مهم» من R و«عاجل» من ضعف أقصى تكلفة حددتها (قاعدة الإيقاف عند مشتري الإعلانات). قبل كده باحتمال
+      //     الصدفة — حساب حقيقي ٢٥ أكتوبر: ٩١ $ من غير ولا طلب «لم يُحكم بعد»، و٧٠ $ والحد ٢٠ $ «مهم»
       var weekDry = resW === 0 && spendW > 0 && !!R;
-      // المنصة بتنسب له نتيجتين أو أكتر بعد المشاهدة من غير نقر (مراجعة ١١ أكتوبر ٢٠٢٦، حساب حقيقي: «عاجل — إنفاق دون نتائج» على
-      // إعلان المنصة بتنسب له ٦ مشتريات بعائد ×٩٫٧، والتاني ٦ بعائد ×٧٫٦). أساسنا النقر زي ما هو (قرار ٦ أكتوبر)، بس «هدر مؤكد
-      // عاجل» مش أمين هنا: «مهم»، ومبيتحسبش في لوحة الهدر ولا بيوصل بريد عاجل، والاقتراح نقارن بطلبات المتجر قبل الإيقاف
-      var platOnly = weekDry && c.plat && c.plat.results >= 2 ? c.plat.results : 0;
-      if (platOnly && spendW >= R) {
+      // المنصة بتنسب له نتائج بعد المشاهدة من غير نقر (أو بنوافذ النسب بتاعتها في سناب شات): جملة للعلم بس — أساسنا النقر (قرار ٦ أكتوبر)،
+      // وصاحب المنتج (٢٥ أكتوبر، الجولة الرابعة): «إعلان لم يحقق مبيعات بالنقر… والمنصة تنسب له من المشاهدة، رغم صرف ضعف الحد الأقصى
+      // للتكلفة المحددة أو أكثر فيعتبر عاجل وليس مهم فقط، لأننا نعتمد على النقر وليس المشاهدة». كانت «مهم» من ١١ أكتوبر (waste-view)
+      var platView = weekDry && c.plat && c.plat.results >= 1
+        ? t(c.baseStore ? 'al.platViewStore' : 'al.platView', { plat: countText(c.plat.results, c.resultKey, fmt) }) : '';
+      if (weekDry && spendW >= R) {
         wasteRaised = true;
-        // ر٤٣ (مرحَّل من المرحلة ٤): سبب الفرق بين رقمنا ورقم المنصة يختلف بالمنصة — في Meta أساسنا النقر والمنصة بتنسب
-        // كمان بعد المشاهدة من غير نقر، وفي سناب شات أساسنا الطلبات المسجّلة في المتجر والمنصة بتنسب بنوافذ النسب بتاعتها
-        var vk = c.baseStore ? 'Store' : '';
-        issues.push(ev(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteView' + vk + '.t', { label: label }),
-          t('al.wasteView' + vk + '.d', { name: name, spend: money(spendW), label: label, plat: countText(platOnly, c.resultKey, fmt) }),
-          t('al.wasteView' + vk + '.a'), spendW, 'waste-view'), 'wasteClick', spend3 / 3), { cap: 'platform' }));
-      } else if (weekDry && spendW >= R) {
-        wasteRaised = true;
-        var dryLv = zeroLv(spendW), dryHot = dryLv === 'critical';
+        var dryLv = redLv(spendW), dryHot = dryLv === 'critical';
         issues.push(ev(withMoney(makeIssue(dryLv, ['spend', 'results'], t(dryHot ? 'al.wasteWeek.t' : 'al.wasteWeekEarly.t'),
-          t('al.wasteWeek.d', { name: name, spend: money(spendW), label: label, refSpent: refSpent(spendW) }),
-          t(dryHot ? 'al.waste.a' : 'al.wasteEarly.a'), spendW, dryHot ? 'waste-week' : 'waste-early', dryHot), 'waste', spend3 / 3), { line: 'zero', sp: spendW }));
+          t('al.wasteWeek.d', { name: name, spend: money(spendW), label: label, refSpent: refSpent(spendW) }) + platView,
+          t(dryHot ? 'al.waste.a' : 'al.wasteEarly.a'), spendW, dryHot ? 'waste-week' : 'waste-early', dryHot), 'waste', spend3 / 3), redWhy('zero', spendW, {})));
       }
       // 4ب) آخر ٣ أيام مكتملة من غير ولا نتيجة — للإعلان اللي جاب نتائج قبلها (قاعدة صاحب المنتج: «مر عليها ٣ أيام بدون أي
-      //     مشتريات»): «مهم» من R و«عاجل» من ضعفه. ويومين بس بإنفاق ضعف R: «مهم» (اليوم التالت هو اللي بيخلّيه عاجل)
+      //     مشتريات»): «مهم» من R و«عاجل» من ضعف أقصى تكلفة حددتها. ويومين بس بإنفاق ضعف R: «مهم» (اليوم التالت هو اللي بيخلّيه عاجل)
       if (!weekDry && R && res3 === 0 && spend3 >= R) {
         wasteRaised = true;
-        var d3Lv = zeroLv(spend3), d3Hot = d3Lv === 'critical';
+        var d3Lv = redLv(spend3), d3Hot = d3Lv === 'critical';
         issues.push(ev(withMoney(makeIssue(d3Lv, ['spend', 'results'], t(d3Hot ? 'al.waste3.t' : 'al.waste3Early.t'),
           t('al.waste3.d', { name: name, spend: money(spend3), label: label, refSpent: refSpent(spend3) }),
-          t(d3Hot ? 'al.waste.a' : 'al.wasteEarly.a'), spend3, d3Hot ? 'waste' : 'waste-early', d3Hot), 'waste', spend3 / 3), { line: 'zero', sp: spend3 }));
-      } else if (!weekDry && R && res3 > 0 && res2 === 0 && spend2 >= zeroX * R) {
+          t(d3Hot ? 'al.waste.a' : 'al.wasteEarly.a'), spend3, d3Hot ? 'waste' : 'waste-early', d3Hot), 'waste', spend3 / 3), redWhy('zero', spend3, {})));
+      } else if (!weekDry && R && res3 > 0 && res2 === 0 && spend2 >= 2 * R) {
         wasteRaised = true;
         issues.push(ev(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteEarly.t'),
           t('al.waste.d', { name: name, spend: money(spend2), label: label, refSpent: refSpent(spend2) }),
-          t('al.wasteEarly.a'), spend2, 'waste-early'), 'waste', spend2 / 2), { cap: 'twoDays', v: { need: money(zeroX * R) } }));
+          t('al.wasteEarly.a'), spend2, 'waste-early'), 'waste', spend2 / 2), maxCost ? { cap: 'twoDays', v: { need: moneyUp(2 * R) } } : { cap: 'noMax' }));
       } else if (noRefFloor && res2 === 0 && spend2 >= noRefFloor) {
         wasteRaised = true;
         issues.push(ev(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteEarly.t'),
@@ -828,12 +819,11 @@
         // تحت حد الخسارة (الخط الأحمر): «مهم» من R و«عاجل» من ضعفه. صفر طلبات قاعدته فوق (4أ)
         var lossV = { be: fmt.num(s.roasBreakEven), aov: aovW ? money(aovW) : '' };
         if (resW > 0 && roasW < s.roasBreakEven && spendW >= R) {
-          var lossFar = beyondRoas(salesW, spendW, s.roasBreakEven);
-          var lossIssue = makeIssue(redLv(spendW, lossFar), ['roas', 'spend'], t('al.loss' + lossK + '.t'), t('al.lossWeek' + lossK + (salesW > 0 ? '' : 'Zero') + '.d', wkVars), t(wk.better ? 'al.loss.aBetter' : 'al.loss.a'), 0, 'loss', true);
+          var lossIssue = makeIssue(redLv(spendW), ['roas', 'spend'], t('al.loss' + lossK + '.t'), t('al.lossWeek' + lossK + (salesW > 0 ? '' : 'Zero') + '.d', wkVars), t(wk.better ? 'al.loss.aBetter' : 'al.loss.a'), 0, 'loss', true);
           // نفس المعلومة كجملة جوه تنبيه تاني على نفس الإعلان لو هو اللي بقى المضيف (الدمج تحت — 11): «٣ أيام دون مشتريات» وعائد الأسبوع
           lossIssue.inline = t('al.loss.in', { roas: rr(roasW), be: fmt.num(s.roasBreakEven) });
-          issues.push(ev(markBetter(lossMoney(lossIssue, spendW, salesW), wk.better), redWhy('loss', spendW, lossFar, Object.assign({ roas: rr(roasW) }, lossV), 'nearLoss')));
-        } else if (resW > 0 && roasW < s.roasTarget && judgedW && beyondRoas(salesW, spendW, s.roasTarget)) {
+          issues.push(ev(markBetter(lossMoney(lossIssue, spendW, salesW), wk.better), redWhy('loss', spendW, Object.assign({ roas: rr(roasW) }, lossV))));
+        } else if (resW > 0 && roasW < s.roasTarget && judgedW) {
           // تحت المستهدف وفوق حد الخسارة (الخط الأصفر): «مهم» — ما زال يربح بحدك. الأثر بالفلوس: المبيعات أقل قد إيه من اللي كان
           // المفروض الإنفاق ده يجيبه بالعائد المستهدف
           var lowIssue = makeIssue('warning', ['roas'], t('al.lowRoas.t'), t('al.lowRoasWeek.d', wkVars), t(wk.better ? 'al.lowRoas.aBetter' : 'al.lowRoas.a'), spendW * s.roasTarget - salesW, 'low-roas');
@@ -852,14 +842,13 @@
           if (roasW < s.roasTarget) {
             // «في الفترة نفسها» بعد جملة الـ٣ أيام = عائد الحساب في نفس الـ٣ أيام (Kimball & Ross: نفس الفترة)
             var r3 = vsAcc(acc.purchIn(RECENT3, YESTERDAY), roas3, spend3);
-            var loss3Far = beyondRoas(sales3, spend3, s.roasBreakEven);
-            var loss3 = makeIssue(redLv(spend3, loss3Far), ['roas', 'spend'], t('al.loss' + lossK + '.t'),
+            var loss3 = makeIssue(redLv(spend3), ['roas', 'spend'], t('al.loss' + lossK + '.t'),
               t('al.loss' + lossK + (sales3 > 0 ? '' : 'Zero') + '.d', { name: name, spend: money(spend3), sales: money(sales3), roasText: roasLabel(roas3), be: wkVars.be }) +
                 t('al.weekCtx', { roas: fmt.num(roasW) }) + r3.text,
               t(r3.better ? 'al.loss.aBetter' : 'al.loss.a'), 0, 'loss', true);
             // عائد الأسبوع مكتوب في الجملة نفسها — من غير ما «أقل من المستهدف» يكرّره جوّاه بعد الدمج
             if (lowIssue) lowIssue.inline = null;
-            issues.push(ev(markBetter(lossMoney(loss3, spend3, sales3), r3.better), redWhy('loss', spend3, loss3Far, Object.assign({ roas: rr(roas3) }, lossV), 'nearLoss')));
+            issues.push(ev(markBetter(lossMoney(loss3, spend3, sales3), r3.better), redWhy('loss', spend3, Object.assign({ roas: rr(roas3) }, lossV))));
           } else {
             issues.push(ev(withMoney(makeIssue('warning', ['roas'], t('al.roasDrop.t'),
               t('al.roasDrop.d', { name: name, roasW: fmt.num(roasW), roas3: fmt.num(roas3), spend: money(spend3), sales: money(sales3) }),
@@ -868,29 +857,21 @@
         }
       }
 
-      // 6) تكلفة النتيجة أعلى من متوسط باقي إعلاناتك (حملته أو حسابك) على أيام الحكم — للإعلانات اللي مفيهاش قيمة مبيعات (إعلان
-      //    المبيعات بيتحكم عليه بالربح فوق). الخطين من الإعدادات: «مهم» من ×{warn} بعد إنفاق ضعف التكلفة المعتادة، و«عاجل» من ×{crit}
-      //    (الإنفاق ساعتها ضعفها أو أكتر تلقائياً). نتيجة واحدة بتتحسب: نتيجة واحدة بتكلفة عشرة كانت بتطلع «جيد». ولو حددت أقصى تكلفة
-      //    فهي خطك الأحمر: المقارنة بالباقي «مهم» بس، والعاجل من قاعدة أقصى التكلفة (6ب)
-      //    كان «عاجل» محتاج احتمال صدفة صغير، ومش جوه ميزانية الحملة ولا بعد إعلان جديد في المجموعة ولا لنتائج أعلى المسار — دلوقتي
-      //    ميزانية الحملة جملة في النص (Meta بتوزّع الإنفاق بنفسها) مش سبب يخفّض المستوى
+      // 6) تكلفة النتيجة أعلى من متوسط باقي إعلاناتك (حملته أو حسابك) على فترة الكارت — للإعلانات اللي مفيهاش قيمة مبيعات (إعلان
+      //    المبيعات بيتحكم عليه بالربح فوق): «مهم» من ×{warn} في الإعدادات بعد إنفاق ضعف التكلفة المعتادة. نتيجة واحدة بتتحسب: نتيجة
+      //    واحدة بتكلفة عشرة كانت بتطلع «جيد». ومبيوصلش «عاجل» (قرار صاحب المنتج ٢٥ أكتوبر، الجولة الرابعة: «عاجل» في التكلفة بأقصى
+      //    تكلفة كتبها هو بس — والإعلان اللي مجابش ولا نتيجة من غير حد بيفضل «مهم»، فمينفعش اللي أغلى مرتين يبقى أعلى منه). مضاعف
+      //    «مراجعة» (عاجل) اتشال من الإعدادات. وميزانية الحملة جملة في النص (Meta بتوزّع الإنفاق بنفسها)
       if (!profitAd && refCpr && resW >= 1 && ownCpr != null) {
         var ratio = ownCpr / refCpr;
-        // والخط الأصفر (×{warn}) كمان «الفرق أكبر من نتيجة» زي المستهدف — من غيرها ١١٪ من إعلانات حساب عملاء محتملين سليم تماماً
-        // كان عليها «تكلفة مرتفعة» كل فحص (المحاكاة)
-        if (ratio >= s.cprWarnMultiple && beyondCost(spendW, resW, refCpr * s.cprWarnMultiple) && (ratio >= s.cprCriticalMultiple || spendW >= 2 * refCpr)) {
-          // «عاجل» لو فضل فوق حد العاجل حتى بنتيجة كمان (الفرق أكبر من نتيجة)، وغير كده «مهم» بالسبب ده
-          var cprFar = beyondCost(spendW, resW, refCpr * s.cprCriticalMultiple);
-          var critical = urgentEligible && !maxCost && ratio >= s.cprCriticalMultiple && cprFar;
-          var cprNear = urgentEligible && !maxCost && ratio >= s.cprCriticalMultiple && !cprFar;
+        if (ratio >= s.cprWarnMultiple && spendW >= 2 * refCpr) {
           var oldNote = age != null && age >= OLD_AD_DAYS ? t('al.cpr.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '';
-          issues.push(ev(withMoney(makeIssue(critical ? 'critical' : 'warning', ['cpr'], t('al.cpr.t', { label: label, one1: one }),
+          issues.push(ev(withMoney(makeIssue('warning', ['cpr'], t('al.cpr.t', { label: label, one1: one }),
             t('al.cpr.d', { one: one, name: name, cpr: money(ownCpr), old: oldNote, pct: fmt.int((ratio - 1) * 100), avg: money(refCpr) }) +
               (c.campaignBudget ? t('al.cboNote') : ''),
             t('al.cpr.a'),
             spendW - resW * refCpr, 'cpr'), 'extra', 0),
-            critical ? { line: 'cpr', sp: spendW, kind: 'usual', r: refCpr, v: { crit: fmt.num(s.cprCriticalMultiple), cpr: money(ownCpr), avg: money(refCpr), ratio: fmt.num(Math.round(ratio * 10) / 10) } }
-              : { cap: cprNear ? 'nearCpr' : (maxCost ? 'ratioMax' : 'ratio'), v: { ratio: fmt.num(Math.round(ratio * 10) / 10), crit: fmt.num(s.cprCriticalMultiple), max: maxCost ? money(maxCost) : '' } }));
+            { cap: maxCost ? 'ratioMax' : 'ratio', v: { ratio: fmt.num(Math.round(ratio * 10) / 10), max: maxCost ? money(maxCost) : '' } }));
         }
       }
 
@@ -899,11 +880,10 @@
       if (maxCost && resW > 0 && spendW / resW > maxCost) {
         var mVars = { one: one, name: name, cpr: money(spendW / resW), max: money(maxCost), spend: money(spendW), label: label,
           scope: t(maxScope === 'camp' ? 'al.costMax.camp' : 'al.costMax.acc') };
-        var maxFar = beyondCost(spendW, resW, maxCost);
-        var maxIssue = makeIssue(redLv(spendW, maxFar), ['cpr'], t('al.costMax.t', { one1: one }), t('al.costMax.d', mVars) + (c.campaignBudget ? t('al.cboNote') : ''),
+        var maxIssue = makeIssue(redLv(spendW), ['cpr'], t('al.costMax.t', { one1: one }), t('al.costMax.d', mVars) + (c.campaignBudget ? t('al.cboNote') : ''),
           t('al.costMax.a'), spendW - resW * maxCost, 'cost-max');
         maxIssue.inline = t('al.costMax.in', mVars);
-        issues.push(ev(withMoney(maxIssue, 'extra', 0), redWhy('max', spendW, maxFar, { one: one, max: money(maxCost), cpr: money(spendW / resW) }, 'nearMax')));
+        issues.push(ev(withMoney(maxIssue, 'extra', 0), redWhy('max', spendW, { one: one, max: money(maxCost), cpr: money(spendW / resW) })));
       }
 
       // 7) انخفاض النتائج أمس مقارنة بالمعتاد مع نفس مستوى الصرف — بشرطين عشان منطلعش تنبيه على تذبذب طبيعي:
@@ -959,10 +939,10 @@
       if (c.frequency >= s.frequencyHigh) {
         // الربح الأول: إعلان مبيعات عائده فوق المستهدف مش «بيضره» التكرار مهما كانت تكلفته مقارنةً بالحساب
         var profitWeak = profitAd && hasGoal && judgedW && roasW < s.roasTarget;
-        // الزهق «بيضر» (عاجل) زي تعريف Meta للإرهاق (Creative fatigue — مركز مساعدة Meta ١٣٤٦٨١٦١٤٢٣٢٧٨٥٨): مرات ظهور كتير
-        // و**ضعف** التكلفة أو أكتر. بين ١٫٥ وضعفين «مهم» زي «Creative limited» عندها. كان ١٫٥ ضعف = عاجل (المرحلة ٥ ق٤).
-        // إعلان المبيعات العاجل بتاعه قاعدة الخسارة فوق. ولو حددت أقصى تكلفة وتكلفته تحتها مش «بيضر»
-        var hurting = !profitAd && !learning && urgentEligible && refCpr && ownCpr != null && ownCpr >= refCpr * FATIGUE_X && (!maxCost || ownCpr > maxCost);
+        // الزهق «بيضر» زي تعريف Meta للإرهاق (Creative fatigue — مركز مساعدة Meta ١٣٤٦٨١٦١٤٢٣٢٧٨٥٨): مرات ظهور كتير و**ضعف**
+        // التكلفة أو أكتر — «مهم» بسببه (كان «عاجل»؛ من ٢٥ أكتوبر «عاجل» في التكلفة بأقصى تكلفة كتبها صاحب الحساب بس، وفوقها قاعدة
+        // أقصى التكلفة هي اللي بتعلّي المستوى). إعلان المبيعات بتاعه قاعدة الخسارة فوق. ولو حددت أقصى تكلفة وتكلفته تحتها مش «بيضر»
+        var hurting = !profitAd && !learning && refCpr && ownCpr != null && ownCpr >= refCpr * FATIGUE_X && (!maxCost || ownCpr > maxCost);
         // التكرار العالي لوحده مش مشكلة (جمهور إعادة الاستهداف صغير وبيبقى مربح): «مهم» بس لو في أداء الإعلان علامة ضعف،
         // وغير كده ملاحظة «للعلم» — أفضل إعلان في الحساب كان بيطلع «يحتاج إلى تحسين» بسبب التكرار بس
         var weakPerf = profitWeak || issues.some(function (i) {
@@ -971,10 +951,10 @@
         var fVars = { name: name, freq: global.I18N ? global.I18N.timesText(c.frequency, fmt.num, true) : fmt.num(c.frequency) + ' times', old: isOld ? t('al.fatigue.old', { days: fmt.int(age), dayWord: dayWord(age) }) : '' };
         var fDetail = t('al.fatigue.d', fVars);
         if (hurting || weakPerf) {
-          var fIssue = makeIssue(hurting ? 'critical' : 'warning', ['frequency'], t('al.fatigue.t'), fDetail, t('al.fatigue.a'), 0, 'fatigue');
+          var fIssue = makeIssue('warning', ['frequency'], t('al.fatigue.t'), fDetail, t('al.fatigue.a'), 0, 'fatigue');
           // نفس المعلومة كجملة جوه تنبيه الأداء اللي على الإعلان (الدمج تحت — 11)
           fIssue.inline = t('al.fatigue.in', fVars);
-          issues.push(ev(fIssue, hurting ? { line: 'fatigue', sp: spendW, kind: 'usual', r: refCpr, v: { ratio: fmt.num(Math.round(ownCpr / refCpr * 10) / 10) } } : { cap: 'fatigue' }));
+          issues.push(ev(fIssue, hurting ? { cap: 'fatigueHurt', v: { ratio: fmt.num(Math.round(ownCpr / refCpr * 10) / 10) } } : { cap: 'fatigue' }));
         } else {
           issues.push(makeIssue('info', ['frequency'], t('al.fatigue.t'), fDetail + t('al.fatigue.ok'), t('al.fatigue.okA'), 0, 'fatigue'));
         }
@@ -1021,7 +1001,7 @@
     if (perf.length > 1) {
       // وفي نفس المستوى: الخط الأحمر اللي اتخطّى (تحت حد الخسارة، فوق أقصى تكلفة، دون نتائج) قبل الأصفر (تحت المستهدف) — «أقل من
       // المستهدف» بمبلغ أكبر كان بيبلع «خسارة آخر ٣ أيام» (الحكم بحدودك — ٢٥ أكتوبر)
-      var red = function (i) { return i.why && i.why.line ? 1 : 0; };
+      var red = function (i) { return i.why && (i.why.line || i.why.red) ? 1 : 0; };
       var host = perf.filter(function (i) { return i.code !== 'fatigue'; }).sort(function (a, b) {
         return (LEVEL_RANK[b.level] - LEVEL_RANK[a.level]) || (red(b) - red(a)) || ((b.atRisk ? 1 : 0) - (a.atRisk ? 1 : 0)) ||
           ((b.amount || 0) - (a.amount || 0)) || (PERF_ORDER.indexOf(a.code) - PERF_ORDER.indexOf(b.code));
@@ -1132,14 +1112,16 @@
         });
         if (!urgent) { pend = 'edited'; basis = t('pend.edited.d', { what: what, when: when }); }
       } else if (basis) {
+        // الحكم على أرقام الكارت (الفترة كلها — قرار ٢٥ أكتوبر)، والتعديل الأقدم من ٣ أيام سطر للعلم ومعاه «بعده مقابل قبله»
         var pre = { s: sum(daily, 0, edit.idx - 1), r: sum(results, 0, edit.idx - 1), v: sum(sales, 0, edit.idx - 1) };
+        var post = { s: sum(daily, edit.idx + 1, YESTERDAY), r: sum(results, edit.idx + 1, YESTERDAY), v: sum(sales, edit.idx + 1, YESTERDAY) };
         // «بعده مقابل قبله» بس لو كل جانب صرف تكلفة نتيجة على الأقل وفيه نتائج — حساب حقيقي: «×٠ مقابل ×٠» و«×١٫٤ مقابل
         // ×٢٤٫٤» على ١٠ ريال قبل التعديل كانوا بيظهروا
-        var cmp = '', floor = evidenceCpr || 0, enough = pre.s >= floor && spendW >= floor && pre.s > 0 && spendW > 0;
+        var cmp = '', floor = evidenceCpr || 0, enough = pre.s >= floor && post.s >= floor && pre.s > 0 && post.s > 0;
         // «قبله» = الأيام اللي قبل التعديل جوه النافذة بس — لو يوم واحد بنقول كده (كان «×٤٫١ قبله» وهو يوم واحد قصاد ٥)
         var preTxt = edit.idx === 1 ? t('basis.edit.pre1') : t('basis.edit.preN', { n: daysText(edit.idx, fmt) });
-        if (enough && profitAd && pre.v + salesW > 0 && pre.r + resW >= 2) cmp = t('basis.edit.roas', { after: fmt.num(salesW / spendW), before: fmt.num(pre.v / pre.s), pre: preTxt });
-        else if (enough && !profitAd && pre.r > 0 && resW > 0) cmp = t('basis.edit.cpr', { one: one, after: money(spendW / resW), before: money(pre.s / pre.r), pre: preTxt });
+        if (enough && profitAd && pre.v + post.v > 0 && pre.r + post.r >= 2) cmp = t('basis.edit.roas', { after: fmt.num(post.v / post.s), before: fmt.num(pre.v / pre.s), pre: preTxt });
+        else if (enough && !profitAd && pre.r > 0 && post.r > 0) cmp = t('basis.edit.cpr', { one: one, after: money(post.s / post.r), before: money(pre.s / pre.r), pre: preTxt });
         basis += t('basis.edit.window', { what: what, when: when }) + cmp;
       }
     }
