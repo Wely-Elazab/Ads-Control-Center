@@ -13,6 +13,8 @@
 //   join و join.peek و join.activate ← طلبات الانضمام للتجربة من نموذج /join، وزرار «أرسلت الدعوة» في إشعارنا (join.ts)
 //   login.* ← تسجيل الدخول للأداة: كلمة المرور + رمز على البريد (auth.ts)
 //   meta.seal و meta.renew ← ربط Meta المحفوظ على الجهاز، عشان الهاتف ميفصلش الحسابات كل مرة (metalink.ts)
+//   usettings.get و usettings.set ← إعدادات التنبيهات لصاحب الدخول (settings.ts)، وsettings.get ← سجل الحساب القديم (للنقل)
+//   episodes.sync و episodes.decide ← سجل مشكلات التنبيه للوحة «ما حققته مع الأداة» (episodes.ts)
 //
 // الأمان: الدالة عامة (verify_jwt = false) لأن فيها عمليات من غير دخول (النبض، رابط الإيقاف، طلب الانضمام، login.*).
 // من ٦ أكتوبر ٢٠٢٦ كل العمليات التانية محتاجة دخول مكتمل للأداة (هيدر authorization: كلمة المرور + الرمز — requireLogin)،
@@ -28,7 +30,7 @@ import { handleJoin } from './join.ts';
 import { runAll, preview, previewSummary } from './runner.ts';
 import { handleLogin, requireLogin } from './auth.ts';
 import { handleMetaLink } from './metalink.ts';
-import { handleSettings } from './settings.ts';
+import { handleSettings, handleUserSettings } from './settings.ts';
 import { handleEpisodes } from './episodes.ts';
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
@@ -140,10 +142,12 @@ Deno.serve(async (req: Request) => {
     if (!user) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
     // ربط Meta المحفوظ على الجهاز — مربوط بحساب الدخول ده (metalink.ts)
     if (action === 'meta.seal' || action === 'meta.renew') return await handleMetaLink(action, body, user.id, origin);
-    // إعدادات التنبيهات لكل حساب إعلاني (settings.ts) — قبل شرط مفتاح Meta: حساب Snapchat لوحده بيستخدمها كمان بمفتاحه
-    if (action === 'settings.get' || action === 'settings.set') return await handleSettings(action, body, origin);
-    // سجل مشكلات التنبيه لكل حساب إعلاني (episodes.ts — لوحة «قيمة الأداة») بنفس إثبات الوصول
-    if (action === 'episodes.sync' || action === 'episodes.decide') return await handleEpisodes(action, body, origin);
+    // إعدادات التنبيهات لكل مستخدم (settings.ts — قرار ٢٦ أكتوبر): سجل صاحب الدخول نفسه، من غير مفتاح أي منصة
+    if (action === 'usettings.get' || action === 'usettings.set') return await handleUserSettings(action, body, user.id, origin);
+    // سجل الحساب الإعلاني القديم (قراءة بس — النقل لإعدادات المستخدم) بإثبات الوصول للحساب في منصته
+    if (action === 'settings.get') return await handleSettings(action, body, origin);
+    // سجل مشكلات التنبيه لكل مستخدم على كل حساب إعلاني (episodes.ts — لوحة «ما حققته مع الأداة») بنفس إثبات الوصول
+    if (action === 'episodes.sync' || action === 'episodes.decide') return await handleEpisodes(action, body, user.id, origin);
 
     if (typeof body.token !== 'string' || !TOKEN.test(body.token)) return reply(400, { error: 'token' }, origin);
 
@@ -156,7 +160,7 @@ Deno.serve(async (req: Request) => {
       return reply(200, await previewSummary(body.token, body.accountId, lang, str(body.since, 10) || undefined, str(body.until, 10) || undefined, body.monthly === true), origin);
     }
 
-    if (typeof action === 'string' && action.indexOf('digest.') === 0) return await handleDigest(action, body, origin);
+    if (typeof action === 'string' && action.indexOf('digest.') === 0) return await handleDigest(action, body, origin, user.id);
 
     if (action === 'selfcheck' || action === 'testmail') {
       const admin = await isAppAdmin(body.token);

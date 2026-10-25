@@ -277,22 +277,39 @@ async function costLine(accountId: string, cands: any[] | null, since: string, u
 // المستهدف وحد الخسارة (null = مش محددين: الملخص من غير سطر الهدف، وحكم الربح في التنبيهات بيستنى — زي الأداة)، وباقي الإعدادات
 type Target = { roas: number; be: number } | null;
 type Sens = Record<string, unknown> | null;
-// إعدادات الحساب الإعلاني (settings.ts — مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦): المصدر الوحيد للأداة والبريد
-async function accountSettingsOf(account: string): Promise<Record<string, unknown> | null> {
-  const r = await db('account_settings?select=settings&platform=eq.meta&account_id=eq.' + account, { method: 'GET' }).catch(() => null);
+// إعدادات صاحب الملخص (settings.ts — قرار صاحب المنتج ٢٦ أكتوبر ٢٠٢٦: «لكل مستخدم»): digest_settings.user_id، وإعداداته لحساب
+// Meta ده بنفس دالة الأداة (alerts.js settingsForAccount: إعدادات Meta الخاصة لو اتخصّصت وإلا «كل الحسابات»، وأقصى تكلفة الأنواع
+// متحوّلة لعملة الحساب بسعر الربط الرسمي). ملخص لسه مالوش صاحب (اتفعّل قبل التحديث ومحدش فتح الأداة بعده)، أو صاحبه من غير
+// إعدادات محفوظة = سجل الحساب القديم (account_settings) زي ما كان
+async function firstRow(path: string): Promise<any | null> {
+  const r = await db(path, { method: 'GET' }).catch(() => null);
   const rows = r ? await r.json().catch(() => null) : null;
-  const v = Array.isArray(rows) && rows[0] ? rows[0].settings : null;
-  return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
 }
-// سجل الحساب بس. من غيره (أو من غير مستهدف فيه) حكم الربح بيستنى في البريد زي الأداة بالظبط (قرار صاحب المنتج). النسخة القديمة
-// اللي كانت بتتحفظ مع الملخص (digest_settings) مبقتش بتتقري: كانت من آخر متصفح فتح الأداة، وحساب الملخص الوحيد كان عليه ×٣/×١ من
-// متصفح من غير إعدادات بدل ×٥/×٥ (اتشاف حياً ٢٤ أكتوبر) — والسجل اتعمل لحساب تاني، فالبريد كان هيفضل على الغلط
+function objectOrNull(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null;
+}
+async function accountSettingsOf(account: string): Promise<Record<string, unknown> | null> {
+  const row = await firstRow('account_settings?select=settings&platform=eq.meta&account_id=eq.' + account);
+  return objectOrNull(row && row.settings);
+}
+async function ownerSettingsOf(account: string): Promise<Record<string, unknown> | null> {
+  const d = await firstRow('digest_settings?select=user_id&account_id=eq.' + account);
+  if (!d || typeof d.user_id !== 'string') return null;
+  const row = await firstRow('user_settings?select=settings&user_id=eq.' + d.user_id);
+  return objectOrNull(row && row.settings);
+}
+// من غيره (أو من غير مستهدف فيه) حكم الربح بيستنى في البريد زي الأداة بالظبط (قرار صاحب المنتج). النسخة القديمة اللي كانت
+// بتتحفظ مع الملخص (digest_settings) مبقتش بتتقري: كانت من آخر متصفح فتح الأداة، وحساب الملخص الوحيد كان عليه ×٣/×١ من متصفح
+// من غير إعدادات بدل ×٥/×٥ (اتشاف حياً ٢٤ أكتوبر)
 export function settingsChoice(acs: Record<string, unknown> | null): { target: Target; sens: Sens } {
   if (!acs) return { target: null, sens: null };
   const r = Number(acs.roasTarget), b = Number(acs.roasBreakEven);
   return { target: r > 0 && b > 0 ? { roas: r, be: b } : null, sens: acs };
 }
-async function effectiveSettings(account: string): Promise<{ target: Target; sens: Sens }> {
+async function effectiveSettings(account: string, currency: string | null): Promise<{ target: Target; sens: Sens }> {
+  const us = await ownerSettingsOf(account);
+  if (us) return settingsChoice(g.PauseProofAlerts.settingsForAccount(us, 'meta', currency, g.DX.pegRate));
   return settingsChoice(await accountSettingsOf(account));
 }
 // محرك الأداة بحساسية العميل (ق٥ — قبل كده الإعدادات الافتراضية هنا وحساسية العميل في متصفحه بس، فالبريد كان بيطلع بحساسية
@@ -814,8 +831,8 @@ async function checkAccount(s: Settings): Promise<string> {
 
     const cands = await loadCandidates(account, acct);
     if (!cands) { await saveMarks(account, keep); return 'meta-retry'; }
-    // إعدادات الحساب (سجل الحساب لو موجود، وإلا النسخة القديمة) — نفس اللي الأداة بتحكم بيه
-    const eff = await effectiveSettings(account);
+    // إعدادات صاحب الملخص لحساب Meta ده (وإلا سجل الحساب القديم) — نفس اللي الأداة بتحكم بيه
+    const eff = await effectiveSettings(account, acct.currency || null);
 
     let outcome = doUrgent ? 'ok' : 'summary-only';
     if (doUrgent) {
@@ -944,7 +961,7 @@ export async function previewSummary(token: string, accountId: string, lang: str
       if (!win) return { error: 'window' };
       const s: Settings = { account_id: accountId, email: '', lang: en ? 'en' : 'ar', timezone: tz, summary_days: [0, 3], summary_hour: 9, last_summary_until: null };
       const cands = (await loadCandidates(accountId, acct)) || [];
-      const eff = await effectiveSettings(accountId);
+      const eff = await effectiveSettings(accountId, acct.currency || null);
       const sum = await buildSummary(accountId, acct, win.since, win.until, eff.target, cands, eff.sens);
       const alerts = alertStatusHtml(await marksOf(accountId), cands, win.since, tz, en, eff.target);
       const mail = summaryMail(accountId, acct.name || accountId, win.since, win.until, sum, alerts, s, en, await stopUrl(accountId), monthly);
@@ -970,7 +987,7 @@ export async function preview(token: string, accountId: string, lang: string): P
       const cands = await loadCandidates(accountId, acct);
       if (!cands) return { error: 'retry' };
       // المعاينة: التعديلات الكبيرة من آخر ٢٤ ساعة (عشان تبان أمثلة)
-      const eff = await effectiveSettings(accountId);
+      const eff = await effectiveSettings(accountId, acct.currency || null);
       const urgent = (await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, eff.target, eff.sens)).urgent;
       const mail = urgentMail(accountId, acct.name || accountId, urgent, [], acct.timezone_name || 'UTC', en, await stopUrl(accountId));
       return {

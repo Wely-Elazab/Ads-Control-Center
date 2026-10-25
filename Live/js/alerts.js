@@ -314,6 +314,27 @@
     s.campaignMaxCost = costMap(custom && custom.campaignMaxCost);
     return s;
   }
+  // إعدادات حساب من إعدادات المستخدم (قرار صاحب المنتج ٢٦ أكتوبر ٢٠٢٦: «لكل مستخدم»، والافتراضي «لكل الحسابات المتصلة» مع اختيار
+  // تخصيص منصة — settings.ts): { all, plat: { meta, snapchat, google, tiktok } }. المنصة لو اتخصّصت، وإلا «كل الحسابات». أقصى تكلفة
+  // لكل نوع نتيجة متسجّلة بعملتها (maxCostCur) وبتتحوّل لعملة الحساب بسعر الربط الرسمي (rate = DX.pegRate)؛ عملة مش مربوطة، أو
+  // عملة الحساب لسه مش معروفة = الحد مبيتطبّقش على الحساب ده (رقم بعملة تانية مش هو نفس الحد — أأمن من تنبيه عاجل غلط).
+  // أقصى تكلفة الحملة اتكتبت قدام الحملة بعملة حسابها، فمبتتحوّلش. الأداة (ui.js settingsFor) والبريد (runner.ts) بنفس الدالة
+  function settingsForAccount(us, platform, currency, rate) {
+    var plat = us && us.plat && typeof us.plat === 'object' ? us.plat[platform] : null;
+    var set = plat && typeof plat === 'object' ? plat : (us && us.all && typeof us.all === 'object' ? us.all : {});
+    var out = {};
+    Object.keys(set).forEach(function (k) { if (k !== 'maxCostCur') out[k] = set[k]; });
+    var from = set.maxCostCur ? String(set.maxCostCur).toUpperCase() : null, to = currency ? String(currency).toUpperCase() : null;
+    if (out.maxCost && from && from !== to) {
+      var r = to && typeof rate === 'function' ? rate(from, to) : null;
+      if (r) {
+        var conv = {};
+        Object.keys(out.maxCost).forEach(function (k) { conv[k] = Math.round(out.maxCost[k] * r * 10000) / 10000; });
+        out.maxCost = conv;
+      } else delete out.maxCost;
+    }
+    return out;
+  }
 
   // إحصائيات كل حساب (source) — متوسط تكلفة النتيجة محسوب لكل نوع نتيجة على حدة،
   // لأن مقارنة تكلفة "محادثة" بتكلفة "شراء" مقارنة مضلّلة
@@ -1610,6 +1631,7 @@
     SETTINGS_META: SETTINGS_META,
     SETTINGS_ORDER: SETTINGS_ORDER,
     mergeSettings: mergeSettings,
+    settingsForAccount: settingsForAccount,
     analyze: analyze,
     // اختبار العائد مقابل حد (بواسون مركّب مع جاما) — الملخص بيستخدمه لسطر المستهدف (diagnosis.js targetLine)، معيار واحد للأداة
     roasP: roasP,

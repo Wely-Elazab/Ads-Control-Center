@@ -14,7 +14,7 @@
 
 import { GRAPH, META_APP_ID, META_ID, SITE, db, rpc, metaAccount, reply, sendEmail, mailHtml, esc } from './lib.ts';
 
-const CONSENT_VERSION = '2026-09-30';
+const CONSENT_VERSION = '2026-10-26';   // سياسة الخصوصية: البريد بإعدادات صاحب الملخص (إعدادات لكل مستخدم)
 const DEFAULT_DAYS = [0, 3];   // الأحد والأربعاء
 const DEFAULT_HOUR = 9;        // بتوقيت الحساب
 const EMAIL = /^[^@\s<>"',;]{1,64}@[^@\s<>"',;]{1,190}\.[A-Za-z]{2,24}$/;
@@ -118,10 +118,10 @@ function cleanHour(v: unknown): number | null {
   const h = Number(v);
   return v !== null && v !== '' && Number.isInteger(h) && h >= 0 && h <= 23 ? h : null;
 }
-// المستهدف وحد الخسارة وحساسية التنبيهات مبقوش بيتحفظوا مع الملخص (مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦): البريد بيقرا سجل الحساب
-// الإعلاني نفسه (settings.ts + runner.ts effectiveSettings). أي target/be/sens في الطلب (صفحة قديمة لسه مفتوحة) بيتجاهل
+// المستهدف وحد الخسارة وحساسية التنبيهات مبقوش بيتحفظوا مع الملخص (مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦): البريد بيقرا إعدادات صاحب
+// الملخص (user_id — من ٢٦ أكتوبر، settings.ts + runner.ts effectiveSettings)، وسجل الحساب القديم لو الملخص لسه مالوش صاحب. أي target/be/sens في الطلب (صفحة قديمة لسه مفتوحة) بيتجاهل
 async function getSettings(account: string): Promise<any | null> {
-  const r = await db('digest_settings?select=email,enabled,summary_days,summary_hour,timezone,lang&account_id=eq.' + account, { method: 'GET' });
+  const r = await db('digest_settings?select=email,enabled,summary_days,summary_hour,timezone,lang,user_id&account_id=eq.' + account, { method: 'GET' });
   const rows = await r.json();
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
 }
@@ -228,7 +228,15 @@ async function storedTokenWorks(account: string): Promise<boolean | null> {
 }
 
 // ---------- العمليات ----------
-export async function handleDigest(action: string, body: any, origin: string | null): Promise<Response> {
+// ملخص اتفعّل قبل ما الإعدادات تبقى لكل مستخدم (٢٦ أكتوبر ٢٠٢٦) مالوش صاحب: أول مستخدم يفتح الحساب بعدها (التجديد التلقائي digest.refresh
+// أو لوحة الملخص digest.get) بياخده، والبريد يقرا إعداداته. فشله مبيوقفش الطلب (البريد بيفضل على سجل الحساب القديم)
+async function claimOwner(account: string, s: any, owner: string | null): Promise<void> {
+  if (!s || s.user_id || !owner) return;
+  await db('digest_settings?account_id=eq.' + account + '&user_id=is.null', { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ user_id: owner }) }).catch(() => null);
+}
+// userId = صاحب الدخول في الأداة (index.ts — مش موجود في رابط الإيقاف): بيتسجّل صاحب الملخص، والبريد بيقرا إعداداته هو (runner.ts)
+export async function handleDigest(action: string, body: any, origin: string | null, userId: string | null = null): Promise<Response> {
+  const owner = typeof userId === 'string' && /^[0-9a-f-]{36}$/.test(userId) ? userId : null;
   if (action === 'stop') {
     const account = body.account, sig = body.sig;
     if (typeof account !== 'string' || !META_ID.test(account) || typeof sig !== 'string' || sig.length > 100) return reply(400, { error: 'link' }, origin);
@@ -260,6 +268,7 @@ export async function handleDigest(action: string, body: any, origin: string | n
 
   if (action === 'digest.get') {
     const s = await getSettings(account);
+    await claimOwner(account, s, owner);
     const works = s ? await storedTokenWorks(account) : null;
     const t = s ? await rpc('vault_token_status', { p_account: account }) : null;
     const ts = Array.isArray(t) && t[0] ? t[0] : null;
@@ -279,7 +288,8 @@ export async function handleDigest(action: string, body: any, origin: string | n
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
     const row = { account_id: account, email, enabled: true, summary_days: days, summary_hour: hour,
       timezone: acc.timezone_name || 'Asia/Riyadh', lang: body.lang === 'en' ? 'en' : 'ar',
-      consent_at: now, consent_version: CONSENT_VERSION, updated_at: now, last_summary_until: yesterdayIn(acc.timezone_name || 'Asia/Riyadh') };
+      consent_at: now, consent_version: CONSENT_VERSION, updated_at: now, last_summary_until: yesterdayIn(acc.timezone_name || 'Asia/Riyadh'),
+      ...(owner ? { user_id: owner } : {}) };
     await db('digest_settings?on_conflict=account_id', { method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(row) });
     await mailEnabled(account, acc.name, row);
     return reply(200, { ok: true, settings: publicSettings(row), tokenExpiresAt: expiresAt }, origin);
@@ -289,6 +299,7 @@ export async function handleDigest(action: string, body: any, origin: string | n
     const s = await getSettings(account);
     if (!s || !s.enabled) return reply(409, { error: 'not enabled' }, origin);
     const patch: Record<string, unknown> = { updated_at: now, timezone: acc.timezone_name || s.timezone };
+    if (owner) patch.user_id = owner;   // اللي عدّل الملخص بقى صاحبه: البريد بإعداداته
     if (body.email !== undefined) { const e = cleanEmail(body.email); if (!e) return reply(400, { error: 'email' }, origin); patch.email = e; }
     if (body.days !== undefined) { const d = cleanDays(body.days); if (!d) return reply(400, { error: 'days' }, origin); patch.summary_days = d; }
     if (body.hour !== undefined) { const h = cleanHour(body.hour); if (h === null) return reply(400, { error: 'hour' }, origin); patch.summary_hour = h; }
@@ -309,6 +320,7 @@ export async function handleDigest(action: string, body: any, origin: string | n
   if (action === 'digest.refresh') {
     const s = await getSettings(account);
     if (!s || !s.enabled) return reply(200, { ok: true, enabled: false }, origin);
+    await claimOwner(account, s, owner);
     const expiresAt = await storeToken(body.token, account);
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
     return reply(200, { ok: true, enabled: true, tokenExpiresAt: expiresAt }, origin);

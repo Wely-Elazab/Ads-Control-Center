@@ -10,7 +10,7 @@ import { cleanEmail, daysText, hourText, linkSig, sameString, seal, unseal } fro
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import { callTimeout, familyOf, freshUsage, markMap, readUsage, resolveNow, settingsChoice } from '../sync/runner.ts';
-import { cleanAccountSettings, handleSettings } from '../sync/settings.ts';
+import { cleanAccountSettings, cleanUserSettings, handleSettings, handleUserSettings } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
@@ -229,15 +229,14 @@ Deno.test('إعدادات الحساب: المفاتيح المعروفة بس �
   assertEquals(cleanAccountSettings({ roasTarget: 2, roasBreakEven: 4 }), {}, 'a loss limit above the target is dropped');
   assertEquals(cleanAccountSettings([1]), null);
 });
-Deno.test('إعدادات الحساب: من غير إثبات الوصول للحساب في منصته مفيش قراءة ولا حفظ', async () => {
-  let metaOk = true, snapOk = true, writes = 0, touches = 0, usedAt = '2025-01-01T00:00:00Z', lastWrite: any = null;
+Deno.test('سجل الحساب القديم: قراءة بس (للنقل لإعدادات المستخدم)، ومن غير إثبات الوصول للحساب في منصته مفيش قراءة', async () => {
+  let metaOk = true, snapOk = true, writes = 0;
   stubFetch((url, init) => {
     if (url.indexOf('graph.facebook.com') > -1) return metaOk ? json({ id: 'act_123', name: 'X' }) : json({ error: { code: 100 } }, 400);
     if (url.indexOf('adsapi.snapchat.com') > -1) return snapOk ? json({ adaccounts: [{ adaccount: { id: 'aaaa-1111' } }] }) : json({ request_status: 'ERROR' }, 403);
     if (url.indexOf('/rest/v1/account_settings') > -1) {
-      if (init && init.method === 'POST') { writes++; lastWrite = JSON.parse(String(init.body)); return new Response(null, { status: 201 }); }
-      if (init && init.method === 'PATCH') { touches++; return new Response(null, { status: 204 }); }
-      return json([{ settings: { roasTarget: 5, roasBreakEven: 5 }, updated_at: '2026-10-24T00:00:00Z', used_at: usedAt }]);
+      if (init && init.method && init.method !== 'GET') { writes++; return new Response(null, { status: 204 }); }
+      return json([{ settings: { roasTarget: 5, roasBreakEven: 5 }, updated_at: '2026-10-24T00:00:00Z' }]);
     }
     throw new Error('unexpected fetch ' + url);
   });
@@ -246,22 +245,62 @@ Deno.test('إعدادات الحساب: من غير إثبات الوصول لل
     const get = await handleSettings('settings.get', { platform: 'meta', accountId: 'act_123', platformToken: T }, null);
     assertEquals(get.status, 200);
     assertEquals((await get.json()).settings, { roasTarget: 5, roasBreakEven: 5 });
-    // آخر استخدام (مدة الاحتفاظ ١٢ شهر من غير فتح): بيتحدّث لو أقدم من يوم بس
-    assertEquals(touches, 1, 'old last-use: touched');
-    usedAt = new Date().toISOString();
-    await handleSettings('settings.get', { platform: 'meta', accountId: 'act_123', platformToken: T }, null);
-    assertEquals(touches, 1, 'used today: no extra write');
+    assertEquals(writes, 0, 'reading writes nothing');
+    const set = await handleSettings('settings.set', { platform: 'meta', accountId: 'act_123', platformToken: T, settings: { roasTarget: 1, roasBreakEven: 1 } }, null);
+    assertEquals([set.status, writes], [400, 0], 'saving to the account record is gone');
     metaOk = false;
-    const denied = await handleSettings('settings.set', { platform: 'meta', accountId: 'act_123', platformToken: T, settings: { roasTarget: 1, roasBreakEven: 1 } }, null);
-    assertEquals([denied.status, writes], [403, 0], 'no access on Meta: nothing written');
-    const set = await handleSettings('settings.set', { platform: 'snapchat', accountId: 'aaaa-1111', platformToken: T, settings: { roasTarget: 4, roasBreakEven: 2, evil: 9 } }, null);
-    assertEquals([set.status, writes], [200, 1]);
-    assertEquals((await set.json()).settings, { roasTarget: 4, roasBreakEven: 2 });
-    assert(lastWrite && lastWrite.used_at && lastWrite.used_at === lastWrite.updated_at, 'saving counts as use');
+    assertEquals((await handleSettings('settings.get', { platform: 'meta', accountId: 'act_123', platformToken: T }, null)).status, 403, 'no access on Meta');
     snapOk = false;
     assertEquals((await handleSettings('settings.get', { platform: 'snapchat', accountId: 'aaaa-1111', platformToken: T }, null)).status, 403);
     assertEquals((await handleSettings('settings.get', { platform: 'google', accountId: '1', platformToken: T }, null)).status, 400);
     assertEquals((await handleSettings('settings.get', { platform: 'meta', accountId: '123', platformToken: T }, null)).status, 400);
+  } finally { restoreFetch(); }
+});
+// إعدادات التنبيهات لكل مستخدم (قرار صاحب المنتج ٢٦ أكتوبر ٢٠٢٦): «كل الحسابات» ومجموعة لكل منصة اتخصّصت
+Deno.test('إعدادات المستخدم: «كل الحسابات» دايماً، والمنصات المعروفة بس، وعملة حد النوع معاه بس', () => {
+  assertEquals(cleanUserSettings({ all: { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR', evil: 1 },
+    plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 }, myspace: { roasTarget: 9, roasBreakEven: 1 }, tiktok: [1] }, asked: true, other: 1 }),
+    { all: { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR' }, plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 } }, asked: true });
+  assertEquals(cleanUserSettings({}), { all: {} }, 'empty = start values for all accounts');
+  assertEquals(cleanUserSettings({ all: { maxCostCur: 'SAR' } }), { all: {} }, 'a currency without a limit is dropped');
+  assertEquals(cleanUserSettings({ all: { maxCost: { lead: 30 }, maxCostCur: 'sar1' } }), { all: { maxCost: { lead: 30 } } }, 'a bad currency code is dropped');
+  assertEquals(cleanUserSettings({ asked: 'yes' }), { all: {} }, 'asked is true or nothing');
+  assertEquals(cleanUserSettings([1]), null);
+  assertEquals(cleanUserSettings({ all: [1] }), null, 'a bad all-accounts set is refused, not emptied');
+  assertEquals(cleanUserSettings({ plat: 'x' }), null);
+});
+Deno.test('إعدادات المستخدم: سجل صاحب الدخول بس — القراءة والحفظ مقصورين على رقمه، والحفظ بعد التنظيف', async () => {
+  const U = '11111111-2222-3333-4444-555555555555';
+  const calls: { method: string; url: string; body: any }[] = [];
+  let usedAt = '2025-01-01T00:00:00Z';
+  stubFetch((url, init) => {
+    if (url.indexOf('/rest/v1/user_settings') > -1) {
+      const method = (init && init.method) || 'GET';
+      calls.push({ method, url, body: init && init.body ? JSON.parse(String(init.body)) : null });
+      if (method === 'GET') return json([{ settings: { all: { roasTarget: 5, roasBreakEven: 5 } }, updated_at: '2026-10-26T00:00:00Z', used_at: usedAt }]);
+      return new Response(null, { status: method === 'POST' ? 201 : 204 });
+    }
+    throw new Error('unexpected fetch ' + url);
+  });
+  try {
+    const get = await handleUserSettings('usettings.get', {}, U, null);
+    assertEquals((await get.json()).settings, { all: { roasTarget: 5, roasBreakEven: 5 } });
+    assert(calls.every((c) => c.url.indexOf('user_id=eq.' + U) > -1), 'only this user record');
+    assertEquals(calls.filter((c) => c.method === 'PATCH').length, 1, 'old last-use: touched (12-month retention)');
+    calls.length = 0;
+    usedAt = new Date().toISOString();
+    await handleUserSettings('usettings.get', { userId: 'someone-else' }, U, null);
+    assertEquals(calls.map((c) => c.method), ['GET'], 'used today: no extra write');
+    assert(calls[0].url.indexOf('someone-else') < 0, 'a user id in the request is ignored');
+    calls.length = 0;
+    const set = await handleUserSettings('usettings.set', { settings: { all: { roasTarget: 4, roasBreakEven: 2, evil: 9 }, plat: { meta: { cprWarnMultiple: 2 } } } }, U, null);
+    assertEquals(set.status, 200);
+    assertEquals((await set.json()).settings, { all: { roasTarget: 4, roasBreakEven: 2 }, plat: { meta: { cprWarnMultiple: 2 } } });
+    const post = calls.find((c) => c.method === 'POST');
+    assert(post && post.body.user_id === U && post.body.used_at === post.body.updated_at, 'saved for this user, saving counts as use');
+    assertEquals((await handleUserSettings('usettings.set', { settings: [1] }, U, null)).status, 400);
+    assertEquals((await handleUserSettings('usettings.get', {}, 'not-a-user', null)).status, 401);
+    assertEquals((await handleUserSettings('usettings.drop', {}, U, null)).status, 400);
   } finally { restoreFetch(); }
 });
 // سجل مشكلات التنبيه (لوحة «قيمة الأداة» — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦): رقم الإعلان والنوع والأوقات بس، من غير أي أرقام
@@ -314,29 +353,32 @@ Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم
   });
   try {
     const T = 'TOKEN_abcdefghijklmnopqrstuvwxyz', who = { platform: 'meta', accountId: 'act_123', platformToken: T };
-    const res = await handleEpisodes('episodes.sync', { ...who, open: [{ ad: '11', kind: 'waste' }, { ad: '33', kind: 'loss' }] }, null);
+    const U = '11111111-2222-3333-4444-555555555555';
+    const res = await handleEpisodes('episodes.sync', { ...who, open: [{ ad: '11', kind: 'waste' }, { ad: '33', kind: 'loss' }] }, U, null);
     assertEquals(res.status, 200);
     const patches = calls.filter((c) => c.method === 'PATCH'), posts = calls.filter((c) => c.method === 'POST');
     assert(patches.some((c) => /id=in\.\(1\)/.test(c.url) && c.body.last_seen_at), 'still open: seen again');
     assert(patches.some((c) => /id=in\.\(2\)/.test(c.url) && c.body.ended_at), 'gone: ended');
-    assertEquals(posts.map((c) => c.body), [[{ platform: 'meta', account_id: 'act_123', ad_id: '33', kind: 'loss' }]], 'only the new one is added');
+    assertEquals(posts.map((c) => c.body), [[{ user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '33', kind: 'loss' }]], 'only the new one is added, for this user');
+    assert(calls.every((c) => c.method === 'POST' || c.url.indexOf('user_id=eq.' + U) > -1), 'every read and update is limited to this user');
     const body = await res.json();
     assertEquals(Object.keys(body.episodes[0]).sort(), ['action', 'ad', 'decided', 'endedAt', 'firstAt', 'handledAt', 'id', 'kind']);
     calls.length = 0;
-    await handleEpisodes('episodes.sync', { ...who, open: null }, null);
+    await handleEpisodes('episodes.sync', { ...who, open: null }, U, null);
     assertEquals(calls.map((c) => c.method), ['GET'], 'read only: nothing recorded');
     calls.length = 0;
     const handledAt = new Date(Date.parse(first) + 2 * 3600000).toISOString();
-    const dec = await handleEpisodes('episodes.decide', { ...who, decisions: [{ id: 1, handledAt, action: 'budget' }, { id: 2 }] }, null);
+    const dec = await handleEpisodes('episodes.decide', { ...who, decisions: [{ id: 1, handledAt, action: 'budget' }, { id: 2 }] }, U, null);
     assertEquals((await dec.json()).saved, 2);
     const p = calls.filter((c) => c.method === 'PATCH');
     assert(p.some((c) => /id=eq\.1&decided_at=is\.null/.test(c.url) && c.body.action === 'budget' && c.body.handled_at === handledAt), 'handled');
     assert(p.some((c) => /id=in\.\(2\)/.test(c.url) && c.body.decided_at && !('handled_at' in c.body)), 'not handled (30 hours later)');
     calls.length = 0;
     metaOk = false;
-    assertEquals((await handleEpisodes('episodes.sync', { ...who, open: [] }, null)).status, 403);
+    assertEquals((await handleEpisodes('episodes.sync', { ...who, open: [] }, U, null)).status, 403);
     assertEquals(calls.length, 0, 'no access: nothing read or written');
-    assertEquals((await handleEpisodes('episodes.sync', { platform: 'google', accountId: '1', platformToken: T, open: [] }, null)).status, 400);
+    assertEquals((await handleEpisodes('episodes.sync', { platform: 'google', accountId: '1', platformToken: T, open: [] }, U, null)).status, 400);
+    assertEquals((await handleEpisodes('episodes.sync', { ...who, open: [] }, '', null)).status, 401, 'no user: refused');
   } finally { restoreFetch(); }
 });
 // البريد بسجل الحساب بس: من غيره حكم الربح بيستنى زي الأداة (النسخة القديمة اللي كانت مع الملخص كانت ×٣/×١ غلط — اتشاف حياً)

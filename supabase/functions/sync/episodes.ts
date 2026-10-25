@@ -1,7 +1,8 @@
-// سجل مشكلات التنبيه لكل حساب إعلاني (لوحة «قيمة الأداة» — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦: «سجل على خادمنا… وحدث سياسة
-// الخصوصية»). صف لكل مشكلة على إعلان (جدول alert_episodes): من أول ما الأداة نبّهت عليها لحد ما اختفت، ونوع التعديل اللي اتعمل
-// بعدها خلال ٢٤ ساعة. من غير أي أرقام إنفاق أو مبيعات — المبلغ بيتحسب من المنصة وقت العرض (ui.js). مشترك لكل اللي عندهم وصول
-// للحساب زي الإعدادات (settings.ts)، بنفس الشرطين: دخول الأداة، ومفتاح المنصة بيثبت إن صاحبه شايف الحساب.
+// سجل مشكلات التنبيه لكل مستخدم على كل حساب إعلاني (لوحة «ما حققته مع الأداة» — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦: «سجل على
+// خادمنا… وحدث سياسة الخصوصية»). صف لكل مشكلة على إعلان (جدول alert_episodes): من أول ما الأداة نبّهت عليها لحد ما اختفت، ونوع
+// التعديل اللي اتعمل بعدها خلال ٢٤ ساعة. من غير أي أرقام إنفاق أو مبيعات — المبلغ بيتحسب من المنصة وقت العرض (ui.js). لكل مستخدم
+// (من ٢٦ أكتوبر — الإعدادات بقت لكل مستخدم، فالتنبيهات نفسها بتختلف من مستخدم لمستخدم على نفس الحساب)، بالشرطين: دخول الأداة
+// (السجل بتاع صاحب الدخول بس)، ومفتاح المنصة بيثبت إن صاحبه شايف الحساب.
 //
 //   episodes.sync   ← { platform, accountId, platformToken, open: [{ ad, kind }] | null, since?: 'YYYY-MM-DD' } → { episodes }
 //                      open = مشكلات الحساب دلوقتي (الأداة شايفة أرقامه كاملة): الجديد بيتسجّل، والقديم اللي اختفى بيخلص.
@@ -66,10 +67,11 @@ function chunks<T>(list: T[]): T[][] {
   return out;
 }
 
-export async function handleEpisodes(action: string, body: any, origin: string | null): Promise<Response> {
+export async function handleEpisodes(action: string, body: any, userId: string, origin: string | null): Promise<Response> {
+  if (!/^[0-9a-f-]{36}$/.test(userId)) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
   const acc = await verifyAccount(body, origin);
   if (acc instanceof Response) return acc;
-  const base = 'alert_episodes?platform=eq.' + acc.platform + '&account_id=eq.' + encodeURIComponent(acc.id);
+  const base = 'alert_episodes?user_id=eq.' + userId + '&platform=eq.' + acc.platform + '&account_id=eq.' + encodeURIComponent(acc.id);
   const now = new Date().toISOString();
 
   if (action === 'episodes.sync') {
@@ -88,7 +90,7 @@ export async function handleEpisodes(action: string, body: any, origin: string |
       for (const ids of chunks(gone)) {
         await db(base + '&id=in.(' + ids.join(',') + ')', { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ ended_at: now }) });
       }
-      const fresh = open.filter((x) => !have[x.ad + '|' + x.kind]).map((x) => ({ platform: acc.platform, account_id: acc.id, ad_id: x.ad, kind: x.kind }));
+      const fresh = open.filter((x) => !have[x.ad + '|' + x.kind]).map((x) => ({ user_id: userId, platform: acc.platform, account_id: acc.id, ad_id: x.ad, kind: x.kind }));
       if (fresh.length) {
         // جهاز تاني سجّل نفس المشكلة في نفس اللحظة: الفهرس الفريد بيرفض الدفعة، فبنسجّل واحدة واحدة ونسيب المكررة
         await db('alert_episodes', { method: 'POST', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify(fresh) }).catch(async () => {
