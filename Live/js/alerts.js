@@ -652,7 +652,7 @@
           : t('pend.little.zero', { spend: money(spendW), label: label, need: needText() });
       }
       if (key === 'little' || key === 'noRef') {
-        return resW > 0 ? t('pend.noRef.d', { count: countText(resW, c.resultKey, fmt) }) : t('pend.noRef.zero', { spend: money(spendW), label: label });
+        return resW > 0 ? t('pend.noRef.d', { count: countText(resW, c.resultKey, fmt), one: one }) : t('pend.noRef.zero', { spend: money(spendW), label: label, one: one });
       }
       if (key === 'costlier') return t('pend.costlier.d', { one: one, cpr: money(ownCpr), pct: fmt.int((ownCpr / refCpr - 1) * 100), avg: money(refCpr), warn: fmt.num(s.cprWarnMultiple) });
       return t('pend.' + key + '.d');
@@ -747,17 +747,18 @@
 
     var wasteRaised = false;
     if (!learning && c.results != null) {
-      // من غير أي مرجع (ولا حد محدد ولا إعلان في الحساب جاب نتيجة من النوع ده): متوسط صرف الإعلان الواحد في يومين — «مهم» بس،
-      // عشان التنبيه ميختفيش في أسوأ الحالات
-      var accountHasResults = !!(group && group.results > 0);
-      var noRefFloor = !R && !accountHasResults && acc.avgAdSpend2 > 0 ? acc.avgAdSpend2 : null;
+      // من غير أي مرجع (ولا حد محدد، ولا متوسط من إعلانات تانية، ولا قيمة طلب): متوسط صرف الإعلان الواحد في يومين — «مهم» بس،
+      // عشان التنبيه ميختفيش في أسوأ الحالات. الجولة الخامسة (حساب حقيقي ٢٥ أكتوبر كله من غير ولا طلب بالنقر): إعلان صرف ٦٨٩ ر.س
+      // الأسبوع كله كان تنبيهه بإنفاق آخر يومين بس ومن غير رقم المنصة، وسببه «لا توجد إعلانات أخرى بنتائج» — والسبب الحقيقي إن مفيش
+      // أقصى تكلفة (قراره: لا عاجل قبل تحديدها). وكان بيختفي خالص لو إعلان تاني جاب نتيجة واحدة (مش كفاية لمتوسط)
+      var noRefFloor = !R && acc.avgAdSpend2 > 0 ? acc.avgAdSpend2 : null;
       // 4أ) ولا نتيجة طول الفترة: «مهم» من R و«عاجل» من ضعف أقصى تكلفة حددتها (قاعدة الإيقاف عند مشتري الإعلانات). قبل كده باحتمال
       //     الصدفة — حساب حقيقي ٢٥ أكتوبر: ٩١ $ من غير ولا طلب «لم يُحكم بعد»، و٧٠ $ والحد ٢٠ $ «مهم»
       var weekDry = resW === 0 && spendW > 0 && !!R;
       // المنصة بتنسب له نتائج بعد المشاهدة من غير نقر (أو بنوافذ النسب بتاعتها في سناب شات): جملة للعلم بس — أساسنا النقر (قرار ٦ أكتوبر)،
       // وصاحب المنتج (٢٥ أكتوبر، الجولة الرابعة): «إعلان لم يحقق مبيعات بالنقر… والمنصة تنسب له من المشاهدة، رغم صرف ضعف الحد الأقصى
       // للتكلفة المحددة أو أكثر فيعتبر عاجل وليس مهم فقط، لأننا نعتمد على النقر وليس المشاهدة». كانت «مهم» من ١١ أكتوبر (waste-view)
-      var platView = weekDry && c.plat && c.plat.results >= 1
+      var platView = resW === 0 && spendW > 0 && c.plat && c.plat.results >= 1
         ? t(c.baseStore ? 'al.platViewStore' : 'al.platView', { plat: countText(c.plat.results, c.resultKey, fmt) }) : '';
       if (weekDry && spendW >= R) {
         wasteRaised = true;
@@ -779,11 +780,11 @@
         issues.push(ev(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteEarly.t'),
           t('al.waste.d', { name: name, spend: money(spend2), label: label, refSpent: refSpent(spend2) }),
           t('al.wasteEarly.a'), spend2, 'waste-early'), 'waste', spend2 / 2), maxCost ? { cap: 'twoDays', v: { need: moneyUp(2 * R) } } : { cap: 'noMax' }));
-      } else if (noRefFloor && res2 === 0 && spend2 >= noRefFloor) {
+      } else if (noRefFloor && resW === 0 && spendW >= noRefFloor) {
         wasteRaised = true;
-        issues.push(ev(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteEarly.t'),
-          t('al.waste.dNoAvg', { name: name, spend: money(spend2), label: label }),
-          t('al.wasteEarly.a'), spend2, 'waste-early'), 'waste', spend2 / 2), { cap: 'noRef' }));
+        issues.push(ev(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteWeekEarly.t'),
+          t('al.wasteWeek.dNoRef', { name: name, spend: money(spendW), label: label }) + platView,
+          t('al.wasteEarly.a'), spendW, 'waste-early'), 'waste', spend3 / 3), { cap: 'noMax' }));
       }
 
       // 5) الربح (إعلان بيسجّل قيمة مبيعات): العائد المقاس على أيام الحكم مقابل حد الخسارة (أحمر) والمستهدف (أصفر) — نفس أرقام
@@ -997,6 +998,9 @@
     //     المضيف بيعلى لمستواه لو أعلى (Meta: تكرار كتير + ضعف التكلفة = إرهاق)
     // و«إنفاق أعلى من المعتاد» و«انخفاض النتائج» بيطلعوا على نفس اليوم (أمس) لنفس السبب — من نفس العيلة
     var PERF_ORDER = ['waste-week', 'waste', 'loss', 'cost-max', 'waste-view', 'cpr', 'waste-early', 'waste-new', 'roas-drop', 'low-roas', 'spike', 'drop', 'fatigue'];
+    // الإنفاق دون أي نتيجة بيفضل ظاهر بعد التعديل الحديث (قرار صاحب المنتج ٢٥ أكتوبر: «استثنِ إنفاق دون أي نتيجة من هذه القاعدة») —
+    // التعديل مبيمحيش فلوس اتصرفت قبله من غير نتايج. حساب حقيقي: ٦٨٩ ر.س من غير ولا طلب كان «عُدّل مؤخراً» من غير تنبيه
+    var ZERO_CODES = { 'waste-week': 1, waste: 1, 'waste-early': 1 };
     var perf = issues.filter(function (i) { return PERF_ORDER.indexOf(i.code) > -1 && (i.level === 'critical' || i.level === 'warning'); });
     if (perf.length > 1) {
       // وفي نفس المستوى: الخط الأحمر اللي اتخطّى (تحت حد الخسارة، فوق أقصى تكلفة، دون نتائج) قبل الأصفر (تحت المستهدف) — «أقل من
@@ -1009,6 +1013,7 @@
       perf.forEach(function (i) {
         if (i === host) return;
         if (LEVEL_RANK[i.level] > LEVEL_RANK[host.level]) { host.level = i.level; host.why = i.why; }   // سبب المستوى ييجي من اللي رفعه
+        if (ZERO_CODES[i.code]) host.keepAfterEdit = true;   // اتدمج فيه «دون نتائج» — بيفضل ظاهر بعد التعديل الحديث
         if (i.code === 'fatigue') {
           host.detail += i.inline || '';
           host.advice += t('al.fatigue.inA');
@@ -1105,12 +1110,14 @@
         // واقتراح الفرصة («زوّد الميزانية») بيستنى هو كمان: تغيير تاني قبل ما أثر الأول يبان بيناقض «ننتظر ٣ أيام للحكم» اللي جنبه —
         // نفس الحساب: الميزانية اتضاعفت أمس والاقتراح كان «قد يستحق اختبار زيادة ميزانيته تدريجياً»
         var waitA = t('al.afterEdit.a', { what: what });
+        var keepZero = false;
         issues.forEach(function (i) {
           if (i.level !== 'warning' && i.level !== 'opportunity') return;
+          if (ZERO_CODES[i.code] || i.keepAfterEdit) { keepZero = true; return; }
           if (i.level === 'opportunity') i.advice = waitA;
           i.level = 'info'; i.detail += t('al.afterEditNote');
         });
-        if (!urgent) { pend = 'edited'; basis = t('pend.edited.d', { what: what, when: when }); }
+        if (!urgent) { pend = 'edited'; basis = t('pend.edited.d', { what: what, when: when }) + (keepZero ? t('basis.edit.keepZero') : ''); }
       } else if (basis) {
         // الحكم على أرقام الكارت (الفترة كلها — قرار ٢٥ أكتوبر)، والتعديل الأقدم من ٣ أيام سطر للعلم ومعاه «بعده مقابل قبله»
         var pre = { s: sum(daily, 0, edit.idx - 1), r: sum(results, 0, edit.idx - 1), v: sum(sales, 0, edit.idx - 1) };

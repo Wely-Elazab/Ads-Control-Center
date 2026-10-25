@@ -993,6 +993,23 @@
         ok(nm && nm.level === 'warning' && /لم تحدد أقصى تكلفة لكل عملية شراء/.test(nm.levelWhy), nm ? nm.level + ' ' + nm.levelWhy : 'none');
       });
     });
+    // الجولة الخامسة (حساب حقيقي ٢٥ أكتوبر كله من غير ولا طلب بالنقر، والمنصة بتنسب بالمشاهدة): إعلان صرف ٦٨٩ ر.س الأسبوع كله كان
+    // تنبيهه بإنفاق آخر يومين بس ومن غير رقم المنصة، وسببه «لا توجد إعلانات أخرى بنتائج نقارن بها» — والسبب إن مفيش أقصى تكلفة
+    test('حساب من غير أي مرجع (ولا حد ولا متوسط): التنبيه بإنفاق الأسبوع كما في الكارت، ورقم المنصة، وسببه إن مفيش أقصى تكلفة', function () {
+      withLang('ar', function () {
+        var w = ad('W', { daily: [60, 60, 60, 60, 60, 60, 60], res: [0, 0, 0, 0, 0, 0, 0] });
+        w.plat = { results: 7, sales: 2600 };
+        var dry = function (r) { return r.alerts.filter(function (a) { return a.adId === 'W' && /^waste/.test(a.code); })[0]; };
+        var v = dry(engine([w, ad('X', { daily: steady(20) }), ad('Y', { daily: steady(20) })]));
+        ok(v && v.level === 'warning', v ? v.level : 'none');
+        ok(/مبلغ ٣٦٠ ر\.س خلال آخر ٦ أيام دون أي مشتريات/.test(v.detail), v.detail);   // نافذة الاختبارات القديمة: ٦ أيام مكتملة + النهارده
+        ok(/وتنسب له المنصة ٧ مشتريات بعد المشاهدة دون نقر/.test(v.detail), v.detail);
+        ok(/لم تحدد أقصى تكلفة لكل عملية شراء/.test(v.levelWhy), v.levelWhy);
+        // وإعلان تاني جاب طلب واحد بس (مش كفاية لمتوسط ولا ليه قيمة): التنبيه كان بيختفي خالص
+        var v2 = dry(engine([w, ad('Z', { daily: steady(20), res: [0, 0, 0, 1, 0, 0, 0] }), ad('Y', { daily: steady(20) })]));
+        ok(v2 && v2.level === 'warning' && /لم تحدد أقصى تكلفة/.test(v2.levelWhy), v2 ? v2.level + ' ' + v2.levelWhy : 'none');
+      });
+    });
     // مراجعة ١١ أكتوبر ٢٠٢٦ (حساب حقيقي): مبلغ مستحق غير مسدّد وصفر إنفاق الساعة ١٠ بالليل، والتنبيه كان بيقول «قد تتوقف»
     test('مشكلة الحساب والإنفاق وقف النهارده بعد الضهر: «الأرجح أن الإعلانات توقفت بالفعل» — وقبل الضهر أو فيه صرف: لا', function () {
       // منطقة زمنية الساعة فيها دلوقتي بين ١ و١٠ بالليل، وتانية الساعة فيها الصبح
@@ -1212,6 +1229,25 @@
       var waste = ad('x1', { daily: [100, 100, 100, 100, 100, 100, 0], res: [5, 5, 5, 0, 0, 0, 0] });
       waste.edits = editOn(5, 'targeting', { level: 'adset' });
       eq(engine(baseAccount().concat([waste]), {}, { maxCost: { purchase: 20 } }).byAd.x1.health, 'review', 'clear waste stays urgent');
+    });
+    // قرار صاحب المنتج ٢٥ أكتوبر: «استثنِ إنفاق دون أي نتيجة» من قاعدة التعديل الحديث — حساب حقيقي: ٦٨٩ $ من غير ولا طلب كان
+    // «عُدّل مؤخراً» من غير تنبيه
+    test('تعديل من أقل من ٣ أيام: «إنفاق دون أي نتيجة» بيفضل ظاهر (مش «للعلم»)، والملاحظات التانية للعلم زي ما هي', function () {
+      var dry = ad('d1', { daily: [100, 100, 100, 100, 100, 100, 0] });
+      dry.edits = editOn(5, 'budget', { from: 20000, to: 30000 });
+      var r = withLang('ar', function () { return engine(baseAccount().concat([dry])); });
+      var w = issuesOf(r, 'd1').filter(function (i) { return /^waste/.test(i.code); })[0];
+      ok(w && w.level === 'warning' && !/afterEdit/.test(w.detail), w ? w.code + ':' + w.level : issuesOf(r, 'd1').map(function (i) { return i.code + ':' + i.level; }).join(' '));
+      eq(r.byAd.d1.health, 'improve');
+      ok(/فيبقى ظاهراً، لأن التعديل لا يغيّر ما صُرف قبله دون نتائج/.test(r.byAd.d1.basis), r.byAd.d1.basis);
+      // وبأقصى تكلفة: عاجل زي ما هو
+      eq(engine(baseAccount().concat([dry]), {}, { maxCost: { purchase: 20 } }).byAd.d1.health, 'review');
+      // إعلان عليه «تكلفة مرتفعة» بس (مش صفر): للعلم بعد التعديل الحديث زي الأول
+      var pricey = ad('p1', { daily: [100, 100, 100, 100, 100, 100, 0], res: [2, 2, 2, 2, 2, 2, 0] });
+      pricey.edits = editOn(5, 'budget', { from: 20000, to: 30000 });
+      var rp = engine(baseAccount().concat([pricey]));
+      ok(!issuesOf(rp, 'p1').some(function (i) { return i.level === 'warning' || i.level === 'critical'; }), issuesOf(rp, 'p1').map(function (i) { return i.code + ':' + i.level; }).join(' '));
+      eq(rp.byAd.p1.pending, 'edited');
     });
     // قرار صاحب المنتج ٢٥ أكتوبر (الجولة الرابعة): الحكم على أرقام الكارت دايماً — كان (١٠ أكتوبر) على الأيام اللي بعد التعديل بس
     test('تعديل من ٣ أيام أو أكتر: الحكم على الفترة كاملة كما في الكارت، وسطر «بعده مقابل قبله»', function () {
