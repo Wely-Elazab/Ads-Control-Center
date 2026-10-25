@@ -19,7 +19,7 @@ import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
 import { joinReminders } from './join.ts';
 
-const ENGINE_COMMIT = 'f36e8ca12e5ccd3070c9c5ee64e095c513bab619';
+const ENGINE_COMMIT = '22a427e6e8e984b59ed3848baca3363cdf881b1a';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
@@ -235,11 +235,43 @@ async function loadCandidates(accountId: string, acct: Acct): Promise<any[] | nu
     name: acct.name || null, timeZone: tz, currency: acct.currency || null,
     accountStatus: acct.account_status, spendCap: acct.spend_cap || null, amountSpent: acct.amount_spent || null
   };
-  return order.map((id) => {
+  const out = order.map((id) => {
     const c = g.transformRealAd(byId[id], insights[id] || [], adsets, days, reachBy[id], acct.currency || null, info, null);
     c.source = 'meta:' + accountId;
     return c;
   });
+  CAND_CTX.set(out, { byId, order, insights, reachBy, adsets, days, info, fields: ads.fields || null, currency: acct.currency || null });
+  return out;
+}
+// اللي اتبنت منه الإعلانات — لأرقام فترة الملخص لكل إعلان (costLine) من غير ما نجيب الإعلانات تاني
+type CandCtx = { byId: Record<string, any>; order: string[]; insights: Record<string, any[]>; reachBy: Record<string, any>; adsets: any; days: any[]; info: any; fields: any; currency: string | null };
+const CAND_CTX = new WeakMap<any[], CandCtx>();
+
+// سطر «التكلفة مقابل الحد الذي حددته» في رسالة الملخص — زي الأداة بالظبط (قرار صاحب المنتج ٢٥ أكتوبر: «ضيفه في البريد ايضاً»):
+// صف واحد لكل إعلان للفترة (js/meta.js periodP)، والإعلان اللي صرف فيها ومش في الدفعة بيتجاب برقمه (fillMissing)، وtransformRealAd
+// يطلّع النتيجة حسب هدف الإعلان، ونفس الإعلانات (costAds: نتايجه معروفة ومش وصول)، والحساب في DX.costVsMax. null = مفيش حد
+// محدد، أو الطلب فشل (السطر بيتشال والملخص بيكمّل)
+async function costLine(accountId: string, cands: any[] | null, since: string, until: string, sens: Sens): Promise<string | null> {
+  const ctx = cands ? CAND_CTX.get(cands) : null;
+  if (!ctx || !sens || typeof g.DX.costVsMax !== 'function') return null;
+  const s = g.PauseProofAlerts.mergeSettings(sens);
+  if (!s.maxCost || !Object.keys(s.maxCost).length) return null;
+  const res = await g.insightsPromise(accountId, { level: 'ad', time_range: JSON.stringify({ since, until }), fields: 'ad_id,spend,actions,action_values', limit: 500 });
+  if (!res || res.err || res.truncated) return null;
+  const rows: Record<string, any> = {};
+  res.data.forEach((r: any) => { rows[String(r.ad_id)] = r; });
+  const byId: Record<string, any> = { ...ctx.byId }, order = ctx.order.slice();
+  const missing = Object.keys(rows).filter((id) => g.num(rows[id].spend) > 0 && !byId[id]);
+  if (missing.length && ctx.fields) {
+    await new Promise<void>((resolve) => g.fetchMetaAdsByIds(missing, ctx.fields, (extra: any[]) => {
+      extra.forEach((ad: any) => { if (ad && ad.id && !byId[ad.id]) { byId[ad.id] = ad; order.push(ad.id); } });
+      resolve();
+    }));
+  }
+  const ads = order.map((id) => g.transformRealAd(byId[id], ctx.insights[id] || [], ctx.adsets, ctx.days, ctx.reachBy[id], ctx.currency, ctx.info, rows[id] || {}))
+    .filter((c: any) => c.results != null && c.resultKey !== 'reach')
+    .map((c: any) => ({ resultKey: c.resultKey, campaignId: c.campaignId, currency: c.currency, spend: (c.period && c.period.spend) || 0, results: c.period ? c.period.results : null }));
+  return g.DX.costVsMax(ads, s, g.fmtRange(since, until));
 }
 
 // المستهدف وحد الخسارة (null = مش محددين: الملخص من غير سطر الهدف، وحكم الربح في التنبيهات بيستنى — زي الأداة)، وباقي الإعدادات
@@ -614,7 +646,7 @@ async function feedbackOf(account: string): Promise<any[]> {
   return Array.isArray(rows) ? rows : [];
 }
 // التقرير (DX) + التعديلات ونتيجتها. لو سجل التعديلات فشل، الملخص بيكمّل من غيره
-async function buildSummary(accountId: string, acct: Acct, since: string, until: string, target: Target): Promise<{ composed: any; actions: any }> {
+async function buildSummary(accountId: string, acct: Acct, since: string, until: string, target: Target, cands: any[] | null = null, sens: Sens = null): Promise<{ composed: any; actions: any }> {
   const tz = acct.timezone_name || 'UTC';
   const input = await g.metaDiagnosisInput(accountId, since, until, true);
   input.currency = acct.currency || null;
@@ -625,6 +657,10 @@ async function buildSummary(accountId: string, acct: Acct, since: string, until:
   // «للمقارنة: تنسب Meta لهذه الفترة…» زي الأداة بالظبط (diagnosis.js DX.platCompare) — من غيره «٥ طلبات» في البريد قصاد ١٦ في
   // مدير الإعلانات من غير ولا كلمة (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦). نص البريد (DX.toText) بياخده من composed.platCmp
   composed.platCmp = typeof g.DX.platCompare === 'function' ? g.DX.platCompare(input, 'meta') : null;
+  try { composed.costCmp = await costLine(accountId, cands, since, until, sens); } catch (e) {
+    composed.costCmp = null;
+    console.error('summary cost line failed', String((e as Error).message || e).slice(0, 200));
+  }
   let actions = null;
   try {
     const acts = await g.metaActivities(accountId, g.shiftKey(since, -12));
@@ -720,6 +756,7 @@ function summaryMail(account: string, name: string, since: string, until: string
         '</td><td style="' + td + ';' + MUTED + '">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</td></tr>').join('') + '</table></div>');
   }
   if (o.platCmp) parts.push('<div>' + P(esc(o.platCmp), MUTED) + '</div>');
+  if (o.costCmp) parts.push('<div>' + P(esc(o.costCmp), MUTED) + '</div>');
   // بطاقة «مستقر» عنوانها هو نفس العنوان الرئيسي فوق — منكررهوش
   (o.blocks || []).forEach((b: any) => parts.push(blockHtml(b.kind === 'note' && b.title === o.title ? { ...b, title: '' } : b)));
   if (sum.actions) parts.push(blockHtml(sum.actions));
@@ -848,7 +885,7 @@ async function checkAccount(s: Settings): Promise<string> {
     // الملخص: رسالة منفصلة عن التنبيهات العاجلة (قرار صاحب المنتج). لو فشل (Meta أو البريد) بيتحاول تاني الساعة الجاية
     if (due) {
       keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });   // «حُلّت/مستمرة» بحالة الساعة دي
-      const sum = await buildSummary(account, acct, due.since, due.until, eff.target);
+      const sum = await buildSummary(account, acct, due.since, due.until, eff.target, cands, eff.sens);
       const alerts = alertStatusHtml(marks, cands, due.since, acct.timezone_name || tz, en, eff.target);
       if (await send(account, 'summary', s.email, summaryMail(account, acct.name || account, due.since, due.until, sum, alerts, s, en, stop))) {
         await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_summary_until: due.until }) });
@@ -858,7 +895,7 @@ async function checkAccount(s: Settings): Promise<string> {
     // الملخص الشهري: رسالة منفصلة (لو فشل بيتحاول تاني في التشغيلات الجاية لحد آخر اليوم — monthlyDue = الأحد بس)
     if (monthly) {
       keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });
-      const sum = await buildSummary(account, acct, monthly.since, monthly.until, eff.target);
+      const sum = await buildSummary(account, acct, monthly.since, monthly.until, eff.target, cands, eff.sens);
       const alerts = alertStatusHtml(marks, cands, monthly.since, acct.timezone_name || tz, en, eff.target);
       if (await send(account, 'monthly', s.email, summaryMail(account, acct.name || account, monthly.since, monthly.until, sum, alerts, s, en, stop, true))) {
         await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_monthly: monthly.month }) });
@@ -936,7 +973,7 @@ export async function previewSummary(token: string, accountId: string, lang: str
       const s: Settings = { account_id: accountId, email: '', lang: en ? 'en' : 'ar', timezone: tz, summary_days: [0, 3], summary_hour: 9, last_summary_until: null };
       const cands = (await loadCandidates(accountId, acct)) || [];
       const eff = await effectiveSettings(accountId);
-      const sum = await buildSummary(accountId, acct, win.since, win.until, eff.target);
+      const sum = await buildSummary(accountId, acct, win.since, win.until, eff.target, cands, eff.sens);
       const alerts = alertStatusHtml(await marksOf(accountId), cands, win.since, tz, en, eff.target);
       const mail = summaryMail(accountId, acct.name || accountId, win.since, win.until, sum, alerts, s, en, await stopUrl(accountId), monthly);
       return { engineCommit: ENGINE_COMMIT, engineOutdated: outdated, metaUsage: usage, since: win.since, until: win.until, subject: mail.subject, html: mail.html, text: mail.text };
