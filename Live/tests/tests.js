@@ -6200,6 +6200,19 @@
     });
     // طلب صاحب المنتج ٢٥ أكتوبر: «كل المنصات» افتراضياً وجنبه كل منصة متصلة بلونها وشعارها، وأكتر من منصة مع بعض، والعملات
     // المختلفة بسعر الربط الرسمي (كانت: عملة مختلفة = مفيش «كل المنصات»)
+    test('اختيار المنصات: من منصة لتانية بضغطة لو الاتنين = كل المنصات، والجمع بيفضل لو فيه منصة تالتة', function () {
+      var prev = window.connectedPlats;
+      try {
+        window.connectedPlats = function () { return ['meta', 'snapchat']; };
+        platSel = null; pickPlat('meta'); eq(platSel, ['meta']);
+        pickPlat('snapchat'); eq(platSel, ['snapchat'], 'Meta → Snapchat in one click');
+        pickPlat('snapchat'); eq(platSel, null, 'the picked one again = all platforms');
+        window.connectedPlats = function () { return ['meta', 'google', 'snapchat']; };
+        platSel = null; pickPlat('meta'); pickPlat('snapchat'); eq(platSel, ['meta', 'snapchat'], 'two of three together');
+        pickPlat('google'); eq(platSel, ['google'], 'the third would make all of them: switch to it');
+        pickPlat('meta'); pickPlat('all'); eq(platSel, null, '«all platforms» from its own chip');
+      } finally { window.connectedPlats = prev; platSel = null; }
+    });
     test('اختيار المنصات: «كل المنصات» افتراضياً وكل منصة بلونها وشعارها، والضغط بيضيف ويشيل، والعملات بسعر الربط', function () {
       var a = src('meta', 21), b = src('google', 23);
       var oldOpts = { meta: platformOptions.meta, google: platformOptions.google };
@@ -6225,11 +6238,11 @@
         // منصة لوحدها (الضغط على اسم الحساب جوه الزرار كمان)، وتانية بتتضاف، والمختارة بتتشال
         document.querySelector('#dxBody [data-plat-pick="google"] .dx-view-acct').click();
         eq([platSel, chips(), dxState.view, dxState.accountId], [['google'], ['all', 'meta', 'google*'], 'google', 'google:1']);
+        // ملاحظته ٢٥ أكتوبر: من منصة لتانية بضغطة (كانت الاتنين = «كل المنصات»)
         document.querySelector('#dxBody [data-plat-pick="meta"]').click();
-        eq([platSel, chips()], [null, ['all*', 'meta', 'google']], 'both picked = all platforms');
+        eq([platSel, chips(), dxState.view], [['meta'], ['all', 'meta*', 'google'], 'meta'], 'from Google to Meta in one click');
         document.querySelector('#dxBody [data-plat-pick="meta"]').click();
-        document.querySelector('#dxBody [data-plat-pick="meta"]').click();
-        eq(platSel, null, 'nothing left = all platforms');
+        eq([platSel, chips()], [null, ['all*', 'meta', 'google']], 'nothing left = all platforms');
         // عملة مختلفة مربوطة بالدولار: بيتجمعوا بسعر الربط (Google بالدولار ×٣٫٧٥ لو العرض بالريال) وجملة بتقول كده
         b.input.currency = 'USD';
         dxState.sources.google = Object.assign({}, dxState.sources.google, { input: b.input, report: DX.analyze(b.input), gen: 2 });

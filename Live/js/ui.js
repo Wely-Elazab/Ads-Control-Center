@@ -1305,7 +1305,9 @@
   var DX_PLATFORM_ORDER = ['meta', 'google', 'snapchat'];
   // ---------- اختيار المنصات للصفحة كلها (طلب صاحب المنتج ٢٥ أكتوبر) ----------
   // «كل المنصات» افتراضياً، وجنبه زرار لكل منصة متصلة بلونها وشعارها. الضغط على منصة = هي بس، وعلى تانية = تتضاف، وعلى
-  // المختارة = تتشال (ولو اتشالت كلها أو اتختارت كلها = «كل المنصات»). اختيار واحد للصفحة كلها (قراره: «تتبع الاختيار»):
+  // المختارة = تتشال (ولو اتشالت كلها = «كل المنصات»). لو الإضافة هتخلّي الاختيار = كل المنصات بنروح للمنصة دي لوحدها (ملاحظته
+  // ٢٥ أكتوبر: «عند الضغط على سناب شات بعد ميتا ينتقل لكل المنصات… التنقل من ميتا لسناب شات») — «كل المنصات» من زرارها بس،
+  // والجمع بيفضل لو فيه منصة تالتة (ميتا وسناب شات من غير جوجل). اختيار واحد للصفحة كلها (قراره: «تتبع الاختيار»):
   // ملخص المتجر و«يحتاج انتباهك الآن» ولوحة الهدر وقائمة الإعلانات. platSel = null (كل المنصات) أو منصات بترتيب ثابت
   var platSel = null;
   var PLAT_ORDER = ['meta', 'google', 'snapchat', 'tiktok'];
@@ -1316,7 +1318,7 @@
     if (p === 'all') platSel = null;
     else if (!platSel) platSel = [p];
     else if (platSel.indexOf(p) > -1) platSel = platSel.filter(function (x) { return x !== p; });
-    else platSel = platSel.concat([p]);
+    else platSel = platSel.length + 1 >= all.length ? [p] : platSel.concat([p]);
     if (platSel) platSel = all.filter(function (x) { return platSel.indexOf(x) > -1; });
     if (platSel && (!platSel.length || platSel.length === all.length)) platSel = null;
   }
