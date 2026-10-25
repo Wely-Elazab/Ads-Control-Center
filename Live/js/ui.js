@@ -508,6 +508,8 @@
         info +
           '<div class="card-foot">' +
             '<span class="days-badge">' + sinceLabel(c.daysAgo) + '</span>' +
+            // وسم التعديل الحديث (٣ أيام كاملة بعده) أيّاً كان الحكم — قرار صاحب المنتج ٢٥ أكتوبر. اللي اتعدّل في التلميح وفي التفاصيل
+            (a.editTag ? '<span class="edit-tag" title="' + esc(a.editTag.what) + '">' + esc(t('tag.edited', { when: a.editTag.when })) + '</span>' : '') +
             '<span class="status-text' + (c.active ? ' on' : '') + '">' + statusLabelOf(c) + '</span>' +
           '</div>' +
         '</div>' +
@@ -2171,6 +2173,7 @@
       : '';
     // الحكم + أساسه («عائده ×٤ والمستهدف ×٣…» أو سبب «لم يُحكم بعد») + الفترة اللي اتبنى عليها
     document.getElementById('expandHealth').innerHTML = '<span class="health-badge ' + h.cls + '"><span class="health-dot-inline"></span>' + h.label + '</span>' +
+      (a.editTag ? ' <span class="edit-tag">' + esc(t('x.editTag', { when: a.editTag.when, what: a.editTag.what })) + '</span>' : '') +
       (a.basis ? '<p class="health-basis">' + esc(a.basis) + '</p>' : '') +
       // الإعلان المتعدَّل بيتحكم عليه بالأيام اللي بعد التعديل بس (alerts.js days) — كان مكتوب «آخر ٧ أيام» تحت سطر بيقول «آخر ٣ أيام»
       (c.active ? '<p class="health-period">' + esc(a.days ? t('x.basisPeriodEdit', { n: ar(a.days) + ' ' + noun(a.days, 'n.day') }) : t('x.basisPeriod')) + '</p>' : '');
