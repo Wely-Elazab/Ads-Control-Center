@@ -29,6 +29,7 @@ import { runAll, preview, previewSummary } from './runner.ts';
 import { handleLogin, requireLogin } from './auth.ts';
 import { handleMetaLink } from './metalink.ts';
 import { handleSettings } from './settings.ts';
+import { handleEpisodes } from './episodes.ts';
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
@@ -141,6 +142,8 @@ Deno.serve(async (req: Request) => {
     if (action === 'meta.seal' || action === 'meta.renew') return await handleMetaLink(action, body, user.id, origin);
     // إعدادات التنبيهات لكل حساب إعلاني (settings.ts) — قبل شرط مفتاح Meta: حساب Snapchat لوحده بيستخدمها كمان بمفتاحه
     if (action === 'settings.get' || action === 'settings.set') return await handleSettings(action, body, origin);
+    // سجل مشكلات التنبيه لكل حساب إعلاني (episodes.ts — لوحة «قيمة الأداة») بنفس إثبات الوصول
+    if (action === 'episodes.sync' || action === 'episodes.decide') return await handleEpisodes(action, body, origin);
 
     if (typeof body.token !== 'string' || !TOKEN.test(body.token)) return reply(400, { error: 'token' }, origin);
 

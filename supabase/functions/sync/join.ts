@@ -17,7 +17,8 @@
 import { META_APP_ID, SITE, MAIL_REPLY_TO, db, reply, esc, sendEmail, mailHtml } from './lib.ts';
 import { linkSig, sameString, cleanEmail } from './digest.ts';
 
-const CONSENT_VERSION = '2026-10-01';
+// نسخة الشروط وسياسة الخصوصية اللي وافق عليها مقدّم الطلب — ٢٥ أكتوبر ٢٠٢٦: سجل التنبيهات العاجلة (episodes.ts) في سياسة الخصوصية
+const CONSENT_VERSION = '2026-10-25';
 const SIG_LABEL = 'ads-center/join-invited/v1:';
 const PLATFORMS = ['meta', 'google', 'snapchat', 'tiktok'];
 // «أنت:» — لازم تطابق join.html وقيد الجدول (pilot_requests.role). الأسماء دي اللي بتظهر في إشعارنا وصفحة /invited

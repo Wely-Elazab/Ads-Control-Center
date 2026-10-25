@@ -54,13 +54,21 @@ export async function snapAccount(token: string, id: string): Promise<boolean> {
   return !!acc && String(acc.id) === id;
 }
 
-export async function handleSettings(action: string, body: any, origin: string | null): Promise<Response> {
+// المنصة والحساب بعد ما المنصة نفسها تأكد إن صاحب المفتاح شايف الحساب — أو رد الرفض. الإعدادات هنا وسجل المشكلات (episodes.ts)
+export async function verifyAccount(body: any, origin: string | null): Promise<{ platform: 'meta' | 'snapchat'; id: string } | Response> {
   const platform = body && body.platform, id = body && body.accountId, token = body && body.platformToken;
   if (platform !== 'meta' && platform !== 'snapchat') return reply(400, { error: 'platform' }, origin);
   if (typeof id !== 'string' || !(platform === 'meta' ? META_ID : SNAP_ID).test(id)) return reply(400, { error: 'account' }, origin);
   if (typeof token !== 'string' || !PLATFORM_TOKEN.test(token)) return reply(400, { error: 'token' }, origin);
   const ok = platform === 'meta' ? !!(await metaAccount(token, id)) : await snapAccount(token, id);
   if (!ok) return reply(403, { error: 'not verified' }, origin);
+  return { platform, id };
+}
+
+export async function handleSettings(action: string, body: any, origin: string | null): Promise<Response> {
+  const acc = await verifyAccount(body, origin);
+  if (acc instanceof Response) return acc;
+  const platform = acc.platform, id = acc.id;
 
   const where = 'account_settings?platform=eq.' + platform + '&account_id=eq.' + encodeURIComponent(id);
   const now = new Date().toISOString();

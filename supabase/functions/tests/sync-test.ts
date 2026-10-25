@@ -11,6 +11,7 @@ import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import { callTimeout, familyOf, freshUsage, markMap, readUsage, resolveNow, settingsChoice } from '../sync/runner.ts';
 import { cleanAccountSettings, handleSettings } from '../sync/settings.ts';
+import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes } from '../sync/episodes.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
 Deno.env.set('TOKEN_ENC_KEY', btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))));
@@ -261,6 +262,73 @@ Deno.test('إعدادات الحساب: من غير إثبات الوصول لل
     assertEquals((await handleSettings('settings.get', { platform: 'snapchat', accountId: 'aaaa-1111', platformToken: T }, null)).status, 403);
     assertEquals((await handleSettings('settings.get', { platform: 'google', accountId: '1', platformToken: T }, null)).status, 400);
     assertEquals((await handleSettings('settings.get', { platform: 'meta', accountId: '123', platformToken: T }, null)).status, 400);
+  } finally { restoreFetch(); }
+});
+// سجل مشكلات التنبيه (لوحة «قيمة الأداة» — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦): رقم الإعلان والنوع والأوقات بس، من غير أي أرقام
+Deno.test('سجل المشكلات: إعلان ونوع معروفين من غير تكرار، والقرار وقت ونوع مع بعض أو ولا واحد', () => {
+  assertEquals(cleanOpen([{ ad: '123', kind: 'waste' }, { ad: '123', kind: 'waste' }, { ad: '123', kind: 'loss' }], 'meta'),
+    [{ ad: '123', kind: 'waste' }, { ad: '123', kind: 'loss' }]);
+  assertEquals(cleanOpen([{ ad: 'abc', kind: 'waste' }], 'meta'), null, 'a Meta ad id is digits');
+  assertEquals(cleanOpen([{ ad: 'aaaa-1111', kind: 'waste' }], 'snapchat'), [{ ad: 'aaaa-1111', kind: 'waste' }]);
+  assertEquals(cleanOpen([{ ad: '1', kind: 'spend', spend: 50 }], 'meta'), null, 'unknown kind');
+  assertEquals(cleanOpen({}, 'meta'), null);
+  assertEquals(cleanOpen([], 'meta'), [], 'no problems now = every open one ends');
+  assertEquals(cleanDecisions([{ id: 5, handledAt: '2026-10-25T10:00:00Z', action: 'pause' }, { id: 6 }]),
+    [{ id: 5, handledAt: '2026-10-25T10:00:00.000Z', action: 'pause' }, { id: 6, handledAt: null, action: null }]);
+  assertEquals(cleanDecisions([{ id: 5, handledAt: '2026-10-25T10:00:00Z' }]), null, 'a time without an action kind');
+  assertEquals(cleanDecisions([{ id: 5, handledAt: '2026-10-25T10:00:00Z', action: 'delete' }]), null);
+  assertEquals(cleanDecisions([{ id: -1 }]), null);
+  assertEquals(cleanDecisions([]), null);
+});
+Deno.test('سجل المشكلات: التعديل يتحسب جوه الـ ٢٤ ساعة بعد التنبيه بس، و«متعالجتش» بعد ما تخلص', () => {
+  const first = '2026-10-25T10:00:00Z', at = Date.parse(first);
+  assert(decisionOk(first, { handledAt: '2026-10-25T18:00:00Z' }, at + 3600000), 'an edit 8 hours later');
+  assert(!decisionOk(first, { handledAt: '2026-10-25T09:00:00Z' }, at + 3600000), 'an edit before the alert is not after it');
+  assert(!decisionOk(first, { handledAt: '2026-10-26T11:00:00Z' }, at + 30 * 3600000), 'more than 24 hours later');
+  assert(!decisionOk(first, { handledAt: null }, at + 20 * 3600000), 'not handled: only once the 24 hours are over');
+  assert(decisionOk(first, { handledAt: null }, at + 25 * 3600000));
+});
+Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم اللي اختفى بيخلص، والقرار مرة واحدة — ومن غير إثبات الوصول مفيش حاجة', async () => {
+  let metaOk = true;
+  const calls: { method: string; url: string; body: any }[] = [];
+  const first = new Date(Date.now() - 30 * 3600000).toISOString();
+  stubFetch((url, init) => {
+    if (url.indexOf('graph.facebook.com') > -1) return metaOk ? json({ id: 'act_123', name: 'X' }) : json({ error: { code: 100 } }, 400);
+    if (url.indexOf('/rest/v1/alert_episodes') > -1) {
+      const method = (init && init.method) || 'GET';
+      calls.push({ method, url, body: init && init.body ? JSON.parse(String(init.body)) : null });
+      if (method === 'GET' && url.indexOf('ended_at=is.null') > -1) return json([{ id: 1, ad_id: '11', kind: 'waste' }, { id: 2, ad_id: '22', kind: 'waste' }]);
+      if (method === 'GET' && url.indexOf('decided_at=is.null') > -1) return json([{ id: 1, first_at: first }, { id: 2, first_at: first }]);
+      if (method === 'GET') return json([{ id: 1, ad_id: '11', kind: 'waste', first_at: first, ended_at: null, decided_at: null, handled_at: null, action: null }]);
+      return new Response(null, { status: method === 'POST' ? 201 : 204 });
+    }
+    throw new Error('unexpected fetch ' + url);
+  });
+  try {
+    const T = 'TOKEN_abcdefghijklmnopqrstuvwxyz', who = { platform: 'meta', accountId: 'act_123', platformToken: T };
+    const res = await handleEpisodes('episodes.sync', { ...who, open: [{ ad: '11', kind: 'waste' }, { ad: '33', kind: 'loss' }] }, null);
+    assertEquals(res.status, 200);
+    const patches = calls.filter((c) => c.method === 'PATCH'), posts = calls.filter((c) => c.method === 'POST');
+    assert(patches.some((c) => /id=in\.\(1\)/.test(c.url) && c.body.last_seen_at), 'still open: seen again');
+    assert(patches.some((c) => /id=in\.\(2\)/.test(c.url) && c.body.ended_at), 'gone: ended');
+    assertEquals(posts.map((c) => c.body), [[{ platform: 'meta', account_id: 'act_123', ad_id: '33', kind: 'loss' }]], 'only the new one is added');
+    const body = await res.json();
+    assertEquals(Object.keys(body.episodes[0]).sort(), ['action', 'ad', 'decided', 'endedAt', 'firstAt', 'handledAt', 'id', 'kind']);
+    calls.length = 0;
+    await handleEpisodes('episodes.sync', { ...who, open: null }, null);
+    assertEquals(calls.map((c) => c.method), ['GET'], 'read only: nothing recorded');
+    calls.length = 0;
+    const handledAt = new Date(Date.parse(first) + 2 * 3600000).toISOString();
+    const dec = await handleEpisodes('episodes.decide', { ...who, decisions: [{ id: 1, handledAt, action: 'budget' }, { id: 2 }] }, null);
+    assertEquals((await dec.json()).saved, 2);
+    const p = calls.filter((c) => c.method === 'PATCH');
+    assert(p.some((c) => /id=eq\.1&decided_at=is\.null/.test(c.url) && c.body.action === 'budget' && c.body.handled_at === handledAt), 'handled');
+    assert(p.some((c) => /id=in\.\(2\)/.test(c.url) && c.body.decided_at && !('handled_at' in c.body)), 'not handled (30 hours later)');
+    calls.length = 0;
+    metaOk = false;
+    assertEquals((await handleEpisodes('episodes.sync', { ...who, open: [] }, null)).status, 403);
+    assertEquals(calls.length, 0, 'no access: nothing read or written');
+    assertEquals((await handleEpisodes('episodes.sync', { platform: 'google', accountId: '1', platformToken: T, open: [] }, null)).status, 400);
   } finally { restoreFetch(); }
 });
 // البريد بسجل الحساب بس: من غيره حكم الربح بيستنى زي الأداة (النسخة القديمة اللي كانت مع الملخص كانت ×٣/×١ غلط — اتشاف حياً)

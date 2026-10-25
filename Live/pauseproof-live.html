@@ -714,22 +714,25 @@
   .attn-chip:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   /* «دون طلبات منذ بداية الشهر»: معلومة مش زرار */
   .attn-chip.attn-chip-info { cursor: default; color: var(--pending); background: var(--pending-bg); }
-  /* لوحة الهدر (renderWastePanel) ومبلغ الأثر على بنود «يحتاج انتباهك الآن» — ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦ */
-  .waste-panel { margin-top: 12px; border-radius: var(--radius); padding: 14px 16px; background: var(--pending-bg); border: 1px solid var(--line); border-inline-start: 4px solid var(--pending); }
-  .waste-panel.has-risk { background: var(--alert-bg); border-inline-start-color: var(--alert); }
-  .waste-title { margin: 0 0 10px; font-size: 15px; font-weight: 800; color: var(--ink); }
-  .waste-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-  .waste-tile { display: flex; flex-direction: column; gap: 3px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
-  .waste-k { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
-  .waste-v { font-size: 20px; font-weight: 800; color: var(--pending); }
-  .waste-tile.bad .waste-v { color: var(--alert); }
-  /* «كل الحسابات» في آخر اللوحة: حدّ أعرض بنفس ألوان الصفحة — مجموع مش حساب لوحده */
-  .waste-tile.total { border-width: 2px; }
-  .waste-s { font-size: 12px; line-height: 1.6; color: var(--ink-soft); }
-  .waste-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
-  .waste-cta { font-family: inherit; font-size: 13px; font-weight: 700; color: #fff; background: var(--alert); border: none; border-radius: 999px; padding: 6px 14px; cursor: pointer; }
-  .waste-cta:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
-  .waste-note { flex: 1 1 220px; margin: 0; font-size: 11.5px; color: var(--ink-faint); }
+  /* لوحة «قيمة الأداة» (ui.js renderWastePanel — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦، مكان لوحة الهدر): الأخضر = اللي اتحقق، والسطر
+     الأحمر = المشكلات اللي مستنية دلوقتي. ومبلغ الأثر على بنود «يحتاج انتباهك الآن» (top-alert-money) تحت */
+  .value-panel { margin-top: 12px; border-radius: var(--radius); padding: 14px 16px; background: var(--verified-bg); border: 1px solid var(--line); border-inline-start: 4px solid var(--verified); }
+  .value-title { margin: 0 0 10px; font-size: 15px; font-weight: 800; color: var(--ink); }
+  .value-notice { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--card); border: 1px dashed var(--line); font-size: 12.5px; line-height: 1.7; color: var(--ink-soft); }
+  .value-notice a { color: var(--verified); font-weight: 700; }
+  .value-ack { font-family: inherit; font-size: 12.5px; font-weight: 700; color: #fff; background: var(--verified); border: none; border-radius: 999px; padding: 4px 14px; margin-inline-start: 4px; cursor: pointer; }
+  .value-empty { margin: 0 0 10px; font-size: 13px; line-height: 1.7; color: var(--ink-soft); }
+  .value-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+  .value-tile { display: flex; flex-direction: column; gap: 3px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .value-k { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+  .value-v { font-size: 20px; font-weight: 800; color: var(--verified); }
+  .value-s { font-size: 12px; line-height: 1.6; color: var(--ink-soft); }
+  .value-pending { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--alert-bg); border: 1px solid var(--alert); color: var(--alert); font-size: 13px; font-weight: 700; }
+  .value-cta { font-family: inherit; font-size: 13px; font-weight: 700; color: #fff; background: var(--alert); border: none; border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+  .value-ack:focus-visible, .value-cta:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  .value-how { margin-top: 10px; font-size: 12px; color: var(--ink-soft); }
+  .value-how summary { cursor: pointer; font-weight: 700; color: var(--ink-soft); }
+  .value-how ul { margin: 6px 0 0; padding-inline-start: 18px; line-height: 1.7; }
   .top-alert-money { flex-shrink: 0; margin-inline-start: auto; font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 999px; color: var(--ink-soft); background: var(--sending-bg); white-space: nowrap; }
   .top-alert-money.bad { color: var(--alert); background: var(--alert-bg); }
   /* الشاشة الضيقة: المبلغ بينزل سطر لوحده بدل ما يضغط العنوان في ٤ سطور (هاتف — ١٠ أكتوبر ٢٠٢٦) */

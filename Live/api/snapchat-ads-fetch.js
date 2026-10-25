@@ -75,33 +75,23 @@ export function storeOrderAdIds() {
   });
   return out;
 }
-// أهداف الشراء في المجموعة الإعلانية (توثيق Snapchat Marketing API — Ad Squads، optimization_goal)
-const SNAP_PURCHASE_GOALS = { PIXEL_PURCHASE: 1, APP_PURCHASE: 1, APP_REENGAGE_PURCHASE: 1 };
-// «إنفاق هذا الشهر دون طلبات» زي Meta (js/meta.js loadMonthWaste — طلب صاحب المنتج ١٨ أكتوبر ٢٠٢٦: كانت لـ Meta بس):
-// إعلانات مجموعاتها محسّنة للشراء، صرفت من أول الشهر لأمس من غير ولا شراء برقم المنصة نفسها (إعداد Ads Manager)، والمتوقفة
-// كمان — من قايمة الحساب كلها قبل تصفية الأسبوع. purchases = الشراء من الحساب كله (صفر = ممكن التتبّع مش واصل).
-// null = منقدرش نحكم: المجموعات مجاتش، أو الرد مفيهوش أرقام الشراء
-export function snapMonthWaste(data, adsList, squadList, since, until) {
-  if (!data || !Array.isArray(squadList)) return null;
-  const goalOf = {}, squadOf = {};
-  squadList.forEach(function (s) { if (s && s.id) goalOf[s.id] = s.optimization_goal || null; });
-  (adsList || []).forEach(function (a) { if (a && a.id) squadOf[a.id] = a.ad_squad_id; });
-  const w = { since: since, until: until, spend: 0, total: 0, ads: 0, ids: [], spendById: {}, purchases: 0 };
-  let counted = false;
-  ((data.total_stats || data.timeseries_stats) || []).forEach(function (e) {
-    const ts = (e && (e.total_stat || e.timeseries_stat)) || e || {};
+// إنفاق كل إعلان يوم بيوم من رد stats (granularity=DAY، breakdown=ad) — للإعلانات المطلوبة بس: { رقم الإعلان: { 'YYYY-MM-DD': إنفاق } }
+// (لوحة «قيمة الأداة» — action=daily تحت). المبالغ بالمايكرو في Snapchat
+export function snapDailySpend(data, ids) {
+  const want = {}, out = {};
+  (ids || []).forEach(function (id) { want[id] = 1; });
+  ((data && data.timeseries_stats) || []).forEach(function (e) {
+    const ts = (e && e.timeseries_stat) || e || {};
     ((ts.breakdown_stats && ts.breakdown_stats.ad) || []).forEach(function (b) {
-      const st = (b && b.stats) || {};
-      if (!('conversion_purchases' in st)) return;
-      counted = true;
-      const sp = Number(st.spend || 0) / 1000000, pur = Number(st.conversion_purchases || 0);
-      w.total += sp;
-      if (pur > 0) w.purchases += pur;
-      if (!(sp > 0) || pur > 0 || !SNAP_PURCHASE_GOALS[goalOf[squadOf[b.id]]]) return;
-      w.spend += sp; w.ads++; w.ids.push(String(b.id)); w.spendById[String(b.id)] = sp;
+      if (!b || !want[b.id]) return;
+      const days = out[b.id] = out[b.id] || {};
+      (b.timeseries || []).forEach(function (p) {
+        const day = String((p && p.start_time) || '').slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(day)) days[day] = Number((p.stats && p.stats.spend) || 0) / 1000000;
+      });
     });
   });
-  return counted ? w : null;
+  return out;
 }
 // شغّال فعلاً: ACTIVE مش كفاية — Snapchat بيرجّع delivery_status (حساب حقيقي: ٣٢٦ ACTIVE منهم ١٨ بس VALID). المرفوض
 // والمستني مراجعة بيفضلوا (زي Meta)، ولو الحقل مش موجود منخبّيش إعلان ممكن يكون شغّال
@@ -364,20 +354,7 @@ export default async function handler(req, res) {
         periodP = statsSafe('TOTAL', pFrom, pTo).then(function (p) { return p.error ? null : p.data; }).catch(function () { return null; });
         periodStoreP = storeOf('TOTAL', pFrom, pTo);
       }
-      // من أول الشهر لأمس بتوقيت الحساب (snapMonthWaste) — أول يوم في الشهر مفيش. رقم المنصة بإعداد Ads Manager، ولو اترفض
-      // فبافتراضي الـ API؛ من غير الرجوع للإنفاق والسوايب بس (من غير أرقام الشراء منقدرش نقول «دون طلبات»)
-      const month = { since: range.until.slice(0, 8) + '01', until: shiftDateKey(range.until, -1) };
-      let monthP = Promise.resolve(null);
-      if (month.until >= month.since) {
-        const mTo = range.until + 'T00:00:00.000' + tzOffsetString(range.until, tz);
-        const mFrom = month.since + 'T00:00:00.000' + tzOffsetString(month.since, tz);
-        const MONTH_FIELDS = 'spend,conversion_purchases';
-        monthP = fetchStats(MONTH_FIELDS, 'TOTAL', mFrom, mTo, PLATFORM_WINDOWS)
-          .then(function (p) { return p.error ? fetchStats(MONTH_FIELDS, 'TOTAL', mFrom, mTo) : p; })
-          .then(function (p) { return p.error ? null : p.data; }).catch(function () { return null; });
-      }
-
-      const results = await Promise.all([adsP, squadsP, campaignsP, statsP, periodP, storeP, periodStoreP, creativesP, mediaP, monthP]);
+      const results = await Promise.all([adsP, squadsP, campaignsP, statsP, periodP, storeP, periodStoreP, creativesP, mediaP]);
       const adsResult = results[0], squadList = results[1], campaignList = results[2], stats = results[3];
       if (adsResult.error) {
         res.status(adsResult.status || 502).json({ error: adsResult.error });
@@ -427,8 +404,6 @@ export default async function handler(req, res) {
         periodStoreStats: results[4] ? results[6] : null,
         period: periodRange,
         range: range,
-        // من قايمة الإعلانات والمجموعات كلها (قبل التصفية) — المتوقفة من أول الشهر مش في الكروت
-        monthWaste: snapMonthWaste(results[9], adsResult.ads, squadList, month.since, month.until),
         account: acc ? { timezone: acc.timezone || null, currency: acc.currency || null } : null
       });
       return;
@@ -447,8 +422,33 @@ export default async function handler(req, res) {
       if (!list.length) { badRequest(res, 'الحقل ids مطلوب لجلب سجل التعديلات.'); return; }
       const got = await pacedJson(list, function (x) { return SNAP_API + '/' + CHANGE_PATH[x.level] + '/' + encodeURIComponent(x.id) + '/external_changelogs?limit=50'; }, headers);
       const parts = got.results.map(function (d, i) { return d ? snapChanges(list[i].level, list[i].id, d) : []; });
-      // codes = سبب الفشل لكل حالة (429 = حد السرعة، 403 = صلاحية) — للمتابعة بس
-      res.status(200).json({ changes: [].concat.apply([], parts), asked: list.length, failed: got.failed, codes: got.codes });
+      // codes = سبب الفشل لكل حالة (429 = حد السرعة، 403 = صلاحية) — للمتابعة بس. done = العناصر اللي سجلها وصل (لوحة «قيمة الأداة»
+      // مبتقولش «متعالجتش» على عنصر سجله فشل)
+      res.status(200).json({ changes: [].concat.apply([], parts), asked: list.length, failed: got.failed, codes: got.codes,
+        done: list.filter(function (x, i) { return !!got.results[i]; }).map(function (x) { return x.level + ':' + x.id; }) });
+      return;
+    }
+
+    // إنفاق إعلانات محددة يوم بيوم (لوحة «قيمة الأداة» — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦: ما كان الإعلان بيصرفه في اليوم قبل التنبيه،
+    // لما الأيام دي أقدم من أسبوع الكروت). طلب واحد للحساب (breakdown=ad)، النطاق بتوقيت الحساب ولحد ٣١ يوم، والإعلانات لحد ٢٠٠
+    if (action === 'daily') {
+      const adAccountId = shaped(body.adAccountId, /^[A-Za-z0-9-]{1,64}$/);
+      const since = shaped(body.since, /^\d{4}-\d{2}-\d{2}$/), until = shaped(body.until, /^\d{4}-\d{2}-\d{2}$/);
+      const ids = (Array.isArray(body.adIds) ? body.adIds : []).map(function (v) { return shaped(v, /^[A-Za-z0-9-]{1,64}$/); }).filter(Boolean).slice(0, 200);
+      const span = since && until ? (Date.parse(until + 'T00:00:00Z') - Date.parse(since + 'T00:00:00Z')) / 86400000 : -1;
+      if (!adAccountId || !ids.length || !(span >= 0 && span <= 30)) { badRequest(res, 'الحقول adAccountId وadIds وsince وuntil مطلوبة (لحد ٣١ يوم).'); return; }
+      const accountPath = SNAP_API + '/adaccounts/' + encodeURIComponent(adAccountId);
+      const ar = await fetch(accountPath, { headers: headers });
+      const ad = await ar.json().catch(function () { return null; });
+      const acc = ad && ad.adaccounts && ad.adaccounts[0] && ad.adaccounts[0].adaccount;
+      if (!ar.ok || !acc) { res.status(ar.ok ? 502 : ar.status).json({ error: snapError(ad, ar.status) }); return; }
+      const tz = acc.timezone || clientTz, endKey = shiftDateKey(until, 1);
+      const r = await fetch(accountPath + '/stats?granularity=DAY&breakdown=ad&fields=spend' +
+        '&start_time=' + encodeURIComponent(since + 'T00:00:00.000' + tzOffsetString(since, tz)) +
+        '&end_time=' + encodeURIComponent(endKey + 'T00:00:00.000' + tzOffsetString(endKey, tz)), { headers: headers });
+      const data = await r.json().catch(function () { return null; });
+      if (!r.ok || !data || data.request_status === 'ERROR') { res.status(r.ok ? 502 : r.status).json({ error: snapError(data, r.status) }); return; }
+      res.status(200).json({ spend: snapDailySpend(data, ids) });
       return;
     }
 

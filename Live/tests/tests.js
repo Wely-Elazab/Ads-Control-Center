@@ -2610,50 +2610,37 @@
         ok(!('_probe' in out), 'no debug data unless asked');
       }, function (e) { window.fetch = realFetch; throw e; });
     });
-    // طلب صاحب المنتج ١٨ أكتوبر ٢٠٢٦: اللوحة كانت لـ Meta بس
-    testAsync('Snapchat: «إنفاق هذا الشهر دون طلبات» من أول الشهر لأمس — المجموعات المحسّنة للشراء بس، والمتوقفة اللي مش في الكروت كمان', function () {
+    // لوحة «قيمة الأداة» (قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦): ما كان الإعلان بيصرفه في اليوم قبل التنبيه، لما الأيام دي أقدم من أسبوع الكروت
+    testAsync('Snapchat: إنفاق إعلانات محددة يوم بيوم بتوقيت الحساب (طلب واحد للحساب)، والنطاق لحد ٣١ يوم', function () {
       var realFetch = window.fetch, asked = [];
       var json = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
       window.fetch = function (url) {
         var raw = String(url), u = decodeURIComponent(raw);
-        if (/\/adaccounts\/[^/?]+$/.test(raw)) return json({ adaccounts: [{ adaccount: { timezone: 'Asia/Riyadh', currency: 'USD' } }] });
-        if (/\/ads\?/.test(u)) return json({ ads: [
-          { ad: { id: 'old', status: 'PAUSED', ad_squad_id: 'buy' } },
-          { ad: { id: 'won', status: 'PAUSED', ad_squad_id: 'buy' } },
-          { ad: { id: 'aware', status: 'PAUSED', ad_squad_id: 'reach' } }] });
-        if (/\/adsquads/.test(u)) return json({ adsquads: [{ adsquad: { id: 'buy', campaign_id: 'c1', optimization_goal: 'PIXEL_PURCHASE' } },
-          { adsquad: { id: 'reach', campaign_id: 'c1', optimization_goal: 'SWIPES' } }] });
-        if (/\/campaigns/.test(u)) return json({ campaigns: [{ campaign: { id: 'c1' } }] });
-        if (/\/stats/.test(u) && /granularity=TOTAL/.test(u)) {
-          asked.push(u);
-          // طلب الشهر بحقوله هو بس (الإنفاق والشراء) — مجاميع الفترة المختارة فاضية هنا
-          if (!/fields=spend,conversion_purchases&/.test(u)) return json({ total_stats: [] });
-          return json({ total_stats: [{ total_stat: { breakdown_stats: { ad: [
-            { id: 'old', stats: { spend: 120000000, conversion_purchases: 0 } },
-            { id: 'won', stats: { spend: 50000000, conversion_purchases: 2 } },
-            { id: 'aware', stats: { spend: 80000000, conversion_purchases: 0 } }] } } }] });
-        }
-        if (/\/stats/.test(u)) return json({ timeseries_stats: [] });
+        asked.push(u);
+        if (/\/adaccounts\/[^/?]+$/.test(raw)) return json({ adaccounts: [{ adaccount: { id: 'acc1', timezone: 'Asia/Riyadh', currency: 'SAR' } }] });
+        if (/\/stats\?/.test(u)) return json({ timeseries_stats: [{ timeseries_stat: { breakdown_stats: { ad: [
+          { id: 'a1', timeseries: [{ start_time: '2026-10-10T00:00:00.000+03:00', stats: { spend: 30000000 } }, { start_time: '2026-10-11T00:00:00.000+03:00', stats: { spend: 0 } }] },
+          { id: 'other', timeseries: [{ start_time: '2026-10-10T00:00:00.000+03:00', stats: { spend: 99000000 } }] }] } } }] });
         return json({});
       };
-      var out = null;
-      var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
-      var mod = null;
+      var out = null, code = 200;
+      var res = { setHeader: function () {}, status: function (c) { code = c; return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      var call = function (m, body) { out = null; code = 200; return m.default({ method: 'POST', headers: {}, body: Object.assign({ accessToken: 't', action: 'daily' }, body) }, res); };
+      var mod;
       return import('/api/snapchat-ads-fetch.js').then(function (m) {
         mod = m;
-        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1', period: { preset: 'last7' } } }, res);
+        return call(m, { adAccountId: 'acc1', adIds: ['a1', 'gone'], since: '2026-10-10', until: '2026-10-11' });
       }).then(function () {
+        eq(out, { spend: { a1: { '2026-10-10': 30, '2026-10-11': 0 } } }, 'only the ads asked, in currency units');
+        var stats = asked.filter(function (u) { return /\/stats\?/.test(u); })[0];
+        ok(/granularity=DAY&breakdown=ad&fields=spend/.test(stats) && /start_time=2026-10-10T00:00:00\.000\+03:00/.test(stats) && /end_time=2026-10-12T00:00:00\.000\+03:00/.test(stats), stats);
+        return call(mod, { adAccountId: 'acc1', adIds: ['a1'], since: '2026-09-01', until: '2026-10-11' });
+      }).then(function () {
+        eq(code, 400, 'more than 31 days');
+        return call(mod, { adAccountId: 'acc1', adIds: [], since: '2026-10-10', until: '2026-10-11' });
+      }).then(function () {
+        eq(code, 400, 'no ads');
         window.fetch = realFetch;
-        var today = todayKeyInTz('Asia/Riyadh'), first = today.slice(0, 8) + '01';
-        if (today.slice(8) === '01') { eq([out.monthWaste, asked.length], [null, 0], 'first day of the month: nothing yet'); return; }
-        var month = asked.filter(function (u) { return /fields=spend,conversion_purchases&/.test(u) && u.indexOf('start_time=' + first + 'T00:00:00') > -1; });
-        ok(month.length === 1 && /action_report_time=impression/.test(month[0]), 'one month request with the Ads Manager setting: ' + asked.join(' | '));
-        var w = out.monthWaste;
-        eq([w.since, w.until, w.spend, w.ads, w.ids, w.total, w.purchases], [first, shiftKey(today, -1), 120, 1, ['old'], 250, 2]);
-        eq(out.ads.length, 0, 'the stopped ads stay out of the cards — only in the month figure');
-        // منقدرش نحكم: المجموعات مجاتش، أو الرد من غير أرقام الشراء
-        eq(mod.snapMonthWaste({ total_stats: [] }, [], null, first, today), null, 'no ad squads');
-        eq(mod.snapMonthWaste({ total_stats: [{ total_stat: { breakdown_stats: { ad: [{ id: 'old', stats: { spend: 5000000 } }] } } }] }, [], [], first, today), null, 'no purchase numbers');
       }, function (e) { window.fetch = realFetch; throw e; });
     });
     // طلب صاحب المنتج ٢٥ أكتوبر: وسم «عُدّل…» على كروت سناب شات زي Meta — الحملات والمجموعات والإعلانات (توثيق Snap: Audit Logs،
@@ -2694,6 +2681,8 @@
       }).then(function () {
         // slow اتطلب مرتين (429 وبعدين نجح) — ٦ عناصر و٧ طلبات، وbad بس فشل وسببه مكتوب
         eq([out.asked, out.failed, asked.length, out.codes], [6, 1, 7, { 403: 1 }]);
+        // اللي سجلها وصل بس (لوحة «قيمة الأداة» مبتقولش «متعالجتش» على عنصر سجله فشل)
+        eq(out.done, ['campaign:c1', 'adsquad:s1', 'adsquad:s2', 'ad:a1', 'ad:slow']);
         var by = {};
         out.changes.forEach(function (ch) { by[ch.level + ':' + ch.id] = ch.fields; });
         eq(by['campaign:c1'], { status: { before: 'PAUSED', after: 'ACTIVE' } });
@@ -3664,7 +3653,8 @@
         return tick().then(function () {
           runAnalysis();
           eq([analysis.settingsBySource['meta:act_1'].roasBreakEven, analysis.settingsBySource['snapchat:abc-1'].roasBreakEven], [5, 1], 'each account its own loss limit');
-          eq(calls.length, 2, 'one read per account per session');
+          // قراءات الإعدادات بس (لوحة «قيمة الأداة» ليها طلباتها — episodes.sync)
+          eq(calls.filter(function (c) { return c.action.indexOf('settings.') === 0; }).length, 2, 'one read per account per session');
           disconnectPlatform('snapchat', true);
           ok(!settingsKnown('snapchat:abc-1') && settingsKnown('meta:act_1'), 'disconnecting a platform forgets only its own accounts records');
         });
@@ -5177,92 +5167,121 @@
       }, function (e) { restore(); throw e; });
     });
 
-    // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «معرّض للهدر» آخر يومين بس — جمعه من بداية الشهر
-    testAsync('Meta: «دون طلبات منذ بداية الشهر»: إعلانات المبيعات اللي مجابتش ولا طلب (والمتوقفة كمان)، من غير إعلانات الوعي', function () {
-      var hadFB = 'FB' in window, prevFB = window.FB, asked = null;
-      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
-      var buy = function (n) { return [{ action_type: 'omni_purchase', value: String(n), '7d_click': String(n) }]; };
-      window.FB = fakeFB({ '/act/ads:ACTIVE': { data: [metaAd('M1', 'ACTIVE'), metaAd('M2', 'ACTIVE')] },
-        '/act/insights': function (p) {
-          if (!/optimization_goal/.test(p.fields || '') || p.level !== 'ad' || p.time_increment) return { data: [] };
-          asked = JSON.parse(p.time_range);
-          return { data: [
-            { ad_id: 'M1', spend: '300', optimization_goal: 'OFFSITE_CONVERSIONS', actions: buy(4) },
-            { ad_id: 'M2', spend: '120', optimization_goal: 'OFFSITE_CONVERSIONS', actions: [] },
-            { ad_id: 'M3', spend: '80', optimization_goal: 'OFFSITE_CONVERSIONS' },
-            { ad_id: 'M4', spend: '500', optimization_goal: 'REACH' },
-            // المنصة بتنسب له طلبين بالمشاهدة ومفيش نقرة (ر٦٦ب): مش «دون طلبات» — برقم المنصة نفسها زي Snapchat
-            { ad_id: 'M5', spend: '50', optimization_goal: 'OFFSITE_CONVERSIONS', actions: [{ action_type: 'omni_purchase', value: '2', '1d_view': '2' }] }] };
-        } });
-      accountInfo['meta:act_12'] = { timeZone: 'UTC', currency: 'SAR' };
-      loadAdsForAccount('act_12');
-      var settle = function (n) { return sleep(40).then(function () { return !monthWaste['meta:act_12'] && n > 0 && asked !== false ? settle(n - 1) : monthWaste['meta:act_12']; }); };
-      return settle(50).then(function (w) {
-        restore();
-        var today = todayKeyInTz('UTC');
-        if (today.slice(8) === '01') { ok(!w, 'first day of the month: nothing yet'); return; }
-        eq([asked.since, asked.until], [today.slice(0, 8) + '01', shiftKey(today, -1)]);
-        eq([w.spend, w.ads, w.total], [200, 2, 1050]);
-        activeSources.meta = 'act_12';
-        eq([w.ids, w.spendById], [['M2', 'M3'], { M2: 120, M3: 80 }]);
-        // المراجعة: الشغّالة من غير طلبات بإنفاقها في الشهر
-        withLang('ar', function () { var h = wastePanelHtml(wasteData(null, [])); ok(/منذ ١ /.test(h) && /٢٠٠ ر\.س/.test(h) && /عددها ٢، والنشط منها الآن ١ بإنفاق ١٢٠ ر\.س هذا الشهر/.test(h), h); });
-        // الشراء من أي إعلان في الحساب: M1 جاب ٤ — فالتتبّع واصل، والنص «لم تحقق أي طلب» زي ما هو
-        eq(w.purchases, 6, 'purchases from any ad in the account (platform number)');
-        withLang('ar', function () { var h = wastePanelHtml(wasteData(null, [])); ok(/لم تحقق أي طلب/.test(h) && !/لم يُسجَّل/.test(h), h); });
-        // ولا شراء في الحساب كله (حساب حقيقي ١٨ أكتوبر، والملخص فوقها «لا تصل إلى المنصة أي عمليات شراء»): «لم يُسجَّل لها
-        // أي طلب» وراجع التتبّع الأول — مش «لم تحقق أي طلب»
-        w.purchases = 0;
-        withLang('ar', function () {
-          var h = wastePanelHtml(wasteData(null, []));
-          ok(/دون طلبات مسجّلة/.test(h) && /لم يُسجَّل لها أي طلب/.test(h) && /فراجع تتبّع الشراء/.test(h) && !/لم تحقق أي طلب/.test(h), h);
-        });
-        delete activeSources.meta;
-      }, function (e) { restore(); throw e; });
+    // لوحة «قيمة الأداة» مكان لوحة الهدر (قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦): المشكلة اتعالجت لو فيه تعديل خلال ٢٤ ساعة من التنبيه
+    test('قيمة الأداة: المعالجة = إيقاف أو خفض ميزانية أو تعديل خلال ٢٤ ساعة من التنبيه على الإعلان أو مجموعته أو حملته، و«متعالجتش» بعد ما السجل يغطيها بس', function () {
+      var first = Date.parse('2026-10-20T10:00:00Z'), H = 3600000, at = function (h) { return new Date(first + h * H).toISOString(); };
+      var ep = { id: 1, ad: '11', kind: 'waste', firstAt: at(0) }, objs = { ad: '11', adset: '22', campaign: '33' };
+      var acts = function (list, extra) { return Object.assign({ since: first - 8 * 24 * H, complete: true, list: list }, extra || {}); };
+      eq(valueDecision(ep, objs, acts([{ kind: 'pause', level: 'adset', id: '22', time: at(3) }]), first + 4 * H), { handledAt: at(3), action: 'pause' });
+      // رفع الميزانية مش معالجة، والخفض معالجة — والتعديل قبل التنبيه مش «بعده»
+      eq(valueDecision(ep, objs, acts([{ kind: 'budget', level: 'campaign', id: '33', time: at(1), from: 50, to: 100 },
+        { kind: 'pause', level: 'ad', id: '11', time: at(-2) }, { kind: 'budget', level: 'campaign', id: '33', time: at(5), from: 100, to: 50 }]), first + 6 * H),
+        { handledAt: at(5), action: 'budget' });
+      eq(valueDecision(ep, objs, acts([{ kind: 'creative', level: 'ad', id: '99', time: at(1) }]), first + 6 * H), null, 'another ad, and the 24 hours are not over');
+      eq(valueDecision(ep, objs, acts([]), first + 25 * H), { handledAt: null, action: null }, 'no change within the 24 hours');
+      eq(valueDecision(ep, objs, acts([{ kind: 'targeting', level: 'ad', id: '11', time: at(26) }]), first + 27 * H), { handledAt: null, action: null }, 'a change after the 24 hours');
+      eq(valueDecision(ep, objs, acts([], { complete: false }), first + 25 * H), null, 'the log was cut: we cannot say');
+      eq(valueDecision(ep, objs, acts([], { since: first + H }), first + 25 * H), null, 'the log starts after the alert');
+      // Snapchat: سجل لكل عنصر — لازم سجل الإعلان ومجموعته وحملته كلهم يكونوا وصلوا
+      eq(valueDecision(ep, objs, acts([], { objects: { 'ad:11': 1, 'adsquad:22': 1 } }), first + 25 * H), null, 'the campaign log did not arrive');
+      eq(valueDecision(ep, objs, acts([], { objects: { 'ad:11': 1, 'adsquad:22': 1, 'campaign:33': 1 } }), first + 25 * H), { handledAt: null, action: null });
     });
-    // طلب صاحب المنتج ١٨ أكتوبر ٢٠٢٦: اللوحة كانت لـ Meta بس — دلوقتي خانة لكل حساب في شريحته، و«كل الحسابات» في الآخر
-    // من ٢٥ أكتوبر (قرارات صاحب المنتج): العملات المربوطة بالدولار بتتجمع بسعر الربط، و«كل الحسابات» على المنصات المختارة بس
-    test('هدر الشهر لكل حساب، و«كل الحسابات» في الآخر: بسعر الربط بين ريال ودولار، ومن غير الحساب اللي مفيش شراء بيوصله', function () {
-      var keys = ['meta', 'snapchat', 'google'], old = { act: {}, mw: Object.assign({}, monthWaste), plats: MONTH_PLATFORMS, cur: localStorage.getItem('acc.currency') };
-      keys.forEach(function (p) { old.act[p] = activeSources[p]; });
-      var mk = function (spend, total, ads, purchases, cur) {
-        return { since: '2026-10-01', until: '2026-10-17', spend: spend, total: total, ads: ads, ids: [], spendById: {}, purchases: purchases, currency: cur };
-      };
-      var html = function (pick) { return withLang('ar', function () { return wastePanelHtml(wasteData(pick || null, [])); }); };
+    test('قيمة الأداة: الوقت بالساعات بس (أقرب نص ساعة)، وأقل من ساعة كلمة', function () {
+      withLang('ar', function () {
+        eq([0, 3000, 3600, 5400, 7200, 4 * 3600, 12 * 3600 + 600, 12 * 3600 + 1000].map(valueHoursText),
+          ['أقل من ساعة', 'أقل من ساعة', 'نحو ساعة', 'نحو ساعة ونصف', 'نحو ساعتين', 'نحو ٤ ساعات', 'نحو ١٢ ساعة', 'نحو ١٢ ساعة ونصف']);
+      });
+      withLang('en', function () { eq([3600, 9000].map(valueHoursText), ['About 1 hour', 'About 2.5 hours']); });
+    });
+    test('قيمة الأداة: اللوحة — اللي اتعالج ومبلغه والوقت هذا الشهر، و«تنتظر نظرتك» من غير أي نسبة، والملاحظة قبل أول تسجيل', function () {
+      var src = 'meta:act_7', old = { act: activeSources.meta, snap: activeSources.snapchat, info: accountInfo[src], eps: valueEpisodes[src], ack: valueAckNow,
+        stored: localStorage.getItem(VALUE_ACK_KEY), cands: candidates };
+      var now = Date.now(), monthAgo = new Date(now - 40 * 86400000).toISOString();
       try {
-        localStorage.removeItem('acc.currency');
-        activeSources.meta = 'act_7'; activeSources.snapchat = 'sn7';
-        monthWaste['meta:act_7'] = mk(1500, 7500, 20, 42, 'SAR');
-        monthWaste['snapchat:sn7'] = mk(40, 500, 3, 16, 'USD');
-        var h = html();
-        eq((h.match(/class="waste-tile[ "]/g) || []).length, 3, 'two accounts and the total');
-        ok(/منذ ١ أكتوبر \(Meta\)/.test(h) && /منذ ١ أكتوبر \(Snapchat\)/.test(h), 'one tile per account');
-        // ٤٠ $ = ١٥٠ ر.س بسعر الربط (العرض بالريال: الأكبر مبلغاً) → ١٬٦٥٠ ر.س، من إنفاق ٧٬٥٠٠ + ١٬٨٧٥ = ١٨٪
-        ok(/كل الحسابات منذ ١ أكتوبر/.test(h) && /<b class="waste-v">١٬٦٥٠ ر\.س<\/b>/.test(h) && /أي ١٨٪ من إنفاق الشهر/.test(h) &&
-          /المبالغ بعملة ر\.س بسعر الربط الرسمي بالدولار/.test(h) && /عدد الإعلانات ٢٣/.test(h), h);
-        // Snapchat لوحده: خانته هو بس، ومن غير «كل الحسابات» (التفاصيل بتتبع الاختيار)
-        var s = html(['snapchat']);
-        ok(!/\(Meta\)/.test(s) && /\(Snapchat\)/.test(s) && !/كل الحسابات/.test(s), s);
-        // نفس العملة: رقم واحد ونسبته من إنفاق الحسابات دي
-        monthWaste['snapchat:sn7'] = mk(500, 2500, 3, 16, 'SAR');
+        localStorage.removeItem(VALUE_ACK_KEY); valueAckNow = false;
+        activeSources.meta = 'act_7'; delete activeSources.snapchat;
+        accountInfo[src] = { timeZone: 'UTC', currency: 'SAR' };
+        candidates = [{ id: 'a1', source: src, active: true }, { id: 'a2', source: src, active: true }, { id: 'a3', source: src, active: false }];
+        valueEpisodes[src] = [];
+        var risk = [{ level: 'critical', atRisk: true, amount: 300, adId: 'a1', currency: 'SAR', money: { daily: 100 } },
+          { level: 'warning', atRisk: false, amount: 50, adId: 'a2', currency: 'SAR', money: { daily: 20 } }];
+        var html = function (pick, alerts) { return withLang('ar', function () { return valuePanelHtml(valueData(pick || null, alerts || [])); }); };
+        var h = html(null, risk);
+        ok(/data-value-ack/.test(h) && /دون أي أرقام إنفاق أو مبيعات/.test(h) && /بعد موافقتك أعلاه/.test(h), 'notice first: ' + h);
+        ok(/١ مشكلة تنتظر نظرتك، وتهدر نحو ١٠٠ ر\.س يومياً/.test(h) && /data-kpi="risk"/.test(h), 'pending: the urgent one only');
+        valueAckNow = true;
+        valueEpisodes[src] = [
+          { id: 101, ad: 'a1', kind: 'waste', firstAt: new Date(now).toISOString(), decided: true, handledAt: new Date(now).toISOString(), action: 'pause' },
+          { id: 102, ad: 'a2', kind: 'waste', firstAt: new Date(now).toISOString(), decided: false, handledAt: null, action: null },
+          { id: 103, ad: 'a3', kind: 'waste', firstAt: monthAgo, decided: true, handledAt: monthAgo, action: 'pause' }];
+        valueMoney[101] = { v: 120, cur: 'SAR' }; valueMoney[103] = { v: 999, cur: 'SAR' };
         h = html();
-        ok(/<b class="waste-v">٢٬٠٠٠ ر\.س<\/b>/.test(h) && /أي ٢٠٪ من إنفاق الشهر في هذه الحسابات/.test(h), h);
-        // حساب مفيش شراء بيوصله: برّه المجموع — وفضل حساب واحد، فمفيش «كل الحسابات»
-        monthWaste['meta:act_7'] = mk(400, 900, 7, 0, 'SAR');
+        ok(!/data-value-ack/.test(h), 'no notice once accepted');
+        ok(/مشكلات عالجتها بعد تنبيهنا<\/span><b class="value-v">١<\/b>/.test(h), 'one fixed this month (last month left out): ' + h);
+        ok(/لا يقل عن ١٢٠ ر\.س/.test(h) && !/٩٩٩/.test(h), 'its amount, this month only');
+        // يوم واحد فيه تنبيه جديد: دقيقة + ١٠ ثواني × إعلانين شغّالين = ٨٠ ثانية
+        ok(/وقت وفّرناه عليك<\/span><b class="value-v">أقل من ساعة<\/b>/.test(h), h);
+        ok(/كيف نحسبها؟/.test(h) && /١٠ ثوانٍ لكل إعلان نشط/.test(h), 'how we count');
+        // ولا واحدة اتعالجت: سطر محايد بعدد اللي نبّهنا لها، من غير خانة «٠»
+        valueEpisodes[src] = valueEpisodes[src].slice(1, 2);
         h = html();
-        ok(!/كل الحسابات/.test(h) && /ولم تصل إلى Meta أي عملية شراء/.test(h), h);
-        // تلات حسابات وواحد منهم مفيش شراء بيوصله: المجموع من الاتنين التانيين، وسطر بيقول مين برّه
-        MONTH_PLATFORMS = ['meta', 'google', 'snapchat']; activeSources.google = '123';
-        monthWaste['google:123'] = mk(300, 1200, 2, 5, 'SAR');
-        h = html();
-        ok(/<b class="waste-v">٨٠٠ ر\.س<\/b>/.test(h) && /ولا يشمل Meta، لأنه لم تصل إليها أي عملية شراء هذا الشهر/.test(h), h);
+        ok(/نبّهناك هذا الشهر إلى ١ مشكلة/.test(h) && !/مشكلات عالجتها/.test(h) && !/هدر منعته/.test(h), h);
+        eq(html(['snapchat']), '', 'Snapchat only and not connected: nothing to show');
       } finally {
-        if (old.cur == null) localStorage.removeItem('acc.currency'); else localStorage.setItem('acc.currency', old.cur);
-        MONTH_PLATFORMS = old.plats;
-        keys.forEach(function (p) { if (old.act[p] === undefined) delete activeSources[p]; else activeSources[p] = old.act[p]; });
-        Object.keys(monthWaste).forEach(function (k) { if (!(k in old.mw)) delete monthWaste[k]; });
-        Object.keys(old.mw).forEach(function (k) { monthWaste[k] = old.mw[k]; });
+        activeSources.meta = old.act; if (old.act === undefined) delete activeSources.meta;
+        if (old.snap !== undefined) activeSources.snapchat = old.snap;
+        if (old.info === undefined) delete accountInfo[src]; else accountInfo[src] = old.info;
+        if (old.eps === undefined) delete valueEpisodes[src]; else valueEpisodes[src] = old.eps;
+        delete valueMoney[101]; delete valueMoney[103];
+        valueAckNow = old.ack; candidates = old.cands;
+        if (old.stored == null) localStorage.removeItem(VALUE_ACK_KEY); else localStorage.setItem(VALUE_ACK_KEY, old.stored);
       }
+    });
+    // من أول التسجيل للمبلغ: المشكلات بتتبعت للسيرفر (بعد الملاحظة بس)، والقرار من سجل التعديلات، والمبلغ من أرقام الكارت
+    testAsync('قيمة الأداة: تسجيل المشكلات بعد الموافقة بس، والقرار من سجل التعديلات، والمبلغ من أيام الكارت قبل التنبيه', function () {
+      var src = 'meta:act_9', calls = [], H = 3600000, now = Date.now(), firstAt = new Date(now - 30 * H).toISOString();
+      var old = { act: activeSources.meta, cands: candidates, analysis: analysis, sync: window.syncCall, tok: window.platformTokenOf, ack: valueAckNow,
+        stored: localStorage.getItem(VALUE_ACK_KEY), money: localStorage.getItem(VALUE_MONEY_KEY), load: loadingPlatforms.meta, pend: numbersPending.meta };
+      var dates = [], daily = [];
+      for (var i = 9; i >= 0; i--) { dates.push(shiftKey(todayKeyInTz('UTC'), -i)); daily.push(90); }
+      var restore = function () {
+        activeSources.meta = old.act; if (old.act === undefined) delete activeSources.meta;
+        candidates = old.cands; analysis = old.analysis; window.syncCall = old.sync; window.platformTokenOf = old.tok; valueAckNow = old.ack;
+        loadingPlatforms.meta = old.load; numbersPending.meta = old.pend;
+        delete acctSettings[src]; delete accountInfo[src]; delete valueEpisodes[src]; delete valueActions[src]; delete valueState[src]; delete valueMoney[55];
+        if (old.stored == null) localStorage.removeItem(VALUE_ACK_KEY); else localStorage.setItem(VALUE_ACK_KEY, old.stored);
+        if (old.money == null) localStorage.removeItem(VALUE_MONEY_KEY); else localStorage.setItem(VALUE_MONEY_KEY, old.money);
+      };
+      try {
+        localStorage.removeItem(VALUE_ACK_KEY); valueAckNow = false;
+        activeSources.meta = 'act_9'; acctSettings[src] = null; accountInfo[src] = { timeZone: 'UTC', currency: 'SAR' };
+        loadingPlatforms.meta = false; numbersPending.meta = false;
+        candidates = [{ id: '111', nativeId: '111', source: src, active: true, currency: 'SAR', adsetId: '222', campaignId: '333', dailyDates: dates, daily: daily }];
+        analysis = { alerts: [{ level: 'critical', atRisk: true, amount: 300, adId: '111', code: 'waste-week', currency: 'SAR', money: { daily: 90 } }], byAd: {} };
+        window.platformTokenOf = function () { return 'tok_abcdefghijklmnopqrstuvwxyz'; };
+        window.syncCall = function (body) {
+          calls.push(body);
+          if (body.action === 'episodes.sync') return Promise.resolve({ episodes: [{ id: 55, ad: '111', kind: 'waste', firstAt: firstAt, decided: false, handledAt: null, action: null }] });
+          return Promise.resolve({ ok: true, saved: 1 });
+        };
+        valueActions[src] = { since: now - 8 * 24 * H, complete: true, list: [{ kind: 'pause', level: 'campaign', id: '333', time: new Date(now - 28 * H).toISOString() }] };
+        valueState[src] = {};
+        valueTick();
+      } catch (e) { restore(); throw e; }
+      return sleep(30).then(function () {
+        eq(calls[0] && [calls[0].action, calls[0].platform, calls[0].accountId, calls[0].open], ['episodes.sync', 'meta', 'act_9', null], 'before the notice: read only');
+        valueAckNow = true; valueState[src] = {}; calls.length = 0;
+        valueTick(); valueTick();
+        return sleep(30);
+      }).then(function () {
+        var syncs = calls.filter(function (c) { return c.action === 'episodes.sync'; }), dec = calls.filter(function (c) { return c.action === 'episodes.decide'; })[0];
+        eq(syncs.length, 1, 'the same problems again: no second request');
+        eq(syncs[0].open, [{ ad: '111', kind: 'waste' }]);
+        eq(dec && dec.decisions, [{ id: 55, handledAt: new Date(now - 28 * H).toISOString(), action: 'pause' }], 'the campaign was paused 2 hours after the alert');
+        eq(valueEpisodes[src][0].handledAt, new Date(now - 28 * H).toISOString());
+        eq(valueMoney[55], { v: 90, cur: 'SAR' }, 'what it spent a day in the 3 complete days before the alert');
+        restore();
+      }, function (e) { restore(); throw e; });
     });
     // حساب حقيقي ١٠ أكتوبر ٢٠٢٦: إعلانات فيديو Advantage+ والكتالوج كانت «الوجهة —»، وغلاف ١١ فيديو ١٦٠×١٦٠ مشوّش
     test('Meta: الوجهة من template_data (الكتالوج) وasset_feed_spec (نسخة لكل مكان ظهور)، والغلاف الصغير بيتأجل', function () {

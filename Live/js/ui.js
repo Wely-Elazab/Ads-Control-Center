@@ -153,6 +153,8 @@
     Object.keys(sourceCache).forEach(function (k) { if (k.indexOf(platform + ':') === 0) delete sourceCache[k]; });
     // إعدادات حسابات المنصة دي اللي جت من السيرفر — اللي يربط بعده (حتى من نفس الصفحة) بيجيبها بمفتاحه هو
     Object.keys(acctSettings).concat(Object.keys(acctPulling)).forEach(function (k) { if (k.indexOf(platform + ':') === 0) { delete acctSettings[k]; delete acctPulling[k]; } });
+    // ومشكلات لوحة «قيمة الأداة» وسجل تعديلاتها بتاعة حسابات المنصة دي
+    [valueEpisodes, valueActions, valueState].forEach(function (m) { Object.keys(m).forEach(function (k) { if (k.indexOf(platform + ':') === 0) delete m[k]; }); });
     setPlatformState(platform, null);
     forgetAccount(platform);
     setPlatformOptions(platform, []); // بيحفظ الجلسة كمان
@@ -1998,99 +2000,281 @@
       (all ? '<button type="button" class="top-alerts-all" data-go-alerts>' + t('top.all', { n: ar(all) }) + '</button>' : '');
     return shown;
   }
-  // ---------- لوحة الهدر (فوق سبب الحكم) ----------
-  // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: شارتا «معرّض للهدر (آخر يومين)» و«دون طلبات منذ…» مش بارزين ومش بيوضحوا الهدر ولا
-  // قيمة الأداة. دلوقتي لوحة: (١) الهدر اللي اكتشفناه في آخر ٧ أيام على إعلانات لسه شغّالة (التنبيهات العاجلة: إنفاق من غير
-  // نتائج، أو الإنفاق اللي المبيعات مغطّتهوش) — الإعلان اللي عليه تنبيهين بيتحسب مرة بالأكبر، (٢) اللي بيتصرف بنفس الشكل كل يوم
-  // دلوقتي = اللي إيقافها أو تعديلها بيمنعه لو الأداء فضل زي ما هو، (٣) هدر الشهر من Meta (meta.js loadMonthWaste) بما فيه
-  // الإعلانات اللي اتوقفت. «وفّرنا» مبنقولهاش: مش عارفين العميل عمل إيه بعد التنبيه. pick = المنصة المختارة في الملخص
-  function wasteData(pick, alerts) {
-    var byAd = {}, found = {}, daily = {}, n = 0, orders = true;
+  // ---------- لوحة «قيمة الأداة» (مكان لوحة الهدر فوق سبب الحكم) ----------
+  // قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦: «قسم الهدر… الهدف منه هو عرض قيمة الأداة وليس تفاصيل كثيرة لا يقرأها أي شخص». بعد نقاش المراجع
+  // (Opteo: الوقت والمبلغ اللي كان هيتصرف لولا التدخل؛ وأنظمة التنبيه بتفصل وقت الاكتشاف — بتاع الأداة — عن سرعة الإنسان) اتفقنا على:
+  // (١) مشكلات عالجتها بعد تنبيهنا، (٢) هدر منعته = ما كان كل إعلان منهم بيهدره في اليوم قبل التنبيه ليوم واحد، (٣) وقت وفّرناه
+  // بالساعات («اجعلها بالساعات وليس بالدقائق أو الثواني»)، وسطر «تنتظر نظرتك» — من غير أي نسبة على المستخدم («سرعة تصرّف المستخدم قد
+  // تكون هجوماً عليه»). المشكلة = تنبيه «عاجل» عليه مبلغ هدر، والمعالجة = تعديل خلال ٢٤ ساعة من التنبيه على الإعلان أو مجموعته أو
+  // حملته (سجل تعديلات المنصة). السجل على السيرفر (supabase/functions/sync/episodes.ts) من غير أي مبالغ، والمبلغ من المنصة وقت العرض.
+  // قبل أول تسجيل: ملاحظة واحدة على الجهاز (سياسة الخصوصية: «نوضّح التغيير قبل تفعيله»). Meta وSnapchat بس (سجل التعديلات)
+  var VALUE_PLATFORMS = ['meta', 'snapchat'];
+  var VALUE_ACK_KEY = 'pauseproof.value.ack.v1', VALUE_MONEY_KEY = 'pauseproof.value.money.v1';
+  var VALUE_DAY = 86400000, VALUE_RESYNC = 10 * 60000;
+  // وقت البحث عن الإعلانات العاجلة من غير تنبيه، في كل يوم فيه تنبيه جديد: دقيقة للحساب (فتحه وضبط الفترة والأعمدة) و١٠ ثواني لكل إعلان
+  // شغّال (مقارنة إنفاقه ونتائجه بحدّك) — تقدير متحفظ اتفقنا عليه، وبيتقال في «كيف نحسبها؟»
+  var VALUE_SECONDS = { account: 60, ad: 10 };
+  var valueEpisodes = {};   // المصدر ← مشكلاته من السيرفر (آخر ٤٥ يوم)
+  var valueActions = {};    // المصدر ← { since, complete, objects?, list } من سجل التعديلات (meta.js loadAdEdits، snapchat.js publishSnapValueActions)
+  var valueState = {};      // المصدر ← { key, at, busy, deciding, moneyBusy, snapAsked }
+  var valueTzOf = {};       // توقيت حساب Snapchat (snapchat.js) — Meta من accountInfo
+  var valueAckNow = false;
+  var valueMoney = (function () {
+    try { var v = JSON.parse(localStorage.getItem(VALUE_MONEY_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
+    catch (e) { return {}; }
+  })();
+  function saveValueMoney() { try { localStorage.setItem(VALUE_MONEY_KEY, JSON.stringify(valueMoney)); } catch (e) { /* بيتحسب تاني المرة الجاية */ } }
+  function valueAcked() {
+    if (valueAckNow) return true;
+    try { return localStorage.getItem(VALUE_ACK_KEY) === '1'; } catch (e) { return false; }
+  }
+  function ackValue() { valueAckNow = true; try { localStorage.setItem(VALUE_ACK_KEY, '1'); } catch (e) { /* الجلسة دي بس */ } }
+  function valueTz(source) {
+    var p = platformOfSource(source);
+    return (p === 'snapchat' ? valueTzOf[source] : (accountInfo[source] || {}).timeZone) || BROWSER_TZ;
+  }
+  function valueAdOf(source, ad) { return candidates.filter(function (c) { return c.source === source && String(c.nativeId || c.id) === ad; })[0] || null; }
+  // مشكلات الحساب دلوقتي: نفس التنبيهات اللي في «تنتظر نظرتك» (عاجل وعليه مبلغ هدر) — من كل التنبيهات مش المفلترة بالمنصة المختارة،
+  // وإلا مشكلات المنصة التانية كانت هتخلص بالغلط
+  function valueProblems(alerts, source) {
+    var seen = {}, out = [];
     alerts.forEach(function (a) {
       if (a.level !== 'critical' || !a.atRisk || !(a.amount > 0) || !a.adId) return;
-      var x = byAd[a.adId] || (byAd[a.adId] = { cur: a.currency || '', v: 0, d: 0 });
-      x.v = Math.max(x.v, a.amount); x.d = Math.max(x.d, (a.money && a.money.daily) || 0);
       var c = findCandidate(a.adId);
-      if (c && c.resultKey !== 'purchase') orders = false;
+      if (!c || c.source !== source) return;
+      var ad = String(c.nativeId || c.id), kind = a.code === 'loss' ? 'loss' : 'waste';
+      if (seen[ad + '|' + kind]) return;
+      seen[ad + '|' + kind] = 1;
+      out.push({ ad: ad, kind: kind });
     });
-    Object.keys(byAd).forEach(function (id) {
-      var x = byAd[id]; n++;
-      found[x.cur] = (found[x.cur] || 0) + x.v; daily[x.cur] = (daily[x.cur] || 0) + x.d;
+    return out.sort(function (x, y) { return x.ad < y.ad ? -1 : (x.ad > y.ad ? 1 : (x.kind < y.kind ? -1 : 1)); });
+  }
+  // الحساب خلص تحميله كله (والمتوقفة كمان) وإعداداته وصلت (أقصى التكلفة هو اللي بيخلّي التنبيه عاجل): غير كده المشكلات ناقصة
+  function valueReady(source) {
+    var p = platformOfSource(source);
+    return VALUE_PLATFORMS.indexOf(p) > -1 && sourceOf(p) === source && !loadingPlatforms[p] && !numbersPending[p] && settingsKnown(source) &&
+      !!platformTokenOf(p) && candidates.some(function (c) { return c.source === source; });
+  }
+  function valueTick() {
+    VALUE_PLATFORMS.forEach(function (p) {
+      var source = sourceOf(p);
+      if (source && valueReady(source)) valueSync(source);
     });
-    // خانة لكل حساب في شريحته، و«كل الحسابات» في الآخر في كل الشرائح (طلب صاحب المنتج ١٨ أكتوبر ٢٠٢٦) لو حسابين أو أكتر فيهم هدر.
-    // الحساب اللي مفيش ولا شراء بيوصله في الشهر برّه المجموع: هدره مجهول مش صفر (زي «كل المنصات» — مراجعة المرحلة ٤ ر٦٥)،
-    // والعملات كل واحدة لوحدها من غير تحويل (م٦: مفيش رقم بيجمع عملتين)
-    // المنصات المختارة بس (platSel — قرار ٢٥ أكتوبر: التفاصيل كلها بتتغيّر بالاختيار)، والمجموع على المختارة لو اتنين أو أكتر
-    var all = MONTH_PLATFORMS.map(monthOf).filter(function (m) { return m && m.w.spend > 0 && (!pick || pick.indexOf(m.p) > -1); });
-    var months = all;
-    var inTotal = all.filter(function (m) { return m.w.purchases > 0; }), total = null;
-    if (inTotal.length >= 2) {
-      total = { parts: inTotal, byCur: {}, spendCur: {}, ads: 0, since: inTotal[0].w.since,
-        out: all.filter(function (m) { return inTotal.indexOf(m) === -1; }).map(function (m) { return m.p; }) };
-      inTotal.forEach(function (m) {
-        var k = m.w.currency || '';
-        total.byCur[k] = (total.byCur[k] || 0) + m.w.spend; total.spendCur[k] = (total.spendCur[k] || 0) + m.w.total; total.ads += m.w.ads;
+  }
+  function valueSync(source) {
+    var st = valueState[source] = valueState[source] || {};
+    if (st.busy) return;
+    var open = valueAcked() ? valueProblems(analysis.alerts, source) : null, key = JSON.stringify(open);
+    if (st.key === key && Date.now() - st.at < VALUE_RESYNC) return;
+    st.busy = true; st.key = key; st.at = Date.now();
+    settingsCall('episodes.sync', source, { open: open }).then(function (res) {
+      st.busy = false;
+      if (!res || !Array.isArray(res.episodes) || sourceOf(platformOfSource(source)) !== source) return;
+      valueEpisodes[source] = res.episodes;
+      valueDecide(source);
+      valueLoadMoney(source);
+      renderValueAgain();
+    }, function () { st.busy = false; });
+  }
+  // التعديل اللي بيتحسب معالجة: إيقاف، أو خفض ميزانية (٢٠٪ أو أكتر — الأقل مبيوصلش هنا أصلاً)، أو تصميم أو استهداف أو مزايدة.
+  // رفع الميزانية على إعلان بيهدر مش معالجة
+  var VALUE_ACT = { pause: 1, budget: 1, targeting: 1, creative: 1, bid: 1 };
+  function valueActionCounts(a) { return !!VALUE_ACT[a.kind] && (a.kind !== 'budget' || (a.from > 0 && a.to > 0 && a.to < a.from)); }
+  function valueTime(s) { return Date.parse(String(s || '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2')); }
+  // قرار مشكلة واحدة: { handledAt, action } لو فيه تعديل جوه الـ ٢٤ ساعة بعد التنبيه، و{ handledAt: null } لو الـ ٢٤ ساعة خلصت والسجل
+  // غطّاها كلها من غير تعديل، و null = لسه منعرفش. objs = الإعلان ومجموعته وحملته، acts = valueActions[المصدر]
+  function valueDecision(ep, objs, acts, now) {
+    var first = valueTime(ep.firstAt), end = first + VALUE_DAY;
+    if (isNaN(first) || !acts) return null;
+    var hit = acts.list.filter(function (a) {
+      var t0 = valueTime(a.time);
+      var mine = (a.level === 'ad' && a.id === objs.ad) || (a.level === 'adset' && !!objs.adset && a.id === objs.adset) ||
+        (a.level === 'campaign' && !!objs.campaign && a.id === objs.campaign);
+      return mine && t0 >= first && t0 <= end && valueActionCounts(a);
+    }).sort(function (x, y) { return valueTime(x.time) - valueTime(y.time); })[0];
+    if (hit) return { handledAt: new Date(valueTime(hit.time)).toISOString(), action: hit.kind };
+    var keys = ['ad:' + objs.ad].concat(objs.adset ? ['adsquad:' + objs.adset] : [], objs.campaign ? ['campaign:' + objs.campaign] : []);
+    var covered = acts.complete && first >= acts.since && (!acts.objects || keys.every(function (k) { return acts.objects[k]; }));
+    return now >= end && covered ? { handledAt: null, action: null } : null;
+  }
+  function valueObjects(source, ep) {
+    var c = valueAdOf(source, ep.ad);
+    return { ad: ep.ad, adset: c && c.adsetId ? String(c.adsetId) : null, campaign: c && c.campaignId ? String(c.campaignId) : null };
+  }
+  function valueDecide(source) {
+    var st = valueState[source] = valueState[source] || {}, acts = valueActions[source], eps = valueEpisodes[source] || [];
+    if (st.deciding || !acts) return;
+    var now = Date.now(), out = [], need = [];
+    eps.forEach(function (ep) {
+      if (ep.decided) return;
+      var objs = valueObjects(source, ep), d = valueDecision(ep, objs, acts, now);
+      if (d) { out.push({ id: ep.id, handledAt: d.handledAt, action: d.action }); return; }
+      // Snapchat: سجل عناصر المشكلة مجاش مع الوسوم (الإعلان اتوقف بعد التنبيه فمش في الشغّالة) — بنطلبه مرة في الجلسة
+      if (acts.objects && valueTime(ep.firstAt) >= acts.since) {
+        need.push({ level: 'ad', id: objs.ad });
+        if (objs.adset) need.push({ level: 'adsquad', id: objs.adset });
+        if (objs.campaign) need.push({ level: 'campaign', id: objs.campaign });
+      }
+    });
+    if (need.length && !st.snapAsked && typeof snapValueChanges === 'function') {
+      st.snapAsked = true;
+      snapValueChanges(source.slice('snapchat:'.length), need, valueTz(source)).then(function (got) { if (got) valueDecide(source); });
+    }
+    if (!out.length) return;
+    st.deciding = true;
+    settingsCall('episodes.decide', source, { decisions: out.slice(0, 100) }).then(function () {
+      st.deciding = false;
+      out.slice(0, 100).forEach(function (d) {
+        eps.forEach(function (ep) { if (ep.id === d.id) { ep.decided = true; ep.handledAt = d.handledAt; ep.action = d.action; } });
       });
-    }
-    return { n: n, found: found, daily: daily, orders: orders, months: months, total: total };
+      valueLoadMoney(source);
+      renderValueAgain();
+    }, function () { st.deciding = false; });
   }
-  // هدر الشهر لكل حساب متصل: Meta (meta.js loadMonthWaste) وSnapchat (api/snapchat-ads-fetch.js snapMonthWaste) — Google لسه
-  var MONTH_PLATFORMS = ['meta', 'snapchat'];
-  function monthOf(p) {
-    var w = typeof monthWaste !== 'undefined' && activeSources[p] ? monthWaste[p + ':' + activeSources[p]] : null;
-    if (!w) return null;
-    var src = p + ':' + activeSources[p], ids = {};
-    (w.ids || []).forEach(function (id) { ids[id] = 1; });
-    // الشغّالة منها وإنفاقها في الشهر (مراجعة ١١ أكتوبر ٢٠٢٦: «النشط منها ١٤» من غير مبلغ مكانش بيقول قد إيه على المحك — وكانت
-    // كلها «عُدّل مؤخراً» فمش ظاهرة كهدر فوق)
-    var liveAds = candidates.filter(function (c) { return c.source === src && c.active && ids[String(c.nativeId || c.id)]; });
-    var liveSpend = liveAds.reduce(function (s, c) { return s + ((w.spendById || {})[String(c.nativeId || c.id)] || 0); }, 0);
-    return { p: p, w: w, live: liveAds.length, liveSpend: liveSpend };
+  // سجل التعديلات وصل (meta.js / snapchat.js) — المشكلات اللي مستنياه بيتقرر فيها
+  function valueActionsArrived(source) { if (valueEpisodes[source]) valueDecide(source); }
+  // ما كان الإعلان بيهدره في اليوم وقت التنبيه (نفس المحرك — alerts.js withMoney: متوسط آخر ٣ أيام مكتملة قبل يوم التنبيه): الإنفاق كله
+  // في «دون نتيجة»، والإنفاق ناقص المبيعات في الخسارة. من أرقام الكارت لو الأيام دي جوه أسبوعه، وإلا إنفاق المنصة (طلب واحد للحساب)
+  function valueDays(ep, tz) {
+    var day = DX._.keyInTz(ep.firstAt, tz);
+    return day ? [shiftKey(day, -3), shiftKey(day, -2), shiftKey(day, -1)] : null;
   }
-  function pctText(x) { return ar(Math.round(x * 100)) + (isAr() ? '٪' : '%'); }
-  function weekByCur(map) { var o = {}; Object.keys(map).forEach(function (k) { o[k] = map[k] * 7; }); return o; }
-  function wastePanelHtml(d) {
-    var hasDaily = Object.keys(d.daily).some(function (k) { return d.daily[k] > 0; });
-    if (!d.n && !d.months.length && !d.total) return '';
-    var tile = function (cls, k, v, s) {
-      return '<div class="waste-tile' + cls + '"><span class="waste-k">' + esc(k) + '</span><b class="waste-v">' + esc(v) + '</b><span class="waste-s">' + esc(s) + '</span></div>';
-    };
-    var tiles = '';
-    if (d.n) {
-      tiles += tile(' bad', t('waste.found.k'), moneyByCur(d.found), t('waste.found.s', { n: ar(d.n) }));
-      if (hasDaily) tiles += tile(' bad', t('waste.stop.k'), t('waste.stop.v', { v: moneyByCur(d.daily) }), t('waste.stop.s', { week: moneyByCur(weekByCur(d.daily)) }));
-    }
-    var several = PLATFORMS.filter(isConnected).length > 1;
-    d.months.forEach(function (m) {
-      var w = m.w, plat = several ? ' (' + PLATFORM_NAMES[m.p] + ')' : '';
-      // ولا شراء من الحساب كله في الشهر (w.purchases): «لم يُسجَّل لها طلب» وراجع التتبّع الأول، مش «لم تحقق أي طلب» — ملخص
-      // المتجر فوقها بيقول إن مفيش مشتريات بتوصل أصلاً
-      tiles += tile('', t('waste.month.k', { since: fmtKey(w.since) }) + plat, money(w.spend, w.currency),
-        t(w.purchases === 0 ? 'waste.month.sNoTrack' : 'waste.month.s', { n: ar(w.ads), pct: pctText(w.total > 0 ? w.spend / w.total : 0), plat: PLATFORM_NAMES[m.p],
-          live: m.live ? t('waste.month.live', { n: ar(m.live), v: money(m.liveSpend, w.currency) }) : '' }));
+  function valueRateFromCard(ep, c, tz) {
+    var days = valueDays(ep, tz);
+    if (!days || !c || !c.dailyDates) return null;
+    var idx = days.map(function (d) { return c.dailyDates.indexOf(d); });
+    if (idx.some(function (i) { return i < 0; })) return null;
+    var spend = idx.reduce(function (s, i) { return s + ((c.daily || [])[i] || 0); }, 0);
+    if (ep.kind !== 'loss') return spend / 3;
+    var sales = idx.reduce(function (s, i) { return s + ((c.dailySales || [])[i] || 0); }, 0);
+    return Math.max(0, spend - sales) / 3;
+  }
+  function valueCurrency(source) {
+    var c = candidates.filter(function (x) { return x.source === source && x.currency; })[0];
+    return (c && c.currency) || (accountInfo[source] || {}).currency || '';
+  }
+  function valueLoadMoney(source) {
+    var st = valueState[source] = valueState[source] || {}, tz = valueTz(source), cur = valueCurrency(source), need = [], changed = false;
+    (valueEpisodes[source] || []).forEach(function (ep) {
+      if (!ep.handledAt || valueMoney[ep.id]) return;
+      var r = valueRateFromCard(ep, valueAdOf(source, ep.ad), tz);
+      if (r != null) { valueMoney[ep.id] = { v: r, cur: cur }; changed = true; return; }
+      // الخسارة برّه أسبوع الكارت مبتتحسبش (المبيعات محتاجة نفس نسب الكارت) — العدد بيتحسب والمبلغ لأ: «لا يقل عن»
+      if (ep.kind === 'waste' && valueDays(ep, tz)) need.push(ep);
     });
-    if (d.total) {
-      var T = d.total, curs = Object.keys(T.byCur);
-      // عملات مختلفة كلها مربوطة بالدولار: المبلغ والنسبة بعد التحويل بسعر الربط (قرار ٢٥ أكتوبر — moneyByCur)، وإلا كل عملة لوحدها
-      var pegged = curs.length > 1 && curs.every(function (c) { return c && DX.pegRate(c, 'USD'); }), to = pegged ? targetCurrency(T.byCur) : null;
-      var conv = function (map) { return Object.keys(map).reduce(function (s, c) { return s + map[c] * DX.pegRate(c, to); }, 0); };
-      var share = curs.length === 1 && T.spendCur[curs[0]] > 0 ? t('waste.total.share', { pct: pctText(T.byCur[curs[0]] / T.spendCur[curs[0]]) })
-        : (pegged ? (conv(T.spendCur) > 0 ? t('waste.total.share', { pct: pctText(conv(T.byCur) / conv(T.spendCur)) }) : '') + t('waste.total.conv', { to: currencyLabel(to) || to })
-          : t('waste.total.cur'));
-      var parts = DX.listText(T.parts.map(function (m) { return t('waste.total.part', { plat: PLATFORM_NAMES[m.p], v: money(m.w.spend, m.w.currency) }); }));
-      tiles += tile(' total', t('waste.total.k', { since: fmtKey(T.since) }), moneyByCur(T.byCur), t('waste.total.s', { parts: parts, share: share, n: ar(T.ads),
-        ex: T.out.length ? t('waste.total.ex', { plats: DX.listText(T.out.map(function (p) { return PLATFORM_NAMES[p]; })) }) : '' }));
+    if (changed) saveValueMoney();
+    if (!need.length || st.moneyBusy) return;
+    var days = [].concat.apply([], need.map(function (ep) { return valueDays(ep, tz); })).sort();
+    var since = days[0], until = days[days.length - 1];
+    if ((Date.parse(until + 'T00:00:00Z') - Date.parse(since + 'T00:00:00Z')) / VALUE_DAY > 30) {
+      since = shiftKey(until, -30);
+      need = need.filter(function (ep) { return valueDays(ep, tz)[0] >= since; });
     }
-    var noTrack = !d.total && d.months.length && d.months.every(function (m) { return m.w.purchases === 0; });
-    return '<div class="waste-panel' + (d.n ? ' has-risk' : '') + '"><p class="waste-title">' + esc(t(d.n ? 'waste.title' : (noTrack ? 'waste.titleMonthNoTrack' : 'waste.titleMonth'))) + '</p>' +
-      '<div class="waste-tiles">' + tiles + '</div>' +
-      '<div class="waste-foot">' + (d.n ? '<button type="button" class="waste-cta" data-kpi="risk">' + esc(t('waste.cta')) + '</button>' : '') +
-      '<p class="waste-note">' + esc(t(!d.n ? 'waste.noteMonth' : (d.orders ? 'waste.note' : 'waste.noteRes'))) + '</p></div></div>';
+    var ids = need.map(function (ep) { return ep.ad; }).filter(function (id, i, a) { return a.indexOf(id) === i; });
+    var account = source.slice(platformOfSource(source).length + 1);
+    var job = platformOfSource(source) === 'meta'
+      ? metaObjectDaily(account, [{ level: 'ad', ids: ids }], since, until).then(function (out) {
+        var m = {};
+        Object.keys(out || {}).forEach(function (id) { m[id] = {}; out[id].forEach(function (b) { m[id][b.date] = b.spend || 0; }); });
+        return m;
+      })
+      : snapDailySpend(account, ids, since, until);
+    st.moneyBusy = true;
+    Promise.resolve(job).then(function (byAd) {
+      st.moneyBusy = false;
+      if (!byAd) return;
+      need.forEach(function (ep) {
+        var m = byAd[ep.ad] || {};
+        valueMoney[ep.id] = { v: valueDays(ep, tz).reduce(function (s, d) { return s + (m[d] || 0); }, 0) / 3, cur: cur };
+      });
+      saveValueMoney();
+      renderValueAgain();
+    }, function () { st.moneyBusy = false; });
+  }
+  // «نحو ٤ ساعات» — بالساعات بس (أقرب نص ساعة)، وأقل من ساعة كلمة
+  function valueHoursText(seconds) {
+    var h = (seconds || 0) / 3600;
+    if (h < 1) return t('val.h.less');
+    var halves = Math.round(h * 2) / 2, n = Math.floor(halves), half = halves > n;
+    if (!isAr()) return t('val.hours.v', { h: (half ? n + '.5' : String(n)) + ' ' + (n === 1 && !half ? 'hour' : 'hours') });
+    var base = n === 1 ? 'ساعة' : n === 2 ? 'ساعتين' : ar(n) + (n <= 10 ? ' ساعات' : ' ساعة');
+    return t('val.hours.v', { h: base + (half ? ' ونصف' : '') });
+  }
+  // أرقام اللوحة للمنصات المختارة: المشكلات المسجّلة هذا الشهر (بتوقيت كل حساب)، واللي اتعالج منها ومبلغها، والوقت، و«تنتظر نظرتك» دلوقتي
+  function valueData(pick, alerts) {
+    var byAd = {}, pending = { n: 0, daily: {} };
+    alerts.forEach(function (a) {
+      if (a.level !== 'critical' || !a.atRisk || !(a.amount > 0) || !a.adId) return;
+      var x = byAd[a.adId] || (byAd[a.adId] = { cur: a.currency || '', d: 0 });
+      x.d = Math.max(x.d, (a.money && a.money.daily) || 0);
+    });
+    Object.keys(byAd).forEach(function (id) { var x = byAd[id]; pending.n++; pending.daily[x.cur] = (pending.daily[x.cur] || 0) + x.d; });
+    var d = { pending: pending, acked: valueAcked(), sources: 0, recorded: 0, handled: 0, money: {}, seconds: 0 };
+    VALUE_PLATFORMS.forEach(function (p) {
+      var source = sourceOf(p);
+      if (!source || (pick && pick.indexOf(p) === -1)) return;
+      d.sources++;
+      var tz = valueTz(source), month = todayKeyInTz(tz).slice(0, 7), days = {};
+      (valueEpisodes[source] || []).forEach(function (ep) {
+        var day = DX._.keyInTz(ep.firstAt, tz);
+        if (!day || day.slice(0, 7) !== month) return;
+        d.recorded++; days[day] = 1;
+        if (!ep.handledAt) return;
+        d.handled++;
+        var m = valueMoney[ep.id];
+        if (m && m.v > 0) d.money[m.cur] = (d.money[m.cur] || 0) + m.v;
+      });
+      var live = candidates.filter(function (c) { return c.source === source && c.active; }).length;
+      d.seconds += Object.keys(days).length * (VALUE_SECONDS.account + VALUE_SECONDS.ad * live);
+    });
+    return d;
+  }
+  function valuePanelHtml(d) {
+    if (!d.sources && !d.pending.n) return '';
+    var tile = function (k, v, s) {
+      return '<div class="value-tile"><span class="value-k">' + esc(k) + '</span><b class="value-v">' + esc(v) + '</b><span class="value-s">' + esc(s) + '</span></div>';
+    };
+    var html = '<div class="value-panel"><p class="value-title">' + esc(t('val.title')) + '</p>';
+    if (d.sources && !d.acked) {
+      html += '<p class="value-notice">' + esc(t('val.notice')) + ' <a href="/privacy" target="_blank" rel="noopener">' + esc(t('val.notice.link')) + '</a> ' +
+        '<button type="button" class="value-ack" data-value-ack>' + esc(t('val.notice.ok')) + '</button></p>';
+    }
+    if (d.sources && !d.recorded) html += '<p class="value-empty">' + esc(t(d.acked ? 'val.start' : 'val.startAfter')) + '</p>';
+    if (d.recorded) {
+      var tiles = '';
+      if (d.handled) tiles += tile(t('val.handled.k'), ar(d.handled), t('val.handled.s'));
+      if (Object.keys(d.money).length) tiles += tile(t('val.saved.k'), t('val.saved.v', { v: moneyByCur(d.money) }), t('val.saved.s'));
+      tiles += tile(t('val.hours.k'), valueHoursText(d.seconds), t('val.hours.s'));
+      if (!d.handled) html += '<p class="value-empty">' + esc(t('val.none', { n: ar(d.recorded) + ' ' + noun(d.recorded, 'n.problem') })) + '</p>';
+      html += '<div class="value-tiles">' + tiles + '</div>';
+    }
+    if (d.pending.n) {
+      html += '<div class="value-pending"><span>' + esc(t('val.pending', { n: ar(d.pending.n) + ' ' + noun(d.pending.n, 'n.problem'), v: moneyByCur(d.pending.daily) })) + '</span>' +
+        '<button type="button" class="value-cta" data-kpi="risk">' + esc(t('val.cta')) + '</button></div>';
+    }
+    if (d.sources) {
+      html += '<details class="value-how"><summary>' + esc(t('val.how')) + '</summary><ul>' +
+        ['val.how.problem', 'val.how.handled', 'val.how.saved', 'val.how.hours', 'val.how.scope'].map(function (k) { return '<li>' + esc(t(k)) + '</li>'; }).join('') +
+        '</ul></details>';
+    }
+    return html + '</div>';
+  }
+  var valueLast = null;
+  // «كيف نحسبها؟» بتفضل مفتوحة لو كانت مفتوحة (الأرقام بتوصل في الخلفية وبترسم اللوحة تاني)
+  function paintValue() {
+    var el = document.getElementById('dxWaste');
+    if (!el || !valueLast) return;
+    var how = !!el.querySelector('.value-how[open]');
+    el.innerHTML = valuePanelHtml(valueData(valueLast.pick, valueLast.alerts));
+    var d = how && el.querySelector('.value-how');
+    if (d) d.open = true;
   }
   function renderWastePanel(pick, alerts) {
-    var el = document.getElementById('dxWaste');
-    if (el) el.innerHTML = wastePanelHtml(wasteData(pick, alerts));
+    valueLast = { pick: pick, alerts: alerts };
+    valueTick();
+    paintValue();
   }
+  function renderValueAgain() { paintValue(); }
   // «تحتاج مراجعة» بيفلتر الإعلانات دي وينزل لها، و«معرّض للهدر» بيفتح التنبيهات اللي وراه
   // plat = المنصة المختارة في الملخص (الشارة جت من شريحتها) — الإعلانات بتتفلتر بيها هي كمان
   // المنصة: اختيار الصفحة نفسه (platSel) — الإعلانات بتتفلتر بيه من غير ما نغيّره
@@ -2106,7 +2290,9 @@
   }
   document.getElementById('dxWaste').addEventListener('click', function (e) {
     var el = e.target.closest('[data-kpi]');
-    if (el) kpiAction(el.dataset.kpi);
+    if (el) { kpiAction(el.dataset.kpi); return; }
+    // ملاحظة التسجيل («حسناً»): التسجيل بيبدأ من دلوقتي
+    if (e.target.closest('[data-value-ack]')) { ackValue(); valueTick(); renderValueAgain(); }
   });
   document.getElementById('topAlerts').addEventListener('click', function (e) {
     var el;

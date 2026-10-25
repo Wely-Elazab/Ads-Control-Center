@@ -226,37 +226,6 @@
   // من المشاهدة، المفتاح بتاعهم يظهر ونعرف إن «نقرة ٧ أيام» = صفر (Meta بتشيل النوافذ اللي قيمتها صفر).
   // لو Meta رفضت الطلب بالنوافذ، بنعيده من غيرها والأرقام بتفضل زي الأول (من غير مقارنة)
   var ATTR_WINDOWS = JSON.stringify(['7d_click', '1d_view', '1d_ev']);
-  // «إنفاق دون طلبات هذا الشهر» (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «معرّض للهدر» كان آخر يومين بس): إنفاق إعلانات المبيعات
-  // (هدف مجموعتها شراء) اللي مجابتش ولا طلب من أول الشهر لحد أمس — بما فيها اللي اتوقفت. بيتحسب من Meta وقت الفتح
-  // ومبيتحفظش عندنا (سياسة الخصوصية: مفيش أرقام حسابات على السيرفر). أول يوم في الشهر مفيش أيام مكتملة = مفيش رقم
-  var monthWaste = {};
-  function loadMonthWaste(accountId, source, tz, currency, live) {
-    var today = todayKeyInTz(tz), until = shiftKey(today, -1), since = today.slice(0, 8) + '01';
-    if (until < since) { delete monthWaste[source]; return Promise.resolve(); }
-    return fbPagesPromise('/' + accountId + '/insights', {
-      level: 'ad', time_range: JSON.stringify({ since: since, until: until }), fields: 'ad_id,spend,actions,optimization_goal', limit: 500
-    }, FULL_SCAN_CAP).then(function (res) {
-      if (!live() || !res || res.err || res.truncated) return;
-      var w = { since: since, until: until, spend: 0, total: 0, ads: 0, ids: [], spendById: {}, currency: currency, purchases: 0 };
-      res.data.forEach(function (row) {
-        var sp = num(row.spend), goal = GOAL_TO_ACTION[row.optimization_goal];
-        // برقم المنصة نفسها (بالمشاهدة كمان — platform = true)، زي Snapchat (api/snapchat-ads-fetch.js snapMonthWaste): «دون طلبات»
-        // = ولا طلب حتى بحساب المنصة الأوسع، أقوى دليل هدر. مراجعة المرحلة ٤ (ر٦٦ب): كان «الأقرب للمتجر» (fbPagesPromise بيطلب النوافذ
-        // لوحده)، فإعلان المنصة بتنسب له طلبات بالمشاهدة كان بيتعد هنا وهو في تنبيهاته «مهم» مش هدر (al.wasteView)
-        var p = valueForType(row.actions, 'omni_purchase', true);
-        if (p == null) p = valueForType(row.actions, 'purchase', true);
-        // الشراء من أي إعلان في الحساب (أي هدف): صفر في الشهر كله = منقدرش نقول إن إعلانات المبيعات «مجابتش طلب» — ممكن التتبّع
-        // مش واصل لـ Meta (ui.js wastePanelHtml). حساب حقيقي ١٨ أكتوبر: الملخص «لا تصل إلى المنصة أي عمليات شراء…» وتحته
-        // «٣٩٩ $ صُرفت على إعلانات مبيعات لم تحقق أي طلب» (مراجعة المرحلة ٤)
-        if (p > 0) w.purchases += p;
-        w.total += sp;
-        if (!(sp > 0) || !goal || goal[0].key !== 'purchase') return;
-        if (!(p > 0)) { w.spend += sp; w.ads++; w.ids.push(String(row.ad_id)); w.spendById[String(row.ad_id)] = sp; }
-      });
-      monthWaste[source] = w;
-      render();
-    }).catch(function () { /* الرقم مش ضروري */ });
-  }
   // تعديلات الإعلان أو مجموعته أو حملته في آخر ٨ أيام (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «لا يتم اعتبار إجراءات التحسين»):
   // الميزانية والاستهداف والتصميم وإعادة التشغيل، من سجل الحساب (activities) في الخلفية بعد ما الأرقام تظهر. التقييم
   // (alerts.js) بيستنى ٣ أيام كاملة بعد التعديل، وبعدها بيحكم على الأيام اللي بعده بس. فشل الطلب = التقييم زي ما كان
@@ -264,13 +233,21 @@
   var EDIT_KINDS = { budget: 1, targeting: 1, creative: 1, resume: 1 };
   function loadAdEdits(accountId, source, tz, live) {
     if (!window.DX || !DX._ || typeof DX._.actionOf !== 'function') return Promise.resolve();
-    return metaActivities(accountId, shiftKey(todayKeyInTz(tz), -8)).then(function (res) {
+    var sinceKey = shiftKey(todayKeyInTz(tz), -8);
+    return metaActivities(accountId, sinceKey).then(function (res) {
       if (!live() || !res || res.err) return;
-      var byObj = {};
+      var byObj = {}, all = [];
       res.data.forEach(function (ev) {
         var a = DX._.actionOf(ev, tz);
+        if (a) all.push(a);
         if (a && EDIT_KINDS[a.kind]) (byObj[a.id] = byObj[a.id] || []).push({ kind: a.kind, level: a.level, date: a.date, time: a.time, from: a.from || null, to: a.to || null });
       });
+      // كل التعديلات والإيقاف كمان للوحة «قيمة الأداة» (ui.js valueActions — اتعالجت المشكلة بعد التنبيه؟). السجل كله للحساب من sinceKey،
+      // ولو اتقطع (حساب ضخم) منقولش «متعالجتش» على حاجة
+      if (typeof valueActions !== 'undefined') {
+        valueActions[source] = { since: Date.parse(sinceKey + 'T00:00:00Z'), complete: !res.truncated, list: all };
+        valueActionsArrived(source);
+      }
       var changed = false;
       candidates.forEach(function (c) {
         if (c.source !== source) return;
@@ -585,7 +562,6 @@
       loadMetaDiagnosis(accountId, info, live);
       loadLifeFrequency(accountId, source, live);
       loadAdEdits(accountId, source, info.timeZone || BROWSER_TZ, live);
-      loadMonthWaste(accountId, source, info.timeZone || BROWSER_TZ, info.currency || null, live);
       if (showStopped) stage3();
     }).catch(function (err) {
       // أي خطأ مش متوقع (بيانات بشكل غريب من Meta مثلاً) — قبل كده مؤشر التحميل كان بيفضل يلف على طول
