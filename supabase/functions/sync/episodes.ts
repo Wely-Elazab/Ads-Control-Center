@@ -3,9 +3,10 @@
 // بعدها خلال ٢٤ ساعة. من غير أي أرقام إنفاق أو مبيعات — المبلغ بيتحسب من المنصة وقت العرض (ui.js). مشترك لكل اللي عندهم وصول
 // للحساب زي الإعدادات (settings.ts)، بنفس الشرطين: دخول الأداة، ومفتاح المنصة بيثبت إن صاحبه شايف الحساب.
 //
-//   episodes.sync   ← { platform, accountId, platformToken, open: [{ ad, kind }] | null } → { episodes }
+//   episodes.sync   ← { platform, accountId, platformToken, open: [{ ad, kind }] | null, since?: 'YYYY-MM-DD' } → { episodes }
 //                      open = مشكلات الحساب دلوقتي (الأداة شايفة أرقامه كاملة): الجديد بيتسجّل، والقديم اللي اختفى بيخلص.
-//                      null = قراءة بس (قبل ما المستخدم يشوف ملاحظة التسجيل)
+//                      null = قراءة بس (قبل ما المستخدم يشوف ملاحظة التسجيل). since = أول يوم في فترة البيانات المختارة (اللوحة
+//                      بتتبعها — قرار صاحب المنتج ٢٥ أكتوبر)، بيوم زيادة لفرق التوقيت ولحد مدة الحفظ (٩٠ يوم)؛ من غيره آخر ٤٥ يوم
 //   episodes.decide ← { platform, accountId, platformToken, decisions: [{ id, handledAt | null, action | null }] } → { ok, saved }
 //                      مرة واحدة لكل مشكلة: اتعالجت (وقت التعديل ونوعه، خلال ٢٤ ساعة من التنبيه) أو لا (بعد ما الـ ٢٤ ساعة تعدّي)
 import { db, reply } from './lib.ts';
@@ -15,7 +16,7 @@ const AD_ID: Record<string, RegExp> = { meta: /^\d{1,30}$/, snapchat: /^[A-Za-z0
 const KINDS = ['waste', 'loss'];
 const ACTIONS = ['pause', 'budget', 'targeting', 'creative', 'bid'];
 const MAX_OPEN = 500, MAX_DECIDE = 100, CHUNK = 150;
-const DAY = 86400000, WINDOW = DAY, RETURN_DAYS = 45;
+const DAY = 86400000, WINDOW = DAY, RETURN_DAYS = 45, KEEP_DAYS = 91;
 
 // مشكلات الحساب دلوقتي: إعلان ونوع معروفين، من غير تكرار. أي شكل تاني = null (الطلب بيترفض بدل ما يخلّص مشكلات بالغلط)
 export function cleanOpen(v: unknown, platform: string): { ad: string; kind: string }[] | null {
@@ -50,6 +51,14 @@ export function decisionOk(firstAt: string, d: { handledAt: string | null }, now
   if (d.handledAt == null) return now >= first + WINDOW;
   const t = Date.parse(d.handledAt);
   return t >= first && t <= first + WINDOW;
+}
+// من إمتى نرجّع المشكلات: أول يوم الفترة (YYYY-MM-DD) ناقص يوم لفرق التوقيت، ومش أقدم من مدة الحفظ؛ أي شكل تاني = آخر ٤٥ يوم
+export function sinceOf(v: unknown, now: number): string {
+  const floor = now - KEEP_DAYS * DAY;
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v + 'T00:00:00Z'))) {
+    return new Date(Math.min(now, Math.max(floor, Date.parse(v + 'T00:00:00Z') - DAY))).toISOString();
+  }
+  return new Date(now - RETURN_DAYS * DAY).toISOString();
 }
 function chunks<T>(list: T[]): T[][] {
   const out: T[][] = [];
@@ -89,7 +98,7 @@ export async function handleEpisodes(action: string, body: any, origin: string |
         });
       }
     }
-    const since = new Date(Date.now() - RETURN_DAYS * DAY).toISOString();
+    const since = sinceOf(body.since, Date.now());
     const r = await db(base + '&first_at=gte.' + encodeURIComponent(since) +
       '&select=id,ad_id,kind,first_at,ended_at,decided_at,handled_at,action&order=first_at.desc&limit=2000', { method: 'GET' });
     const rows = (await r.json().catch(() => null)) || [];

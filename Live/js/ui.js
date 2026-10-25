@@ -1504,13 +1504,31 @@
   }
   // سبب الحكم ظاهر بلون الحكم بين الأرقام والتنبيهات (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: كان مطوي تحت «تفاصيل الحكم»
   // ومكانه مش واضح) — والشرح المطوي تحت مبيكررهوش (renderDxMore)
+  // من ٢٥ أكتوبر ٢٠٢٦ «لماذا تغيّرت مبيعاتك؟» (diagnosis.js reshapeVerdict): العنوان من البلوك، وزرار لإعلانات كل حملة من أكبر المساهمين
   function renderVerdict(o) {
     var el = document.getElementById('dxVerdict');
     if (!el) return;
     var b = o && o.main >= 0 ? o.blocks[o.main] : null;
-    el.innerHTML = b ? '<div class="dx-verdict ' + esc(o.tone) + '"><p class="dx-verdict-title">' + esc(t('dx.verdict.title')) + '</p>' +
-      dxBlockHtml(b, o.main, true) + '</div>' : '';
+    // مفيش حاجة تتقال غير أرقام الخانات (المبيعات زي ما هي ومفيش سياق): مفيش صندوق — العنوان والأرقام كفاية
+    if (b && !(b.lines || []).length && !(b.bullets || []).length && !(b.after || []).length && !b.check) b = null;
+    el.innerHTML = b ? '<div class="dx-verdict ' + esc(o.tone) + '"><p class="dx-verdict-title">' + esc(b.verdictTitle || t('dx.verdict.title')) + '</p>' +
+      dxBlockHtml(b, o.main, true) + verdictMoversHtml(b) + '</div>' : '';
   }
+  function verdictMoversHtml(b) {
+    var mv = b.movers;
+    if (!mv || mv.dim !== 'campaign') return '';
+    var btns = mv.list.map(function (x) {
+      var camp = candidates.filter(function (c) { return DX.segHas({ dim: 'campaign', key: x.key }, c); })[0];
+      var name = String((camp && camp.campaignName) || x.name || '');
+      return camp ? '<button type="button" class="ghost-btn" data-campaign="' + esc(campaignKey(camp)) + '" title="' + esc(name) + '">' +
+        esc(t('dx.drv.open', { name: name.length > 40 ? name.slice(0, 39) + '…' : name })) + '</button>' : '';
+    }).join('');
+    return btns ? '<div class="attn-camp dx-movers">' + btns + '</div>' : '';
+  }
+  document.getElementById('dxVerdict').addEventListener('click', function (e) {
+    var el = e.target.closest('[data-campaign]');
+    if (el) openCampaign(el);
+  });
   // منصات العرض الظاهر في الملخص («كل المنصات» = المنصات اللي اتجمعت فيه — من غير اللي مفيش مشتريات بتوصلها) — null = مفيش
   // عروض، كل الإعلانات
   // مستهدف العرض: حساب واحد = إعداداته. «كل المنصات» = المستهدف المشترك لو كل الحسابات متفقة عليه، وإلا مفيش سطر مستهدف
@@ -2064,10 +2082,12 @@
   function valueSync(source) {
     var st = valueState[source] = valueState[source] || {};
     if (st.busy) return;
-    var open = valueAcked() ? valueProblems(analysis.alerts, source) : null, key = JSON.stringify(open);
+    // من أول يوم في فترة البيانات المختارة بتوقيت الحساب (اللوحة بتتبع الفترة — قرار صاحب المنتج ٢٥ أكتوبر): تغيير الفترة = طلب جديد
+    var since = resolvePeriodFor(valueTz(source)).since;
+    var open = valueAcked() ? valueProblems(analysis.alerts, source) : null, key = JSON.stringify([open, since]);
     if (st.key === key && Date.now() - st.at < VALUE_RESYNC) return;
     st.busy = true; st.key = key; st.at = Date.now();
-    settingsCall('episodes.sync', source, { open: open }).then(function (res) {
+    settingsCall('episodes.sync', source, { open: open, since: since }).then(function (res) {
       st.busy = false;
       if (!res || !Array.isArray(res.episodes) || sourceOf(platformOfSource(source)) !== source) return;
       valueEpisodes[source] = res.episodes;
@@ -2164,32 +2184,37 @@
     });
     if (changed) saveValueMoney();
     if (!need.length || st.moneyBusy) return;
-    var days = [].concat.apply([], need.map(function (ep) { return valueDays(ep, tz); })).sort();
-    var since = days[0], until = days[days.length - 1];
-    if ((Date.parse(until + 'T00:00:00Z') - Date.parse(since + 'T00:00:00Z')) / VALUE_DAY > 30) {
-      since = shiftKey(until, -30);
-      need = need.filter(function (ep) { return valueDays(ep, tz)[0] >= since; });
-    }
-    var ids = need.map(function (ep) { return ep.ad; }).filter(function (id, i, a) { return a.indexOf(id) === i; });
-    var account = source.slice(platformOfSource(source).length + 1);
-    var job = platformOfSource(source) === 'meta'
-      ? metaObjectDaily(account, [{ level: 'ad', ids: ids }], since, until).then(function (out) {
-        var m = {};
-        Object.keys(out || {}).forEach(function (id) { m[id] = {}; out[id].forEach(function (b) { m[id][b.date] = b.spend || 0; }); });
-        return m;
-      })
-      : snapDailySpend(account, ids, since, until);
+    // دفعات بنطاق ٣١ يوم بالكتير (حد طلب Snapchat اليومي)، ورا بعض — فترة ٩٣ يوم = ٣ طلبات بالكتير
+    need.sort(function (a, b) { return valueDays(a, tz)[0] < valueDays(b, tz)[0] ? -1 : 1; });
+    var groups = [], g = null;
+    need.forEach(function (ep) {
+      var ds = valueDays(ep, tz);
+      if (!g || keyDiffDays(g.since, ds[2]) > 30) { g = { since: ds[0], until: ds[2], eps: [] }; groups.push(g); }
+      if (ds[2] > g.until) g.until = ds[2];
+      g.eps.push(ep);
+    });
+    var account = source.slice(platformOfSource(source).length + 1), meta = platformOfSource(source) === 'meta';
+    var fetchGroup = function (grp) {
+      var ids = grp.eps.map(function (ep) { return ep.ad; }).filter(function (id, i, a) { return a.indexOf(id) === i; });
+      return meta
+        ? metaObjectDaily(account, [{ level: 'ad', ids: ids }], grp.since, grp.until).then(function (out) {
+          var m = {};
+          Object.keys(out || {}).forEach(function (id) { m[id] = {}; out[id].forEach(function (b) { m[id][b.date] = b.spend || 0; }); });
+          return m;
+        })
+        : snapDailySpend(account, ids, grp.since, grp.until);
+    };
+    var done = function () { st.moneyBusy = false; saveValueMoney(); renderValueAgain(); };
     st.moneyBusy = true;
-    Promise.resolve(job).then(function (byAd) {
-      st.moneyBusy = false;
-      if (!byAd) return;
-      need.forEach(function (ep) {
-        var m = byAd[ep.ad] || {};
-        valueMoney[ep.id] = { v: valueDays(ep, tz).reduce(function (s, d) { return s + (m[d] || 0); }, 0) / 3, cur: cur };
+    groups.reduce(function (p, grp) {
+      return p.then(function () { return fetchGroup(grp); }).then(function (byAd) {
+        if (!byAd) return;
+        grp.eps.forEach(function (ep) {
+          var m = byAd[ep.ad] || {};
+          valueMoney[ep.id] = { v: valueDays(ep, tz).reduce(function (s, d) { return s + (m[d] || 0); }, 0) / 3, cur: cur };
+        });
       });
-      saveValueMoney();
-      renderValueAgain();
-    }, function () { st.moneyBusy = false; });
+    }, Promise.resolve()).then(done, done);
   }
   // «نحو ٤ ساعات» — بالساعات بس (أقرب نص ساعة)، وأقل من ساعة كلمة
   function valueHoursText(seconds) {
@@ -2200,7 +2225,9 @@
     var base = n === 1 ? 'ساعة' : n === 2 ? 'ساعتين' : ar(n) + (n <= 10 ? ' ساعات' : ' ساعة');
     return t('val.hours.v', { h: base + (half ? ' ونصف' : '') });
   }
-  // أرقام اللوحة للمنصات المختارة: المشكلات المسجّلة هذا الشهر (بتوقيت كل حساب)، واللي اتعالج منها ومبلغها، والوقت، و«تنتظر نظرتك» دلوقتي
+  // أرقام اللوحة للمنصات المختارة وفترة البيانات المختارة (بأيام كل حساب بتوقيته — resolvePeriodFor زي باقي الأداة): المشكلات المسجّلة
+  // فيها، واللي اتعالج منها ومبلغها، والوقت. النهارده لو برّه الفترة (الفترات المتحركة أيام مكتملة): اللي اتعالج فيه سطر لوحده زي «اليوم حتى
+  // الآن» في الملخص. و«تنتظر نظرتك» دلوقتي مش في الفترة
   function valueData(pick, alerts) {
     var byAd = {}, pending = { n: 0, daily: {} };
     alerts.forEach(function (a) {
@@ -2209,15 +2236,21 @@
       x.d = Math.max(x.d, (a.money && a.money.daily) || 0);
     });
     Object.keys(byAd).forEach(function (id) { var x = byAd[id]; pending.n++; pending.daily[x.cur] = (pending.daily[x.cur] || 0) + x.d; });
-    var d = { pending: pending, acked: valueAcked(), sources: 0, recorded: 0, handled: 0, money: {}, seconds: 0 };
+    var d = { pending: pending, acked: valueAcked(), sources: 0, recorded: 0, handled: 0, money: {}, seconds: 0, today: 0, any: 0, range: null };
     VALUE_PLATFORMS.forEach(function (p) {
       var source = sourceOf(p);
       if (!source || (pick && pick.indexOf(p) === -1)) return;
       d.sources++;
-      var tz = valueTz(source), month = todayKeyInTz(tz).slice(0, 7), days = {};
+      var tz = valueTz(source), r = resolvePeriodFor(tz), today = todayKeyInTz(tz), days = {};
+      if (!d.range) d.range = r;
       (valueEpisodes[source] || []).forEach(function (ep) {
         var day = DX._.keyInTz(ep.firstAt, tz);
-        if (!day || day.slice(0, 7) !== month) return;
+        if (!day) return;
+        d.any++;
+        if (day < r.since || day > r.until) {
+          if (day === today && ep.handledAt) d.today++;
+          return;
+        }
         d.recorded++; days[day] = 1;
         if (!ep.handledAt) return;
         d.handled++;
@@ -2234,12 +2267,14 @@
     var tile = function (k, v, s) {
       return '<div class="value-tile"><span class="value-k">' + esc(k) + '</span><b class="value-v">' + esc(v) + '</b><span class="value-s">' + esc(s) + '</span></div>';
     };
-    var html = '<div class="value-panel"><p class="value-title">' + esc(t('val.title')) + '</p>';
+    var html = '<div class="value-panel"><p class="value-title">' + esc(t('val.title')) +
+      (d.range ? ' <span class="value-period">' + esc(fmtRange(d.range.since, d.range.until)) + '</span>' : '') + '</p>';
     if (d.sources && !d.acked) {
       html += '<p class="value-notice">' + esc(t('val.notice')) + ' <a href="/privacy" target="_blank" rel="noopener">' + esc(t('val.notice.link')) + '</a> ' +
         '<button type="button" class="value-ack" data-value-ack>' + esc(t('val.notice.ok')) + '</button></p>';
     }
-    if (d.sources && !d.recorded) html += '<p class="value-empty">' + esc(t(d.acked ? 'val.start' : 'val.startAfter')) + '</p>';
+    // مفيش ولا مشكلة في الفترة: لو السجل فيه مشكلات في أيام تانية «لا تنبيهات في هذه الفترة»، وإلا لسه بنبدأ
+    if (d.sources && !d.recorded) html += '<p class="value-empty">' + esc(t(d.any ? 'val.noneInPeriod' : (d.acked ? 'val.start' : 'val.startAfter'))) + '</p>';
     if (d.recorded) {
       var tiles = '';
       if (d.handled) tiles += tile(t('val.handled.k'), ar(d.handled), t('val.handled.s'));
@@ -2248,6 +2283,7 @@
       if (!d.handled) html += '<p class="value-empty">' + esc(t('val.none', { n: ar(d.recorded) + ' ' + noun(d.recorded, 'n.problem') })) + '</p>';
       html += '<div class="value-tiles">' + tiles + '</div>';
     }
+    if (d.today) html += '<p class="value-empty value-today">' + esc(t('val.today', { n: ar(d.today) + ' ' + noun(d.today, 'n.problem') })) + '</p>';
     if (d.pending.n) {
       html += '<div class="value-pending"><span>' + esc(t('val.pending', { n: ar(d.pending.n) + ' ' + noun(d.pending.n, 'n.problem'), v: moneyByCur(d.pending.daily) })) + '</span>' +
         '<button type="button" class="value-cta" data-kpi="risk">' + esc(t('val.cta')) + '</button></div>';

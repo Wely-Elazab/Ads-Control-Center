@@ -716,8 +716,10 @@
   .attn-chip.attn-chip-info { cursor: default; color: var(--pending); background: var(--pending-bg); }
   /* لوحة «قيمة الأداة» (ui.js renderWastePanel — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦، مكان لوحة الهدر): الأخضر = اللي اتحقق، والسطر
      الأحمر = المشكلات اللي مستنية دلوقتي. ومبلغ الأثر على بنود «يحتاج انتباهك الآن» (top-alert-money) تحت */
-  .value-panel { margin-top: 12px; border-radius: var(--radius); padding: 14px 16px; background: var(--verified-bg); border: 1px solid var(--line); border-inline-start: 4px solid var(--verified); }
+  .value-panel { margin: 0 0 14px; border-radius: var(--radius); padding: 14px 16px; background: var(--verified-bg); border: 1px solid var(--line); border-inline-start: 4px solid var(--verified); }
   .value-title { margin: 0 0 10px; font-size: 15px; font-weight: 800; color: var(--ink); }
+  .value-period { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
+  .value-today { margin: 10px 0 0; }
   .value-notice { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--card); border: 1px dashed var(--line); font-size: 12.5px; line-height: 1.7; color: var(--ink-soft); }
   .value-notice a { color: var(--verified); font-weight: 700; }
   .value-ack { font-family: inherit; font-size: 12.5px; font-weight: 700; color: #fff; background: var(--verified); border: none; border-radius: 999px; padding: 4px 14px; margin-inline-start: 4px; cursor: pointer; }
@@ -1089,6 +1091,9 @@
 
       <!-- صفحة «الملخص» (الرئيسية جوه الأداة) -->
       <div id="viewSummary" class="view-page" role="region" aria-labelledby="secStore">
+      <!-- «ما حققته مع الأداة» (renderWastePanel في ui.js): أول حاجة تحت فترة البيانات وفوق ملخص المتجر، وبتتبع اختيار المنصات
+           وفترة البيانات زي باقي الأداة (قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦) -->
+      <div class="waste-wrap" id="dxWaste"></div>
       <!-- ليه الأرقام ممكن تختلف عن لوحة المنصة — مقفولة افتراضياً عشان متزحمش الصفحة -->
       <details class="numbers-note">
         <summary data-i18n="diff.title">لماذا تختلف الأرقام عن لوحة المنصة؟</summary>
@@ -1118,9 +1123,6 @@
         <div id="dxBody" aria-live="polite"></div>
         <div class="kpi-strip" id="kpiStrip"></div>
         <div class="dx-today" id="dxToday"></div>
-        <!-- لوحة الهدر: اللي اكتشفناه واللي إيقافه بيمنعه وهدر الشهر (renderWastePanel في ui.js) — بارزة فوق سبب الحكم
-             (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: كانت شارات صغيرة جنب عنوان «يحتاج انتباهك الآن») -->
-        <div class="waste-wrap" id="dxWaste"></div>
         <!-- سبب الحكم: ظاهر بين الأرقام والتنبيهات مش مطوي (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) -->
         <div class="dx-verdict-wrap" id="dxVerdict"></div>
         <div class="top-alerts" id="topAlerts"></div>

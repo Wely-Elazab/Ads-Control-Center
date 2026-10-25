@@ -5193,11 +5193,14 @@
       });
       withLang('en', function () { eq([3600, 9000].map(valueHoursText), ['About 1 hour', 'About 2.5 hours']); });
     });
-    test('قيمة الأداة: اللوحة — اللي اتعالج ومبلغه والوقت هذا الشهر، و«تنتظر نظرتك» من غير أي نسبة، والملاحظة قبل أول تسجيل', function () {
+    // من ٢٥ أكتوبر (قرار صاحب المنتج): اللوحة بتتبع فترة البيانات المختارة واختيار المنصات زي باقي الأداة
+    test('قيمة الأداة: اللوحة بفترة البيانات المختارة — اللي اتعالج ومبلغه والوقت، والنهارده سطر لوحده، و«تنتظر نظرتك» من غير أي نسبة، والملاحظة قبل أول تسجيل', function () {
       var src = 'meta:act_7', old = { act: activeSources.meta, snap: activeSources.snapchat, info: accountInfo[src], eps: valueEpisodes[src], ack: valueAckNow,
-        stored: localStorage.getItem(VALUE_ACK_KEY), cands: candidates };
-      var now = Date.now(), monthAgo = new Date(now - 40 * 86400000).toISOString();
+        stored: localStorage.getItem(VALUE_ACK_KEY), cands: candidates, period: period };
+      var now = Date.now(), H = 3600000, today = todayKeyInTz('UTC');
+      var at = function (key) { return key + 'T12:00:00.000Z'; }, yesterday = shiftKey(today, -1), monthAgo = shiftKey(today, -40);
       try {
+        period = { preset: 'last7' };
         localStorage.removeItem(VALUE_ACK_KEY); valueAckNow = false;
         activeSources.meta = 'act_7'; delete activeSources.snapchat;
         accountInfo[src] = { timeZone: 'UTC', currency: 'SAR' };
@@ -5209,30 +5212,45 @@
         var h = html(null, risk);
         ok(/data-value-ack/.test(h) && /دون أي أرقام إنفاق أو مبيعات/.test(h) && /بعد موافقتك أعلاه/.test(h), 'notice first: ' + h);
         ok(/١ مشكلة تنتظر نظرتك، وتهدر نحو ١٠٠ ر\.س يومياً/.test(h) && /data-kpi="risk"/.test(h), 'pending: the urgent one only');
+        // عنوان اللوحة بأيام الفترة (آخر ٧ أيام = أيام مكتملة لأمس)
+        ok(h.indexOf('<span class="value-period">' + fmtRange(shiftKey(today, -7), yesterday) + '</span>') > -1, 'period dates in the title: ' + h);
         valueAckNow = true;
         valueEpisodes[src] = [
-          { id: 101, ad: 'a1', kind: 'waste', firstAt: new Date(now).toISOString(), decided: true, handledAt: new Date(now).toISOString(), action: 'pause' },
-          { id: 102, ad: 'a2', kind: 'waste', firstAt: new Date(now).toISOString(), decided: false, handledAt: null, action: null },
-          { id: 103, ad: 'a3', kind: 'waste', firstAt: monthAgo, decided: true, handledAt: monthAgo, action: 'pause' }];
-        valueMoney[101] = { v: 120, cur: 'SAR' }; valueMoney[103] = { v: 999, cur: 'SAR' };
+          { id: 101, ad: 'a1', kind: 'waste', firstAt: at(yesterday), decided: true, handledAt: new Date(Date.parse(at(yesterday)) + H).toISOString(), action: 'pause' },
+          { id: 102, ad: 'a2', kind: 'waste', firstAt: at(yesterday), decided: false, handledAt: null, action: null },
+          { id: 103, ad: 'a3', kind: 'waste', firstAt: at(monthAgo), decided: true, handledAt: at(monthAgo), action: 'pause' },
+          { id: 104, ad: 'a2', kind: 'loss', firstAt: new Date(now - 60000).toISOString(), decided: true, handledAt: new Date(now).toISOString(), action: 'budget' }];
+        valueMoney[101] = { v: 120, cur: 'SAR' }; valueMoney[103] = { v: 999, cur: 'SAR' }; valueMoney[104] = { v: 555, cur: 'SAR' };
         h = html();
         ok(!/data-value-ack/.test(h), 'no notice once accepted');
-        ok(/مشكلات عالجتها بعد تنبيهنا<\/span><b class="value-v">١<\/b>/.test(h), 'one fixed this month (last month left out): ' + h);
-        ok(/لا يقل عن ١٢٠ ر\.س/.test(h) && !/٩٩٩/.test(h), 'its amount, this month only');
-        // يوم واحد فيه تنبيه جديد: دقيقة + ١٠ ثواني × إعلانين شغّالين = ٨٠ ثانية
+        ok(/مشكلات عالجتها بعد تنبيهنا<\/span><b class="value-v">١<\/b>/.test(h), 'one fixed in the period (40 days ago and today left out): ' + h);
+        ok(/لا يقل عن ١٢٠ ر\.س/.test(h) && !/٩٩٩/.test(h) && !/٥٥٥/.test(h), 'its amount, the period only');
+        // يوم واحد فيه تنبيه جديد في الفترة: دقيقة + ١٠ ثواني × إعلانين شغّالين = ٨٠ ثانية
         ok(/وقت وفّرناه عليك<\/span><b class="value-v">أقل من ساعة<\/b>/.test(h), h);
+        // النهارده برّه «آخر ٧ أيام» (أيام مكتملة): سطر لوحده زي «اليوم حتى الآن» في الملخص
+        ok(/اليوم حتى الآن \(لا يدخل في أرقام الفترة\): عالجت ١ مشكلة بعد تنبيهنا/.test(h), h);
         ok(/كيف نحسبها؟/.test(h) && /١٠ ثوانٍ لكل إعلان نشط/.test(h), 'how we count');
-        // ولا واحدة اتعالجت: سطر محايد بعدد اللي نبّهنا لها، من غير خانة «٠»
+        // «اليوم»: مشكلة النهارده جوه الفترة، وأمس برّه
+        period = { preset: 'today' };
+        h = html();
+        ok(/لا يقل عن ٥٥٥ ر\.س/.test(h) && !/١٢٠ ر\.س/.test(h) && !/اليوم حتى الآن/.test(h), 'period today: ' + h);
+        period = { preset: 'last7' };
+        // ولا واحدة اتعالجت في الفترة: سطر محايد بعدد اللي نبّهنا لها، من غير خانة «٠»
         valueEpisodes[src] = valueEpisodes[src].slice(1, 2);
         h = html();
-        ok(/نبّهناك هذا الشهر إلى ١ مشكلة/.test(h) && !/مشكلات عالجتها/.test(h) && !/هدر منعته/.test(h), h);
+        ok(/نبّهناك في هذه الفترة إلى ١ مشكلة/.test(h) && !/مشكلات عالجتها/.test(h) && !/هدر منعته/.test(h), h);
+        // فيه مشكلات في السجل بس مش في الفترة: «لم نسجّل تنبيهات عاجلة في هذه الفترة» (مش «نبدأ العدّ»)
+        valueEpisodes[src] = [{ id: 105, ad: 'a3', kind: 'waste', firstAt: at(monthAgo), decided: true, handledAt: null, action: null }];
+        h = html();
+        ok(/لم نسجّل تنبيهات عاجلة في هذه الفترة/.test(h) && !/نبدأ العدّ/.test(h), h);
         eq(html(['snapchat']), '', 'Snapchat only and not connected: nothing to show');
       } finally {
+        period = old.period;
         activeSources.meta = old.act; if (old.act === undefined) delete activeSources.meta;
         if (old.snap !== undefined) activeSources.snapchat = old.snap;
         if (old.info === undefined) delete accountInfo[src]; else accountInfo[src] = old.info;
         if (old.eps === undefined) delete valueEpisodes[src]; else valueEpisodes[src] = old.eps;
-        delete valueMoney[101]; delete valueMoney[103];
+        delete valueMoney[101]; delete valueMoney[103]; delete valueMoney[104];
         valueAckNow = old.ack; candidates = old.cands;
         if (old.stored == null) localStorage.removeItem(VALUE_ACK_KEY); else localStorage.setItem(VALUE_ACK_KEY, old.stored);
       }
@@ -5526,7 +5544,9 @@
       withLang('ar', function () { ok(/اكتفينا بعرض الأرقام/.test(t('dx.insufficient.mail')) && !/اختر فترة/.test(t('dx.insufficient.mail'))); });
     });
     // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «تكررت في حسابك من قبل» كانت بتقلّل من انخفاض مقلق — اتشالت، والفرق الكبير «يستحق المراجعة»
-    test('المبيعات اتغيّرت كتير والطلبات وتكلفتها مش متغيّرة: سطر بالفلوس ومتوسط قيمة الطلب، و«يستحق المراجعة» (حالة حقيقية)', function () {
+    // من ٢٥ أكتوبر «لماذا تغيّرت مبيعاتك؟» بالتفكيك (diagnosis.js reshapeVerdict): السطر بيقول إن الانخفاض كله من متوسط قيمة الطلب،
+    // و«يستحق المراجعة» في العنوان بس
+    test('المبيعات اتغيّرت كتير والطلبات وتكلفتها مش متغيّرة: الانخفاض كله من متوسط قيمة الطلب بالفلوس، و«يستحق المراجعة» في العنوان (حالة حقيقية)', function () {
       var mk = function (revFor) {
         var d = [];
         for (var k = '2026-08-20'; k <= '2026-09-29'; k = shiftKey(k, 1)) d.push({ date: k, spend: 100, imp: 5000, clicks: 100, atc: 20, ic: 10, pur: 5, rev: revFor(k) });
@@ -5536,11 +5556,11 @@
       withLang('ar', function () {
         var o1 = DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
           daily: mk(function (k) { return k >= '2026-09-27' ? 200 : 500; }), dims: [] }), { mail: true }), rare = lines(o1);
-        ok(/أقل بـ٦٠٪/.test(rare) && /متوسط قيمة الطلب/.test(rare) && /لمراجعته الآن|يستحق المراجعة/.test(rare), rare);
+        ok(/انخفضت المبيعات ٩٠٠ \$ \(٦٠٪\): نحو ٩٠٠ \$ لأن متوسط قيمة الطلب نزل من ١٠٠ \$ إلى ٤٠ \$/.test(rare) && !/الإنفاق|تكلفة الطلب/.test(rare), rare);
         ok(/يستحق المراجعة/.test(o1.title) && o1.tone === 'mixed', o1.title);
         var seen = lines(DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
           daily: mk(function (k) { return k >= '2026-09-27' || (k >= '2026-09-21' && k <= '2026-09-23') ? 200 : 500; }), dims: [] }), { mail: true }));
-        ok(!/تكررت/.test(seen) && /لمراجعته الآن|يستحق المراجعة/.test(seen), seen);
+        ok(!/تكررت/.test(seen) && /متوسط قيمة الطلب نزل/.test(seen), seen);
         var flat = lines(DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
           daily: mk(function () { return 500; }), dims: [] }), { mail: true }));
         ok(!/المبيعات/.test(flat), 'no line when sales barely moved: ' + flat);
@@ -5828,7 +5848,10 @@
       var o = head({ spend: 2000, imp: 100000, clicks: 2000, atc: 230, ic: 110, pur: 32, rev: 4800 });
       eq([o.tone, o.title], ['bad', withLang('ar', function () { return t('dx.head.roasDown'); })]);
       eq(o.kpis.filter(function (k) { return k.id === 'roas'; })[0].sig, -1, 'the return KPI is colored by the return itself');
-      ok(/انخفض العائد على الإنفاق/.test(o.blocks[0].lines[0]), o.blocks[0].lines[0]);
+      // «لماذا تغيّرت مبيعاتك؟»: الإنفاق اتضاعف ومتوسط قيمة الطلب اتنصّف وتكلفة الطلب زادت — الأنصبة مجموعها الفرق بالظبط
+      var L = o.blocks[o.main].lines[0];
+      ok(/^انخفضت المبيعات/.test(L) && /متوسط قيمة الطلب نزل من ٣٠٠ ر\.س إلى ١٥٠ ر\.س/.test(L) && /تكلفة الطلب ارتفعت/.test(L) &&
+        /وعوّض جزءاً من الانخفاض نحو .* لأن الإنفاق زاد من/.test(L), L);
     });
     test('نفس الطلبات والمبيعات −٤٥٪: مش «أداء مستقر»', function () {
       var o = head({ rev: 3300 });
@@ -6095,10 +6118,10 @@
           var o = DX.compose(DX.analyze(DX_SIM.simulate({ seed: s * 104729 + 7, spend: 400 })));
           var all = o.title + ' ' + o.blocks.map(function (b) { return (b.lines || []).join(' '); }).join(' ');
           if (/صدفة|ضمن التذبذب/.test(all)) bad.push('wording: ' + all.slice(0, 160));
-          if (o.main == null || o.main < 0 || o.blocks[o.main].kind !== 'note') continue;
-          if (!(o.blocks[o.main].lines || []).some(function (l) { return /يستحق المراجعة الآن|لمراجعته الآن/.test(l); })) continue;
+          // من ٢٥ أكتوبر «يستحق المراجعة» في العنوان بس (صندوق «لماذا تغيّرت مبيعاتك؟» بالتفكيك من غير جمل التأكد)
+          if (!/يستحق المراجعة/.test(o.title)) continue;
           seen++;
-          if (!/يستحق المراجعة/.test(o.title) || o.tone !== 'mixed') bad.push(o.tone + ': ' + o.title);
+          if (o.tone !== 'mixed') bad.push(o.tone + ': ' + o.title);
         }
       });
       ok(seen >= 3, 'big unconfirmed declines: ' + seen);
@@ -6148,27 +6171,70 @@
     });
     // ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «سبب الحكم يتحدث عن الصدفة وده غير مناسب» — الثقة بكلام تجاري من غير نسب احتمالات
     var arNum = function (s) { return Number(String(s).replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); }).replace('٫', '.')); };
+    // من ٢٥ أكتوبر جمل التأكد مش في صندوق «لماذا تغيّرت مبيعاتك؟» (التفكيك حساب دقيق) — الدرجات نفسها بكلام تجاري لما تتقال
     test('درجة التأكد بكلام تجاري: «الاتجاه واضح» / «إشارة أولية» / «يتغيّر عادةً بهذا القدر» من غير نسب احتمالات — ٤٠ حساب', function () {
-      var seen = {}, bad = [];
+      var bad = [];
       withLang('ar', function () {
         for (var s = 1; s <= 40; s++) {
           var r = DX.analyze(DX_SIM.simulate({ seed: s * 7919, spend: 400 }));
           if (r.status !== 'ok') continue;
           DX.compose(r).blocks.forEach(function (b) {
-            (b.lines || []).forEach(function (l) {
-              if (/من الحالات|صدفة/.test(l)) bad.push(l);
-              if (/الاتجاه واضح/.test(l)) seen.likely = (seen.likely || 0) + 1;
-              if (/إشارة أولية/.test(l)) seen.notable = (seen.notable || 0) + 1;
-              if (/يتغيّر هذا الرقم عادةً/.test(l)) seen.normal = (seen.normal || 0) + 1;
-            });
+            (b.lines || []).concat(b.after || []).forEach(function (l) { if (/من الحالات|صدفة/.test(l)) bad.push(l); });
           });
         }
+        ok(/الاتجاه واضح/.test(DX._.certText(-2.5, 140, 120, -0.15)), 'likely');
+        ok(/إشارة أولية/.test(DX._.certText(-1.2, 140, 120, -0.15)), 'notable');
+        ok(/يتغيّر هذا الرقم عادةً/.test(DX._.certText(-0.3, 140, 120, -0.12)), 'normal');
       });
-      ok(Object.keys(seen).length >= 2, JSON.stringify(seen));
       eq(bad, []);
     });
-    test('سبب الحكم ظاهر بين الأرقام والتنبيهات بلون الحكم، ومبيتكررش في الشرح المطوي', function () {
-      var r = scenarios()[0];
+    // قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦: «سبب الحكم» كان بيكرر أرقام الخانات — التفكيك بالفلوس (Google Ads Explanations، Optmyzr PPC
+    // Investigator، وتحليل الفروقات). أرقام حساب حقيقي: المبيعات ٣٠٬٩١٢ ← ٢٠٬٤٣٠، الطلبات ١٤٢ ← ١٢١، الإنفاق ٦٬١٨١ ← ٦٬١٨٨
+    test('«لماذا تغيّرت مبيعاتك؟»: المبيعات = الإنفاق ÷ تكلفة الطلب × متوسط قيمة الطلب — الأنصبة مجموعها الفرق بالظبط، وأغلب الانخفاض من قيمة الطلب', function () {
+      var d = DX._.salesDrivers({ prev: { spend: 6181, pur: 142, rev: 30912 }, cur: { spend: 6188, pur: 121, rev: 20430 } }), by = {};
+      d.parts.forEach(function (p) { by[p.id] = p.v; });
+      ok(Math.abs(by.spend + by.cpa + by.aov - (20430 - 30912)) < 1e-6, 'the parts add up to the difference: ' + JSON.stringify(by));
+      eq([Math.round(by.aov), Math.round(by.cpa), Math.round(by.spend)], [-6431, -4079, 29]);
+      withLang('ar', function () {
+        var L = DX._.driversLine(d, function (v) { return money(v, 'USD'); });
+        ok(/^انخفضت المبيعات ١٠٬٤٨٢ \$ \(٣٤٪\): نحو ٦٬٤٣١ \$ لأن متوسط قيمة الطلب نزل من .* ونحو ٤٬٠٧٩ \$ لأن تكلفة الطلب ارتفعت من /.test(L) &&
+          !/الإنفاق/.test(L), 'spend (0.3% of it) is left out: ' + L);
+      });
+      // من غير قيمة مبيعات: الطلبات = الإنفاق ÷ تكلفة الطلب
+      var p = DX._.salesDrivers({ prev: { spend: 1000, pur: 50, rev: 0 }, cur: { spend: 500, pur: 25, rev: 0 } });
+      eq([p.metric, p.parts.length, Math.round(p.parts[0].v), Math.round(p.parts[1].v)], ['pur', 2, -25, 0]);
+      eq(DX._.salesDrivers({ prev: { spend: 0, pur: 0, rev: 0 }, cur: { spend: 10, pur: 1, rev: 5 } }), null, 'nothing to split');
+    });
+    test('«لماذا تغيّرت مبيعاتك؟»: أكبر المساهمين من الحملات لو مجموعها بيطابق الحساب، وإلا التقسيم اللي بعدها، وفي اتجاه الفرق بس', function () {
+      var seg = function (key, cur, prev) { return { key: key, name: key.toUpperCase(), w: [{ rev: cur }, { rev: prev }] }; };
+      var W = [{ rev: 900 }, { rev: 1000 }];
+      var camp = { id: 'campaign', segs: [seg('c1', 500, 700), seg('c2', 300, 250), seg('c3', 100, 50)] };
+      eq(DX._.salesMovers([camp], W, 'rev'), { dim: 'campaign', field: 'rev', list: [{ key: 'c1', name: 'C1', v: -200 }] }, 'the rises are not «behind the drop»');
+      // الحملات مجموعها أقل من الحساب بكتير (بيانات ناقصة): المنصات
+      var partial = { id: 'campaign', segs: [seg('c1', 300, 700), seg('c2', 100, 100)] };
+      var plat = { id: 'platform', segs: [seg('meta', 600, 800), seg('snapchat', 300, 200)] };
+      eq(DX._.salesMovers([partial, plat], W, 'rev').dim, 'platform');
+      eq(DX._.salesMovers([camp], [{ rev: 1000 }, { rev: 1000 }], 'rev'), null, 'no difference');
+    });
+    test('«لماذا تغيّرت مبيعاتك؟»: «تحقّق أولاً» بأكبر سبب — قيمة الطلب = المتجر، والبلوك بيقول مين يخصه', function () {
+      var mk = function (revFor) {
+        var d = [];
+        for (var k = '2026-08-20'; k <= '2026-09-29'; k = shiftKey(k, 1)) d.push({ date: k, spend: 100, imp: 5000, clicks: 100, atc: 20, ic: 10, pur: 5, rev: revFor(k) });
+        return d;
+      };
+      withLang('ar', function () {
+        var o = DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD',
+          daily: mk(function (k) { return k >= '2026-09-27' ? 200 : 500; }), dims: [] }));
+        var b = o.blocks[o.main];
+        eq([b.verdictTitle, b.check, b.owner], [t('dx.drv.title.rev'), t('dx.drv.chk.aov'), 'store']);
+        ok(!b.causes && !b.conf, 'no stage causes: the cost per order did not move');
+        // المبيعات زي ما هي ومفيش عامل يتقال: مفيش بلوك (كان بيكرر خانة المبيعات)
+        var flat = DX.compose(DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, currency: 'USD', daily: mk(function () { return 500; }), dims: [] }));
+        ok(flat.main < 0 || (flat.blocks[flat.main].lines || []).every(function (l) { return !/المبيعات/.test(l); }), 'flat: no repeated line');
+      });
+    });
+    test('«لماذا تغيّرت مبيعاتك؟» ظاهر بين الأرقام والتنبيهات بلون الحكم، ومبيتكررش في الشرح المطوي — والحساب الهادي من غير صندوق', function () {
+      var r = scenarios().filter(function (x) { return withLang('ar', function () { return DX.compose(x).main >= 0; }); })[0];
       try {
         DX_ON = true; activeSources.meta = 'act_1';
         dxState = { status: 'ready', key: 'k', report: r, account: 'Store', accountId: 'meta:act_1' };
@@ -6176,7 +6242,8 @@
         var o = dxState.composed, box = document.querySelector('#dxVerdict .dx-verdict');
         ok(o.main >= 0 && box, 'verdict box shown');
         ok(box.classList.contains(o.tone), 'coloured by the verdict');
-        ok(/كل ١٠٠ /.test(box.textContent), 'money line: ' + box.textContent.slice(0, 120));
+        ok(/لماذا تغيّرت (مبيعاتك|طلباتك)؟/.test(box.textContent) && /(انخفضت|ارتفعت|زادت) (المبيعات|الطلبات)|قريبة من الفترة السابقة/.test(box.textContent) &&
+          !/كل ١٠٠ /.test(box.textContent), 'the split, not the KPI repeated: ' + box.textContent.slice(0, 160));
         ok(!document.querySelector('#dxMore').textContent.includes(o.blocks[o.main].lines[0]), 'not repeated in the folds');
         var ids = ['dxToday', 'dxVerdict', 'topAlerts'].map(function (id) { return document.getElementById(id); });
         ok(ids[0].compareDocumentPosition(ids[1]) & 4 && ids[1].compareDocumentPosition(ids[2]) & 4, 'between the numbers and the alerts');

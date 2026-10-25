@@ -525,6 +525,30 @@ var DX = (function () {
     return gen.length ? gen[0] : null;
   }
 
+  // أكبر ٣ مساهمين في فرق المبيعات بين الفترتين (Optmyzr PPC Investigator: «أكبر المساهمين» بعد ما نعرف أي مقياس اتحرك) — الحملات
+  // الأول (أسماؤها مفهومة وبتتفتح إعلاناتها)، وإلا المنصات، وإلا الدول. التقسيم لازم مجموعه يطابق إجمالي الحساب (±١٠٪) في الفترتين،
+  // والمساهم نصيبه ٥٪ من الفرق على الأقل وفي نفس اتجاهه. f = 'rev' أو 'pur'
+  var MOVER_DIMS = ['campaign', 'platform', 'country'], MOVER_MIN = 0.05;
+  function salesMovers(dims, W, f) {
+    var diff = (W[0][f] || 0) - (W[1][f] || 0);
+    if (!diff) return null;
+    for (var n = 0; n < MOVER_DIMS.length; n++) {
+      var dim = dims.filter(function (d) { return d.id === MOVER_DIMS[n]; })[0];
+      if (!dim || dim.segs.length < 2) continue;
+      var covers = [0, 1].every(function (i) {
+        var tot = W[i][f] || 0, s = 0;
+        (dim.coverSegs || dim.segs).forEach(function (sg) { s += (sg.w[i] && sg.w[i][f]) || 0; });
+        return tot > 0 && s >= 0.9 * tot && s <= 1.1 * tot;
+      });
+      if (!covers) continue;
+      var list = dim.segs.map(function (s) { return { key: s.key, name: s.name, v: ((s.w[0] && s.w[0][f]) || 0) - ((s.w[1] && s.w[1][f]) || 0) }; })
+        .filter(function (x) { return sign(x.v) === sign(diff) && Math.abs(x.v) >= MOVER_MIN * Math.abs(diff); })
+        .sort(function (x, y) { return Math.abs(y.v) - Math.abs(x.v); }).slice(0, 3);
+      if (list.length) return { dim: dim.id, field: f, list: list };
+    }
+    return null;
+  }
+
   // ---------- أجزاء أداؤها مختلف بوضوح عن باقي الحساب (مشكلة مستمرة أو فرصة) ----------
   // بنجمع آخر ٣ فترات (الإشارة بتقوى)، وبنقيس كل فترة لوحدها عشان نعرف إذا كانت المشكلة مستمرة.
   function sumWins(s, idx) { var t = bundle(); idx.forEach(function (i) { addTo(t, s.w[i]); }); return t; }
@@ -1053,6 +1077,8 @@ var DX = (function () {
       });
     };
     report.followUps = followUps(daily, W, Wj, gapDims, stages, tr, phiD).filter(function (f) { return !(f.type === 'segment' && f.status === 'ongoing' && shown(f)); });
+    // أكبر المساهمين في فرق المبيعات (أو الطلبات لو مفيش قيمة مبيعات) — «لماذا تغيّرت مبيعاتك؟» (reshapeVerdict)
+    report.movers = salesMovers(dims, W, cur.rev > 0 && prev.rev > 0 ? 'rev' : 'pur');
     report.opportunity = scaleOpportunity(W, phiH);
     report.context = contextOf(W, countriesOf(dims, input.timezone));
     report.owner = ownerContext(input.feedback, W);
@@ -1572,6 +1598,104 @@ var DX = (function () {
     return blk;
   }
 
+  // ---------- «لماذا تغيّرت مبيعاتك؟» — البلوك الأساسي للحكم (قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦) ----------
+  // «سبب الحكم» كان بيكرر أرقام الخانات (العائد وتكلفة الطلب) بجمل وتحفظات، ومبيقولش ليه ولا فين: شرح «ليه» كان بيظهر بس لو تغيّر
+  // تكلفة الطلب اتأكد (نادر في حساب بـ ١٠٠–٢٠٠ طلب). المراجع: Google Ads «Explanations» (الأسباب ومعاها توصية)، وOptmyzr PPC
+  // Investigator (المقياس اللي اتحرك ← أكبر المساهمين)، وتحليل الفروقات في المحاسبة (الإيراد = كمية × سعر). دلوقتي:
+  // (١) التفكيك بالفلوس: المبيعات = الإنفاق ÷ تكلفة الطلب × متوسط قيمة الطلب — حساب دقيق مش اختبار، بطريقة LMDI (نصيب كل عامل =
+  // المتوسط اللوغاريتمي للمبيعات × لوغاريتم تغيّر العامل، والأنصبة مجموعها الفرق بالظبط حتى لو العوامل عكس بعض)، (٢) أكبر المساهمين
+  // (report.movers)، (٣) شرح المراحل لو تغيّر تكلفة الطلب اتأكد، (٤) السياق (مناسبات، ترتيب الفترة، ملاحظات صاحب المتجر)، (٥) «تحقّق أولاً»
+  // بأكبر سبب. من غير قيمة مبيعات: الطلبات = الإنفاق ÷ تكلفة الطلب
+  var DRV_MIN = 0.1, DRV_FLAT = 0.03;
+  function salesDrivers(r) {
+    var a = r.prev, b = r.cur;
+    if (!(a && b && a.spend > 0 && b.spend > 0 && a.pur > 0 && b.pur > 0)) return null;
+    var rev = a.rev > 0 && b.rev > 0, A = rev ? a.rev : a.pur, B = rev ? b.rev : b.pur;
+    var L = Math.abs(B - A) < 1e-9 ? A : (B - A) / Math.log(B / A);
+    var parts = [{ id: 'spend', l: Math.log(b.spend / a.spend), from: a.spend, to: b.spend },
+      { id: 'cpa', l: -Math.log(cpaOf(b) / cpaOf(a)), from: cpaOf(a), to: cpaOf(b) }];
+    if (rev) parts.push({ id: 'aov', l: Math.log((b.rev / b.pur) / (a.rev / a.pur)), from: a.rev / a.pur, to: b.rev / b.pur });
+    parts.forEach(function (p) { p.v = L * p.l; });
+    return { metric: rev ? 'rev' : 'pur', from: A, to: B, diff: B - A, pct: B / A - 1, flat: Math.abs(B / A - 1) < DRV_FLAT, parts: parts };
+  }
+  function drvAmount(d, v, M) { return d.metric === 'rev' ? M(Math.abs(v)) : ordersText(Math.abs(v)); }
+  function drvPhrase(d, p, M) {
+    return t('dx.drv.' + p.id + '.' + (p.to > p.from ? 'up' : 'down'), { v: drvAmount(d, p.v, M), from: M(p.from), to: M(p.to) });
+  }
+  // العوامل اللي بتتقال: ١٠٪ من الفرق على الأقل (ولو الفرق قريب من صفر: ٥٪ من مبيعات الفترة السابقة)، وأكبر عامل في اتجاه الفرق دايماً
+  function drvParts(d) {
+    var bar = d.flat ? 0.05 * d.from : DRV_MIN * Math.abs(d.diff);
+    var big = d.parts.filter(function (p) { return Math.abs(p.v) >= bar && p.v !== 0; }).sort(function (x, y) { return Math.abs(y.v) - Math.abs(x.v); });
+    var same = big.filter(function (p) { return sign(p.v) === sign(d.diff); }), counter = big.filter(function (p) { return sign(p.v) !== sign(d.diff); });
+    if (!same.length && !d.flat) {
+      var top = d.parts.filter(function (p) { return sign(p.v) === sign(d.diff); }).sort(function (x, y) { return Math.abs(y.v) - Math.abs(x.v); })[0];
+      if (top) same = [top];
+    }
+    return { same: same, counter: counter };
+  }
+  function driversLine(d, M) {
+    var ps = drvParts(d), phr = function (list) { return listText(list.map(function (p) { return drvPhrase(d, p, M); })); };
+    var vals = { diff: drvAmount(d, d.diff, M), pct: pctText(d.pct), from: d.metric === 'rev' ? M(d.from) : ordersText(d.from), to: d.metric === 'rev' ? M(d.to) : ordersText(d.to) };
+    if (d.flat) {
+      // المبيعات زي ما هي ومفيش عامل يتقال: السطر هيكرر خانة المبيعات بس — مفيش سطر
+      var all = ps.same.concat(ps.counter).sort(function (x, y) { return Math.abs(y.v) - Math.abs(x.v); });
+      return all.length ? t('dx.drv.flat.' + d.metric, vals) + t('dx.drv.flatParts', { parts: phr(all) }) + '.' : null;
+    }
+    var dir = d.diff < 0 ? 'down' : 'up';
+    return t('dx.drv.lead.' + d.metric + '.' + dir, vals) + phr(ps.same) + '.' +
+      (ps.counter.length ? ' ' + t('dx.drv.counter.' + dir, { parts: phr(ps.counter) }) : '');
+  }
+  function moversLine(mv, d, M) {
+    var list = mv.list.map(function (x) { return t('dx.drv.mover', { seg: segName(mv.dim, x.key, x.name), v: drvAmount(d, x.v, M) }); });
+    return t('dx.drv.movers.' + (d.diff < 0 ? 'down' : 'up'), { list: listText(list) });
+  }
+  // «تحقّق أولاً» بأكبر عامل — ولتكلفة الطلب: فحص المرحلة اللي اتحددت لو تغيّرها اتأكد (whyBlock)، وإلا الحملات اللي فوق
+  function drvCheck(d, top, b, hasMovers) {
+    if (!top || d.flat) return null;
+    var bad = d.diff < 0;
+    if (top.id === 'cpa' && bad && b.check) return { check: b.check, owner: b.owner || 'ads' };
+    var key = top.id + (bad ? '' : 'Good') + (top.id === 'cpa' && !hasMovers ? 'All' : '');
+    return { check: t('dx.drv.chk.' + key), owner: top.id === 'aov' ? 'store' : 'ads' };
+  }
+  function reshapeVerdict(b, r, M) {
+    var d = salesDrivers(r);
+    if (!d) return;
+    var h = r.head || {}, w = r.why, mv = d.flat ? null : r.movers, dl = driversLine(d, M), lines = dl ? [dl] : [], bullets = [], after = [];
+    if (mv && mv.field === d.metric) lines.push(moversLine(mv, d, M)); else mv = null;
+    // الميزانية راحت لحملة وعي أو تفاعل (أو جت منها): ده التفسير الحقيقي — سؤال ميزانية مش مشكلة أداء (whyBlock: dx.chk.otherMix)
+    var sc = w && w.scope, otherMix = !!(sc && sc.type === 'mix' && sc.seg && !judged(sc.seg.goal));
+    if (otherMix) after.push(t('dx.scope.mix.other.' + (sc.toward ? 'to' : 'away'), { seg: ctxOf(sc.dim, sc.seg.key, sc.seg.name).seg, goal: t('dx.goal.' + sc.seg.goal) }));
+    var shift = r.other && r.other.spendShift;
+    if (shift && h.dSpend !== 0) after.push(t(shift.dir > 0 ? 'dx.vol.otherUp' : 'dx.vol.otherDown', { pct: pctText(shift.share) }));
+    // تكلفة الطلب من أكبر العوامل وتغيّرها اتأكد: من أي مرحلة جه (نفس شرح whyBlock)
+    var ps = drvParts(d), top = ps.same[0] || null, cpaMain = ps.same.concat(ps.counter).some(function (p) { return p.id === 'cpa'; });
+    if (w && cpaMain && !otherMix) {
+      if (w.kind === 'after' || w.kind === 'before') {
+        var sh = w.drivers[0].share;
+        lines.push(t('dx.drv.stage.' + w.kind, { share: sh >= 0.3 && sh <= 0.95 ? t('dx.why.share', { share: pctText(sh) }) : '' }));
+        groupBullets(w.drivers[0]).forEach(function (s) { bullets.push(s); });
+      } else if (w.kind === 'both') {
+        lines.push(t('dx.drv.stage.both'));
+        w.drivers.forEach(function (g) { groupBullets(g).forEach(function (s) { bullets.push(s); }); });
+      } else lines.push(t('dx.drv.stage.spread'));
+    }
+    // السياق: ترتيب تكلفة الطلب بين الفترات، والمناسبات، وملاحظات صاحب المتجر
+    if (h.rank) after.push(t('dx.rank.' + h.rank.kind, { n: periodsText(h.rank.n, r.len) }));
+    var c = r.context || { inCur: [], inPrev: [] };
+    var evNames = function (ids) { return listText(ids.map(function (id) { return t('dx.event.' + id); })); };
+    if (c.inCur.length) after.push(t('dx.ctx.cur', { events: evNames(c.inCur) }));
+    if (c.inPrev.length) after.push(t('dx.ctx.prev', { events: evNames(c.inPrev) }));
+    ownerLines(r).forEach(function (l) { after.push(l); });
+    var chk = otherMix ? { check: b.check, owner: 'ads' } : drvCheck(d, top, b, !!mv);
+    b.lines = lines; b.bullets = bullets; b.after = after;
+    b.check = chk ? chk.check : null;
+    if (chk) b.owner = chk.owner;
+    // الأسباب المعتادة (اللي بتتعلّم من «هل كان التشخيص صحيحاً؟») ودرجة الثقة: بس مع شرح المراحل
+    if (!(w && cpaMain) || otherMix) { b.causes = null; b.conf = null; }
+    b.movers = mv;
+    b.title = b.verdictTitle = t('dx.drv.title.' + d.metric);
+  }
+
   function segBlock(s, M) {
     var ctx = ctxOf(s.dim, s.key, s.name), name = ctx.seg;
     var title = s.pur === 0 ? t('dx.seg.zero', { seg: name, spend: M(s.spend), since: fmtKey(s.since) })
@@ -1924,6 +2048,13 @@ var DX = (function () {
       else if (/^likely/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.watch' + ({ Worse: 'Cpa', Fewer: 'Orders', Roas: 'Roas' })[fh.key.replace(/^likely|Act$/g, '')]));
     }
     if (mainBlock) mainBlock.lines = onceOnly(mainBlock.lines, r);
+    // «لماذا تغيّرت مبيعاتك؟» بدل تكرار الأرقام (٢٥ أكتوبر) — لو مفيش إنفاق أو طلبات في فترة من الاتنين بيفضل الشرح القديم
+    if (mainBlock) reshapeVerdict(mainBlock, r, M);
+    // مفيش حاجة تتقال غير أرقام الخانات: البلوك بيتشال (الأداة والبريد والنص المنسوخ)
+    if (mainBlock && !mainBlock.lines.length && !(mainBlock.bullets || []).length && !(mainBlock.after || []).length && !mainBlock.check) {
+      o.blocks.splice(o.blocks.indexOf(mainBlock), 1);
+      mainBlock = null;
+    }
     // الشرح الأساسي للحكم بيتعرض ظاهر تحت الأرقام مش مطوي (ملاحظة ١٠ أكتوبر) — رقمه في البلوكات
     o.main = mainBlock ? o.blocks.indexOf(mainBlock) : -1;
     // جملة «الطلبات والمبيعات هنا كما سجّلتها المنصة…» اتشالت (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: مالهاش أهمية هنا) — الشرح في /help#compare
@@ -2133,7 +2264,7 @@ var DX = (function () {
     // للاختبارات
     _: { rateTest: rateTest, historyPhi: historyPhi, betai: betai, normInv: normInv, decompose: decompose, stagesFor: stagesFor,
       trackingOf: trackingOf, eventsOn: eventsOn, hijriOf: hijriOf, isWhiteFridayWeekend: isWhiteFridayWeekend, localize: localize,
-      actionOf: actionOf, keyInTz: keyInTz, certText: certText,
+      actionOf: actionOf, keyInTz: keyInTz, certText: certText, salesDrivers: salesDrivers, driversLine: driversLine, salesMovers: salesMovers,
       prepareDims: prepareDims, windowCount: windowCount, hijriSupported: !!HIJRI,
       T: { Z_REAL: Z_REAL, Z_SEG: Z_SEG, PHI_SAMPLING: PHI_SAMPLING },
       // للمعايرة بالمحاكاة بس (tests/dx-sim.js) — كود الأداة نفسه مبيغيّرش العتبات أبداً

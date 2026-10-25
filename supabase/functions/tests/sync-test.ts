@@ -11,7 +11,7 @@ import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import { callTimeout, familyOf, freshUsage, markMap, readUsage, resolveNow, settingsChoice } from '../sync/runner.ts';
 import { cleanAccountSettings, handleSettings } from '../sync/settings.ts';
-import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes } from '../sync/episodes.ts';
+import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
 Deno.env.set('TOKEN_ENC_KEY', btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))));
@@ -279,6 +279,14 @@ Deno.test('سجل المشكلات: إعلان ونوع معروفين من غي
   assertEquals(cleanDecisions([{ id: 5, handledAt: '2026-10-25T10:00:00Z', action: 'delete' }]), null);
   assertEquals(cleanDecisions([{ id: -1 }]), null);
   assertEquals(cleanDecisions([]), null);
+});
+// اللوحة بتتبع فترة البيانات (قرار صاحب المنتج ٢٥ أكتوبر): أول يوم الفترة ناقص يوم، ومش أقدم من مدة الحفظ
+Deno.test('سجل المشكلات: من أول يوم في الفترة المختارة (بيوم زيادة لفرق التوقيت)، ولحد مدة الحفظ بس', () => {
+  const now = Date.parse('2026-10-25T12:00:00Z'), day = 86400000;
+  assertEquals(sinceOf('2026-10-18', now), '2026-10-17T00:00:00.000Z');
+  assertEquals(sinceOf('2026-01-01', now), new Date(now - 91 * day).toISOString(), 'not older than the retention');
+  assertEquals(sinceOf('evil', now), new Date(now - 45 * day).toISOString(), 'no period: the last 45 days');
+  assertEquals(sinceOf(undefined, now), new Date(now - 45 * day).toISOString());
 });
 Deno.test('سجل المشكلات: التعديل يتحسب جوه الـ ٢٤ ساعة بعد التنبيه بس، و«متعالجتش» بعد ما تخلص', () => {
   const first = '2026-10-25T10:00:00Z', at = Date.parse(first);
