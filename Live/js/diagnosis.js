@@ -2053,11 +2053,29 @@ var DX = (function () {
     return t('dx.platCmp', { plat: t('dx.plat.' + platform), orders: ordersText(Math.round(plat.pur)), sales: money(plat.rev, input.currency || null),
       roas: spend > 0 ? roasStr(plat.rev / spend) : '—' });
   }
+  // سطر «التكلفة مقابل الحد الذي حددته» تحت أرقام الملخص — تعريف واحد للأداة (ui.js costVsMax) ورسالة البريد (runner.ts costLine)
+  // (قرار صاحب المنتج ٢٥ أكتوبر: «ضيفه في البريد ايضاً» — كان في الأداة بس). ads = إعلانات حساب واحد بأرقام الفترة
+  // ({resultKey, campaignId, currency, spend, results})، وsettings بعد mergeSettings. أرقام بس من غير حكم (تنبيه «التكلفة أعلى من
+  // المقبول» هو اللي بيحكم)، والحملات اللي ليها حد خاص برّه الرقم (بتتقاس بحدها هي). null = مفيش حد له نتائج في الفترة
+  function costVsMax(ads, settings, p) {
+    var max = (settings && settings.maxCost) || {}, camp = (settings && settings.campaignMaxCost) || {}, parts = [], skipped = false, cur = null;
+    Object.keys(max).forEach(function (key) {
+      var spend = 0, results = 0;
+      (ads || []).forEach(function (c) {
+        if (!c || c.resultKey !== key) return;
+        if (c.campaignId && camp[c.campaignId]) { skipped = true; return; }
+        spend += c.spend || 0; results += c.results || 0; cur = cur || c.currency || null;
+      });
+      if (results > 0 && spend > 0) parts.push(t('dx.costMax.part', { cpr: money(spend / results, cur), one: t('res1.' + key), max: money(max[key], cur) }));
+    });
+    return parts.length ? t('dx.costMax', { p: p, list: listText(parts) }) + (skipped ? ' ' + t('dx.costMax.campNote') : '') : null;
+  }
   function toText(o, accountName) {
     var L = ['📊 ' + t('dx.title') + (accountName ? ' — ' + accountName : ''), o.period, '', (TONE_ICON[o.tone] || '') + ' *' + o.title + '*'];
     if (o.basis) L.push(o.basis);
     (o.kpis || []).forEach(function (k) { L.push('• ' + k.label + ': ' + k.value + ' (' + t('dx.kpi.prev', { v: k.prev }) + ')'); });
     if (o.platCmp) L.push('ℹ️ ' + o.platCmp);
+    if (o.costCmp) L.push('ℹ️ ' + o.costCmp);
     (o.blocks || []).forEach(function (b) { L.push(''); L.push(blockText(b)); });
     (o.notes || []).forEach(function (n) { L.push(''); L.push('ℹ️ ' + n); });
     return L.join('\n');
@@ -2072,6 +2090,7 @@ var DX = (function () {
     segHas: segHas,
     ordersText: ordersText,
     platCompare: platCompare,
+    costVsMax: costVsMax,
     toText: toText,
     blockText: blockText,
     segName: segName,

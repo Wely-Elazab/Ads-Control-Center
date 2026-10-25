@@ -1478,22 +1478,18 @@
   // «التكلفة أعلى من المقبول» هو اللي بيحكم بدليل). عرض حساب واحد بس (حسابين بحدّين مختلفين في رقم واحد = مقارنة غلط)، ونفس إعلانات
   // المحرك (costAds)، والحملات اللي ليها حد خاص برّه الرقم (بتتقاس بحدها هي). بيظهر كمان في حساب من غير مبيعات — هو أكتر حد محتاجه
   function costVsMax(platforms) {
+    dxState.costCmp = null;
     if (!platforms || platforms.length !== 1) return [];
     var source = sourceOf(platforms[0]);
     if (!source) return [];
-    var s = PauseProofAlerts.mergeSettings(settingsFor(source)), parts = [], skipped = false, cur = null;
-    Object.keys(s.maxCost).forEach(function (key) {
-      var spend = 0, results = 0;
-      costAds(source).forEach(function (c) {
-        if (c.resultKey !== key) return;
-        if (c.campaignId && s.campaignMaxCost[c.campaignId]) { skipped = true; return; }
-        var p = periodOf(c);
-        spend += p.spend || 0; results += p.results || 0; cur = cur || c.currency;
-      });
-      if (results > 0 && spend > 0) parts.push(t('dx.costMax.part', { cpr: money(spend / results, cur), one: t('res1.' + key), max: money(s.maxCost[key], cur) }));
+    // الحساب نفسه في المحرك (diagnosis.js DX.costVsMax) — نفس السطر في رسالة البريد
+    var ads = costAds(source).map(function (c) {
+      var p = periodOf(c);
+      return { resultKey: c.resultKey, campaignId: c.campaignId, currency: c.currency, spend: p.spend, results: p.results };
     });
-    if (!parts.length) return [];
-    return [{ text: t('dx.costMax', { p: periodLabel(), list: DX.listText(parts) }) + (skipped ? ' ' + t('dx.costMax.campNote') : '') }];
+    var text = DX.costVsMax(ads, PauseProofAlerts.mergeSettings(settingsFor(source)), periodLabel());
+    dxState.costCmp = text;   // للنص المنسوخ («انسخ الملخص») — زي رسالة البريد
+    return text ? [{ text: text }] : [];
   }
   function storeLines(platforms) {
     var mine = candidates.filter(function (c) { return onPlatforms(c, platforms); }), out = [];
@@ -1591,7 +1587,7 @@
     if (!btn || !dxState.composed) return;
     var o = dxState.composed;
     var ex = dxExcludedNote();
-    if (btn.id === 'dxCopy') dxCopyText(DX.toText(Object.assign({}, o, { platCmp: dxState.platCmp || null, notes: ex ? (o.notes || []).concat([ex]) : o.notes }), dxState.account), btn);
+    if (btn.id === 'dxCopy') dxCopyText(DX.toText(Object.assign({}, o, { platCmp: dxState.platCmp || null, costCmp: dxState.costCmp || null, notes: ex ? (o.notes || []).concat([ex]) : o.notes }), dxState.account), btn);
     else {
       var b = o.blocks[Number(btn.getAttribute('data-dx-copy'))];
       if (b) dxCopyText('📊 ' + t('dx.title') + (dxState.account ? ' — ' + dxState.account : '') + '\n' + o.period + '\n\n' + DX.blockText(b), btn);

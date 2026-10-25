@@ -3639,6 +3639,32 @@
       acctSettings['meta:act_1'] = {};
       eq(costVsMax(['meta']), [], 'no limits: no line');
     });
+    // قرار صاحب المنتج ٢٥ أكتوبر: «ضيفه في البريد ايضاً» — السطر كان في الأداة بس. الحساب بقى في المحرك (DX.costVsMax)، والمُشغّل
+    // بيديله أرقام فترة الملخص لكل إعلان (runner.ts costLine)، والنص المنسوخ ونص البريد (DX.toText) بيقولوه
+    test('سطر «التكلفة مقابل الحد» من المحرك نفسه: الأداة والنص المنسوخ ورسالة البريد بنفس الكلام', function () {
+      var s = PauseProofAlerts.mergeSettings({ maxCost: { message: 12 }, campaignMaxCost: { 'c-prem': 60 } });
+      var ads = [
+        { resultKey: 'message', campaignId: 'c-a', currency: 'SAR', spend: 600, results: 50 },
+        { resultKey: 'message', campaignId: 'c-prem', currency: 'SAR', spend: 800, results: 34 },
+        { resultKey: 'purchase', campaignId: 'c-a', currency: 'SAR', spend: 900, results: 3 }
+      ];
+      var line = withLang('ar', function () { return DX.costVsMax(ads, s, '١٩–٢٢ أكتوبر'); });
+      ok(line && line.indexOf('(١٩–٢٢ أكتوبر)') > -1 && line.indexOf(money(12, 'SAR')) > -1 && line.indexOf(t('dx.costMax.campNote')) > -1, line || 'no line');
+      ok(line.indexOf(money(600 / 50, 'SAR')) > -1, 'the premium campaign is out of the number: ' + line);
+      // ونفس الكلام اللي الأداة بتعرضه لنفس الأرقام
+      activeSources.meta = 'act_1';
+      acctSettings['meta:act_1'] = { maxCost: { message: 12 }, campaignMaxCost: { 'c-prem': 60 } };
+      candidates = costAccount();
+      var tool = withLang('ar', function () { return costVsMax(['meta']); });
+      var mine = costAds('meta:act_1').map(function (c) { var p = periodOf(c); return { resultKey: c.resultKey, campaignId: c.campaignId, currency: c.currency, spend: p.spend, results: p.results }; });
+      eq(tool[0].text, withLang('ar', function () { return DX.costVsMax(mine, PauseProofAlerts.mergeSettings(acctSettings['meta:act_1']), periodLabel()); }));
+      eq(dxState.costCmp, tool[0].text, 'kept for the copied text');
+      var text = withLang('ar', function () { return DX.toText({ period: 'p', title: 'T', tone: 'bad', kpis: [], blocks: [], notes: [], costCmp: line }, 'Acc'); });
+      ok(text.indexOf(line) > -1, text);
+      eq(DX.costVsMax(ads, PauseProofAlerts.mergeSettings({}), 'p'), null, 'no limits: no line');
+      eq(DX.costVsMax([{ resultKey: 'message', spend: 50, results: 0 }], s, 'p'), null, 'no results in the period: no line');
+      acctSettings['meta:act_1'] = {};
+    });
   });
 
   // ---------- دخول الأداة في الاختبارات (api/_login.js) ----------
