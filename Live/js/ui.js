@@ -1198,7 +1198,7 @@
   // اسم الحساب في القائمة: من الحسابات المحمّلة في الأداة لو موجود، وإلا اللي رجع من السيرفر، وإلا رقمه
   function digestAcctName(a) {
     var o = (platformOptions[a.platform] || []).filter(function (x) { return x.value === a.accountId; })[0];
-    return (o && o.label) || a.name || a.accountId;
+    return (o && acctName(o.label)) || a.name || a.accountId;
   }
   function digestAccountsHtml(d) {
     var u = digestUi, list = d.accounts || [];

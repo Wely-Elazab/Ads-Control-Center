@@ -7631,6 +7631,19 @@
         });
       });
     });
+    // اتشاف على الموقع ٣١ أكتوبر: «Meta — Meta — اسم الحساب» — اسم الحساب في قائمة الأداة بيبدأ باسم المنصة أصلاً
+    testAsync('قائمة حسابات الملخص: اسم المنصة مرة واحدة قبل اسم الحساب', function () {
+      var oldMeta = platformOptions.meta;
+      platformOptions.meta = [{ value: 'act_7', label: 'Meta — Other store' }];
+      return withDigest(function () {
+        return ok200({ settings: ON, accounts: [{ platform: 'meta', accountId: 'act_7', name: 'Other store', tokenExpiresAt: '2026-11-27T20:42:24Z' }],
+          current: { accountId: 'act_1', included: false, tokenWorks: true } });
+      }, function () {
+        return openPanel().then(function () {
+          eq(panel().querySelector('.dx-auto-acct').textContent, 'Meta — Other store');
+        });
+      }).then(function () { platformOptions.meta = oldMeta; }, function (e) { platformOptions.meta = oldMeta; throw e; });
+    });
     testAsync('ملخص المستخدم بأكتر من حساب: القائمة، وإضافة الحساب المفتوح بمفتاحه، والإزالة بعد تأكيد — وآخر حساب يوقف الملخص', function () {
       var accounts = [{ platform: 'meta', accountId: 'act_7', name: 'Other store', tokenExpiresAt: '2026-11-27T20:42:24Z' }];
       return withDigest(function (b) {
