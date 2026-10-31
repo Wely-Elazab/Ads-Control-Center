@@ -5,7 +5,7 @@
 // مكان الملف حسب توصية Supabase («Testing your Edge Functions»): supabase/functions/tests/<اسم الدالة>-test.ts
 
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
-import { corsHeaders, esc, reply } from '../sync/lib.ts';
+import { corsHeaders, esc, reply, str, stripHidden } from '../sync/lib.ts';
 import { MAX_PER_PLATFORM, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
@@ -38,6 +38,25 @@ Deno.test('CORS: موقعنا بس هو اللي يقدر يكلّم الدال�
 Deno.test('الردود مبتتخزّنش، والنصوص اللي جاية من برّه بتتأمّن قبل ما تدخل رسالة', () => {
   assertEquals(reply(200, { ok: true }, null).headers.get('cache-control'), 'no-store');
   assertEquals(esc('<a href="x">&</a>'), '&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;');
+  // الخمسة اللي OWASP بيطلبها: الفاصلة العليا كمان، عشان سمة بعلامة واحدة متتكسرش
+  assertEquals(esc("' onerror='x"), '&#39; onerror=&#39;x');
+  assertEquals(esc('a&b'), 'a&amp;b');
+});
+// مراجعة ١ نوفمبر ٢٠٢٦: النص اللي بيتعرض لينا أو للعميل من غير محارف مخفية
+// (رموز تحكم، واتجاه ومنها علامة الحرف العربي، وصفرية العرض، وفواصل السطور، وعلامة ترتيب البايتات)
+Deno.test('المحارف المخفية بتتشال من أي نص جاي من برّه', () => {
+  const marks = ['\u0000', '\u001f', '\u007f', '؜', '​', '‍', '‎', '‮', ' ', ' ', '⁩', '﻿'];
+  for (const m of marks) {
+    const hex = m.charCodeAt(0).toString(16);
+    assertEquals(stripHidden('a' + m + 'b'), 'a b', 'فضل في النص: ' + hex);
+    assertEquals((str('a' + m + 'b', 50) || '').indexOf(m), -1, 'فضل بعد القصّ: ' + hex);
+  }
+  // الدالة مش بتفتكر آخر موضع: نفس النتيجة لو اتنادت مرتين ورا بعض (علم g)
+  assertEquals(stripHidden('a‎b'), stripHidden('a‎b'));
+  // الحروف العادية والعربية متتلمسش
+  assertEquals(str('أحمد — Ads', 50), 'أحمد — Ads');
+  assertEquals(str('', 50), null);
+  assertEquals(str(5 as unknown as string, 50), null);
 });
 
 // ---------- digest.ts ----------

@@ -15,7 +15,7 @@
 // فيسبوك مبيبعتش إشعار بدعوة المختبِر (ومفيش طريقة نخليه يبعت)، والرابط بيفتح صفحة الدعوات على الكمبيوتر بس —
 // على الموبايل بيفتح إعدادات عامة، فرسالة التفعيل فيها خطوات الموبايل من جوه تطبيق فيسبوك (اتجرّب ١ أكتوبر ٢٠٢٦)
 
-import { META_APP_ID, SITE, MAIL_REPLY_TO, db, reply, esc, sendEmail, mailHtml } from './lib.ts';
+import { META_APP_ID, SITE, MAIL_REPLY_TO, db, reply, esc, sendEmail, mailHtml, stripHidden } from './lib.ts';
 import { linkSig, sameString, cleanEmail } from './digest.ts';
 
 // نسخة الشروط وسياسة الخصوصية اللي وافق عليها مقدّم الطلب — ٢٥ أكتوبر ٢٠٢٦: سجل التنبيهات العاجلة (episodes.ts)، و٢٦ أكتوبر: بريد Snapchat
@@ -45,12 +45,10 @@ const COLUMNS = 'id,email,role,name,business,store_url,country,platforms,fb_prof
 
 // ---------- تنظيف المدخلات ----------
 // سطر واحد: من غير رموز تحكم ولا علامات اتجاه (بتلخبط العرض في الإشعار)، والمسافات الزيادة بتتشال.
-// الحروف دي بأرقامها مش مكتوبة في الكود: مبتظهرش، وبتضيع لو الملف اتنسخ — والقائمة من غيرها بتبوظ
-const HIDDEN = new RegExp('[' + [[0x00, 0x1f], [0x7f, 0x7f], [0x200e, 0x200f], [0x202a, 0x202e], [0x2066, 0x2069]]
-  .map((r) => String.fromCharCode(r[0]) + '-' + String.fromCharCode(r[1])).join('') + ']', 'g');
+// قائمة المحارف المخفية في lib.ts — واحدة لكل الملفات
 function line(v: unknown, max: number, min = 1): string | null {
   if (typeof v !== 'string') return null;
-  const s = v.replace(HIDDEN, ' ').replace(/\s+/g, ' ').trim();
+  const s = stripHidden(v).replace(/\s+/g, ' ').trim();
   return s.length >= min && s.length <= max ? s : null;
 }
 // رابط المتجر: نطاق فيه نقطة، ولو من غير https:// بنضيفها
@@ -109,7 +107,8 @@ const BOX = 'border:1px solid #e3e5df;border-radius:10px;padding:10px 14px;margi
 const MUTED = 'color:#6b7280;font-size:14px';
 function text(subject: string, lines: string[]): string {
   return subject + '\n\n' + lines.map((l) => l.replace(/<br>/g, '\n').replace(/<\/(p|tr|li|div)>/g, '\n').replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/[ \t]+/g, ' ').trim()).join('\n\n');
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+    .replace(/[ \t]+/g, ' ').trim()).join('\n\n');
 }
 function link(url: string, label?: string): string {
   return '<a href="' + esc(url) + '">' + esc(label || url) + '</a>';

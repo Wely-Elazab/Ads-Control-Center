@@ -513,8 +513,10 @@ function dateText(iso: string, tz: string, en: boolean): string {
   const months = g.I18N.months();
   return en ? months[month - 1] + ' ' + day : g.ar(day) + ' ' + months[month - 1];
 }
+// فكّ الهروب بالعكس: الأمبرساند آخر واحد، وإلا «&amp;lt;» اللي أصلها نص مكتوب بترجع «<». لازم يطابق esc في lib.ts
 function plain(title: string, lines: string[]): string {
-  return title + '\n\n' + lines.map((l) => l.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')).join('\n\n');
+  return title + '\n\n' + lines.map((l) => l.replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')).join('\n\n');
 }
 function alertBox(a: any, note: string | null): string {
   const muted = 'margin:0 0 6px;color:#6b7280;font-size:14px;line-height:1.7';

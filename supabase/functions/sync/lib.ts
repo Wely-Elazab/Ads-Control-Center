@@ -84,11 +84,24 @@ export async function isAppAdmin(token: string): Promise<boolean | null> {
   return roles.data.some((x: any) => String(x.user) === String(me.id) && x.role === 'administrators');
 }
 
+// المحارف المخفية: رموز التحكم، وعلامات الاتجاه (ومنها علامة الحرف العربي ٠٦١C)، والمحارف صفرية العرض،
+// وفاصلا السطر والفقرة، وعلامة ترتيب البايتات. بتتشال من أي نص بيتعرض لينا أو للعميل: بتلخبط العرض،
+// وبتخلّي النص يبان غير اللي هو (Trojan Source — CVE-2021-42574). واحدة هنا بس عشان كل الملفات تستعملها.
+// الحروف بأرقامها مش مكتوبة: مبتظهرش، وبتضيع لو الملف اتنسخ — والقائمة من غيرها بتبوظ
+const HIDDEN_RANGES = [[0x00, 0x1f], [0x7f, 0x7f], [0x061c, 0x061c], [0x200b, 0x200f], [0x2028, 0x2029], [0x202a, 0x202e], [0x2066, 0x2069], [0xfeff, 0xfeff]];
+// بدالة مش بالتعبير نفسه: التعبير بعلم g حالته بتفضل من استدعاء للي بعده (lastIndex)، فتصديره فخّ
+const HIDDEN = new RegExp('[' + HIDDEN_RANGES
+  .map((r) => String.fromCharCode(r[0]) + '-' + String.fromCharCode(r[1])).join('') + ']', 'g');
+export function stripHidden(s: string): string { return s.replace(HIDDEN, ' '); }
+
 export function str(v: unknown, max: number): string | null {
-  return typeof v === 'string' && v ? v.slice(0, max) : null;
+  if (typeof v !== 'string' || !v) return null;
+  return stripHidden(v).slice(0, max) || null;
 }
+// الهروب الكامل زي ما OWASP بيقول (& < > " '): الفاصلة العليا كمان، عشان أي سمة بعلامة واحدة تفضل آمنة
+// لو اتكتبت يوم. أي زيادة هنا لازم تتضاف لفكّ الهروب في النص العادي (join.ts text وrunner.ts plain)
 export function esc(s: string): string {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // ---------- البريد (Resend — المفتاح بصلاحية «إرسال فقط») ----------
