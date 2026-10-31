@@ -3714,6 +3714,8 @@
         ok(tab('all').classList.contains('active'), 'all accounts by default');
         eq([inp('roasTarget').value, inp('roasBreakEven').value], ['4', '2']);
         ok(settingsForm.textContent.indexOf(t('settings.scope.allNote')) > -1, 'says it covers every account and is saved for the user');
+        // رأس النافذة كان لسه «لهذا الحساب الإعلاني وحده» بعد ما الإعدادات بقت لكل مستخدم (اتشاف حياً ٣١ أكتوبر)
+        ok(document.querySelector('#settingsOverlay .expand-sub').textContent.indexOf('لهذا الحساب الإعلاني') < 0, 'the window header no longer says «this ad account only»');
         tab('snapchat').click();
         ok(!inp('roasTarget') && settingsSaveBtn.disabled, 'a platform follows all accounts: no fields until customized');
         ok(settingsForm.textContent.indexOf(t('settings.scope.follows', { platform: 'Snapchat' })) > -1, 'says so');

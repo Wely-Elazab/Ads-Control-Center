@@ -446,7 +446,7 @@
 
       // الإعدادات
       'settings.title': 'إعدادات التنبيهات',
-      'settings.sub': 'لهذا الحساب الإعلاني وحده. الحدود تُقاس بأداء الحساب نفسه فتناسب أي حجم ميزانية، أما المستهدف وحد الخسارة فمن هامش ربح متجرك، ولا نحكم على الربح قبل أن تحددهما.',
+      'settings.sub': 'الحدود تُقاس بأداء كل حساب إعلاني نفسه فتناسب أي حجم ميزانية، أما المستهدف وحد الخسارة فمن هامش ربح متجرك، ولا نحكم على الربح قبل أن تحددهما.',
       'settings.save': 'حفظ',
       'settings.goals': 'أهداف متجرك',
       'settings.advanced': 'إعدادات متقدمة لمسؤول الإعلانات (جميع الحدود بالتفصيل)',
@@ -481,7 +481,7 @@
       'settings.scope.allNote': 'تُطبَّق على كل حساباتك الإعلانية في كل المنصات. وتُحفظ لحسابك في الأداة، فتظهر على أي جهاز تدخل منه، ويعمل بها الملخص والتنبيهات العاجلة بالبريد.',
       'settings.scope.except': 'ما عدا {platforms}: لها إعدادات خاصة.',
       'settings.scope.follows': 'حسابات {platform} تتبع إعدادات كل الحسابات. ويمكنك تخصيص إعدادات لها وحدها إن احتاجت حدوداً مختلفة.',
-      'settings.scope.customize': 'خصّص إعدادات لـ{platform} وحدها',
+      'settings.scope.customize': 'خصّص إعدادات لحسابات {platform} وحدها',
       'settings.scope.platNote': 'هذه الإعدادات لحسابات {platform} وحدها، بدل إعدادات كل الحسابات.',
       'settings.scope.uncustom': 'ألغِ التخصيص واتبع إعدادات كل الحسابات',
       'settings.cost.conv': 'المبالغ هنا بـ{cur}، وتُحوَّل إلى عملة كل حساب بسعر الربط الرسمي.',
@@ -1916,7 +1916,7 @@
       'alerts.noneType': 'No alerts of this type right now.',
 
       'settings.title': 'Alert settings',
-      'settings.sub': 'For this ad account only. The thresholds are measured against the account\'s own performance, so they fit any budget; the target and loss limit come from your store\'s margin, and we don\'t judge profit until you set them.',
+      'settings.sub': 'The thresholds are measured against each ad account\'s own performance, so they fit any budget; the target and loss limit come from your store\'s margin, and we don\'t judge profit until you set them.',
       'settings.save': 'Save',
       'settings.goals': 'Your store\'s targets',
       'settings.advanced': 'Advanced settings for your ad manager (every threshold)',
