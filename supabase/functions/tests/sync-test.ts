@@ -6,10 +6,13 @@
 
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
 import { corsHeaders, esc, reply } from '../sync/lib.ts';
-import { MAX_DIGEST_ACCOUNTS, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
+import { MAX_PER_PLATFORM, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
-import { callTimeout, familyOf, freshUsage, markMap, readUsage, resolveNow, settingsChoice } from '../sync/runner.ts';
+import {
+  addDays, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice, summaryWindow,
+  urgentReady, windowKey
+} from '../sync/runner.ts';
 import { MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
 
@@ -173,10 +176,39 @@ Deno.test('حدود Meta: مستوى الوصول وأعلى استهلاك من
   readUsage(new Headers({ 'x-business-use-case-usage': JSON.stringify({ '123': [{ type: 'ads_insights', call_count: 7, total_cputime: 55, total_time: 3, estimated_time_to_regain_access: 0 }] }) }), u);
   readUsage(new Headers({ 'x-ad-account-usage': 'not json' }), u);
   readUsage(new Headers(), u);
-  assertEquals(u, { tier: 'development_access', accPct: 42, bucPct: 55, regainMin: 0, calls: 4 });
+  assertEquals(u, { tier: 'development_access', accPct: 42, bucPct: 55, appPct: 0, regainMin: 0, calls: 4 });
   // الاسم اللي في الصفحة الرسمية، والحجب
   readUsage(new Headers({ 'x-business-use-case': JSON.stringify({ '1': [{ call_count: 100, estimated_time_to_regain_access: 5 }] }) }), u);
   assertEquals([u.bucPct, u.regainMin, u.calls], [100, 5, 5]);
+  // حد التطبيق كله (٣١ أكتوبر — المُشغّل بيوقف حسابات Meta في التشغيل لما يقرب منه): أعلى نسبة من الثلاثة
+  readUsage(new Headers({ 'x-app-usage': JSON.stringify({ call_count: 12, total_cputime: 80, total_time: 30 }) }), u);
+  assertEquals(u.appPct, 80);
+});
+// الملخص بحسابات كتير (٣١ أكتوبر ٢٠٢٦): التخطيط من غير المحرك، ومفاتيح الفترات، وإمتى العاجل يتبعت، وشكل الرسالة المختصر
+Deno.test('التواريخ من غير المحرك ومفاتيح فترات الملخص', () => {
+  assertEquals([addDays('2026-10-31', 1), addDays('2026-03-01', -1), addDays('2024-03-01', -1)], ['2026-11-01', '2026-02-28', '2024-02-29']);
+  assertEquals([daysBetween('2026-10-25', '2026-11-04'), daysBetween('2026-11-04', '2026-10-25')], [10, -10]);
+  // الأربعاء بعد ملخص الأحد = الأحد–الثلاثاء، وأول ملخص (أو بعد انقطاع طويل) = من آخر يوم ملخص في الجدول
+  assertEquals(summaryWindow([0, 3], '2026-10-24', '2026-10-28', 3), { since: '2026-10-25', until: '2026-10-27' });
+  assertEquals(summaryWindow([0, 3], null, '2026-10-28', 3), { since: '2026-10-25', until: '2026-10-27' });
+  assertEquals(summaryWindow([0, 3], '2026-10-27', '2026-10-28', 3), null, 'already covered');
+  const w = { since: '2026-11-01', until: '2026-11-03' };
+  assertEquals([windowKey(w), keyWindow(windowKey(w)), keyWindow('bad'), keyWindow(null)], ['2026-11-01..2026-11-03', w, null, null]);
+  assertEquals([monthWindow('2026-02'), monthWindow('2024-02'), monthWindow('2026-13x')],
+    [{ since: '2026-02-01', until: '2026-02-28', month: '2026-02' }, { since: '2024-02-01', until: '2024-02-29', month: '2024-02' }, null]);
+});
+Deno.test('العاجل بيستنى باقي حسابات المستخدم (محجوز أو عليه فحص) بحد أقصى ربع ساعة', () => {
+  const now = Date.parse('2026-10-31T12:00:00Z'), ago = (min: number) => new Date(now - min * 60000).toISOString();
+  const done: { checked_at: string | null; claimed_until?: string | null }[] = [{ checked_at: ago(5) }, { checked_at: ago(10), claimed_until: ago(1) }];
+  assert(urgentReady(done, now - 60000, true, now), 'the hour\'s checks are done');
+  assert(!urgentReady(done.concat([{ checked_at: ago(55) }]), now - 60000, true, now), 'an account still due this hour');
+  assert(urgentReady(done.concat([{ checked_at: ago(55) }]), now - 60000, false, now), 'at night no check is coming');
+  assert(!urgentReady(done.concat([{ checked_at: ago(1), claimed_until: new Date(now + 60000).toISOString() }]), now - 60000, true, now), 'one being checked now');
+  assert(urgentReady(done.concat([{ checked_at: null }]), now - 16 * 60000, true, now), 'at most a quarter of an hour');
+});
+Deno.test('رسالة الملخص بحسابات كتير: التفاصيل للحسابات اللي محتاجة انتباه بس', () => {
+  assertEquals([needsAttention({ sum: { composed: { tone: 'bad' } } }), needsAttention({ sum: { composed: { tone: 'mixed' } } }),
+    needsAttention({ sum: { composed: { tone: 'good' } } }), needsAttention({ sum: { composed: { tone: 'neutral' } } })], [true, true, false, false]);
 });
 
 // مراجعة المرحلة ٢ (١٧ أكتوبر — Google SRE، فصل ٢٢): كل طلب Meta في المُشغّل له مهلة، ومفيش طلب بيتبعت بعد نهاية التشغيل
@@ -445,7 +477,7 @@ Deno.test('البريد بيقرا سجل الحساب بس — من غيره أ
 function restoreDigestEnv() { Deno.env.delete('RESEND_API_KEY'); restoreFetch(); }
 function fakeDigestDb() {
   const store = {
-    digests: [] as any[], accounts: [] as any[], tokens: [] as any[], sealed: [] as any[], marks: 0, logs: [] as any[], mails: [] as any[],
+    digests: [] as any[], accounts: [] as any[], tokens: [] as any[], sealed: [] as any[], marks: 0, logs: [] as any[], mails: [] as any[], outboxCleared: [] as any[],
     names: { act_1: 'Store one', act_2: 'Store two' } as Record<string, string>, legacyOwner: {} as Record<string, string>
   };
   const q = (url: string) => new URLSearchParams(url.split('?')[1] || '');
@@ -512,6 +544,8 @@ function fakeDigestDb() {
       }
     }
     if (url.indexOf('/rest/v1/user_alert_marks') > -1) { store.marks++; return new Response(null, { status: 204 }); }
+    // نتايج الحساب المستنية الإرسال (runner.ts digest_outbox) بتتمسح مع خروجه من الملخص
+    if (url.indexOf('/rest/v1/digest_outbox') > -1 && method === 'DELETE') { store.outboxCleared.push(eqv(p, 'account_id')); return new Response(null, { status: 204 }); }
     if (url.indexOf('/rest/v1/send_log') > -1) { store.logs.push(body); return new Response(null, { status: 201 }); }
     if (url.indexOf('/rest/v1/ad_accounts') > -1) { const a = eqv(p, 'account_id') as string; return json(store.names[a] ? [{ name: store.names[a] }] : []); }
     if (url.indexOf('/rest/v1/digest_settings') > -1) { const a = eqv(p, 'account_id') as string; return json(store.legacyOwner[a] ? [{ user_id: store.legacyOwner[a] }] : []); }
@@ -547,10 +581,14 @@ Deno.test('الملخص لكل مستخدم: التفعيل بحساب Meta ال
     assertEquals(add.body.accounts.map((a: any) => [a.accountId, a.name]), [['act_1', 'Store one'], ['act_2', 'Store two']]);
     const got = await call('digest.get', { accountId: 'act_2' }, A);
     assertEquals([got.body.current.accountId, got.body.current.included], ['act_2', true]);
-    // الحد: ٥ حسابات
-    for (let i = 3; i <= MAX_DIGEST_ACCOUNTS; i++) store.accounts.push({ user_id: A, platform: 'meta', account_id: 'act_' + i });
-    assertEquals((await call('digest.add', { token: T, accountId: 'act_9' }, A)).body.error, 'too many');
-    store.accounts = store.accounts.filter((a) => !(a.user_id === A && Number(a.account_id.slice(4)) >= 3));
+    // الحد لكل منصة (٣١ أكتوبر: Meta ٢٠ وSnapchat ١٠): Meta مليانة ← حساب Meta زيادة مرفوض، وحساب Snapchat لسه ينفع
+    assertEquals(MAX_PER_PLATFORM, { meta: 20, snapchat: 10 });
+    for (let i = 3; i <= MAX_PER_PLATFORM.meta; i++) store.accounts.push({ user_id: A, platform: 'meta', account_id: 'act_' + i });
+    assertEquals((await call('digest.add', { token: T, accountId: 'act_99' }, A)).body.error, 'too many');
+    const snap = await call('digest.add', { platform: 'snapchat', accountId: 'cd3b3bfe-4361-484c-9985-51c2d1264860', sealed: 'v2.' + 'A'.repeat(16) + '.' + 'B'.repeat(40) }, A);
+    assertEquals(snap.status, 200, 'another platform has its own limit');
+    store.accounts = store.accounts.filter((a) => !(a.user_id === A && (a.platform === 'snapchat' || Number(a.account_id.slice(4)) >= 3)));
+    store.sealed = [];
     // التجديد: حساب مش في الملخص = enabled false مع إن المستخدم عنده ملخص
     store.names.act_5 = 'Five';
     assertEquals((await call('digest.refresh', { token: T, accountId: 'act_5' }, A)).body, { ok: true, enabled: false, hasDigest: true });

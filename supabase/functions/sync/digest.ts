@@ -1,6 +1,6 @@
 // الملخص والتنبيهات التلقائية بالبريد (اختيارية) — لكل مستخدم من ٣١ أكتوبر ٢٠٢٦ (قرار صاحب المنتج: «اجعلها لكل مستخدم ملخص خاص به»):
 // ملخص واحد لحساب الدخول (بريده ومواعيده ولغته وتوقيته — جدول user_digests) فيه الحسابات اللي اختارها (user_digest_accounts — لحد
-// MAX_DIGEST_ACCOUNTS)، وبيتبعت بإعدادات التنبيهات بتاعته هو (settings.ts). العمليات تحت handleDigest.
+// MAX_PER_PLATFORM لكل منصة)، وبيتبعت بإعدادات التنبيهات بتاعته هو (settings.ts). العمليات تحت handleDigest.
 // إعدادات التنبيهات (المستهدف وحد الخسارة والحدود) مش هنا: إعدادات المستخدم (settings.ts)
 //
 // صلاحية Meta: بنبدّل المفتاح القصير (ساعة أو اتنين) بمفتاح طويل (نحو ٦٠ يوم) بسر التطبيق، ونشفّره AES-256-GCM بـ TOKEN_ENC_KEY
@@ -197,8 +197,11 @@ async function digestState(user: string): Promise<Record<string, unknown>> {
   }
   return { settings: publicSettings(s), accounts };
 }
-// أقصى عدد حسابات في ملخص المستخدم: تشغيل المُشغّل حدّه دقيقتين تقريباً، والملخص بيتبني لكل الحسابات في نفس التشغيل (رسالة واحدة)
-export const MAX_DIGEST_ACCOUNTS = 5;
+// أقصى عدد حسابات لكل منصة في ملخص المستخدم (قرار صاحب المنتج ٣١ أكتوبر ٢٠٢٦: «اجعلها اكبر عدد ممكن للحسابات لكل منصة... المهم انه
+// لا يحصل بينهم تعارض»): كل حساب بيتفحص لوحده (runner.ts digest_claim). Meta: حصة كل حساب إعلاني لوحده عند Meta، والحد المشترك للتطبيق
+// بيحميه المُشغّل (META_APP_STOP_PCT). Snapchat: حسابات المستخدم ورا بعض (دخول واحد) — فأقل. بتزيد بعد القياس على حسابات حقيقية
+// (نفس الأرقام في Live/js/ui.js DIGEST_MAX)
+export const MAX_PER_PLATFORM: Record<string, number> = { meta: 20, snapchat: 10 };
 async function logSend(user: string, account: string, type: string, status: string, providerId: string | null, error: string | null): Promise<void> {
   await db('send_log', { method: 'POST', headers: { 'prefer': 'return=minimal' },
     body: JSON.stringify({ user_id: user, account_id: account || '-', type, status, provider_id: providerId, error: error ? error.slice(0, 200) : null }) }).catch(() => {});
@@ -282,6 +285,8 @@ async function removeAccount(user: string, platform: string, account: string): P
   if (platform === 'meta') await rpc('vault_user_delete', { p_user: user, p_account: account });
   else await rpc('vault_sealed_delete', { p_user: user, p_platform: platform, p_account: account });
   await db('user_alert_marks?user_id=eq.' + user + '&platform=eq.' + platform + '&account_id=eq.' + encodeURIComponent(account), { method: 'DELETE' });
+  // نتايجه المستنية الإرسال (runner.ts digest_outbox) — الحساب خرج من الملخص فمتظهرش في الرسالة الجاية
+  await db('digest_outbox?user_id=eq.' + user + '&platform=eq.' + platform + '&account_id=eq.' + encodeURIComponent(account), { method: 'DELETE' });
   const left = await accountsOf(user);
   if (left.length) return false;
   const s = await digestOf(user);
@@ -441,8 +446,8 @@ export async function handleDigest(action: string, body: any, origin: string | n
   if (action === 'digest.add') {
     const s = await digestOf(user);
     if (!s || !s.enabled) return reply(409, { error: 'not enabled' }, origin);
-    const list = await accountsOf(user);
-    if (!list.some((a) => a.platform === platform && a.account_id === account) && list.length >= MAX_DIGEST_ACCOUNTS) return reply(409, { error: 'too many' }, origin);
+    const list = (await accountsOf(user)).filter((a) => a.platform === platform);
+    if (!list.some((a) => a.account_id === account) && list.length >= (MAX_PER_PLATFORM[platform] || 0)) return reply(409, { error: 'too many' }, origin);
     const expiresAt = await store();
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
     await saveAccount();

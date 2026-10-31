@@ -1142,8 +1142,9 @@
   // من ٣١ أكتوبر ٢٠٢٦ لكل مستخدم (قرار صاحب المنتج: «اجعلها لكل مستخدم ملخص خاص به»): ملخص واحد لحساب الدخول — بريده ومواعيده —
   // فيه الحسابات اللي اختارها (لحد ٥)، وبيتبعت بإعدادات التنبيهات بتاعته. التفعيل والإضافة بالحساب المفتوح وإثبات الوصول ليه (digestProof
   // تحت). لما حساب في الملخص يتفتح بنجدده بهدوء، و«فصل» منصة بيخرّج حساباتها من الملخص ويحذف صلاحياتها (سياسة الخصوصية، البند ٧).
-  // المنصات: Meta (المرحلة ١) وSnapchat (المرحلة ٢)، وGoogle بعدها
-  var DIGEST_MAX = 5;
+  // المنصات: Meta (المرحلة ١) وSnapchat (المرحلة ٢)، وGoogle بعدها. أقصى عدد لكل منصة (٣١ أكتوبر ٢٠٢٦: «اكبر عدد ممكن للحسابات لكل
+  // منصة... المهم انه لا يحصل بينهم تعارض») — نفس supabase/functions/sync/digest.ts MAX_PER_PLATFORM
+  var DIGEST_MAX = { meta: 20, snapchat: 10 };
   function digestFresh() {
     return { status: 'idle', data: null, editing: false, confirmOff: false, confirmRemove: null, busy: false, msg: null, msgErr: false, draft: null };
   }
@@ -1225,7 +1226,7 @@
   function digestAccountsHtml(d) {
     var u = digestUi, list = d.accounts || [];
     if (!list.length) return '';
-    return '<div class="dx-auto-accts"><p class="dx-auto-label">' + esc(t('dx.auto.accounts', { n: ar(list.length), max: ar(DIGEST_MAX) })) + '</p><ul>' +
+    return '<div class="dx-auto-accts"><p class="dx-auto-label">' + esc(t('dx.auto.accounts', { n: ar(list.length) })) + '</p><ul>' +
       list.map(function (a) {
         var key = a.platform + ':' + a.accountId, confirm = u.confirmRemove === key;
         var warn = a.tokenProblem ? '<span class="dx-auto-warn">' + esc(t('dx.auto.acctProblem')) + '</span>' : '';
@@ -1249,18 +1250,17 @@
     if (s && s.enabled && !u.editing) {
       var html = '<p class="dx-auto-on"><strong>' + esc(t('dx.auto.onLabel')) + '</strong> ' +
         esc(t('dx.auto.on', { email: s.email, days: digestDaysText(s.days), hour: digestHourText(s.hour), tz: tz })) + '</p>' + digestAccountsHtml(d);
-      // الحسابات المفتوحة: صلاحية أولها (لو في الملخص)، وزرار إضافة لكل واحد مش فيه
-      var full = (d.accounts || []).length >= DIGEST_MAX, fullShown = false;
+      // الحسابات المفتوحة: صلاحية أولها (لو في الملخص)، وزرار إضافة لكل واحد مش فيه — أو رسالة الحد لو منصته مليانة
       open.forEach(function (o, i) {
         var mine = (d.accounts || []).filter(function (a) { return a.platform === o.platform && a.accountId === o.accountId; })[0];
+        var max = DIGEST_MAX[o.platform] || 0;
         if (mine) {
           if (i > 0) return;
           var cur = d.current && d.current.accountId === o.accountId ? d.current : null;
           if (cur && cur.tokenWorks === false) html += '<p class="dx-auto-msg err">' + esc(t('dx.auto.problem', { platform: PLATFORM_NAMES[o.platform] || o.platform })) + '</p>';
           else if (mine.tokenExpiresAt) html += '<p>' + esc(t('dx.auto.expires', { date: fmtKey(String(mine.tokenExpiresAt).slice(0, 10)) })) + '</p>';
-        } else if (full) {
-          if (!fullShown) html += '<p class="dx-auto-msg">' + esc(t('dx.auto.full', { max: ar(DIGEST_MAX) })) + '</p>';
-          fullShown = true;
+        } else if ((d.accounts || []).filter(function (a) { return a.platform === o.platform; }).length >= max) {
+          html += '<p class="dx-auto-msg">' + esc(t('dx.auto.full', { platform: PLATFORM_NAMES[o.platform] || o.platform, max: ar(max) })) + '</p>';
         } else {
           html += '<div class="dx-auto-actions"><button type="button" class="ghost-btn" data-digest-add="' + o.platform + '"' + (u.busy ? ' disabled' : '') + '>' +
             esc(t('dx.auto.add', { name: accountLabel(o.platform) })) + '</button></div>';

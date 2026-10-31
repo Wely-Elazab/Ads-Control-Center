@@ -7779,12 +7779,19 @@
         });
       });
     });
-    testAsync('ملخص فيه ٥ حسابات: مفيش زرار إضافة، ورسالة الحد', function () {
-      var five = [1, 2, 3, 4, 5].map(function (i) { return { platform: 'meta', accountId: 'act_9' + i, name: 'S' + i }; });
-      return withDigest(function () { return ok200({ settings: ON, accounts: five }); }, function () {
-        return openPanel().then(function () {
-          ok(!panel().querySelector('[data-digest-add]'), 'no add button');
-          withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.full', { max: ar(5) })) > -1, 'says the limit'); });
+    // الحد لكل منصة (٣١ أكتوبر ٢٠٢٦: Meta ٢٠ وSnapchat ١٠ — نفس digest.ts MAX_PER_PLATFORM)
+    testAsync('حسابات Meta في الملخص وصلت حدها (٢٠): مفيش زرار إضافة لـ Meta ورسالة الحد باسم المنصة، وحساب Snapchat مفتوح لسه ينفع يتضاف', function () {
+      eq(DIGEST_MAX, { meta: 20, snapchat: 10 });
+      var full = [];
+      for (var i = 1; i <= 20; i++) full.push({ platform: 'meta', accountId: 'act_9' + i, name: 'S' + i });
+      return withDigest(function () { return ok200({ settings: ON, accounts: full }); }, function () {
+        return withSnap(function () {
+          return openPanel().then(function () {
+            ok(!panel().querySelector('[data-digest-add="meta"]'), 'no add button for Meta');
+            withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.full', { platform: 'Meta', max: ar(20) })) > -1, 'says the Meta limit'); });
+            ok(panel().querySelector('[data-digest-add="snapchat"]'), 'Snapchat has its own limit');
+            withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.accounts', { n: ar(20) })) > -1, 'the count'); });
+          });
         });
       });
     });
