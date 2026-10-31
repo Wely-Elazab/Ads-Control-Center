@@ -1338,6 +1338,17 @@
       delete w.plat;
       ok(!engine(baseAccount().concat([w])).alerts.some(function (x) { return x.compare; }), 'no platform number = no line');
     });
+    // مراجعة ١ نوفمبر (ر٣، حساب Snapchat حقيقي): «والأقرب لطلبات متجرك ٠ مشتريات» — صفر بجملة لوحدها
+    test('المقارنة في التنبيه: صفر في الأقرب للمتجر بجملة سليمة من غير «٠ مشتريات»', function () {
+      var z = ad('zero', { daily: [10, 10, 10, 10, 10, 10, 2], res: [0, 0, 0, 0, 0, 0, 0] });
+      z.plat = { results: 2, sales: 400 };
+      var a = engine(baseAccount().concat([z]), {}, { maxCost: { purchase: 20 } }).alerts.filter(function (x) { return x.adId === 'zero' && x.compare; })[0];
+      ok(a, 'a zero-result alert with the platform number');
+      withLang('ar', function () {
+        eq(a.compare, t('al.compareZero', { p: I18N.countPhrase(2, 'purchase', ar), pr: t('al.cmpRoas', { r: numAr(400 / z.spend) }) }));
+        ok(a.compare.indexOf('٠') < 0, a.compare);
+      });
+    });
     test('المقارنة في التنبيه: مبيعات النهارده مش داخلة (زي الإنفاق والطلبات ورقم المنصة)', function () {
       // نفس شكل الإنتاج: c.sales = الأيام المكتملة (meta.js)، والخانة الأخيرة = النهارده وفيها مبيعات
       var w = ad('waste', { daily: [100, 100, 100, 100, 100, 100, 20], res: [5, 5, 5, 5, 0, 0, 0], sales: [500, 500, 500, 500, 0, 0, 900] });

@@ -10,8 +10,8 @@ import { MAX_PER_PLATFORM, cleanEmail, daysText, hourText, handleDigest, linkSig
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
-  addDays, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice, summaryWindow,
-  urgentReady, windowKey
+  addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
+  summaryWindow, urgentReady, windowComplete, windowKey
 } from '../sync/runner.ts';
 import { MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -196,6 +196,14 @@ Deno.test('التواريخ من غير المحرك ومفاتيح فترات �
   assertEquals([windowKey(w), keyWindow(windowKey(w)), keyWindow('bad'), keyWindow(null)], ['2026-11-01..2026-11-03', w, null, null]);
   assertEquals([monthWindow('2026-02'), monthWindow('2024-02'), monthWindow('2026-13x')],
     [{ since: '2026-02-01', until: '2026-02-28', month: '2026-02' }, { since: '2024-02-01', until: '2024-02-29', month: '2024-02' }, null]);
+});
+// ر٥ (مراجعة ١ نوفمبر): ميعاد الملخص بتوقيت المستخدم، وحساب بتوقيت متأخر يومه الأخير لسه مخلصش — قسمه بيستنى
+Deno.test('قسم الملخص بيستنى لحد ما آخر يوم في الفترة يكمل بتوقيت الحساب نفسه', () => {
+  const today = (tz: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const ahead = 'Pacific/Kiritimati', behind = 'Pacific/Pago_Pago';   // +14 و-11: الفرق ٢٥ ساعة
+  assert(!windowComplete({ until: today(ahead) }, behind), 'a day that has not ended there yet');
+  assert(!windowComplete({ until: today(behind) }, behind), 'today is never complete');
+  assert(windowComplete({ until: addDays(today(behind), -1) }, ahead), 'yesterday there is over everywhere ahead');
 });
 Deno.test('العاجل بيستنى باقي حسابات المستخدم (محجوز أو عليه فحص) بحد أقصى ربع ساعة', () => {
   const now = Date.parse('2026-10-31T12:00:00Z'), ago = (min: number) => new Date(now - min * 60000).toISOString();
@@ -680,4 +688,147 @@ Deno.test('الملخص بحساب Snapchat: التفعيل والإضافة ب�
     await call('digest.disable', {});
     assertEquals([store.digests.length, store.sealed.length, store.tokens.length], [0, 0, 0]);
   } finally { restoreDigestEnv(); }
+});
+
+// ---------- الإرسال من الطابور (runner.ts assemble — ٣١ أكتوبر ٢٠٢٦، مراجعة ١ نوفمبر) ----------
+// المحرك الحقيقي بيتحمّل من GitHub في المُشغّل — هنا أقل الأسماء اللي رسائل البريد بتستخدمها
+function fakeEngine(): () => void {
+  const G = globalThis as any, had = { I18N: G.I18N, ar: G.ar, fmtRange: G.fmtRange, DX: G.DX };
+  G.I18N = { setLang() {}, t: (k: string) => k, months: () => ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'] };
+  G.ar = (n: number) => String(n);
+  G.fmtRange = (a: string, b: string) => a + ' – ' + b;
+  G.DX = { toText: (c: any, name: string) => name + ': ' + c.title };
+  return () => { Object.assign(G, had); };
+}
+type QRow = Record<string, any>;
+// قاعدة بيانات وهمية بنفس فلاتر PostgREST اللي الإرسال بيستخدمها: نتايج الطابور، وحسابات الملخص، وحجز الإرسال (sending_until)
+function fakeQueueDb(st: { outbox: QRow[]; accounts: QRow[]; digest: QRow }) {
+  const out = { mails: [] as any[], marks: [] as any[], logs: [] as any[] };
+  Deno.env.set('RESEND_API_KEY', 'test-resend-key');
+  const q = (url: string) => new URLSearchParams(url.split('?')[1] || '');
+  const eqv = (p: URLSearchParams, k: string) => { const v = p.get(k); return v && v.indexOf('eq.') === 0 ? decodeURIComponent(v.slice(3)) : null; };
+  stubFetch((url, init) => {
+    const method = (init && init.method) || 'GET', body = init && init.body ? JSON.parse(String(init.body)) : null;
+    if (url.indexOf('api.resend.com') > -1) { out.mails.push(body); return json({ id: 'mail-' + out.mails.length }); }
+    const p = q(url);
+    if (url.indexOf('/rest/v1/digest_outbox') > -1) {
+      const kind = eqv(p, 'kind'), period = eqv(p, 'period'), user = eqv(p, 'user_id');
+      const match = (r: QRow) => (!kind || r.kind === kind) && (period == null || r.period === period) && (!user || r.user_id === user);
+      if (method === 'GET') return json(st.outbox.filter(match));
+      if (method === 'DELETE') { const gone = st.outbox.filter(match); st.outbox = st.outbox.filter((r) => !match(r)); return json(gone); }
+    }
+    if (url.indexOf('/rest/v1/user_digest_accounts') > -1) {
+      if (method === 'GET') return json(st.accounts.filter((a) => a.user_id === eqv(p, 'user_id')));
+      if (method === 'PATCH') {
+        const need = eqv(p, 'need_summary');
+        st.accounts.forEach((a) => { if (a.user_id === eqv(p, 'user_id') && (need == null || a.need_summary === need)) Object.assign(a, body); });
+        return new Response(null, { status: 204 });
+      }
+    }
+    if (url.indexOf('/rest/v1/user_digests') > -1 && method === 'PATCH') {
+      const pend = eqv(p, 'summary_pending');
+      if (pend != null) {   // حجز الإرسال: نفس الفترة، ومفيش تشغيل تاني بيبعتها دلوقتي
+        const free = !st.digest.sending_until || Date.parse(st.digest.sending_until) < Date.now();
+        if (st.digest.summary_pending !== pend || !free) return json([]);
+        Object.assign(st.digest, body);
+        return json([st.digest]);
+      }
+      Object.assign(st.digest, body);
+      return new Response(null, { status: 204 });
+    }
+    if (url.indexOf('/rest/v1/user_alert_marks') > -1) { out.marks.push(...body); return new Response(null, { status: 201 }); }
+    if (url.indexOf('/rest/v1/send_log') > -1) { out.logs.push(body); return new Response(null, { status: 201 }); }
+    if (url.indexOf('/rest/v1/ad_accounts') > -1) return json(eqv(p, 'account_id') === 'act_2' ? [{ name: 'Meta two' }] : []);
+    throw new Error('unexpected fetch ' + method + ' ' + url);
+  });
+  return out;
+}
+const QA = '11111111-2222-3333-4444-555555555555', QKEY = '2026-10-28..2026-10-31';
+const qUser = (extra: QRow = {}): any => ({ user_id: QA, email: 'a@store.com', lang: 'ar', timezone: 'Asia/Riyadh', summary_days: [0, 3], summary_hour: 9,
+  last_summary_until: '2026-10-27', last_monthly: '2026-10', summary_pending: null, summary_pending_at: null, monthly_pending: null, monthly_pending_at: null, ...extra });
+const qAcct = (platform: string, id: string, extra: QRow = {}): QRow => ({ user_id: QA, platform, account_id: id, name: platform === 'meta' ? null : 'Snap ' + id,
+  checked_at: new Date(Date.now() - 5 * 60000).toISOString(), claimed_until: null, need_summary: null, need_monthly: null, ...extra });
+const qUrgent = (platform: string, id: string, name: string): QRow => ({ user_id: QA, platform, account_id: id, kind: 'urgent', period: '', created_at: new Date().toISOString(),
+  payload: { platform, account: id, name, fresh: [{ title: 'TITLE-' + name, detail: 'd', advice: 'a', code: 'loss' }], remind: [] },
+  marks: [{ kind: 'perf', object_id: 'ad-' + id, first_at: 'x', last_sent_at: 'x', last_seen_at: 'x', times_sent: 1, resolved_at: null, last_code: 'loss' }] });
+const qSum = (platform: string, id: string, name: string, tone: string): QRow => ({ user_id: QA, platform, account_id: id, kind: 'summary', period: QKEY,
+  created_at: new Date().toISOString(),
+  payload: { platform, account: id, name, sum: { composed: { period: 'PERIOD-' + name, title: 'TITLE-' + name, tone, kpis: [], blocks: [], notes: [] }, actions: null }, alerts: null } });
+const noEngine = () => Promise.resolve();
+
+Deno.test('الطابور — العاجل: رسالة واحدة بحسابات المستخدم، والبصمات بعد الإرسال بس، ومبيتبعتش وحساب لسه بيتفحص', async () => {
+  const restoreEngine = fakeEngine();
+  try {
+    // حساب لسه محجوز (بيتفحص دلوقتي): العاجل بيستناه
+    const st = { outbox: [qUrgent('meta', 'act_1', 'Meta one'), qUrgent('snapchat', 'S1', 'Snap S1')],
+      accounts: [qAcct('meta', 'act_1'), qAcct('snapchat', 'S1'), qAcct('snapchat', 'S2', { claimed_until: new Date(Date.now() + 60000).toISOString() })], digest: {} };
+    let out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser()], noEngine, { stop: {}, us: {} }), { 'urgent-waiting': 1 });
+    assertEquals([out.mails.length, st.outbox.length], [0, 2], 'nothing sent, nothing lost');
+    restoreFetch();
+    // الفحص خلص: رسالة واحدة فيها الحسابين، والبصمات المستنية اتحفظت بمنصة كل حساب، والطابور فضي
+    st.accounts[2].claimed_until = null;
+    out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser()], noEngine, { stop: {}, us: {} }), { 'urgent-sent': 1 });
+    assertEquals(out.mails.length, 1);
+    const m = out.mails[0];
+    assertEquals(m.subject, 'عاجل: أمران يحتاجان إلى إجراء — حسابين');
+    assert(String(m.html).indexOf('TITLE-Meta one') > -1 && String(m.html).indexOf('TITLE-Snap S1') > -1, 'both accounts in one email');
+    assert(String(m.html).indexOf('snapchat=S1') > -1 && String(m.html).indexOf('meta=act_1') > -1, 'each account links to its own page');
+    assertEquals(out.marks.map((r: any) => r.platform + ':' + r.account_id), ['meta:act_1', 'snapchat:S1']);
+    assertEquals(st.outbox.length, 0);
+    restoreFetch();
+    // تشغيل تاني بعدها: مفيش حاجة تتبعت تاني
+    out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser()], noEngine, { stop: {}, us: {} }), {});
+    assertEquals(out.mails.length, 0);
+  } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
+});
+
+Deno.test('الطابور — الملخص: بيستنى أقسام كل الحسابات، وبيتبعت مرة واحدة، وبعد ٣ ساعات بالموجود وأسماء اللي متقريتش', async () => {
+  const restoreEngine = fakeEngine();
+  try {
+    const at = new Date(Date.now() - 10 * 60000).toISOString();
+    const st = { outbox: [qSum('snapchat', 'S1', 'Snap S1', 'good')],
+      accounts: [qAcct('meta', 'act_2', { need_summary: QKEY }), qAcct('snapchat', 'S1')],
+      digest: { summary_pending: QKEY, summary_pending_at: at, sending_until: null } as QRow };
+    let out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser({ summary_pending: QKEY, summary_pending_at: at })], noEngine, { stop: {}, us: {} }), { 'summary-waiting': 1 });
+    assertEquals(out.mails.length, 0, 'waits for the Meta section');
+    restoreFetch();
+    // تشغيل تاني بيبعتها دلوقتي (sending_until): التشغيل ده مبيبعتش نفس الملخص
+    const late = new Date(Date.now() - 4 * 3600000).toISOString();
+    st.digest.summary_pending_at = late;
+    st.digest.sending_until = new Date(Date.now() + 60000).toISOString();
+    out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser({ summary_pending: QKEY, summary_pending_at: late })], noEngine, { stop: {}, us: {} }), {});
+    assertEquals(out.mails.length, 0, 'never twice');
+    restoreFetch();
+    // بعد ٣ ساعات: بالموجود، وحساب Meta اللي متقريش باسمه
+    st.digest.sending_until = null;
+    out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser({ summary_pending: QKEY, summary_pending_at: late })], noEngine, { stop: {}, us: {} }), { summary: 1 });
+    assertEquals(out.mails.length, 1);
+    assert(String(out.mails[0].html).indexOf('PERIOD-Snap S1') > -1, 'the Snapchat section');
+    assert(String(out.mails[0].html).indexOf('Meta two') > -1, 'the unread Meta account is named, not silently dropped');
+    assertEquals([st.digest.summary_pending, st.digest.last_summary_until, st.digest.sending_until, st.outbox.length, st.accounts[0].need_summary],
+      [null, '2026-10-31', null, 0, null], 'closed: next window starts after it, contents deleted');
+  } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
+});
+
+Deno.test('الطابور — ملخص بحسابات كتير: سطر لكل حساب بحكمه، والتفاصيل للي محتاج انتباه بس، والرسالة تحت حد قصّ Gmail', async () => {
+  const restoreEngine = fakeEngine();
+  try {
+    const tones = ['bad', 'good', 'good', 'mixed', 'good'];
+    const st = { outbox: tones.map((tn, i) => qSum('snapchat', 'S' + i, 'Acct' + i, tn)), accounts: tones.map((_tn, i) => qAcct('snapchat', 'S' + i)),
+      digest: { summary_pending: QKEY, summary_pending_at: new Date().toISOString(), sending_until: null } as QRow };
+    const out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser({ summary_pending: QKEY, summary_pending_at: st.digest.summary_pending_at })], noEngine, { stop: {}, us: {} }), { summary: 1 });
+    const html = String(out.mails[0].html);
+    tones.forEach((_tn, i) => assert(html.indexOf('TITLE-Acct' + i) > -1, 'every account has its line'));
+    assert(html.indexOf('PERIOD-Acct0') > -1 && html.indexOf('PERIOD-Acct3') > -1, 'details for the bad and mixed accounts');
+    assert(html.indexOf('PERIOD-Acct1') < 0 && html.indexOf('PERIOD-Acct2') < 0 && html.indexOf('PERIOD-Acct4') < 0, 'no details for the good ones');
+    assert(new TextEncoder().encode(html).length < 102 * 1024, 'under the Gmail clipping size');
+    assertEquals(out.mails[0].subject.indexOf('ملخص حساباتك'), 0);
+  } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
 });

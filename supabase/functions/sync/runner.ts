@@ -626,6 +626,8 @@ function localParts(tz: string): { key: string; dow: number; hour: number } {
   parts.forEach((x) => { p[x.type] = x.value; });
   return { key: p.year + '-' + p.month + '-' + p.day, dow: DOW[p.weekday], hour: Number(p.hour) % 24 };
 }
+// الفترة كلها أيام مكتملة بتوقيت الحساب (آخر يوم قبل النهارده هناك)؟
+export function windowComplete(w: { until: string }, tz: string): boolean { return w.until < localParts(tz || 'UTC').key; }
 // تواريخ «YYYY-MM-DD» من غير المحرك — التخطيط بيشتغل في كل تشغيل (كل دقيقتين) من غير ما المحرك يتحمّل. نفس core.js shiftKey/keyDiffDays
 export function addDays(key: string, d: number): string {
   const p = key.split('-').map(Number);
@@ -856,8 +858,9 @@ const RUN_CANDS = new Map<string, any[]>();
 // نتايج «حاول تاني» (عطل مؤقت): الحساب بيرجع بعد RETRY_AFTER_MS، وقسم ملخصه بيستناه
 const RETRY_OUTCOMES: Record<string, boolean> = { 'meta-retry': true, 'snap-retry': true, error: true };
 
+// summaryRetry = قسم ملخص فشل بناؤه (والفحص العاجل نفسه تم): القسم بيستنى المحاولة الجاية، والتنبيهات اللي اتلاقت بتتبعت عادي
 type AcctResult = { platform: string; account: string; name: string; outcome: string; section: Section | null; keep: Mark[]; sentRows: Mark[];
-  summary: SumSection | null; monthly: SumSection | null };
+  summary: SumSection | null; monthly: SumSection | null; summaryRetry?: boolean };
 type CheckOpts = { doUrgent: boolean; due: { since: string; until: string } | null; monthly: { since: string; until: string } | null; stop: string };
 function blankResult(platform: string, account: string, name: string): AcctResult {
   return { platform, account, name, outcome: 'error', section: null, keep: [], sentRows: [], summary: null, monthly: null };
@@ -926,8 +929,17 @@ async function summarySections(res: AcctResult, marks: Record<string, Mark>, can
   res.keep.concat(res.sentRows).forEach((m) => { marks[familyOf(m.kind) + '|' + m.object_id] = m; });
   const sec = async (w: { since: string; until: string }): Promise<SumSection> =>
     ({ platform: res.platform, account: res.account, name: res.name, sum: await build(w.since, w.until), alerts: alertStatusHtml(marks, cands, w.since, tz, en, target) });
-  if (o.due) res.summary = await sec(o.due);
-  if (o.monthly) res.monthly = await sec(o.monthly);
+  // التقرير فشل (مهلة التشغيل أو عطل في المنصة): التنبيهات العاجلة اللي اتلاقت في نفس الفحص متضيعش — القسم بس بيستنى (مراجعة ١ نوفمبر، ر٤)
+  for (const [kind, w] of [['summary', o.due], ['monthly', o.monthly]] as ['summary' | 'monthly', { since: string; until: string } | null][]) {
+    if (!w) continue;
+    // آخر يوم في الفترة لسه مخلصش بتوقيت الحساب (ميعاد الملخص بتوقيت المستخدم، وحساب بتوقيت متأخر زي أمريكا يومه بيخلص بعده): القسم بيستنى
+    // لحد ما يكمل، والرسالة بتستناه بحد أقصى SUMMARY_PARTIAL_AFTER_MS (مراجعة ١ نوفمبر، ر٥ — «أيام مكتملة» في الملخص لازم تبقى صح)
+    if (!windowComplete(w, tz)) { res.summaryRetry = true; continue; }
+    try { res[kind] = await sec(w); } catch (e) {
+      res.summaryRetry = true;
+      console.error('summary section failed', String((e as Error).message || e).slice(0, 200));
+    }
+  }
 }
 
 function checkUserAccount(s: Settings, a: DAcct, us: Record<string, unknown> | null, o: CheckOpts): Promise<AcctResult> {
@@ -1242,7 +1254,7 @@ async function runJob(a: DAcct, s: Settings, ctx: RunCtx): Promise<string> {
   }
   await saveMarks(user, a.platform, a.account_id, r.keep);
   if (r.section) await outbox(user, a, 'urgent', '', r.section, r.sentRows);
-  const retry = !!RETRY_OUTCOMES[r.outcome], lost = r.outcome === 'lost' || r.outcome === 'decrypt-failed';
+  const retry = !!RETRY_OUTCOMES[r.outcome] || !!r.summaryRetry, lost = r.outcome === 'lost' || r.outcome === 'decrypt-failed';
   // الحجز بيتفك دايماً (Snapchat: باقي حسابات المستخدم متستناش)، والعطل المؤقت ليه مهلته لوحدها
   const patch: Record<string, unknown> = { claimed_until: null, retry_after: retry ? new Date(Date.now() + RETRY_AFTER_MS).toISOString() : null };
   if (a.urgent_due || r.outcome !== 'ok') patch.checked_at = new Date().toISOString();
@@ -1318,8 +1330,9 @@ async function sendSummary(s: Settings, kind: 'summary' | 'monthly', accts: DAcc
   await done(ok);
   return ok ? kind : kind + '-failed';
 }
-// الإرسال في أول التشغيل (من نتايج التشغيلات اللي قبله): الرسالة بتخرج بعد آخر حساب بدقيقتين بالكتير. المحرك بيتحمّل بس لو فيه إرسال
-async function assemble(users: Settings[], ensureEngine: () => Promise<void>, ctx: RunCtx): Promise<Record<string, number>> {
+// الإرسال في أول التشغيل (من نتايج التشغيلات اللي قبله): الرسالة بتخرج بعد آخر حساب بدقيقتين بالكتير. المحرك بيتحمّل بس لو فيه إرسال.
+// export للاختبارات (tests/sync-test.ts — قاعدة بيانات وهمية ومحرك بأقل الأسماء)
+export async function assemble(users: Settings[], ensureEngine: () => Promise<void>, ctx: RunCtx): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   const ur = await db('digest_outbox?select=user_id,created_at&kind=eq.urgent', { method: 'GET' });
   const oldest: Record<string, number> = {};

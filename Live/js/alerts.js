@@ -1439,6 +1439,8 @@
     var platSales = pl.sales || 0;
     if (pl.results === c.results && Math.abs(platSales - sales) <= Math.max(0.01 * platSales, 0.01)) return null;
     var roas = function (s) { return c.spend > 0 && s > 0 ? t('al.cmpRoas', { r: fmt.num(s / c.spend) }) : ''; };
+    // صفر في الأقرب للمتجر: «٠ مشتريات» مش عربي سليم — جملة لوحدها (مراجعة ١ نوفمبر ٢٠٢٦، ر٣)
+    if (!c.results) return t('al.compareZero', { p: countText(pl.results, c.resultKey, fmt), pr: roas(platSales) });
     return t('al.compare', { p: countText(pl.results, c.resultKey, fmt), pr: roas(platSales), s: countText(c.results, c.resultKey, fmt), sr: roas(sales) });
   }
   function addCompare(i, c, fmt) {

@@ -671,6 +671,7 @@
       'al.impactNoPct': 'الحجم في ميزانيتك: {spend} خلال آخر ٧ أيام',
       // سطر المقارنة في تنبيهات النتائج والتكلفة والعائد (alerts.js compareText) — آخر ٧ أيام
       'al.compare': 'للمقارنة: تنسب المنصة لهذا الإعلان {p}{pr}، والأقرب لطلبات متجرك {s}{sr}، وعلى هذا الرقم بنينا التنبيه.',
+      'al.compareZero': 'للمقارنة: تنسب المنصة لهذا الإعلان {p}{pr}، ولا شيء منها في الأقرب لطلبات متجرك، وعلى ذلك بنينا التنبيه.',
       'al.cmpRoas': ' بعائد ×{r}',
       'al.impactAccount': 'يشمل الحساب كله: أُنفق {spend} خلال آخر ٧ أيام',
       'al.rejected.t': 'رُفض إعلان نشط وتوقف',
@@ -2144,6 +2145,7 @@
       'al.impactPctLow': 'under 1%',
       'al.impactNoPct': 'Size in your budget: {spend} in the last 7 days',
       'al.compare': 'For comparison: the platform credits this ad with {p}{pr}, while the number closest to your store\'s orders is {s}{sr} — and this alert is based on that number.',
+      'al.compareZero': 'For comparison: the platform credits this ad with {p}{pr}, while none of them shows up in the number closest to your store\'s orders — and this alert is based on that.',
       'al.cmpRoas': ' at ROAS ×{r}',
       'al.impactAccount': 'Affects the whole account: {spend} spent in the last 7 days',
       'al.rejected.t': 'A running ad was rejected and stopped',
