@@ -430,7 +430,7 @@
   function normUserSet(v) {
     var o = plainObject(v) || {}, plat = {};
     Object.keys(plainObject(o.plat) || {}).forEach(function (p) { if (PLATFORMS.indexOf(p) > -1 && plainObject(o.plat[p])) plat[p] = o.plat[p]; });
-    return { all: plainObject(o.all) || {}, plat: plat, asked: o.asked === true };
+    return { all: plainObject(o.all) || {}, plat: plat, asked: o.asked === true, prefs: plainObject(o.prefs) || {} };
   }
   function canonText(v) {
     if (!v || typeof v !== 'object') return JSON.stringify(v);
@@ -1138,18 +1138,20 @@
     dxRecompute();
   }
 
-  // ---------- الملخص التلقائي بالبريد (اختياري، لحسابات Meta بس — supabase/functions/sync/digest.ts) ----------
-  // الزرار بيظهر في عرض حساب Meta لوحده (لكل العملاء من ٣ أكتوبر ٢٠٢٦ — ?digest=0 بيخفيه، شوف DIGEST_ON في core.js). التفعيل بيبعت مفتاح Meta الحالي
-  // مرة واحدة: السيرفر بيبدّله بمفتاح طويل (٦٠ يوم) ويحفظه مشفّر. لما الأداة تتفتح والملخص مفعّل بنجدده بهدوء،
-  // و«فصل» Meta بيوقفه لكل حسابات صاحب الجلسة ويحذف مفاتيحها (سياسة الخصوصية، البند ٧)
-  function digestFresh(account) {
-    return { open: false, account: account || null, status: 'idle', data: null, editing: false, confirmOff: false, busy: false, msg: null, msgErr: false, draft: null };
+  // ---------- الملخص التلقائي بالبريد (اختياري — supabase/functions/sync/digest.ts) ----------
+  // من ٣١ أكتوبر ٢٠٢٦ لكل مستخدم (قرار صاحب المنتج: «اجعلها لكل مستخدم ملخص خاص به»): ملخص واحد لحساب الدخول — بريده ومواعيده —
+  // فيه الحسابات اللي اختارها (لحد ٥)، وبيتبعت بإعدادات التنبيهات بتاعته. التفعيل بحساب Meta المفتوح، والإضافة كمان: مفتاح Meta الحالي
+  // بيتبعت مرة، والسيرفر بيبدّله بمفتاح طويل (٦٠ يوم) ويحفظه مشفّر. لما حساب في الملخص يتفتح بنجدده بهدوء، و«فصل» Meta بيخرّج حسابات
+  // Meta من الملخص ويحذف صلاحياتها (سياسة الخصوصية، البند ٧). المرحلة ١: حسابات Meta (وبعدها Snapchat وGoogle)
+  var DIGEST_MAX = 5;
+  function digestFresh() {
+    return { status: 'idle', data: null, editing: false, confirmOff: false, confirmRemove: null, busy: false, msg: null, msgErr: false, draft: null };
   }
   var digestUi = digestFresh();
   var digestRefreshed = {};
-  // الملخص مفعّل للحساب ولا لأ (من رد digest.refresh أو digest.get): true / false، ولو مش معروف مفيش مفتاح.
-  // التلميح بيظهر بس لما نكون متأكدين إنه مش مفعّل — عشان منطلبش من حد يفعّل حاجة مفعّلة
-  var digestKnown = {};
+  // الحساب في ملخص المستخدم ولا لأ (من رد digest.refresh أو digest.get): true / false، ولو مش معروف مفيش مفتاح. digestHas = عنده ملخص أصلاً.
+  // التلميح بيظهر بس لما نكون متأكدين إن الحساب مش في الملخص — عشان منطلبش من حد يضيف حاجة موجودة
+  var digestKnown = {}, digestHas = null;
   // «لاحقاً» بيخفي التلميح للحساب ده أسبوعين على الجهاز ده (وكمان بعد الإيقاف — منطلبش تاني على طول)
   var DIGEST_HINT_KEY = 'acc.digestHint', DIGEST_HINT_SNOOZE_MS = 14 * 86400000;
   function digestHintSnoozed(account) {
@@ -1166,15 +1168,18 @@
       localStorage.setItem(DIGEST_HINT_KEY, JSON.stringify(all));
     } catch (e) { /* التلميح هيرجع في الجلسة الجاية — مش مشكلة */ }
   }
-  // حساب Meta المفتوح أياً كان عرض الملخص (من ١١ أكتوبر ٢٠٢٦ البطاقة في «الإعدادات» — قبل كده عرض Meta لوحده في الملخص بس)
+  // حساب Meta المفتوح (التفعيل والإضافة بيه)
   function digestAccount() { var id = activeSources.meta; return /^act_\d{1,30}$/.test(id || '') ? id : null; }
-  // المستهدف وحد الخسارة وحدود التنبيهات في البريد: من سجل الحساب نفسه على السيرفر (runner.ts effectiveSettings — مراجعة الإعدادات
-  // ٢٤ أكتوبر ٢٠٢٦). قبل كده كل متصفح كان بيبعت نسخته مع الملخص («آخر جهاز يفوز»: فتح الأداة من متصفح تاني رجّع حد الخسارة في البريد
-  // من ×٥ لـ×١ — اتشاف حياً)؛ دلوقتي المتصفح مبيبعتهمش خالص، والنسخة القديمة اللي في الملخص بتشتغل بس لحساب مالوش سجل لسه
-  function digestCall(action, extra) {
-    var token = metaAccessToken(), account = digestAccount();
-    if (!token || !account) { var e = new Error('no session'); e.code = 'session'; return Promise.reject(e); }
-    return syncCall(Object.assign({ action: action, token: token, accountId: account }, extra || {}));
+  // الطلبات اللي محتاجة إثبات الوصول لحساب Meta (enable وadd وrefresh) بتاخد مفتاحه — والباقي بدخول الأداة بس
+  function digestCall(action, extra, withMeta) {
+    var body = Object.assign({ action: action }, extra || {});
+    if (withMeta) {
+      var token = metaAccessToken(), account = digestAccount();
+      if (!token || !account) { var e = new Error('no session'); e.code = 'session'; return Promise.reject(e); }
+      body.token = token;
+      body.accountId = account;
+    }
+    return syncCall(body);
   }
   // «يومي الأحد والأربعاء» / «أيام الأحد، والثلاثاء، والخميس»
   function digestDaysText(days) {
@@ -1187,22 +1192,53 @@
   }
   function digestErrText(e) {
     var c = e && e.code;
-    return t(c === 'email' ? 'dx.auto.err.email' : c === 'days' ? 'dx.auto.err.days' : (c === 'session' || c === 'not verified') ? 'dx.auto.err.session' : 'dx.auto.err.generic');
+    return t(c === 'email' ? 'dx.auto.err.email' : c === 'days' ? 'dx.auto.err.days' : c === 'too many' ? 'dx.auto.err.tooMany'
+      : (c === 'session' || c === 'not verified') ? 'dx.auto.err.session' : 'dx.auto.err.generic');
+  }
+  // اسم الحساب في القائمة: من الحسابات المحمّلة في الأداة لو موجود، وإلا اللي رجع من السيرفر، وإلا رقمه
+  function digestAcctName(a) {
+    var o = (platformOptions[a.platform] || []).filter(function (x) { return x.value === a.accountId; })[0];
+    return (o && o.label) || a.name || a.accountId;
+  }
+  function digestAccountsHtml(d) {
+    var u = digestUi, list = d.accounts || [];
+    if (!list.length) return '';
+    return '<div class="dx-auto-accts"><p class="dx-auto-label">' + esc(t('dx.auto.accounts', { n: ar(list.length), max: ar(DIGEST_MAX) })) + '</p><ul>' +
+      list.map(function (a) {
+        var key = a.platform + ':' + a.accountId, confirm = u.confirmRemove === key;
+        var warn = a.tokenProblem ? '<span class="dx-auto-warn">' + esc(t('dx.auto.acctProblem')) + '</span>' : '';
+        return '<li><span class="dx-auto-acct">' + esc(PLATFORM_NAMES[a.platform] || a.platform) + ' — <bdi>' + esc(digestAcctName(a)) + '</bdi></span>' + warn +
+          (confirm
+            ? '<span class="dx-auto-confirm">' + esc(t(list.length === 1 ? 'dx.auto.removeLast' : 'dx.auto.removeQ')) +
+              ' <button type="button" class="ghost-btn" data-digest-remove-yes="' + esc(key) + '"' + (u.busy ? ' disabled' : '') + '>' + esc(t('dx.auto.removeYes')) + '</button>' +
+              '<button type="button" class="ghost-btn" data-digest-remove-no>' + esc(t('dx.auto.offNo')) + '</button></span>'
+            : '<button type="button" class="dx-fb-link" data-digest-remove="' + esc(key) + '">' + esc(t('dx.auto.remove')) + '</button>') + '</li>';
+      }).join('') + '</ul></div>';
   }
   function digestPanelHtml() {
-    var u = digestUi, d = u.data || {}, s = d.settings, tz = d.timezone || (s && s.timezone) || '';
-    var head = '';   // العنوان في البطاقة نفسها (صفحة الإعدادات)
+    var u = digestUi, d = u.data || {}, s = d.settings, tz = (s && s.timezone) || (accountInfo['meta:' + digestAccount()] || {}).timeZone || '';
     var msg = u.msg ? '<p class="dx-auto-msg' + (u.msgErr ? ' err' : '') + '" role="status">' + esc(u.msg) + '</p>' : '';
-    if (u.status === 'loading') return head + '<p>' + esc(t('dx.auto.loading')) + '</p>';
+    if (u.status === 'loading') return '<p>' + esc(t('dx.auto.loading')) + '</p>';
     if (u.status === 'error') {
-      return head + '<p class="dx-auto-msg err" role="status">' + esc(u.msg || t('dx.auto.err.generic')) + '</p>' +
+      return '<p class="dx-auto-msg err" role="status">' + esc(u.msg || t('dx.auto.err.generic')) + '</p>' +
         '<div class="dx-auto-actions"><button type="button" class="ghost-btn" data-digest-retry>' + esc(t('dx.auto.retry')) + '</button></div>';
     }
+    var account = digestAccount();
     if (s && s.enabled && !u.editing) {
-      var html = head + '<p class="dx-auto-on"><strong>' + esc(t('dx.auto.onLabel')) + '</strong> ' +
-        esc(t('dx.auto.on', { email: s.email, days: digestDaysText(s.days), hour: digestHourText(s.hour), tz: tz })) + '</p>';
-      if (d.tokenWorks === false) html += '<p class="dx-auto-msg err">' + esc(t('dx.auto.problem')) + '</p>';
-      else if (d.tokenExpiresAt) html += '<p>' + esc(t('dx.auto.expires', { date: fmtKey(String(d.tokenExpiresAt).slice(0, 10)) })) + '</p>';
+      var html = '<p class="dx-auto-on"><strong>' + esc(t('dx.auto.onLabel')) + '</strong> ' +
+        esc(t('dx.auto.on', { email: s.email, days: digestDaysText(s.days), hour: digestHourText(s.hour), tz: tz })) + '</p>' + digestAccountsHtml(d);
+      // الحساب المفتوح: صلاحيته (لو في الملخص)، أو زرار إضافته (لو لأ)
+      var cur = d.current && d.current.accountId === account ? d.current : null;
+      var mine = (d.accounts || []).filter(function (a) { return a.platform === 'meta' && a.accountId === account; })[0];
+      if (mine) {
+        if (cur && cur.tokenWorks === false) html += '<p class="dx-auto-msg err">' + esc(t('dx.auto.problem')) + '</p>';
+        else if (mine.tokenExpiresAt) html += '<p>' + esc(t('dx.auto.expires', { date: fmtKey(String(mine.tokenExpiresAt).slice(0, 10)) })) + '</p>';
+      } else if (account && metaAccessToken()) {
+        html += (d.accounts || []).length >= DIGEST_MAX
+          ? '<p class="dx-auto-msg">' + esc(t('dx.auto.full', { max: ar(DIGEST_MAX) })) + '</p>'
+          : '<div class="dx-auto-actions"><button type="button" class="ghost-btn" data-digest-add' + (u.busy ? ' disabled' : '') + '>' +
+            esc(t('dx.auto.add', { name: accountLabel('meta') })) + '</button></div>';
+      }
       html += u.confirmOff
         ? '<p>' + esc(t('dx.auto.offConfirm')) + '</p><div class="dx-auto-actions">' +
           '<button type="button" class="ghost-btn" data-digest-off-yes' + (u.busy ? ' disabled' : '') + '>' + esc(t('dx.auto.offYes')) + '</button>' +
@@ -1211,22 +1247,24 @@
           '<button type="button" class="ghost-btn" data-digest-off>' + esc(t('dx.auto.off')) + '</button></div>';
       return html + msg;
     }
+    // من غير ملخص: التفعيل محتاج حساب Meta مفتوح (المرحلة ١)
+    if (!u.editing && (!account || !metaAccessToken())) return '<p>' + esc(t('set.page.digestNoMeta')) + '</p>' + msg;
     // النموذج: تفعيل جديد أو تعديل. المسودة بتحفظ اللي العميل كتبه لو ظهرت رسالة خطأ
-    var cur = u.draft || (u.editing && s ? { email: s.email, days: s.days, hour: s.hour } : { email: '', days: [0, 3], hour: 9 });
+    var curv = u.draft || (u.editing && s ? { email: s.email, days: s.days, hour: s.hour } : { email: '', days: [0, 3], hour: 9 });
     var days = [0, 1, 2, 3, 4, 5, 6].map(function (i) {
-      var on = cur.days.indexOf(i) > -1;
+      var on = curv.days.indexOf(i) > -1;
       return '<button type="button" class="dx-fb-reason' + (on ? ' on' : '') + '" data-digest-day="' + i + '" aria-pressed="' + on + '">' + esc(t('dx.auto.d' + i)) + '</button>';
     }).join('');
     var hours = '';
-    for (var h = 0; h < 24; h++) hours += '<option value="' + h + '"' + (h === cur.hour ? ' selected' : '') + '>' + esc(digestHourText(h)) + '</option>';
-    var form = head + '<p>' + esc(t('dx.auto.intro')) + '</p>' +
+    for (var h = 0; h < 24; h++) hours += '<option value="' + h + '"' + (h === curv.hour ? ' selected' : '') + '>' + esc(digestHourText(h)) + '</option>';
+    var form = '<p>' + esc(t(u.editing ? 'dx.auto.introEdit' : 'dx.auto.intro', { name: accountLabel('meta') })) + '</p>' +
       '<label class="dx-auto-field">' + esc(t('dx.auto.email')) +
-      '<input type="email" id="dxAutoEmail" autocomplete="email" dir="ltr" maxlength="254" value="' + esc(cur.email || '') + '"></label>' +
+      '<input type="email" id="dxAutoEmail" autocomplete="email" dir="ltr" maxlength="254" value="' + esc(curv.email || '') + '"></label>' +
       '<div class="dx-auto-field" role="group" aria-label="' + esc(t('dx.auto.days')) + '">' + esc(t('dx.auto.days')) + '<div class="dx-auto-days">' + days + '</div></div>' +
       '<label class="dx-auto-field">' + esc(t('dx.auto.hour')) + '<select id="dxAutoHour">' + hours + '</select></label>' +
       (tz ? '<p>' + esc(t('dx.auto.tz', { tz: tz })) + '</p>' : '');
     if (!u.editing) {
-      form += '<label class="dx-auto-consent"><input type="checkbox" id="dxAutoConsent"' + (cur.consent ? ' checked' : '') + '><span>' +
+      form += '<label class="dx-auto-consent"><input type="checkbox" id="dxAutoConsent"' + (curv.consent ? ' checked' : '') + '><span>' +
         esc(t('dx.auto.consent')) + ' <a href="/privacy" target="_blank" rel="noopener">' + esc(t('dx.auto.privacy')) + '</a></span></label>';
     }
     form += '<div class="dx-auto-actions"><button type="button" class="ghost-btn" data-digest-save' + (u.busy ? ' disabled' : '') + '>' +
@@ -1240,34 +1278,33 @@
     var card = document.getElementById('digestCard'), panel = document.getElementById('dxAuto'), hint = document.getElementById('dxAutoHint');
     if (!card || !panel) return;
     var account = digestAccount();
-    var show = DIGEST_ON && !!account && !!metaAccessToken();
-    if (digestUi.account !== account) digestUi = digestFresh(account);
     // ?digest=0 بيخفيها على الجهاز ده (DIGEST_ON في core.js)
     card.hidden = !DIGEST_ON;
     var note = document.getElementById('digestCardNote');
-    if (note) note.textContent = show ? t('set.page.digestFor', { name: accountLabel('meta') }) : t('set.page.digestNoMeta');
-    panel.hidden = !show;
-    if (!show) panel.innerHTML = '';
-    else if (currentView === 'settings') {
+    if (note) note.textContent = t('set.page.digestFor');
+    panel.hidden = !DIGEST_ON;
+    if (DIGEST_ON && currentView === 'settings') {
       if (digestUi.status === 'idle') digestLoad();
-      else if (!panel.firstChild) renderDigestPanel();
+      else if (!panel.firstChild || panel.getAttribute('data-acct') !== String(account)) renderDigestPanel();
     }
-    // تلميح التفعيل: الحساب مش مفعّل له الملخص (أكيد)، ومحدش ضغط «لاحقاً» قريب
+    // تلميح التفعيل أو الإضافة: الحساب المفتوح مش في ملخص المستخدم (أكيد)، ومحدش ضغط «لاحقاً» قريب
     if (hint) {
-      var showHint = show && digestKnown[account] === false && !digestHintSnoozed(account);
-      var key = showHint ? (isAr() ? 'ar' : 'en') : '';   // بيتعاد رسمه لما يظهر أو يختفي أو اللغة تتغير بس (مش مع كل رسم للملخص)
+      var showHint = DIGEST_ON && !!account && !!metaAccessToken() && digestKnown[account] === false && !digestHintSnoozed(account);
+      var key = showHint ? (isAr() ? 'ar' : 'en') + (digestHas ? '+' : '') : '';   // بيتعاد رسمه لما يظهر أو يختفي أو اللغة تتغير بس
       if (hint.getAttribute('data-k') !== key) {
         hint.setAttribute('data-k', key);
         hint.hidden = !showHint;
-        hint.innerHTML = showHint ? '<p>' + esc(t('dx.auto.hint')) + '</p><span class="dx-auto-actions">' +
-          '<button type="button" class="ghost-btn" data-digest-hint-on>' + esc(t('dx.auto.hintOn')) + '</button>' +
+        hint.innerHTML = showHint ? '<p>' + esc(t(digestHas ? 'dx.auto.hintAdd' : 'dx.auto.hint')) + '</p><span class="dx-auto-actions">' +
+          '<button type="button" class="ghost-btn" data-digest-hint-on>' + esc(t(digestHas ? 'dx.auto.hintAddOn' : 'dx.auto.hintOn')) + '</button>' +
           '<button type="button" class="ghost-btn" data-digest-hint-later>' + esc(t('dx.auto.hintLater')) + '</button></span>' : '';
       }
     }
   }
   function renderDigestPanel() {
     var panel = document.getElementById('dxAuto');
-    if (panel && !panel.hidden) panel.innerHTML = digestPanelHtml();
+    if (!panel || panel.hidden) return;
+    panel.setAttribute('data-acct', String(digestAccount()));
+    panel.innerHTML = digestPanelHtml();
   }
   // بعد «فعّلها الآن»: البطاقة قدامك والمؤشر في خانة البريد — أول ما النموذج يجهز (الحالة بتيجي من السيرفر).
   // لو الملخص مفعّل أصلاً مفيش خانة، فبنكتفي بالبطاقة
@@ -1278,22 +1315,57 @@
     if (field) field.focus({ preventScroll: true });
     if (field || digestUi.status === 'ready' || digestUi.status === 'error') digestUi.wantFocus = false;
   }
+  // حالة الملخص اللي رجعت من السيرفر: الحسابات اللي فيه بتتعلّم (التلميح بيعرف منها الحساب المفتوح جواه ولا لأ)
+  function digestAdopt(res) {
+    digestUi.data = Object.assign({}, digestUi.data || {}, res || {});
+    var s = res && res.settings;
+    digestHas = !!(s && s.enabled !== false);
+    var inDigest = {};
+    ((res && res.accounts) || []).forEach(function (a) { if (a.platform === 'meta') inDigest[a.accountId] = true; });
+    Object.keys(digestKnown).forEach(function (k) { digestKnown[k] = !!inDigest[k]; });
+    Object.keys(inDigest).forEach(function (k) { digestKnown[k] = true; });
+    var account = digestAccount();
+    if (account) digestKnown[account] = !!inDigest[account];
+  }
   function digestLoad() {
     digestUi.status = 'loading';
     digestUi.msg = null;
     renderDigestPanel();
-    var account = digestUi.account;
-    digestCall('digest.get').then(function (res) {
-      digestKnown[account] = !!(res && res.settings && res.settings.enabled !== false);
-      if (digestUi.account !== account) return;
-      digestUi.data = res;
+    var account = digestAccount();
+    digestCall('digest.get', account ? { accountId: account } : {}).then(function (res) {
+      digestAdopt(res);
       digestUi.status = 'ready';
       renderDigestPanel();
+      renderDigest();
       digestFocus();
     }, function (e) {
-      if (digestUi.account !== account) return;
       digestUi.status = 'error';
       digestUi.msg = digestErrText(e);
+      renderDigestPanel();
+    });
+  }
+  // أي عملية بتغيّر الملخص: الزرار مشغول، والرد (حالة الملخص كلها) بيترسم برسالة نجاح أو سبب الفشل
+  function digestRun(action, extra, withMeta, okKey, after) {
+    if (digestUi.busy) return;
+    digestUi.busy = true;
+    digestUi.msg = null;
+    renderDigestPanel();
+    digestCall(action, extra, withMeta).then(function (res) {
+      digestUi.busy = false;
+      digestUi.editing = false;
+      digestUi.draft = null;
+      digestUi.confirmOff = false;
+      digestUi.confirmRemove = null;
+      if (res && (res.settings !== undefined || res.accounts)) digestAdopt(res);
+      if (after) after(res);
+      digestUi.msg = okKey ? t(okKey) : null;
+      digestUi.msgErr = false;
+      renderDigestPanel();
+      renderDigest();
+    }, function (e) {
+      digestUi.busy = false;
+      digestUi.msg = digestErrText(e);
+      digestUi.msgErr = true;
       renderDigestPanel();
     });
   }
@@ -1309,73 +1381,46 @@
     if (!/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(email)) return fail('dx.auto.err.email');
     if (days.length < 2) return fail('dx.auto.err.days');
     if (!editing && !consent) return fail('dx.auto.err.consent');
-    digestUi.busy = true;
-    digestUi.msg = null;
-    renderDigestPanel();
     var extra = { email: email, days: days, hour: hour, lang: isAr() ? 'ar' : 'en' };
     if (!editing) extra.consent = true;
-    var account = digestUi.account;
-    digestCall(editing ? 'digest.update' : 'digest.enable', extra).then(function (res) {
-      digestKnown[account] = true;
-      digestUi.busy = false;
-      digestUi.editing = false;
-      digestUi.draft = null;
-      digestUi.data = Object.assign({}, digestUi.data || {}, { settings: res.settings }, res.tokenExpiresAt ? { tokenExpiresAt: res.tokenExpiresAt, tokenWorks: true } : {});
-      digestUi.msg = t(editing ? 'dx.auto.updated' : 'dx.auto.saved');
-      digestUi.msgErr = false;
-      renderDigestPanel();
-    }, function (e) {
-      digestUi.busy = false;
-      digestUi.msg = digestErrText(e);
-      digestUi.msgErr = true;
-      renderDigestPanel();
-    });
+    digestRun(editing ? 'digest.update' : 'digest.enable', extra, !editing, editing ? 'dx.auto.updated' : 'dx.auto.saved');
   }
   function digestOff() {
-    if (digestUi.busy) return;
-    digestUi.busy = true;
-    renderDigestPanel();
-    var account = digestUi.account;
-    digestCall('digest.disable').then(function () {
-      digestKnown[account] = false;
-      digestHintSnooze(account);   // أوقفه بنفسه — التلميح ميرجعش يطلب منه التفعيل على طول
-      digestUi.busy = false;
-      digestUi.confirmOff = false;
-      digestUi.data = Object.assign({}, digestUi.data || {}, { settings: null, tokenExpiresAt: null, tokenWorks: null });
-      digestUi.msg = t('dx.auto.stopped');
-      digestUi.msgErr = false;
-      renderDigestPanel();
-    }, function (e) {
-      digestUi.busy = false;
-      digestUi.msg = digestErrText(e);
-      digestUi.msgErr = true;
-      renderDigestPanel();
+    var account = digestAccount();
+    digestRun('digest.disable', {}, false, 'dx.auto.stopped', function () {
+      digestUi.data = { settings: null, accounts: [] };
+      digestHas = false;
+      Object.keys(digestKnown).forEach(function (k) { digestKnown[k] = false; });
+      if (account) digestHintSnooze(account);   // أوقفه بنفسه — التلميح ميرجعش يطلب منه التفعيل على طول
     });
   }
-  // لما حساب Meta يتفتح: لو الملخص مفعّل له، السيرفر بيجدد المفتاح المحفوظ (مرة في الجلسة) — بيفضل صالح طول ما العميل بيستخدم الأداة
+  // لما حساب Meta يتفتح: لو في ملخص المستخدم، السيرفر بيجدد صلاحيته المحفوظة (مرة في الجلسة) — بتفضل صالحة طول ما العميل بيستخدم الأداة
   function digestAutoRefresh(accountId) {
     if (!DIGEST_ON || !/^act_\d{1,30}$/.test(accountId || '') || digestRefreshed[accountId]) return;
     var token = metaAccessToken();
     if (!token) return;
     digestRefreshed[accountId] = true;
-    // الرد بيقول كمان الملخص مفعّل ولا لأ — ده اللي بيقرر تلميح التفعيل يظهر ولا لأ (من غير طلب زيادة)
+    // الرد بيقول كمان الحساب في الملخص ولا لأ، والمستخدم عنده ملخص أصلاً — ده اللي بيقرر تلميح التفعيل أو الإضافة (من غير طلب زيادة)
     syncCall({ action: 'digest.refresh', token: token, accountId: accountId }).then(function (res) {
-      if (res && typeof res.enabled === 'boolean') { digestKnown[accountId] = res.enabled; renderDigest(); }
+      if (res && typeof res.enabled === 'boolean') {
+        digestKnown[accountId] = res.enabled;
+        if (typeof res.hasDigest === 'boolean') digestHas = res.hasDigest; else if (res.enabled) digestHas = true;
+        renderDigest();
+      }
     }, function () { digestRefreshed[accountId] = false; });
   }
-  // «فصل» Meta: السيرفر بيمسح مفاتيح كل الحسابات اللي صاحب الجلسة فعّل لها الملخص. لو الاتصال فشل،
-  // رابط الإيقاف في آخر كل رسالة بيعمل نفس الحاجة
+  // «فصل» Meta: حسابات Meta بتخرج من ملخص المستخدم وصلاحياتها بتتمسح. لو الاتصال فشل، رابط الإيقاف في آخر كل رسالة بيوقفه
   function digestDisconnect() {
-    var token = metaAccessToken();
     digestRefreshed = {};
     digestKnown = {};
+    digestHas = null;
     digestUi = digestFresh();
-    if (token) syncCall({ action: 'digest.disconnect', token: token }).catch(function () { /* رابط الإيقاف */ });
+    syncCall({ action: 'digest.disconnect' }).catch(function () { /* رابط الإيقاف */ });
   }
   document.addEventListener('click', function (e) {
     if (!e.target.closest) return;
     var el;
-    // «فعّلها الآن» في الملخص: صفحة «الإعدادات» على بطاقة الملخص التلقائي، والمؤشر في خانة البريد
+    // «فعّلها الآن» أو «أضف الحساب» في الملخص: صفحة «الإعدادات» على بطاقة الملخص التلقائي
     if (e.target.closest('[data-digest-hint-on]')) {
       digestUi.wantFocus = true;
       goView('settings');
@@ -1384,7 +1429,8 @@
       return;
     }
     if (e.target.closest('[data-digest-hint-later]')) {
-      if (digestUi.account) digestHintSnooze(digestUi.account);
+      var acc = digestAccount();
+      if (acc) digestHintSnooze(acc);
       renderDigest();
       return;
     }
@@ -1394,6 +1440,15 @@
       el.classList.toggle('on', on);
       el.setAttribute('aria-pressed', on ? 'true' : 'false');
     } else if (e.target.closest('[data-digest-save]')) digestSave();
+    else if (e.target.closest('[data-digest-add]')) digestRun('digest.add', {}, true, 'dx.auto.added');
+    else if ((el = e.target.closest('[data-digest-remove]'))) { digestUi.confirmRemove = el.getAttribute('data-digest-remove'); digestUi.msg = null; renderDigestPanel(); }
+    else if (e.target.closest('[data-digest-remove-no]')) { digestUi.confirmRemove = null; renderDigestPanel(); }
+    else if ((el = e.target.closest('[data-digest-remove-yes]'))) {
+      var key = el.getAttribute('data-digest-remove-yes'), cut = key.indexOf(':');
+      digestRun('digest.remove', { platform: key.slice(0, cut), accountId: key.slice(cut + 1) }, false, 'dx.auto.removed', function (res) {
+        if (res && res.stopped) { digestUi.data = { settings: null, accounts: [] }; digestHas = false; digestUi.msg = null; }
+      });
+    }
     else if (e.target.closest('[data-digest-edit]')) { digestUi.editing = true; digestUi.draft = null; digestUi.msg = null; renderDigestPanel(); }
     else if (e.target.closest('[data-digest-cancel]')) { digestUi.editing = false; digestUi.draft = null; digestUi.msg = null; renderDigestPanel(); }
     else if (e.target.closest('[data-digest-off]')) { digestUi.confirmOff = true; digestUi.msg = null; renderDigestPanel(); }
@@ -1533,8 +1588,20 @@
   // عملة الأرقام المجمّعة (قراره: «بسعر الربط الرسمي، وأضف اختياراً في الإعدادات لتحديد العملة»): المحفوظة على الجهاز، وإلا
   // عملة الأكبر مبلغاً بين اللي بيتجمعوا (بالدولار للمقارنة). أرقام الحساب الواحد بتفضل بعملته زي منصته
   var CUR_PREF_KEY = 'acc.currency';
-  function curPref() { try { var v = localStorage.getItem(CUR_PREF_KEY); return v && DX.pegRate(v, 'USD') ? v : null; } catch (e) { return null; } }
-  function setCurPref(v) { try { if (v && DX.pegRate(v, 'USD')) localStorage.setItem(CUR_PREF_KEY, v); else localStorage.removeItem(CUR_PREF_KEY); } catch (e) { /* مش مهم */ } }
+  // من ٣١ أكتوبر في سجل المستخدم (prefs.currency) — بيتبعه على أي جهاز؛ ونسخة الجهاز للحظة قبل ما السجل يوصل
+  function curPref() {
+    var p = settingsKnown() && userSet.prefs && 'currency' in userSet.prefs ? userSet.prefs.currency : undefined;
+    if (p !== undefined) return p && DX.pegRate(p, 'USD') ? p : null;
+    try { var v = localStorage.getItem(CUR_PREF_KEY); return v && DX.pegRate(v, 'USD') ? v : null; } catch (e) { return null; }
+  }
+  function setCurPref(v) {
+    var ok = !!(v && DX.pegRate(v, 'USD'));
+    try { if (ok) localStorage.setItem(CUR_PREF_KEY, v); else localStorage.removeItem(CUR_PREF_KEY); } catch (e) { /* مش مهم */ }
+    if (settingsKnown()) {
+      userSet.prefs = Object.assign({}, userSet.prefs || {}, { currency: ok ? v : null });
+      writeUserSettings({ changes: { prefs: { currency: ok ? v : null } } }).then(function () { render(); }, function () {});
+    }
+  }
   function targetCurrency(amounts) {
     var pref = curPref();
     if (pref) return pref;
@@ -2260,11 +2327,18 @@
     catch (e) { return {}; }
   })();
   function saveValueMoney() { try { localStorage.setItem(VALUE_MONEY_KEY, JSON.stringify(valueMoney)); } catch (e) { /* بيتحسب تاني المرة الجاية */ } }
+  // الموافقة في سجل المستخدم (prefs.valueAck — من ٣١ أكتوبر، زي السجل نفسه لكل مستخدم). علامة الجهاز القديمة مبتتحسبش لما سجل المستخدم
+  // يكون معروف: كانت بتفضل بعد الخروج، فمستخدم تاني على نفس الجهاز كان سجله هيبدأ من غير ما يوافق هو
   function valueAcked() {
     if (valueAckNow) return true;
+    if (settingsKnown()) return !!(userSet.prefs && userSet.prefs.valueAck === true);
     try { return localStorage.getItem(VALUE_ACK_KEY) === '1'; } catch (e) { return false; }
   }
-  function ackValue() { valueAckNow = true; try { localStorage.setItem(VALUE_ACK_KEY, '1'); } catch (e) { /* الجلسة دي بس */ } }
+  function ackValue() {
+    valueAckNow = true;
+    try { localStorage.setItem(VALUE_ACK_KEY, '1'); } catch (e) { /* الجلسة دي بس */ }
+    if (settingsKnown() && !(userSet.prefs && userSet.prefs.valueAck)) writeUserSettings({ changes: { prefs: { valueAck: true } } }).then(function () {}, function () {});
+  }
   function valueTz(source) {
     var p = platformOfSource(source);
     return (p === 'snapchat' ? valueTzOf[source] : (accountInfo[source] || {}).timeZone) || BROWSER_TZ;

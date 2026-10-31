@@ -277,10 +277,9 @@ async function costLine(accountId: string, cands: any[] | null, since: string, u
 // المستهدف وحد الخسارة (null = مش محددين: الملخص من غير سطر الهدف، وحكم الربح في التنبيهات بيستنى — زي الأداة)، وباقي الإعدادات
 type Target = { roas: number; be: number } | null;
 type Sens = Record<string, unknown> | null;
-// إعدادات صاحب الملخص (settings.ts — قرار صاحب المنتج ٢٦ أكتوبر ٢٠٢٦: «لكل مستخدم»): digest_settings.user_id، وإعداداته لحساب
-// Meta ده بنفس دالة الأداة (alerts.js settingsForAccount: إعدادات Meta الخاصة لو اتخصّصت وإلا «كل الحسابات»، وأقصى تكلفة الأنواع
-// متحوّلة لعملة الحساب بسعر الربط الرسمي). ملخص لسه مالوش صاحب (اتفعّل قبل التحديث ومحدش فتح الأداة بعده)، أو صاحبه من غير
-// إعدادات محفوظة = سجل الحساب القديم (account_settings) زي ما كان
+// إعدادات المستخدم (settings.ts — «لكل مستخدم» من ٢٦ أكتوبر ٢٠٢٦، والملخص نفسه لكل مستخدم من ٣١ أكتوبر): إعداداته لكل حساب بنفس دالة
+// الأداة (alerts.js settingsForAccount: إعدادات المنصة الخاصة لو اتخصّصت وإلا «كل الحسابات»، وأقصى تكلفة الأنواع متحوّلة لعملة الحساب
+// بسعر الربط الرسمي). مستخدم من غير إعدادات محفوظة = قيم البداية، وحكم الربح بيستنى — زي الأداة بالظبط
 async function firstRow(path: string): Promise<any | null> {
   const r = await db(path, { method: 'GET' }).catch(() => null);
   const rows = r ? await r.json().catch(() => null) : null;
@@ -289,28 +288,19 @@ async function firstRow(path: string): Promise<any | null> {
 function objectOrNull(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null;
 }
-async function accountSettingsOf(account: string): Promise<Record<string, unknown> | null> {
-  const row = await firstRow('account_settings?select=settings&platform=eq.meta&account_id=eq.' + account);
+async function userSettingsOf(user: string): Promise<Record<string, unknown> | null> {
+  const row = await firstRow('user_settings?select=settings&user_id=eq.' + user);
   return objectOrNull(row && row.settings);
 }
-async function ownerSettingsOf(account: string): Promise<Record<string, unknown> | null> {
-  const d = await firstRow('digest_settings?select=user_id&account_id=eq.' + account);
-  if (!d || typeof d.user_id !== 'string') return null;
-  const row = await firstRow('user_settings?select=settings&user_id=eq.' + d.user_id);
-  return objectOrNull(row && row.settings);
-}
-// من غيره (أو من غير مستهدف فيه) حكم الربح بيستنى في البريد زي الأداة بالظبط (قرار صاحب المنتج). النسخة القديمة اللي كانت
-// بتتحفظ مع الملخص (digest_settings) مبقتش بتتقري: كانت من آخر متصفح فتح الأداة، وحساب الملخص الوحيد كان عليه ×٣/×١ من متصفح
-// من غير إعدادات بدل ×٥/×٥ (اتشاف حياً ٢٤ أكتوبر)
+// من غير مستهدف وحد خسارة حكم الربح بيستنى في البريد زي الأداة بالظبط (قرار صاحب المنتج). النسخة القديمة اللي كانت بتتحفظ مع
+// الملخص (digest_settings) مبقتش بتتقري: كانت من آخر متصفح فتح الأداة (اتشاف حياً ٢٤ أكتوبر)
 export function settingsChoice(acs: Record<string, unknown> | null): { target: Target; sens: Sens } {
   if (!acs) return { target: null, sens: null };
   const r = Number(acs.roasTarget), b = Number(acs.roasBreakEven);
   return { target: r > 0 && b > 0 ? { roas: r, be: b } : null, sens: acs };
 }
-async function effectiveSettings(account: string, currency: string | null): Promise<{ target: Target; sens: Sens }> {
-  const us = await ownerSettingsOf(account);
-  if (us) return settingsChoice(g.PauseProofAlerts.settingsForAccount(us, 'meta', currency, g.DX.pegRate));
-  return settingsChoice(await accountSettingsOf(account));
+function effectiveFor(us: Record<string, unknown> | null, platform: string, currency: string | null): { target: Target; sens: Sens } {
+  return settingsChoice(us ? g.PauseProofAlerts.settingsForAccount(us, platform, currency, g.DX.pegRate) : null);
 }
 // محرك الأداة بحساسية العميل (ق٥ — قبل كده الإعدادات الافتراضية هنا وحساسية العميل في متصفحه بس، فالبريد كان بيطلع بحساسية
 // «متوازن» لعميل اختار «هادي»)، والمستهدف وحد الخسارة لو بعتهم. العاجل بس. mergeSettings في المحرك بيتحقق من حدود كل قيمة
@@ -463,32 +453,35 @@ export function markMap(rows: Mark[]): Record<string, Mark> {
   });
   return out;
 }
-async function marksOf(account: string): Promise<Record<string, Mark>> {
-  const r = await db('alert_marks?select=kind,object_id,first_at,last_sent_at,last_seen_at,times_sent,resolved_at,last_code&account_id=eq.' + account, { method: 'GET' });
+// بصمات المستخدم على الحساب (user_alert_marks — من ٣١ أكتوبر لكل مستخدم: كل واحد «حُلّت/مستمرة» بتاعته بإعداداته)
+async function marksOf(user: string, account: string): Promise<Record<string, Mark>> {
+  const r = await db('user_alert_marks?select=kind,object_id,first_at,last_sent_at,last_seen_at,times_sent,resolved_at,last_code&user_id=eq.' + user +
+    '&platform=eq.meta&account_id=eq.' + account, { method: 'GET' });
   return markMap((await r.json()) as Mark[]);
 }
-async function saveMarks(account: string, rows: Mark[]): Promise<void> {
+async function saveMarks(user: string, account: string, rows: Mark[]): Promise<void> {
   if (!rows.length) return;
-  await db('alert_marks?on_conflict=account_id,kind,object_id', {
+  await db('user_alert_marks?on_conflict=user_id,platform,account_id,kind,object_id', {
     method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' },
     // كل الصفوف بنفس الأعمدة (PostgREST في الإدخال الجماعي)
-    body: JSON.stringify(rows.map((r) => ({ account_id: account, ...r, last_code: r.last_code ?? null })))
+    body: JSON.stringify(rows.map((r) => ({ user_id: user, platform: 'meta', account_id: account, kind: r.kind, object_id: r.object_id, first_at: r.first_at,
+      last_sent_at: r.last_sent_at, last_seen_at: r.last_seen_at, times_sent: r.times_sent, resolved_at: r.resolved_at, last_code: r.last_code ?? null })))
   });
 }
 function newMark(kind: string, obj: string, iso: string, code: string | null = null): Mark {
   return { kind, object_id: obj, first_at: iso, last_sent_at: iso, last_seen_at: iso, times_sent: 1, resolved_at: null, last_code: code };
 }
-async function logSend(account: string, type: string, status: string, id: string | null, error: string | null): Promise<void> {
+async function logSend(user: string, account: string, type: string, status: string, id: string | null, error: string | null): Promise<void> {
   await db('send_log', { method: 'POST', headers: { 'prefer': 'return=minimal' },
-    body: JSON.stringify({ account_id: account, type, status, provider_id: id, error: error ? error.slice(0, 200) : null }) }).catch(() => {});
+    body: JSON.stringify({ user_id: user, account_id: account || '-', type, status, provider_id: id, error: error ? error.slice(0, 200) : null }) }).catch(() => {});
 }
-async function send(account: string, type: string, to: string, mail: { subject: string; html: string; text: string }): Promise<boolean> {
+async function send(user: string, account: string, type: string, to: string, mail: { subject: string; html: string; text: string }): Promise<boolean> {
   try {
     const id = await sendEmail(to, mail.subject, mail.html, mail.text);
-    await logSend(account, type, 'sent', id, null);
+    await logSend(user, account, type, 'sent', id, null);
     return true;
   } catch (e) {
-    await logSend(account, type, 'failed', null, String((e as Error).message || e));
+    await logSend(user, account, type, 'failed', null, String((e as Error).message || e));
     return false;
   }
 }
@@ -530,27 +523,42 @@ function countPhrase(n: number, en: boolean): string {
 // رابط الأداة على الحساب نفسه (Live/js/route.js) — قبل كده /app لوحدها، فكانت بتفتح آخر حساب اتفتح على الجهاز
 // (مسؤول الإعلانات عنده كذا عميل). العاجل بيفتح تبويب التنبيهات على طول
 function appLink(account: string, view = ''): string {
-  return '<a href="' + SITE + '/app?meta=' + encodeURIComponent(account) + (view ? '&amp;view=' + view : '') + '">Ads Center</a>';
+  const q = (account ? 'meta=' + encodeURIComponent(account) : '') + (view ? (account ? '&amp;' : '') + 'view=' + view : '');
+  return '<a href="' + SITE + '/app' + (q ? '?' + q : '') + '">Ads Center</a>';
 }
-function urgentMail(account: string, name: string, fresh: any[], remind: { a: any; m: Mark }[], tz: string, en: boolean, stop: string) {
-  const n = esc(name), app = appLink(account, 'alerts');
+// رسالة عاجلة واحدة للمستخدم في كل فحص، فيها تنبيهات كل حساباته (قسم لكل حساب). حساب واحد = نفس الرسالة القديمة بالظبط
+type Section = { account: string; name: string; fresh: any[]; remind: { a: any; m: Mark }[] };
+function accountsPhrase(n: number, en: boolean): string {
+  if (en) return n + ' accounts';
+  return n === 2 ? 'حسابين' : g.ar(n) + (n <= 10 ? ' حسابات' : ' حساباً');
+}
+function urgentMail(sections: Section[], tz: string, en: boolean, stop: string) {
+  const fresh = sections.reduce((all: any[], s) => all.concat(s.fresh), []);
+  const remind = sections.reduce((all: { a: any; m: Mark }[], s) => all.concat(s.remind), []);
+  const one = sections.length === 1 ? sections[0] : null;
+  const where = one ? one.name : accountsPhrase(sections.length, en);
   const subject = fresh.length
-    ? (en ? 'Urgent: ' + (fresh.length === 1 ? fresh[0].title : countPhrase(fresh.length, true)) + ' — ' + name
-      : 'عاجل: ' + (fresh.length === 1 ? fresh[0].title : countPhrase(fresh.length, false)) + ' — ' + name)
-    : (en ? 'Reminder: ' + (remind.length === 1 ? remind[0].a.title + ' is still ongoing' : 'urgent issues still ongoing') + ' — ' + name
-      : 'تذكير: ' + (remind.length === 1 ? '«' + remind[0].a.title + '» ما زال قائماً' : 'تنبيهات عاجلة ما زالت قائمة') + ' — ' + name);
+    ? (en ? 'Urgent: ' + (fresh.length === 1 ? fresh[0].title : countPhrase(fresh.length, true)) + ' — ' + where
+      : 'عاجل: ' + (fresh.length === 1 ? fresh[0].title : countPhrase(fresh.length, false)) + ' — ' + where)
+    : (en ? 'Reminder: ' + (remind.length === 1 ? remind[0].a.title + ' is still ongoing' : 'urgent issues still ongoing') + ' — ' + where
+      : 'تذكير: ' + (remind.length === 1 ? '«' + remind[0].a.title + '» ما زال قائماً' : 'تنبيهات عاجلة ما زالت قائمة') + ' — ' + where);
   const lines: string[] = [];
-  if (fresh.length) {
-    lines.push(en ? 'We found something in <strong>' + n + '</strong> that needs your attention now:'
-      : 'رصدنا في حساب <strong>' + n + '</strong> ما يحتاج إلى انتباهك الآن:');
-    fresh.forEach((a) => lines.push(alertBox(a, null)));
-  }
-  if (remind.length) {
-    lines.push(en ? 'Still ongoing since our first alert:' : 'وما زال قائماً منذ أبلغناك به:');
-    remind.forEach((r) => lines.push(alertBox(r.a, en ? 'We first alerted you on ' + dateText(r.m.first_at, tz, true) + '.'
-      : 'أبلغناك به أول مرة يوم ' + dateText(r.m.first_at, tz, false) + '.')));
-  }
-  lines.push(en ? 'Full details are in ' + app + '.' : 'التفاصيل الكاملة في ' + app + '.');
+  sections.forEach((s) => {
+    const n = esc(s.name);
+    if (!one) lines.push('<p style="margin:18px 0 8px;font-size:16px;font-weight:700;line-height:1.7">' + n + '</p>');
+    if (s.fresh.length) {
+      lines.push(en ? 'We found something in <strong>' + n + '</strong> that needs your attention now:'
+        : 'رصدنا في حساب <strong>' + n + '</strong> ما يحتاج إلى انتباهك الآن:');
+      s.fresh.forEach((a) => lines.push(alertBox(a, null)));
+    }
+    if (s.remind.length) {
+      lines.push(en ? 'Still ongoing since our first alert:' : 'وما زال قائماً منذ أبلغناك به:');
+      s.remind.forEach((r) => lines.push(alertBox(r.a, en ? 'We first alerted you on ' + dateText(r.m.first_at, tz, true) + '.'
+        : 'أبلغناك به أول مرة يوم ' + dateText(r.m.first_at, tz, false) + '.')));
+    }
+    if (!one) lines.push(en ? 'Details for this account are in ' + appLink(s.account, 'alerts') + '.' : 'تفاصيل هذا الحساب في ' + appLink(s.account, 'alerts') + '.');
+  });
+  if (one) lines.push(en ? 'Full details are in ' + appLink(one.account, 'alerts') + '.' : 'التفاصيل الكاملة في ' + appLink(one.account, 'alerts') + '.');
   lines.push(en ? 'We don\'t repeat the same alert: we remind you once if it lasts two more days, and your next summary shows whether it was resolved.'
     : 'لا نكرر التنبيه نفسه: نذكّرك به مرة واحدة إذا استمر يومين، ويبيّن ملخصك التالي هل حُلّ أم ما زال قائماً.');
   lines.push(en ? 'To stop the summary and alerts: <a href="' + stop + '">Stop</a>' : 'لإيقاف الملخص والتنبيهات: <a href="' + stop + '">إيقاف</a>');
@@ -629,18 +637,20 @@ function monthlyDue(s: Settings): { since: string; until: string; month: string 
   const until = g.shiftKey(lp.key.slice(0, 8) + '01', -1), month = until.slice(0, 7);
   return s.last_monthly === month ? null : { since: month + '-01', until, month };
 }
-async function feedbackOf(account: string): Promise<any[]> {
-  const r = await db('feedback?select=block,since,until,verdict,reasons,note&view_key=eq.' + encodeURIComponent('meta:' + account) + '&limit=200', { method: 'GET' }).catch(() => null);
+// إجابات «هل كان التشخيص صحيحاً؟» بتاعة المستخدم ده بس (من ٣١ أكتوبر — كانت مشتركة لكل من يفتح الحساب)
+async function feedbackOf(user: string, account: string): Promise<any[]> {
+  const r = await db('feedback?select=block,since,until,verdict,reasons,note&user_id=eq.' + user + '&view_key=eq.' + encodeURIComponent('meta:' + account) + '&limit=200',
+    { method: 'GET' }).catch(() => null);
   const rows = r ? await r.json().catch(() => null) : null;
   return Array.isArray(rows) ? rows : [];
 }
 // التقرير (DX) + التعديلات ونتيجتها. لو سجل التعديلات فشل، الملخص بيكمّل من غيره
-async function buildSummary(accountId: string, acct: Acct, since: string, until: string, target: Target, cands: any[] | null = null, sens: Sens = null): Promise<{ composed: any; actions: any }> {
+async function buildSummary(user: string, accountId: string, acct: Acct, since: string, until: string, target: Target, cands: any[] | null = null, sens: Sens = null): Promise<{ composed: any; actions: any }> {
   const tz = acct.timezone_name || 'UTC';
   const input = await g.metaDiagnosisInput(accountId, since, until, true);
   input.currency = acct.currency || null;
   input.timezone = tz;
-  input.feedback = await feedbackOf(accountId);
+  input.feedback = await feedbackOf(user, accountId);
   // سطر «العائد أعلى/أقل من المستهدف» زي اللي في الأداة — بس لو العميل بعت المستهدف وحد الخسارة
   const composed = g.DX.compose(g.DX.analyze(input), { mail: true, target });
   // «للمقارنة: تنسب Meta لهذه الفترة…» زي الأداة بالظبط (diagnosis.js DX.platCompare) — من غيره «٥ طلبات» في البريد قصاد ١٦ في
@@ -726,15 +736,10 @@ function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: strin
   return '<div style="border-inline-start:4px solid #b91c1c;padding:2px 12px;margin:0 0 20px">' +
     P(esc(en ? 'Urgent alerts since the previous summary' : 'التنبيهات العاجلة منذ الملخص السابق'), 'font-weight:700') + rows.join('') + '</div>';
 }
-function summaryMail(account: string, name: string, since: string, until: string, sum: { composed: any; actions: any }, alerts: string | null, s: Settings, en: boolean, stop: string, monthly = false) {
-  const o = sum.composed, t = g.I18N.t, n = esc(name), app = appLink(account);
-  const range = g.fmtRange(since, until);
-  // الشهري: «الملخص الشهري لـ X (سبتمبر): …»
-  const monthName = g.I18N.months()[Number(since.slice(5, 7)) - 1];
-  const subject = monthly
-    ? (en ? name + ' monthly summary, ' + monthName + ': ' : 'الملخص الشهري لـ' + name + ' (' + monthName + '): ') + o.title
-    : (en ? name + ' summary, ' + range + ': ' : 'ملخص ' + name + ' (' + range + '): ') + o.title;
-  const parts: string[] = [];
+// محتوى ملخص حساب واحد (بيتحط في الرسالة كقسم — رسالة واحدة لكل حسابات المستخدم من ٣١ أكتوبر)
+type SumSection = { account: string; name: string; sum: { composed: any; actions: any }; alerts: string | null };
+function summaryParts(sec: SumSection): string[] {
+  const o = sec.sum.composed, t = g.I18N.t, parts: string[] = [];
   parts.push('<div style="margin:0 0 16px">' + P(esc(o.period), MUTED) +
     P(esc(o.title), 'font-size:17px;font-weight:700;color:' + (TONE_COLOR[o.tone] || TONE_COLOR.neutral)) + '</div>');
   if (o.basis) parts.push('<div>' + P(esc(o.basis)) + '</div>');
@@ -748,73 +753,107 @@ function summaryMail(account: string, name: string, since: string, until: string
   if (o.costCmp) parts.push('<div>' + P(esc(o.costCmp), MUTED) + '</div>');
   // بطاقة «مستقر» عنوانها هو نفس العنوان الرئيسي فوق — منكررهوش
   (o.blocks || []).forEach((b: any) => parts.push(blockHtml(b.kind === 'note' && b.title === o.title ? { ...b, title: '' } : b)));
-  if (sum.actions) parts.push(blockHtml(sum.actions));
-  if (alerts) parts.push(alerts);
+  if (sec.sum.actions) parts.push(blockHtml(sec.sum.actions));
+  if (sec.alerts) parts.push(sec.alerts);
   (o.notes || []).forEach((x: string) => parts.push('<div>' + P(esc(x), MUTED) + '</div>'));
+  return parts;
+}
+function summaryText(sec: SumSection): string {
+  const acts = sec.sum.actions ? [sec.sum.actions.title].concat(sec.sum.actions.lines || [],
+    (sec.sum.actions.items || []).map((it: any) => '• ' + it.title + ' (' + it.meta + ')\n  ' + it.lines.join('\n  ')), sec.sum.actions.after || []).join('\n') : '';
+  return g.DX.toText(sec.sum.composed, sec.name) + (acts ? '\n\n' + acts : '');
+}
+// missing = حسابات في الملخص مقدرناش نقرا أرقامها (الوصول ضاع) — سطر واحد بأسمائها بدل ما تختفي في صمت
+function summaryMail(secs: SumSection[], since: string, until: string, s: Settings, en: boolean, stop: string, monthly = false, missing: string[] = []) {
+  const one = secs.length === 1 ? secs[0] : null;
+  const range = g.fmtRange(since, until);
+  // الشهري: «الملخص الشهري لـ X (سبتمبر): …»
+  const monthName = g.I18N.months()[Number(since.slice(5, 7)) - 1];
+  const who = one ? one.name : (en ? 'your accounts' : 'حساباتك');
+  const head = one ? one.sum.composed.title : accountsPhrase(secs.length, en);
+  const subject = monthly
+    ? (en ? (one ? one.name : 'Your accounts') + ' monthly summary, ' + monthName + ': ' : 'الملخص الشهري لـ' + who + ' (' + monthName + '): ') + head
+    : (en ? (one ? one.name : 'Your accounts') + ' summary, ' + range + ': ' : 'ملخص ' + who + ' (' + range + '): ') + head;
+  const parts: string[] = [];
+  secs.forEach((sec) => {
+    if (!one) parts.push('<p style="margin:22px 0 10px;font-size:18px;font-weight:700;line-height:1.6;border-bottom:1px solid #e5e7eb;padding-bottom:6px">' +
+      esc(sec.name) + '</p>');
+    parts.push(...summaryParts(sec));
+    if (!one) parts.push('<div>' + P((en ? 'Details: ' : 'التفاصيل: ') + appLink(sec.account), MUTED) + '</div>');
+  });
+  if (missing.length) {
+    parts.push('<div>' + P(esc(en ? 'We could not read the figures of: ' + missing.join(', ') + ' — open the tool and log in to the platform again.'
+      : 'لم نستطع قراءة أرقام: ' + missing.join('، ') + '، فافتح الأداة وسجّل الدخول إلى المنصة مرة أخرى.'), MUTED) + '</div>');
+  }
   const days = daysText(s.summary_days || [0, 3], en ? 'en' : 'ar'), hour = hourText(s.summary_hour == null ? 9 : s.summary_hour, en ? 'en' : 'ar');
+  const target = one ? '<strong>' + esc(one.name) + '</strong>' : (en ? 'your accounts' : 'حساباتك');
+  const tz = esc(s.timezone || 'UTC'), app = one ? appLink(one.account) : appLink('');
   parts.push(monthly
-    ? (en ? 'You receive this monthly summary for <strong>' + n + '</strong> on the first Sunday of each month, alongside your summary on ' + days + '. Full details are in ' + app + '.'
-      : 'يصلك هذا الملخص الشهري لحساب <strong>' + n + '</strong> في أول أحد من كل شهر، إلى جانب ملخصك ' + days + '. التفاصيل الكاملة في ' + app + '.')
+    ? (en ? 'You receive this monthly summary for ' + target + ' on the first Sunday of each month, alongside your summary on ' + days + '. Full details are in ' + app + '.'
+      : 'يصلك هذا الملخص الشهري لـ' + target + ' في أول أحد من كل شهر، إلى جانب ملخصك ' + days + '. التفاصيل الكاملة في ' + app + '.')
     : (en
-      ? 'You receive this summary for <strong>' + n + '</strong> on ' + days + ' at ' + hour + ' account time. Full details are in ' + app + '; to change the schedule open the tool, then "Settings", then "Automatic summary by email".'
-      : 'يصلك هذا الملخص لحساب <strong>' + n + '</strong> ' + days + ' الساعة ' + hour + ' بتوقيت الحساب. التفاصيل الكاملة في ' + app + '، ولتعديل المواعيد: افتح الأداة، ثم «الإعدادات»، ثم «الملخص التلقائي بالبريد».'));
+      ? 'You receive this summary for ' + target + ' on ' + days + ' at ' + hour + ' (' + tz + '). Full details are in ' + app + '; to add accounts or change the schedule open the tool, then "Settings", then "Automatic summary by email".'
+      : 'يصلك هذا الملخص لـ' + target + ' ' + days + ' الساعة ' + hour + ' (' + tz + '). التفاصيل الكاملة في ' + app + '، ولإضافة حسابات أو تعديل المواعيد: افتح الأداة، ثم «الإعدادات»، ثم «الملخص التلقائي بالبريد».'));
   parts.push(en ? 'To stop the summary and alerts: <a href="' + stop + '">Stop</a>' : 'لإيقاف الملخص والتنبيهات: <a href="' + stop + '">إيقاف</a>');
-  const heading = esc(monthly ? (en ? 'Monthly summary — ' + name + ', ' + monthName : 'الملخص الشهري — ' + name + '، ' + monthName)
-    : (en ? 'Store summary — ' + name : 'ملخص المتجر — ' + name));
-  const acts = sum.actions ? [sum.actions.title].concat(sum.actions.lines || [],
-    (sum.actions.items || []).map((it: any) => '• ' + it.title + ' (' + it.meta + ')\n  ' + it.lines.join('\n  ')), sum.actions.after || []).join('\n') : '';
-  const text = subject + '\n\n' + g.DX.toText(o, name) + (acts ? '\n\n' + acts : '') + '\n\n' + stop;
+  const heading = esc(monthly ? (en ? 'Monthly summary — ' + (one ? one.name : 'your accounts') + ', ' + monthName : 'الملخص الشهري — ' + who + '، ' + monthName)
+    : (en ? 'Store summary — ' + (one ? one.name : 'your accounts') : (one ? 'ملخص المتجر — ' + one.name : 'ملخص حساباتك')));
+  const text = subject + '\n\n' + secs.map(summaryText).join('\n\n— — —\n\n') + '\n\n' + stop;
   return { subject, html: mailHtml(heading, parts, en ? 'en' : 'ar'), text };
 }
 
-// ---------- فحص حساب واحد ----------
-type Settings = { account_id: string; email: string; lang: string; timezone: string; summary_days: number[]; summary_hour: number; last_summary_until: string | null; checked_at?: string | null;
+// ---------- فحص ملخص مستخدم ----------
+// من ٣١ أكتوبر ٢٠٢٦ (قرار صاحب المنتج: «اجعلها لكل مستخدم ملخص خاص به»): ملخص لكل مستخدم فيه حساباته، بإعداداته وعلى بريده.
+// الفحص العاجل لكل حساب مرة في الساعة (checked_at للمستخدم والحساب)، ورسالة عاجلة واحدة للمستخدم فيها كل حساباته، والملخص رسالة
+// واحدة فيها قسم لكل حساب. نفس الحساب عند أكتر من مستخدم: الإعلانات بتتجاب مرة في التشغيل (RUN_CANDS)، وكل مستخدم صلاحيته بتتأكد لوحدها
+type Settings = { user_id: string; email: string; lang: string; timezone: string; summary_days: number[]; summary_hour: number; last_summary_until: string | null;
   last_monthly?: string | null };
+type DAcct = { user_id: string; platform: string; account_id: string; checked_at: string | null };
 // الفحص العاجل مرة في الساعة لكل حساب، مع إن المُشغّل بيشتغل كل ١٠ دقايق (عشان الملخصات اللي ميعادها واحد متتأخرش)
-function urgentDueFor(s: Settings): boolean { return !s.checked_at || Date.now() - Date.parse(s.checked_at) >= URGENT_EVERY_MS; }
-async function checkAccount(s: Settings): Promise<string> {
-  const account = s.account_id, en = s.lang === 'en', tz = s.timezone || 'UTC';
-  const hour = hourIn(tz);
-  const night = hour >= QUIET_FROM || hour < QUIET_UNTIL;
-  const due = summaryDue(s), monthly = monthlyDue(s);
-  const doUrgent = !night && urgentDueFor(s);
-  // بالليل التنبيهات العاجلة بتستنى الصبح، بس الملخص بيتبعت في الساعة اللي العميل اختارها حتى لو بدري
-  if (!doUrgent && !due && !monthly) return night ? 'quiet' : 'skip';
+function urgentDueFor(a: DAcct): boolean { return !a.checked_at || Date.now() - Date.parse(a.checked_at) >= URGENT_EVERY_MS; }
+const RUN_CANDS = new Map<string, any[]>();
+// الملخص بيستنى التشغيل الجاي لو أرقام حساب فشلت مؤقتاً — وبعد ٣ ساعات من ميعاده بيتبعت بالحسابات اللي اتقرت
+const SUMMARY_PARTIAL_AFTER_H = 3;
 
-  const rows = await rpc('vault_get_token', { p_account: account });
+type AcctResult = { account: string; name: string; outcome: string; section: Section | null; keep: Mark[]; sentRows: Mark[];
+  summary: SumSection | null; monthly: SumSection | null };
+async function checkUserAccount(s: Settings, a: DAcct, us: Record<string, unknown> | null,
+  o: { doUrgent: boolean; due: { since: string; until: string } | null; monthly: { since: string; until: string } | null; stop: string }): Promise<AcctResult> {
+  const user = s.user_id, account = a.account_id, en = s.lang === 'en', tz = s.timezone || 'UTC';
+  const res: AcctResult = { account, name: (await accountName(account)) || account, outcome: 'error', section: null, keep: [], sentRows: [], summary: null, monthly: null };
+  const rows = await rpc('vault_user_get', { p_user: user, p_account: account });
   const t = Array.isArray(rows) && rows[0] ? rows[0] : null;
-  const marks = await marksOf(account);
+  const marks = await marksOf(user, account);
   const now = Date.now(), iso = new Date(now).toISOString();
-  const stop = await stopUrl(account);
-  g.I18N.setLang(en ? 'en' : 'ar');
 
-  // الوصول ضاع: رسالة واحدة وتذكير واحد بعد يومين
-  const lostAccess = async (): Promise<string> => {
+  // الوصول ضاع: رسالة واحدة وتذكير واحد بعد يومين (لكل حساب — رسالتها لوحدها زي الأول)
+  const lostAccess = async (): Promise<AcctResult> => {
+    res.outcome = 'lost';
     const m = marks['connection|'];
     const due = !m || m.resolved_at || (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS);
-    if (!due) { await saveMarks(account, [{ ...m, last_seen_at: iso }]); return 'lost'; }
-    const name = (await accountName(account)) || account;
-    if (await send(account, 'urgent', s.email, connectionMail(account, name, en, stop))) {
-      await saveMarks(account, [m && !m.resolved_at ? { ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1 } : newMark('connection', '', iso)]);
+    if (!due) { await saveMarks(user, account, [{ ...m, last_seen_at: iso }]); return res; }
+    if (await send(user, account, 'urgent', s.email, connectionMail(account, res.name, en, o.stop))) {
+      await saveMarks(user, account, [m && !m.resolved_at ? { ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1 } : newMark('connection', '', iso)]);
     }
-    return 'lost';
+    return res;
   };
   if (!t) return await lostAccess();
   let token = '';
   try { token = await unseal(t.ciphertext, t.iv, account); } catch (_) {
     // عطل عندنا (مفتاح التشفير اتغيّر؟) مش عند العميل — منبعتلوش حاجة
-    await rpc('vault_mark_error', { p_account: account, p_error: 'decrypt failed' });
-    return 'decrypt-failed';
+    await rpc('vault_user_mark_error', { p_user: user, p_account: account, p_error: 'decrypt failed' });
+    res.outcome = 'decrypt-failed';
+    return res;
   }
   metaToken = token;
   usage = freshUsage();
   try {
     const { acct, fail } = await accountOrFail(account);
-    if (fail === 'retry') return 'meta-retry';
+    if (fail === 'retry') { res.outcome = 'meta-retry'; return res; }
     if (!acct) {
-      await rpc('vault_mark_error', { p_account: account, p_error: 'meta rejected stored token' });
+      await rpc('vault_user_mark_error', { p_user: user, p_account: account, p_error: 'meta rejected stored token' });
       return await lostAccess();
     }
+    res.name = acct.name || account;
     const keep: Mark[] = [];
     const conn = marks['connection|'];
     if (conn && !conn.resolved_at) keep.push({ ...conn, resolved_at: iso });
@@ -823,34 +862,37 @@ async function checkAccount(s: Settings): Promise<string> {
     const exp = marks['expiry|'];
     const expiresAt = t.expires_at ? Date.parse(t.expires_at) : NaN;
     if (isFinite(expiresAt) && expiresAt - now < EXPIRY_WARN_MS) {
-      if (doUrgent && (!exp || exp.resolved_at)) {
-        const name = acct.name || account;
-        if (await send(account, 'expiry', s.email, expiryMail(account, name, t.expires_at, acct.timezone_name || tz, en, stop))) keep.push(newMark('expiry', '', iso));
+      if (o.doUrgent && (!exp || exp.resolved_at)) {
+        if (await send(user, account, 'expiry', s.email, expiryMail(account, res.name, t.expires_at, acct.timezone_name || tz, en, o.stop))) keep.push(newMark('expiry', '', iso));
       }
     } else if (exp && !exp.resolved_at) keep.push({ ...exp, resolved_at: iso });
 
-    const cands = await loadCandidates(account, acct);
-    if (!cands) { await saveMarks(account, keep); return 'meta-retry'; }
-    // إعدادات صاحب الملخص لحساب Meta ده (وإلا سجل الحساب القديم) — نفس اللي الأداة بتحكم بيه
-    const eff = await effectiveSettings(account, acct.currency || null);
+    let cands = RUN_CANDS.get(account) || null;
+    if (!cands) {
+      cands = await loadCandidates(account, acct);
+      if (cands) RUN_CANDS.set(account, cands);
+    }
+    if (!cands) { res.keep = keep; res.outcome = 'meta-retry'; return res; }
+    // إعدادات المستخدم لحساب Meta ده — نفس اللي الأداة بتحكم بيه
+    const eff = effectiveFor(us, 'meta', acct.currency || null);
 
-    let outcome = doUrgent ? 'ok' : 'summary-only';
-    if (doUrgent) {
+    const sentRows: Mark[] = [];
+    if (o.doUrgent) {
       // التعديلات من آخر فحص (أو آخر ساعتين لأول فحص)
-      const editsSince = s.checked_at ? Date.parse(s.checked_at) : now - 2 * 3600000;
+      const editsSince = a.checked_at ? Date.parse(a.checked_at) : now - 2 * 3600000;
       const all = await allUrgent(account, acct, cands, editsSince, eff.target, eff.sens);
-      const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], sentRows: Mark[] = [], seen: Record<string, boolean> = {};
-      for (const a of all.urgent) {
+      const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], seen: Record<string, boolean> = {};
+      for (const al of all.urgent) {
         // البصمة بالعيلة (familyOf) — والنوع نفسه في last_code. التذكير بيعرض نص التنبيه الحالي، فلو المشكلة زادت («يومان» بقت
         // «أسبوع كامل») التذكير بيقولها
-        const code = String(a.code || 'other'), obj = String(a.adId || a.objectId || '');
-        const k = alertKey(a);
+        const code = String(al.code || 'other'), obj = String(al.adId || al.objectId || '');
+        const k = alertKey(al);
         if (seen[k]) continue;
         seen[k] = true;
         const m = marks[k];
-        if (!m || m.resolved_at) { fresh.push(a); sentRows.push(newMark(familyOf(code), obj, iso, code)); }
+        if (!m || m.resolved_at) { fresh.push(al); sentRows.push(newMark(familyOf(code), obj, iso, code)); }
         else if (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS) {
-          remind.push({ a, m });
+          remind.push({ a: al, m });
           sentRows.push({ ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1, last_code: code });
         } else keep.push({ ...m, last_seen_at: iso, last_code: code });
       }
@@ -861,57 +903,114 @@ async function checkAccount(s: Settings): Promise<string> {
         if (r === 'seen') keep.push({ ...m, last_seen_at: iso });
         else if (r === 'resolve') keep.push({ ...m, resolved_at: iso });
       }
-      // الرسالة الأول، والبصمات بعدها: لو الإرسال فشل، الساعة الجاية بتحاول تاني
-      if (fresh.length || remind.length) {
-        const sent = await send(account, fresh.length ? 'urgent' : 'reminder', s.email, urgentMail(account, acct.name || account, fresh, remind, acct.timezone_name || tz, en, stop));
-        if (sent) keep.push(...sentRows);
-        outcome = sent ? (fresh.length ? 'sent' : 'reminded') : 'send-failed';
-      }
-      await markChecked(account);
+      if (fresh.length || remind.length) res.section = { account, name: res.name, fresh, remind };
     }
-    await saveMarks(account, keep);
+    res.keep = keep;
+    res.sentRows = sentRows;
 
-    // الملخص: رسالة منفصلة عن التنبيهات العاجلة (قرار صاحب المنتج). لو فشل (Meta أو البريد) بيتحاول تاني الساعة الجاية
-    if (due) {
-      keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });   // «حُلّت/مستمرة» بحالة الساعة دي
-      const sum = await buildSummary(account, acct, due.since, due.until, eff.target, cands, eff.sens);
-      const alerts = alertStatusHtml(marks, cands, due.since, acct.timezone_name || tz, en, eff.target);
-      if (await send(account, 'summary', s.email, summaryMail(account, acct.name || account, due.since, due.until, sum, alerts, s, en, stop))) {
-        await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_summary_until: due.until }) });
-        outcome += '+summary';
-      } else outcome += '+summary-failed';
+    // الملخص (والشهري): «حُلّت/مستمرة» بحالة الساعة دي — اللي هيتبعت دلوقتي معدود كأنه اتبعت
+    if (o.due || o.monthly) {
+      keep.concat(sentRows).forEach((m) => { marks[familyOf(m.kind) + '|' + m.object_id] = m; });
+      if (o.due) {
+        const sum = await buildSummary(user, account, acct, o.due.since, o.due.until, eff.target, cands, eff.sens);
+        res.summary = { account, name: res.name, sum, alerts: alertStatusHtml(marks, cands, o.due.since, acct.timezone_name || tz, en, eff.target) };
+      }
+      if (o.monthly) {
+        const sum = await buildSummary(user, account, acct, o.monthly.since, o.monthly.until, eff.target, cands, eff.sens);
+        res.monthly = { account, name: res.name, sum, alerts: alertStatusHtml(marks, cands, o.monthly.since, acct.timezone_name || tz, en, eff.target) };
+      }
     }
-    // الملخص الشهري: رسالة منفصلة (لو فشل بيتحاول تاني في التشغيلات الجاية لحد آخر اليوم — monthlyDue = الأحد بس)
-    if (monthly) {
-      keep.forEach((m) => { marks[m.kind + '|' + m.object_id] = m; });
-      const sum = await buildSummary(account, acct, monthly.since, monthly.until, eff.target, cands, eff.sens);
-      const alerts = alertStatusHtml(marks, cands, monthly.since, acct.timezone_name || tz, en, eff.target);
-      if (await send(account, 'monthly', s.email, summaryMail(account, acct.name || account, monthly.since, monthly.until, sum, alerts, s, en, stop, true))) {
-        await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ last_monthly: monthly.month }) });
-        outcome += '+monthly';
-      } else outcome += '+monthly-failed';
-    }
-    return outcome;
+    res.outcome = 'ok';
+    return res;
   } finally {
     metaToken = '';
     mergeUsage(runUsage, usage);
   }
 }
 
+async function processUser(s: Settings, accts: DAcct[], deadline: number): Promise<string> {
+  const user = s.user_id, en = s.lang === 'en', tz = s.timezone || 'UTC';
+  const hour = hourIn(tz);
+  const night = hour >= QUIET_FROM || hour < QUIET_UNTIL;
+  const due = summaryDue(s), monthly = monthlyDue(s);
+  // المرحلة ١ من الملخص لكل مستخدم: حسابات Meta (Snapchat وGoogle في المرحلتين الجاية)
+  const meta = accts.filter((a) => a.platform === 'meta');
+  // بالليل التنبيهات العاجلة بتستنى الصبح، بس الملخص بيتبعت في الساعة اللي العميل اختارها حتى لو بدري
+  const urgentNow: Record<string, boolean> = {};
+  if (!night) meta.forEach((a) => { if (urgentDueFor(a)) urgentNow[a.account_id] = true; });
+  const work = due || monthly ? meta : meta.filter((a) => urgentNow[a.account_id]);
+  if (!work.length) return night ? 'quiet' : 'skip';
+
+  g.I18N.setLang(en ? 'en' : 'ar');
+  const stop = await stopUrl(user);
+  const us = await userSettingsOf(user);
+  const results: AcctResult[] = [];
+  for (const a of work) {
+    if (Date.now() > deadline) break;
+    try {
+      results.push(await checkUserAccount(s, a, us, { doUrgent: !!urgentNow[a.account_id], due, monthly, stop }));
+    } catch (e) {
+      console.error('runner account failed', String((e as Error).message || e).slice(0, 200));
+      results.push({ account: a.account_id, name: a.account_id, outcome: 'error', section: null, keep: [], sentRows: [], summary: null, monthly: null });
+    }
+  }
+  const complete = results.length === work.length;
+
+  // التنبيه العاجل: رسالة واحدة بكل الحسابات. الرسالة الأول، والبصمات بعدها: لو الإرسال فشل، الساعة الجاية بتحاول تاني
+  let outcome = results.map((r) => r.outcome).filter((x, i, l) => l.indexOf(x) === i).join(',');
+  const sections = results.filter((r) => r.section).map((r) => r.section as Section);
+  let sent = false;
+  if (sections.length) {
+    const anyFresh = sections.some((x) => x.fresh.length > 0);
+    sent = await send(user, sections[0].account, anyFresh ? 'urgent' : 'reminder', s.email, urgentMail(sections, tz, en, stop));
+    outcome += sent ? (anyFresh ? '+sent' : '+reminded') : '+send-failed';
+  }
+  for (const r of results) {
+    await saveMarks(user, r.account, sent ? r.keep.concat(r.sentRows) : r.keep);
+    // عطل أو فحص تم: الفحص الجاي بعد ساعة مش بعد ١٠ دقايق
+    if (urgentNow[r.account] || r.outcome !== 'ok') await markChecked(user, r.account);
+  }
+
+  // الملخص والشهري: بعد ما كل الحسابات تتقري. عطل مؤقت في حساب = التشغيل الجاي، وبعد ٣ ساعات من الميعاد بالحسابات اللي اتقرت
+  const late = hourIn(tz) >= (s.summary_hour == null ? 9 : s.summary_hour) + SUMMARY_PARTIAL_AFTER_H;
+  const retrying = results.some((r) => r.outcome === 'meta-retry' || r.outcome === 'error');
+  const missing = results.filter((r) => r.outcome === 'lost' || r.outcome === 'decrypt-failed' || (late && (r.outcome === 'meta-retry' || r.outcome === 'error'))).map((r) => r.name);
+  const ready = complete && (!retrying || late);
+  for (const kind of ['summary', 'monthly'] as const) {
+    const win = kind === 'summary' ? due : monthly;
+    if (!win) continue;
+    if (!ready) { outcome += '+' + kind + '-deferred'; continue; }
+    const secs = results.map((r) => (kind === 'summary' ? r.summary : r.monthly)).filter(Boolean) as SumSection[];
+    if (!secs.length) { outcome += '+' + kind + '-empty'; continue; }
+    if (await send(user, secs[0].account, kind, s.email, summaryMail(secs, win.since, win.until, s, en, stop, kind === 'monthly', missing))) {
+      const patch = kind === 'summary' ? { last_summary_until: win.until } : { last_monthly: (win as { month: string }).month };
+      await db('user_digests?user_id=eq.' + user, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify(patch) });
+      outcome += '+' + kind;
+    } else outcome += '+' + kind + '-failed';
+  }
+  return outcome;
+}
+
 // ---------- نقاط الدخول ----------
 export async function runAll(): Promise<Record<string, unknown>> {
   const started = Date.now();
   runUsage = freshUsage();
+  RUN_CANDS.clear();
   // تذكير طلبات الانضمام المتأخرة (join.ts) — قبل المحرك، عشان لو GitHub وقع التذكير ميتأخرش
   let joinReminded = 0;
   try { joinReminded = await joinReminders(); } catch (e) { console.error('join reminders failed', String((e as Error).message || e).slice(0, 200)); }
   const outdated = await loadEngine();
   if (outdated.length) await rpc('beat', { p_source: 'runner-engine-outdated' }).catch(() => {});
-  const r = await db('digest_settings?select=account_id,email,lang,timezone,summary_days,summary_hour,last_summary_until,checked_at,last_monthly&enabled=is.true&order=checked_at.asc.nullsfirst&limit=500', { method: 'GET' });
+  const r = await db('user_digests?select=user_id,email,lang,timezone,summary_days,summary_hour,last_summary_until,last_monthly&enabled=is.true&limit=500', { method: 'GET' });
   const all = (await r.json()) as Settings[];
+  const ra = await db('user_digest_accounts?select=user_id,platform,account_id,checked_at&limit=5000', { method: 'GET' });
+  const byUser: Record<string, DAcct[]> = {};
+  ((await ra.json()) as DAcct[]).forEach((a) => { (byUser[a.user_id] = byUser[a.user_id] || []).push(a); });
   // الملخصات اللي ميعادها جه الأول، وبعدها الفحص العاجل الأقدم — واللي مفيش عليه حاجة بيتخطّى من غير أي طلب
   const mailDue = (s: Settings) => (summaryDue(s) || monthlyDue(s) ? 1 : 0);
-  const list = all.filter((s) => mailDue(s) || urgentDueFor(s)).sort((a, b) => mailDue(b) - mailDue(a));
+  const oldest = (s: Settings) => Math.min(...(byUser[s.user_id] || []).map((a) => (a.checked_at ? Date.parse(a.checked_at) : 0)), Date.now());
+  const list = all.filter((s) => (byUser[s.user_id] || []).length && (mailDue(s) || (byUser[s.user_id] || []).some(urgentDueFor)))
+    .sort((a, b) => (mailDue(b) - mailDue(a)) || (oldest(a) - oldest(b)));
   const outcomes: Record<string, number> = {};
   for (const s of list) {
     if (Date.now() - started > TIME_BUDGET_MS) { outcomes.deferred = (outcomes.deferred || 0) + 1; continue; }
@@ -919,31 +1018,29 @@ export async function runAll(): Promise<Record<string, unknown>> {
     try {
       out = await exclusive(() => {
         runDeadline = started + RUN_DEADLINE_MS;
-        return checkAccount(s).finally(() => { runDeadline = 0; });
+        return processUser(s, byUser[s.user_id] || [], started + TIME_BUDGET_MS).finally(() => { runDeadline = 0; });
       });
     } catch (e) {
       // النوع والرسالة بس — من غير أي بيانات حساب. ومنعيدوش كل ١٠ دقايق لحد الساعة الجاية
-      console.error('runner account failed', String((e as Error).message || e).slice(0, 200));
-      await markChecked(s.account_id);
+      console.error('runner user failed', String((e as Error).message || e).slice(0, 200));
+      for (const a of byUser[s.user_id] || []) if (urgentDueFor(a)) await markChecked(s.user_id, a.account_id);
     }
-    // عطل (Meta واقعة، الوصول ضاع، التشفير): الفحص الجاي بعد ساعة مش بعد ١٠ دقايق
-    if (/^(lost|meta-retry|decrypt-failed)$/.test(out)) await markChecked(s.account_id);
     outcomes[out] = (outcomes[out] || 0) + 1;
   }
   await rpc('beat', { p_source: 'runner' }).catch(() => {});
   // meta = مستوى الوصول وأعلى استهلاك لحدود Meta في التشغيل ده (من غير أي بيانات حساب)
-  return { accounts: all.length, due: list.length, outcomes, engineOutdated: outdated, joinReminded, meta: runUsage };
+  return { users: all.length, due: list.length, outcomes, engineOutdated: outdated, joinReminded, meta: runUsage };
 }
-async function markChecked(account: string): Promise<void> {
-  await db('digest_settings?account_id=eq.' + account, {
+async function markChecked(user: string, account: string): Promise<void> {
+  await db('user_digest_accounts?user_id=eq.' + user + '&platform=eq.meta&account_id=eq.' + account, {
     method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ checked_at: new Date().toISOString() })
   }).catch(() => {});
 }
 
 // معاينة الملخص لمدير التطبيق بس: نفس الرسالة بالظبط لفترة معيّنة (أو زي ما كانت هتتبعت النهارده بالمواعيد الافتراضية)،
-// بمفتاح المدير نفسه، من غير إرسال ولا تسجيل أي حاجة
+// بمفتاح المدير نفسه وإعداداته هو (user)، من غير إرسال ولا تسجيل أي حاجة
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
-export async function previewSummary(token: string, accountId: string, lang: string, since?: string, until?: string, monthly = false): Promise<Record<string, unknown>> {
+export async function previewSummary(token: string, accountId: string, lang: string, since?: string, until?: string, monthly = false, user = ''): Promise<Record<string, unknown>> {
   const outdated = await loadEngine();
   return await exclusive(async () => {
     metaToken = token;
@@ -959,12 +1056,12 @@ export async function previewSummary(token: string, accountId: string, lang: str
       if (!win && monthly) { const lp = localParts(tz); const u = g.shiftKey(lp.key.slice(0, 8) + '01', -1); win = { since: u.slice(0, 8) + '01', until: u }; }
       if (!win) { const lp = localParts(tz); win = summaryWindow([0, 3], null, lp.key, lp.dow); }
       if (!win) return { error: 'window' };
-      const s: Settings = { account_id: accountId, email: '', lang: en ? 'en' : 'ar', timezone: tz, summary_days: [0, 3], summary_hour: 9, last_summary_until: null };
+      const s: Settings = { user_id: user, email: '', lang: en ? 'en' : 'ar', timezone: tz, summary_days: [0, 3], summary_hour: 9, last_summary_until: null };
       const cands = (await loadCandidates(accountId, acct)) || [];
-      const eff = await effectiveSettings(accountId, acct.currency || null);
-      const sum = await buildSummary(accountId, acct, win.since, win.until, eff.target, cands, eff.sens);
-      const alerts = alertStatusHtml(await marksOf(accountId), cands, win.since, tz, en, eff.target);
-      const mail = summaryMail(accountId, acct.name || accountId, win.since, win.until, sum, alerts, s, en, await stopUrl(accountId), monthly);
+      const eff = effectiveFor(user ? await userSettingsOf(user) : null, 'meta', acct.currency || null);
+      const sum = await buildSummary(user, accountId, acct, win.since, win.until, eff.target, cands, eff.sens);
+      const alerts = alertStatusHtml(user ? await marksOf(user, accountId) : {}, cands, win.since, tz, en, eff.target);
+      const mail = summaryMail([{ account: accountId, name: acct.name || accountId, sum, alerts }], win.since, win.until, s, en, await stopUrl(user), monthly);
       return { engineCommit: ENGINE_COMMIT, engineOutdated: outdated, metaUsage: usage, since: win.since, until: win.until, subject: mail.subject, html: mail.html, text: mail.text };
     } finally {
       metaToken = '';
@@ -972,9 +1069,9 @@ export async function previewSummary(token: string, accountId: string, lang: str
   });
 }
 
-// معاينة لمدير التطبيق بس (index.ts بيتأكد): الرسالة العاجلة اللي كانت هتتبعت للحساب دلوقتي — بمفتاح المدير نفسه،
+// معاينة لمدير التطبيق بس (index.ts بيتأكد): الرسالة العاجلة اللي كانت هتتبعت للحساب دلوقتي — بمفتاح المدير نفسه وإعداداته،
 // من غير إرسال ولا بصمات. للتجربة قبل ما أي عميل يفعّل الملخص
-export async function preview(token: string, accountId: string, lang: string): Promise<Record<string, unknown>> {
+export async function preview(token: string, accountId: string, lang: string, user = ''): Promise<Record<string, unknown>> {
   const outdated = await loadEngine();
   return await exclusive(async () => {
     metaToken = token;
@@ -987,9 +1084,9 @@ export async function preview(token: string, accountId: string, lang: string): P
       const cands = await loadCandidates(accountId, acct);
       if (!cands) return { error: 'retry' };
       // المعاينة: التعديلات الكبيرة من آخر ٢٤ ساعة (عشان تبان أمثلة)
-      const eff = await effectiveSettings(accountId, acct.currency || null);
+      const eff = effectiveFor(user ? await userSettingsOf(user) : null, 'meta', acct.currency || null);
       const urgent = (await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, eff.target, eff.sens)).urgent;
-      const mail = urgentMail(accountId, acct.name || accountId, urgent, [], acct.timezone_name || 'UTC', en, await stopUrl(accountId));
+      const mail = urgentMail([{ account: accountId, name: acct.name || accountId, fresh: urgent, remind: [] }], acct.timezone_name || 'UTC', en, await stopUrl(user));
       return {
         engineCommit: ENGINE_COMMIT, engineOutdated: outdated, metaUsage: usage, ads: cands.length,
         urgent: urgent.map((a: any) => ({ code: a.code || null, adId: a.adId || null, objectId: a.objectId || null, title: a.title, detail: a.detail })),

@@ -110,8 +110,10 @@
   }
   // «خروج» = مفيش حاجة من الحساب تفضل على الجهاز: الربط المحفوظ (Meta وGoogle وSnapchat — core.js acc.renew.v1)،
   // وآخر حساب إعلاني، وجلسة التاب. قبل كده اللي يدخل بعدك على نفس الجهاز كان بيلاقي حسابات Google وSnapchat
-  // بتاعتك مربوطة. الملخص التلقائي بالبريد مبيتأثرش (ده «فصل» Meta بس اللي بيوقفه)
-  var DEVICE_KEYS = ['acc.renew.v1', 'acc.lastAccount.v1'];
+  // بتاعتك مربوطة. الملخص التلقائي بالبريد مبيتأثرش (ده «فصل» Meta بس اللي بيوقفه).
+  // ومن ٣١ أكتوبر (كل حاجة لكل مستخدم): نسخة الجهاز من إجاباتك على «هل كان التشخيص صحيحاً؟»، والمبالغ المحسوبة للوحة «ما حققته مع
+  // الأداة»، وموافقتك على ملاحظتها — كانت بتبان للي يدخل بعدك
+  var DEVICE_KEYS = ['acc.renew.v1', 'acc.lastAccount.v1', 'acc.dx.fb.v1', 'pauseproof.value.money.v1', 'pauseproof.value.ack.v1'];
   function signOut() {
     try { DEVICE_KEYS.forEach(function (k) { localStorage.removeItem(k); }); sessionStorage.clear(); } catch (e) { /* التخزين مقفول */ }
     var done = function () { goLogin('/login'); };

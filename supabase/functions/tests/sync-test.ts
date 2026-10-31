@@ -6,7 +6,7 @@
 
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
 import { corsHeaders, esc, reply } from '../sync/lib.ts';
-import { cleanEmail, daysText, hourText, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
+import { MAX_DIGEST_ACCOUNTS, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import { callTimeout, familyOf, freshUsage, markMap, readUsage, resolveNow, settingsChoice } from '../sync/runner.ts';
@@ -439,4 +439,140 @@ Deno.test('البريد بيقرا سجل الحساب بس — من غيره أ
   const acs = { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 } };
   assertEquals(settingsChoice(acs), { target: { roas: 5, be: 5 }, sens: acs });
   assertEquals(settingsChoice({ cprWarnMultiple: 2 }).target, null, 'a record without goals: profit waits');
+});
+// الملخص التلقائي لكل مستخدم (قرار صاحب المنتج ٣١ أكتوبر ٢٠٢٦: «اجعلها لكل مستخدم ملخص خاص به»): ملخصه هو بس، بحساباته (حتى ٥)،
+// ورابط إيقافه لكل مستخدم، والروابط القديمة لكل حساب لسه شغالة. قاعدة بيانات وهمية بنفس فلاتر PostgREST اللي الدالة بتستخدمها
+function restoreDigestEnv() { Deno.env.delete('RESEND_API_KEY'); restoreFetch(); }
+function fakeDigestDb() {
+  const store = {
+    digests: [] as any[], accounts: [] as any[], tokens: [] as any[], marks: 0, logs: [] as any[], mails: [] as any[],
+    names: { act_1: 'Store one', act_2: 'Store two' } as Record<string, string>, legacyOwner: {} as Record<string, string>
+  };
+  const q = (url: string) => new URLSearchParams(url.split('?')[1] || '');
+  Deno.env.set('RESEND_API_KEY', 'test-resend-key');   // رسائل التأكيد بتروح لـ api.resend.com الوهمي تحت (بيتشال في restoreDigestEnv)
+  const eqv = (p: URLSearchParams, k: string) => { const v = p.get(k); return v && v.indexOf('eq.') === 0 ? decodeURIComponent(v.slice(3)) : null; };
+  stubFetch((url, init) => {
+    const method = (init && init.method) || 'GET', body = init && init.body ? JSON.parse(String(init.body)) : null;
+    if (url.indexOf('graph.facebook.com') > -1) {
+      if (url.indexOf('/oauth/access_token') > -1) return json({ access_token: 'LONG_lived_token_abcdefghijklmnop', expires_in: 5184000 });
+      if (url.indexOf('/me?') > -1) return json({ id: '777' });
+      const m = url.match(/\/(act_\d+)\?/);
+      return m ? json({ id: m[1], name: store.names[m[1]] || m[1], currency: 'SAR', timezone_name: 'Asia/Riyadh' }) : json({ error: { code: 100 } }, 400);
+    }
+    if (url.indexOf('api.resend.com') > -1) { store.mails.push(body); return json({ id: 'mail-' + store.mails.length }); }
+    const p = q(url), u = eqv(p, 'user_id');
+    if (url.indexOf('/rest/v1/rpc/vault_user_put') > -1) {
+      store.tokens = store.tokens.filter((t) => !(t.user === body.p_user && t.account === body.p_account)).concat([{ user: body.p_user, account: body.p_account, expires_at: body.p_expires }]);
+      return new Response('', { status: 200 });
+    }
+    if (url.indexOf('/rest/v1/rpc/vault_user_delete') > -1) {
+      store.tokens = store.tokens.filter((t) => !(t.user === body.p_user && (body.p_account == null || t.account === body.p_account)));
+      return new Response('', { status: 200 });
+    }
+    if (url.indexOf('/rest/v1/rpc/vault_user_status') > -1) {
+      return json(store.tokens.filter((t) => t.user === body.p_user).map((t) => ({ account_id: t.account, expires_at: t.expires_at, updated_at: null, last_error: null })));
+    }
+    if (url.indexOf('/rest/v1/rpc/vault_user_get') > -1) return json([]);
+    if (url.indexOf('/rest/v1/user_digests') > -1) {
+      if (method === 'GET') return json(store.digests.filter((d) => d.user_id === u));
+      if (method === 'POST') { store.digests = store.digests.filter((d) => d.user_id !== body.user_id).concat([body]); return new Response(null, { status: 201 }); }
+      if (method === 'PATCH') { store.digests.forEach((d) => { if (d.user_id === u) Object.assign(d, body); }); return new Response(null, { status: 204 }); }
+      if (method === 'DELETE') {
+        store.digests = store.digests.filter((d) => d.user_id !== u);
+        store.accounts = store.accounts.filter((a) => a.user_id !== u);   // on delete cascade
+        return new Response(null, { status: 204 });
+      }
+    }
+    if (url.indexOf('/rest/v1/user_digest_accounts') > -1) {
+      const plat = eqv(p, 'platform'), acc = eqv(p, 'account_id');
+      if (method === 'GET') return json(store.accounts.filter((a) => a.user_id === u));
+      if (method === 'POST') {
+        if (!store.accounts.some((a) => a.user_id === body.user_id && a.platform === body.platform && a.account_id === body.account_id)) store.accounts.push(body);
+        return new Response(null, { status: 201 });
+      }
+      if (method === 'DELETE') {
+        store.accounts = store.accounts.filter((a) => !(a.user_id === u && a.platform === plat && a.account_id === acc));
+        return new Response(null, { status: 204 });
+      }
+    }
+    if (url.indexOf('/rest/v1/user_alert_marks') > -1) { store.marks++; return new Response(null, { status: 204 }); }
+    if (url.indexOf('/rest/v1/send_log') > -1) { store.logs.push(body); return new Response(null, { status: 201 }); }
+    if (url.indexOf('/rest/v1/ad_accounts') > -1) { const a = eqv(p, 'account_id') as string; return json(store.names[a] ? [{ name: store.names[a] }] : []); }
+    if (url.indexOf('/rest/v1/digest_settings') > -1) { const a = eqv(p, 'account_id') as string; return json(store.legacyOwner[a] ? [{ user_id: store.legacyOwner[a] }] : []); }
+    throw new Error('unexpected fetch ' + method + ' ' + url);
+  });
+  return store;
+}
+Deno.test('الملخص لكل مستخدم: التفعيل بحساب Meta المفتوح، والإضافة لحد ٥، والإزالة، وكل مستخدم شايف ملخصه هو بس', async () => {
+  const A = '11111111-2222-3333-4444-555555555555', B = '99999999-8888-7777-6666-555555555555';
+  const T = 'TOKEN_abcdefghijklmnopqrstuvwxyz';
+  const store = fakeDigestDb();
+  const call = async (action: string, body: Record<string, unknown>, user: string | null) => {
+    const r = await handleDigest(action, body, null, user);
+    return { status: r.status, body: await r.json() };
+  };
+  try {
+    assertEquals((await call('digest.get', {}, A)).body, { settings: null, accounts: [], current: null });
+    assertEquals((await call('digest.get', {}, null)).status, 401, 'login required');
+    assertEquals((await call('digest.enable', { token: T, accountId: 'act_1', email: 'a@store.com', lang: 'ar' }, A)).status, 400, 'no consent');
+    const en = await call('digest.enable', { token: T, accountId: 'act_1', email: 'A@Store.com', days: [0, 3], hour: 8, lang: 'ar', consent: true }, A);
+    assertEquals(en.status, 200);
+    assertEquals([en.body.settings.email, en.body.settings.hour, en.body.accounts.map((a: any) => a.accountId)], ['a@store.com', 8, ['act_1']]);
+    assertEquals(store.tokens.map((t) => [t.user, t.account]), [[A, 'act_1']], 'the long-lived access is stored for this user and account');
+    const confirm = store.mails[store.mails.length - 1];
+    assert(confirm && String(confirm.html).indexOf('/stop?u=' + A + '&') > -1, 'the stop link is for this user');
+    assert(String(confirm.html).indexOf('Store one') > -1, 'names the account');
+    // مستخدم تاني: ملخصه هو بس (فاضي)، ومبيقدرش يشيل حساب من ملخص الأول
+    assertEquals((await call('digest.get', {}, B)).body.settings, null);
+    await call('digest.remove', { platform: 'meta', accountId: 'act_1' }, B);
+    assertEquals(store.accounts.filter((a) => a.user_id === A).length, 1, 'user B cannot touch user A\'s summary');
+    // إضافة حساب تاني، والحساب المفتوح جوه الملخص بيرجع حالته
+    const add = await call('digest.add', { token: T, accountId: 'act_2' }, A);
+    assertEquals(add.body.accounts.map((a: any) => [a.accountId, a.name]), [['act_1', 'Store one'], ['act_2', 'Store two']]);
+    const got = await call('digest.get', { accountId: 'act_2' }, A);
+    assertEquals([got.body.current.accountId, got.body.current.included], ['act_2', true]);
+    // الحد: ٥ حسابات
+    for (let i = 3; i <= MAX_DIGEST_ACCOUNTS; i++) store.accounts.push({ user_id: A, platform: 'meta', account_id: 'act_' + i });
+    assertEquals((await call('digest.add', { token: T, accountId: 'act_9' }, A)).body.error, 'too many');
+    store.accounts = store.accounts.filter((a) => !(a.user_id === A && Number(a.account_id.slice(4)) >= 3));
+    // التجديد: حساب مش في الملخص = enabled false مع إن المستخدم عنده ملخص
+    store.names.act_5 = 'Five';
+    assertEquals((await call('digest.refresh', { token: T, accountId: 'act_5' }, A)).body, { ok: true, enabled: false, hasDigest: true });
+    assertEquals((await call('digest.refresh', { token: T, accountId: 'act_1' }, A)).body.enabled, true);
+    // الإزالة: الحساب وصلاحيته بس، وآخر حساب = الملخص كله بيقف
+    const rm = await call('digest.remove', { platform: 'meta', accountId: 'act_2' }, A);
+    assertEquals([rm.body.stopped, rm.body.accounts.map((a: any) => a.accountId)], [false, ['act_1']]);
+    assert(!store.tokens.some((t) => t.account === 'act_2'), 'its access is deleted');
+    const last = await call('digest.remove', { platform: 'meta', accountId: 'act_1' }, A);
+    assertEquals([last.body.stopped, store.digests.length, store.tokens.length], [true, 0, 0], 'last account: the summary stops and nothing is kept');
+  } finally { restoreDigestEnv(); }
+});
+Deno.test('رابط الإيقاف: الجديد لكل مستخدم بيوقف ملخصه، والقديم لكل حساب بيشيل الحساب ده من ملخص صاحبه، والتوقيع الغلط مرفوض', async () => {
+  const A = '11111111-2222-3333-4444-555555555555';
+  const T = 'TOKEN_abcdefghijklmnopqrstuvwxyz';
+  const store = fakeDigestDb();
+  try {
+    await handleDigest('digest.enable', { token: T, accountId: 'act_1', email: 'a@store.com', lang: 'ar', consent: true }, null, A);
+    await handleDigest('digest.add', { token: T, accountId: 'act_2' }, null, A);
+    const sig = await linkSig('ads-center/stop-link/v1:', 'stop-user:' + A);
+    assertEquals((await handleDigest('stop', { u: A, sig: sig.slice(0, -2) + 'xx' }, null)).status, 403, 'bad signature');
+    // الرابط القديم (لكل حساب) في رسالة اتبعتت قبل التحديث
+    store.legacyOwner.act_2 = A;
+    const old = await linkSig('ads-center/stop-link/v1:', 'stop:act_2');
+    const r1 = await handleDigest('stop', { account: 'act_2', sig: old }, null);
+    assertEquals([r1.status, (await r1.json()).wasEnabled, store.accounts.map((a) => a.account_id)], [200, true, ['act_1']], 'the old link removes only that account');
+    const r2 = await handleDigest('stop', { u: A, sig }, null);
+    assertEquals([r2.status, (await r2.json()).wasEnabled, store.digests.length, store.tokens.length], [200, true, 0, 0], 'the new link stops the whole summary');
+    assertEquals((await handleDigest('stop', { u: A, sig }, null)).status, 200, 'clicking twice is fine');
+  } finally { restoreDigestEnv(); }
+});
+Deno.test('«فصل» Meta: حسابات Meta بتخرج من ملخص المستخدم وصلاحياتها بتتمسح', async () => {
+  const A = '11111111-2222-3333-4444-555555555555';
+  const T = 'TOKEN_abcdefghijklmnopqrstuvwxyz';
+  const store = fakeDigestDb();
+  try {
+    await handleDigest('digest.enable', { token: T, accountId: 'act_1', email: 'a@store.com', lang: 'ar', consent: true }, null, A);
+    const r = await handleDigest('digest.disconnect', {}, null, A);
+    assertEquals([(await r.json()).removed, store.accounts.length, store.tokens.length, store.digests.length], [1, 0, 0, 0]);
+  } finally { restoreDigestEnv(); }
 });

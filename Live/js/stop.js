@@ -1,11 +1,12 @@
 // صفحة /stop — رابط الإيقاف في آخر رسائل الملخص التلقائي (stop.html)
-// الرابط فيه رقم الحساب والتوقيع بس. الإيقاف بعد ضغط الزرار (مش أول ما الصفحة تفتح) عشان برامج البريد
-// اللي بتفحص الروابط لوحدها متوقفش الملخص من غير ما العميل يقصد
+// الرابط فيه رقم المستخدم (u — من ٣١ أكتوبر ٢٠٢٦ الملخص لكل مستخدم) أو رقم الحساب (a — رسائل اتبعتت قبل كده) والتوقيع بس.
+// الإيقاف بعد ضغط الزرار (مش أول ما الصفحة تفتح) عشان برامج البريد اللي بتفحص الروابط لوحدها متوقفش الملخص من غير ما العميل يقصد
 (function () {
   var SYNC_URL = 'https://rhrrnxsgodiideqeollo.supabase.co/functions/v1/sync';
   var q = new URLSearchParams(location.search);
-  var account = q.get('a') || '', sig = q.get('s') || '';
-  var valid = /^act_\d{1,30}$/.test(account) && /^[A-Za-z0-9_-]{20,100}$/.test(sig);
+  var user = q.get('u') || '', account = q.get('a') || '', sig = q.get('s') || '';
+  var valid = (/^[0-9a-f-]{36}$/.test(user) || /^act_\d{1,30}$/.test(account)) && /^[A-Za-z0-9_-]{20,100}$/.test(sig);
+  var payload = user ? { action: 'stop', u: user, sig: sig } : { action: 'stop', account: account, sig: sig };
 
   function show(state) {
     Array.prototype.forEach.call(document.querySelectorAll('[data-stop-state]'), function (el) {
@@ -14,7 +15,7 @@
   }
   function stop() {
     show('busy');
-    fetch(SYNC_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'stop', account: account, sig: sig }) })
+    fetch(SYNC_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function (r) { show(r.ok ? 'done' : (r.status === 403 || r.status === 400 ? 'bad' : 'error')); })
       .catch(function () { show('error'); });
   }

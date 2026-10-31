@@ -1,20 +1,18 @@
-// الملخص والتنبيهات التلقائية بالبريد (اختيارية، لحسابات Meta بس) — التفعيل والإيقاف وحفظ الصلاحية
-//   digest.get     ← { token, accountId }  حالة الملخص للحساب
-//   digest.enable  ← { token, accountId, email, days, hour, lang, consent: true }
-//   digest.update  ← { token, accountId, email?, days?, hour?, lang? }
-//   digest.disable ← { token, accountId }  (والأداة بتبعته كمان عند «فصل» Meta)
-//   digest.refresh ← { token, accountId }  الأداة بتبعته لما تتفتح والملخص مفعّل — بيمد صلاحية المفتاح
-//   إعدادات التنبيهات (المستهدف وحد الخسارة والحدود) مش هنا: سجل الحساب الإعلاني (settings.ts) — من ٢٤ أكتوبر ٢٠٢٦
-//   digest.disconnect ← { token }          «فصل» Meta: كل الحسابات اللي صاحب الجلسة فعّل لها الملخص
-//   stop           ← { account, sig }      رابط الإيقاف في آخر كل رسالة (من غير دخول Meta)
+// الملخص والتنبيهات التلقائية بالبريد (اختيارية) — لكل مستخدم من ٣١ أكتوبر ٢٠٢٦ (قرار صاحب المنتج: «اجعلها لكل مستخدم ملخص خاص به»):
+// ملخص واحد لحساب الدخول (بريده ومواعيده ولغته وتوقيته — جدول user_digests) فيه الحسابات اللي اختارها (user_digest_accounts — لحد
+// MAX_DIGEST_ACCOUNTS)، وبيتبعت بإعدادات التنبيهات بتاعته هو (settings.ts). العمليات تحت handleDigest.
+// إعدادات التنبيهات (المستهدف وحد الخسارة والحدود) مش هنا: إعدادات المستخدم (settings.ts)
 //
-// صلاحية Meta: بنبدّل المفتاح القصير (ساعة أو اتنين) بمفتاح طويل (نحو ٦٠ يوم) بسر التطبيق، ونشفّره
-// AES-256-GCM بـ TOKEN_ENC_KEY ومربوط برقم الحساب، ونحفظه عن طريق دوال vault_* بس.
-// الإيقاف (أو «فصل» أو رابط الإيقاف) = المفتاح والإعدادات بيتمسحوا فوراً. سياسة الخصوصية، البندين ٣ و٧
+// صلاحية Meta: بنبدّل المفتاح القصير (ساعة أو اتنين) بمفتاح طويل (نحو ٦٠ يوم) بسر التطبيق، ونشفّره AES-256-GCM بـ TOKEN_ENC_KEY
+// ومربوط برقم الحساب، ونحفظه للمستخدم عن طريق دوال vault_user_* بس.
+// الإيقاف (أو «فصل» أو رابط الإيقاف) = الصلاحيات والإعدادات بيتمسحوا فوراً. سياسة الخصوصية، البندين ٣ و٧
 
-import { GRAPH, META_APP_ID, META_ID, SITE, db, rpc, metaAccount, reply, sendEmail, mailHtml, esc } from './lib.ts';
+import { GRAPH, META_APP_ID, META_ID, SITE, TOKEN, db, rpc, metaAccount, reply, sendEmail, mailHtml, esc } from './lib.ts';
 
-const CONSENT_VERSION = '2026-10-26';   // سياسة الخصوصية: البريد بإعدادات صاحب الملخص (إعدادات لكل مستخدم)
+const CONSENT_VERSION = '2026-10-31';   // سياسة الخصوصية: ملخص لكل مستخدم بإعداداته وحساباته
+const USER_ID = /^[0-9a-f-]{36}$/;
+const PLATFORMS = ['meta', 'snapchat', 'google', 'tiktok'];
+const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const DEFAULT_DAYS = [0, 3];   // الأحد والأربعاء
 const DEFAULT_HOUR = 9;        // بتوقيت الحساب
 const EMAIL = /^[^@\s<>"',;]{1,64}@[^@\s<>"',;]{1,190}\.[A-Za-z]{2,24}$/;
@@ -64,9 +62,12 @@ export async function linkSig(label: string, message: string): Promise<string> {
   const sig = await crypto.subtle.sign('HMAC', await linkKey(label), enc.encode(message));
   return b64(new Uint8Array(sig)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
-function stopSig(account: string): Promise<string> { return linkSig(STOP_LABEL, 'stop:' + account); }
-export async function stopUrl(account: string): Promise<string> {
-  return SITE + '/stop?a=' + account + '&s=' + (await stopSig(account));
+// من ٣١ أكتوبر الرابط لكل مستخدم (u = رقم حساب الدخول) — بيوقف ملخصه هو. الروابط القديمة لكل حساب (a = رقم الحساب) في رسائل اتبعتت
+// قبل كده لسه شغالة (legacyStopSig): الحساب ده بس بيخرج من ملخص صاحبه
+function stopSig(user: string): Promise<string> { return linkSig(STOP_LABEL, 'stop-user:' + user); }
+function legacyStopSig(account: string): Promise<string> { return linkSig(STOP_LABEL, 'stop:' + account); }
+export async function stopUrl(user: string): Promise<string> {
+  return SITE + '/stop?u=' + user + '&s=' + (await stopSig(user));
 }
 export function sameString(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -94,12 +95,12 @@ async function metaUserId(token: string): Promise<string | null> {
   const j = r && r.ok ? await r.json().catch(() => null) : null;
   return j && j.id ? String(j.id) : null;
 }
-// يبدّل، ويتأكد إن المفتاح الطويل شايف الحساب، ويشفّر، ويحفظ. بيرجّع تاريخ الانتهاء أو null
-async function storeToken(token: string, account: string): Promise<string | null> {
+// يبدّل، ويتأكد إن المفتاح الطويل شايف الحساب، ويشفّر (مربوط برقم الحساب)، ويحفظ للمستخدم. بيرجّع تاريخ الانتهاء أو null
+async function storeToken(user: string, token: string, account: string): Promise<string | null> {
   const ll = await longLived(token);
   if (!ll || !(await metaAccount(ll.token, account))) return null;
   const sealed = await seal(ll.token, account);
-  await rpc('vault_put_token', { p_account: account, p_cipher: sealed.ct, p_iv: sealed.iv, p_user: await metaUserId(ll.token), p_expires: ll.expiresAt });
+  await rpc('vault_user_put', { p_user: user, p_account: account, p_cipher: sealed.ct, p_iv: sealed.iv, p_meta_user: await metaUserId(ll.token), p_expires: ll.expiresAt });
   return ll.expiresAt;
 }
 
@@ -118,14 +119,7 @@ function cleanHour(v: unknown): number | null {
   const h = Number(v);
   return v !== null && v !== '' && Number.isInteger(h) && h >= 0 && h <= 23 ? h : null;
 }
-// المستهدف وحد الخسارة وحساسية التنبيهات مبقوش بيتحفظوا مع الملخص (مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦): البريد بيقرا إعدادات صاحب
-// الملخص (user_id — من ٢٦ أكتوبر، settings.ts + runner.ts effectiveSettings)، وسجل الحساب القديم لو الملخص لسه مالوش صاحب. أي target/be/sens في الطلب (صفحة قديمة لسه مفتوحة) بيتجاهل
-async function getSettings(account: string): Promise<any | null> {
-  const r = await db('digest_settings?select=email,enabled,summary_days,summary_hour,timezone,lang,user_id&account_id=eq.' + account, { method: 'GET' });
-  const rows = await r.json();
-  return Array.isArray(rows) && rows[0] ? rows[0] : null;
-}
-// أمس بتوقيت الحساب: وقت التفعيل بيتسجّل كأنه «آخر ملخص غطّى لحد أمس» — فأول ملخص بييجي في ميعاده الجاي
+// أمس بتوقيت المستخدم: وقت التفعيل بيتسجّل كأنه «آخر ملخص غطّى لحد أمس» — فأول ملخص بييجي في ميعاده الجاي
 // (مش بعد التفعيل بساعة لو التفعيل حصل يوم ملخص بعد ساعته)، ويغطي الأيام من يوم التفعيل
 function yesterdayIn(tz: string): string {
   let today = '';
@@ -135,12 +129,41 @@ function yesterdayIn(tz: string): string {
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
 }
+// ملخص المستخدم وحساباته (المرحلة ١ من «الملخص لكل مستخدم» — ٣١ أكتوبر ٢٠٢٦)
+async function digestOf(user: string): Promise<any | null> {
+  const r = await db('user_digests?select=email,enabled,summary_days,summary_hour,timezone,lang&user_id=eq.' + user, { method: 'GET' });
+  const rows = await r.json();
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
+async function accountsOf(user: string): Promise<{ platform: string; account_id: string }[]> {
+  const r = await db('user_digest_accounts?select=platform,account_id,added_at&user_id=eq.' + user + '&order=added_at.asc', { method: 'GET' });
+  const rows = await r.json();
+  return Array.isArray(rows) ? rows : [];
+}
 function publicSettings(s: any) {
   return { email: s.email, enabled: s.enabled !== false, days: s.summary_days, hour: s.summary_hour, timezone: s.timezone, lang: s.lang };
 }
-async function logSend(account: string, type: string, status: string, providerId: string | null, error: string | null): Promise<void> {
+// حالة الملخص اللي بترجع للأداة: الإعدادات، والحسابات (الاسم من ad_accounts وتاريخ انتهاء صلاحية Meta)
+async function digestState(user: string): Promise<Record<string, unknown>> {
+  const s = await digestOf(user);
+  if (!s) return { settings: null, accounts: [] };
+  const list = await accountsOf(user);
+  const st = await rpc('vault_user_status', { p_user: user }).catch(() => null);
+  const byId: Record<string, any> = {};
+  (Array.isArray(st) ? st : []).forEach((x: any) => { byId[x.account_id] = x; });
+  const accounts = [];
+  for (const a of list) {
+    const t = a.platform === 'meta' ? byId[a.account_id] : null;
+    accounts.push({ platform: a.platform, accountId: a.account_id, name: a.platform === 'meta' ? (await accountName(a.account_id)) || null : null,
+      tokenExpiresAt: t ? t.expires_at : null, tokenProblem: !!(t && t.last_error) || (a.platform === 'meta' && !t) });
+  }
+  return { settings: publicSettings(s), accounts };
+}
+// أقصى عدد حسابات في ملخص المستخدم: تشغيل المُشغّل حدّه دقيقتين تقريباً، والملخص بيتبني لكل الحسابات في نفس التشغيل (رسالة واحدة)
+export const MAX_DIGEST_ACCOUNTS = 5;
+async function logSend(user: string, account: string, type: string, status: string, providerId: string | null, error: string | null): Promise<void> {
   await db('send_log', { method: 'POST', headers: { 'prefer': 'return=minimal' },
-    body: JSON.stringify({ account_id: account, type, status, provider_id: providerId, error: error ? error.slice(0, 200) : null }) }).catch(() => {});
+    body: JSON.stringify({ user_id: user, account_id: account || '-', type, status, provider_id: providerId, error: error ? error.slice(0, 200) : null }) }).catch(() => {});
 }
 
 // ---------- رسائل التأكيد ----------
@@ -158,122 +181,212 @@ export function daysText(days: number[], lang: string): string {
   if (lang === 'en') return names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names.join('');
   return (names.length === 2 ? 'يومي ' : 'أيام ') + names.join(' و');
 }
-async function mailEnabled(account: string, name: string | undefined, s: any): Promise<void> {
-  const en = s.lang === 'en', plain = name || account, n = esc(plain), stop = await stopUrl(account);
-  const tz = esc(s.timezone || '');
-  const subject = en ? 'Automatic summary turned on for ' + plain : 'تم تفعيل الملخص التلقائي لحساب ' + plain;
+// أسماء الحسابات في الرسالة: «X» أو «X وY» أو «X وY وZ»
+function namesText(names: string[], en: boolean): string {
+  const n = names.map((x) => '<strong>' + esc(x) + '</strong>');
+  if (n.length <= 1) return n.join('');
+  return n.slice(0, -1).join(en ? ', ' : '، ') + (en ? ' and ' : ' و') + n[n.length - 1];
+}
+async function mailEnabled(user: string, names: string[], s: any): Promise<void> {
+  const en = s.lang === 'en', stop = await stopUrl(user), tz = esc(s.timezone || '');
+  const subject = en ? 'Automatic summary turned on' : 'تم تفعيل الملخص التلقائي';
   const lines = en ? [
     'Hello,',
-    'You will receive a performance summary for <strong>' + n + '</strong> on ' + daysText(s.summary_days, 'en') + ' at ' + hourText(s.summary_hour, 'en') +
-      ' account time (' + tz + '), a summary of the previous month on the first Sunday of each month, plus an immediate alert whenever something urgent needs action.',
-    'To change the schedule or turn it off: open the tool, then "Settings", then "Automatic summary by email".',
+    'You will receive a performance summary for ' + namesText(names, true) + ' on ' + daysText(s.summary_days, 'en') + ' at ' + hourText(s.summary_hour, 'en') +
+      ' (' + tz + '), a summary of the previous month on the first Sunday of each month, plus an immediate alert whenever something urgent needs action. It follows your own alert settings.',
+    'To add accounts, change the schedule or turn it off: open the tool, then "Settings", then "Automatic summary by email".',
     'If you did not ask for this, turn it off right away: <a href="' + stop + '">Stop the automatic summary</a>'
   ] : [
     'مرحباً،',
-    'سيصلك ملخص أداء إعلانات حساب <strong>' + n + '</strong> ' + daysText(s.summary_days, 'ar') + ' الساعة ' + hourText(s.summary_hour, 'ar') +
-      ' بتوقيت الحساب (' + tz + ')، وملخصاً للشهر السابق في أول أحد من كل شهر، إلى جانب تنبيه فوري كلما ظهر أمر عاجل يحتاج إلى إجراء.',
-    'لتعديل المواعيد أو الإيقاف: افتح الأداة، ثم «الإعدادات»، ثم «الملخص التلقائي بالبريد».',
+    'سيصلك ملخص أداء إعلانات ' + namesText(names, false) + ' ' + daysText(s.summary_days, 'ar') + ' الساعة ' + hourText(s.summary_hour, 'ar') +
+      ' (' + tz + ')، وملخصاً للشهر السابق في أول أحد من كل شهر، إلى جانب تنبيه فوري كلما ظهر أمر عاجل يحتاج إلى إجراء، وكلها بإعدادات التنبيهات الخاصة بك.',
+    'لإضافة حسابات أو تعديل المواعيد أو الإيقاف: افتح الأداة، ثم «الإعدادات»، ثم «الملخص التلقائي بالبريد».',
     'إذا لم تطلب هذا التفعيل، أوقفه فوراً من هذا الرابط: <a href="' + stop + '">إيقاف الملخص التلقائي</a>'
   ];
   const text = subject + '\n\n' + lines.map((l) => l.replace(/<[^>]+>/g, '')).join('\n') + '\n' + stop;
   try {
     const id = await sendEmail(s.email, subject, mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text);
-    await logSend(account, 'enabled', 'sent', id, null);
+    await logSend(user, '', 'enabled', 'sent', id, null);
   } catch (e) {
-    await logSend(account, 'enabled', 'failed', null, String((e as Error).message || e));
+    await logSend(user, '', 'enabled', 'failed', null, String((e as Error).message || e));
   }
 }
-async function mailDisabled(account: string, name: string | undefined, s: any): Promise<void> {
-  const en = s.lang === 'en', plain = name || account, n = esc(plain);
-  const subject = en ? 'Automatic summary turned off for ' + plain : 'تم إيقاف الملخص التلقائي لحساب ' + plain;
+async function mailDisabled(user: string, s: any): Promise<void> {
+  const en = s.lang === 'en';
+  const subject = en ? 'Automatic summary turned off' : 'تم إيقاف الملخص التلقائي';
   const lines = en ? [
     'Hello,',
-    'We turned off the automatic summary and alerts for <strong>' + n + '</strong>, and deleted the read access we had stored.',
+    'We turned off your automatic summary and alerts, and deleted the read access we had stored for them.',
     'You can turn it on again at any time inside the tool.'
   ] : [
     'مرحباً،',
-    'أوقفنا الملخص والتنبيهات التلقائية لحساب <strong>' + n + '</strong>، وحذفنا صلاحية القراءة التي كنا نحفظها.',
+    'أوقفنا الملخص والتنبيهات التلقائية الخاصة بك، وحذفنا صلاحية القراءة التي كنا نحفظها لها.',
     'يمكنك تفعيله مجدداً في أي وقت من داخل الأداة.'
   ];
   const text = subject + '\n\n' + lines.map((l) => l.replace(/<[^>]+>/g, '')).join('\n');
   try {
     const id = await sendEmail(s.email, subject, mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text);
-    await logSend(account, 'disabled', 'sent', id, null);
+    await logSend(user, '', 'disabled', 'sent', id, null);
   } catch (e) {
-    await logSend(account, 'disabled', 'failed', null, String((e as Error).message || e));
+    await logSend(user, '', 'disabled', 'failed', null, String((e as Error).message || e));
   }
 }
-async function removeAll(account: string): Promise<void> {
-  await rpc('vault_delete_token', { p_account: account });
-  await db('digest_settings?account_id=eq.' + account, { method: 'DELETE' });
+// الإيقاف: الصلاحيات والملخص وحساباته (on delete cascade) وبصماته بتتمسح فوراً
+async function removeDigest(user: string): Promise<void> {
+  await rpc('vault_user_delete', { p_user: user, p_account: null });
+  await db('user_alert_marks?user_id=eq.' + user, { method: 'DELETE' });
+  await db('user_digests?user_id=eq.' + user, { method: 'DELETE' });
+}
+// حساب واحد بيخرج من الملخص (صلاحيته وبصماته معاه). آخر حساب = الملخص كله بيقف (رسالة الإيقاف)
+async function removeAccount(user: string, platform: string, account: string): Promise<boolean> {
+  await db('user_digest_accounts?user_id=eq.' + user + '&platform=eq.' + platform + '&account_id=eq.' + encodeURIComponent(account), { method: 'DELETE' });
+  if (platform === 'meta') await rpc('vault_user_delete', { p_user: user, p_account: account });
+  await db('user_alert_marks?user_id=eq.' + user + '&platform=eq.' + platform + '&account_id=eq.' + encodeURIComponent(account), { method: 'DELETE' });
+  const left = await accountsOf(user);
+  if (left.length) return false;
+  const s = await digestOf(user);
+  await removeDigest(user);
+  if (s) await mailDisabled(user, s);
+  return true;
 }
 export async function accountName(account: string): Promise<string | undefined> {
   const r = await db('ad_accounts?select=name&platform=eq.meta&account_id=eq.' + account, { method: 'GET' }).catch(() => null);
   const rows = r ? await r.json().catch(() => null) : null;
   return Array.isArray(rows) && rows[0] && rows[0].name ? rows[0].name : undefined;
 }
-// المفتاح المحفوظ بيتفك وMeta لسه قابلاه؟ (null = مفيش مفتاح). لو لأ بنسجّل السبب بس، من غير أي جزء منه
-async function storedTokenWorks(account: string): Promise<boolean | null> {
-  const rows = await rpc('vault_get_token', { p_account: account });
+// صلاحية المستخدم المحفوظة للحساب بتتفك وMeta لسه قابلاها؟ (null = مفيش). لو لأ بنسجّل السبب بس، من غير أي جزء منها
+async function storedTokenWorks(user: string, account: string): Promise<boolean | null> {
+  const rows = await rpc('vault_user_get', { p_user: user, p_account: account });
   const t = Array.isArray(rows) && rows[0] ? rows[0] : null;
   if (!t) return null;
   let token = '';
   try { token = await unseal(t.ciphertext, t.iv, account); } catch (_) {
-    await rpc('vault_mark_error', { p_account: account, p_error: 'decrypt failed' });
+    await rpc('vault_user_mark_error', { p_user: user, p_account: account, p_error: 'decrypt failed' });
     return false;
   }
   const ok = !!(await metaAccount(token, account));
-  if (!ok) await rpc('vault_mark_error', { p_account: account, p_error: 'meta rejected stored token' });
+  if (!ok) await rpc('vault_user_mark_error', { p_user: user, p_account: account, p_error: 'meta rejected stored token' });
   return ok;
 }
 
 // ---------- العمليات ----------
-// ملخص اتفعّل قبل ما الإعدادات تبقى لكل مستخدم (٢٦ أكتوبر ٢٠٢٦) مالوش صاحب: أول مستخدم يفتح الحساب بعدها (التجديد التلقائي digest.refresh
-// أو لوحة الملخص digest.get) بياخده، والبريد يقرا إعداداته. فشله مبيوقفش الطلب (البريد بيفضل على سجل الحساب القديم)
-async function claimOwner(account: string, s: any, owner: string | null): Promise<void> {
-  if (!s || s.user_id || !owner) return;
-  await db('digest_settings?account_id=eq.' + account + '&user_id=is.null', { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ user_id: owner }) }).catch(() => null);
-}
-// userId = صاحب الدخول في الأداة (index.ts — مش موجود في رابط الإيقاف): بيتسجّل صاحب الملخص، والبريد بيقرا إعداداته هو (runner.ts)
+// كل العمليات لصاحب الدخول (userId من index.ts requireLogin) — ملخصه هو بس. إضافة حساب Meta محتاجة مفتاحه (token) بيثبت إن صاحبه
+// شايف الحساب. رابط الإيقاف (stop) من غير دخول: توقيعه هو الإثبات
+//   digest.get     ← { accountId? , token? }  الملخص وحساباته (ولو الحساب المفتوح في الملخص: صلاحيته شغالة؟)
+//   digest.enable  ← { token, accountId, email, days?, hour?, lang, consent: true }  تفعيل بالحساب المفتوح
+//   digest.add     ← { token, accountId }     إضافة حساب Meta تاني للملخص
+//   digest.remove  ← { platform, accountId }  إخراج حساب (آخر حساب = إيقاف الملخص)
+//   digest.update  ← { email?, days?, hour?, lang? }
+//   digest.disable ← {}                       إيقاف الملخص كله
+//   digest.refresh ← { token, accountId }     الأداة بتبعته لما حساب Meta يتفتح — بيجدد صلاحيته لو الحساب في الملخص
+//   digest.disconnect ← {}                    «فصل» Meta: حسابات Meta بتخرج من الملخص وصلاحياتها بتتمسح
+//   stop           ← { u, sig } | { account, sig }   رابط الإيقاف (الجديد لكل مستخدم، والقديم لكل حساب في رسائل اتبعتت قبل كده)
 export async function handleDigest(action: string, body: any, origin: string | null, userId: string | null = null): Promise<Response> {
-  const owner = typeof userId === 'string' && /^[0-9a-f-]{36}$/.test(userId) ? userId : null;
   if (action === 'stop') {
-    const account = body.account, sig = body.sig;
-    if (typeof account !== 'string' || !META_ID.test(account) || typeof sig !== 'string' || sig.length > 100) return reply(400, { error: 'link' }, origin);
-    if (!sameString(sig, await stopSig(account))) return reply(403, { error: 'link' }, origin);
-    const s = await getSettings(account);
-    await removeAll(account);
-    if (s) await logSend(account, 'disabled', 'skipped', null, 'stop link');
+    const sig = body.sig;
+    if (typeof sig !== 'string' || sig.length > 100) return reply(400, { error: 'link' }, origin);
+    let user: string | null = null;
+    if (typeof body.u === 'string' && USER_ID.test(body.u)) {
+      if (!sameString(sig, await stopSig(body.u))) return reply(403, { error: 'link' }, origin);
+      user = body.u;
+    } else if (typeof body.account === 'string' && META_ID.test(body.account)) {
+      // رابط قديم (قبل ٣١ أكتوبر): الحساب ده بيخرج من ملخص صاحبه
+      if (!sameString(sig, await legacyStopSig(body.account))) return reply(403, { error: 'link' }, origin);
+      const r = await db('digest_settings?select=user_id&account_id=eq.' + body.account, { method: 'GET' });
+      const rows = await r.json().catch(() => null);
+      const owner = Array.isArray(rows) && rows[0] && typeof rows[0].user_id === 'string' ? rows[0].user_id : null;
+      if (!owner) return reply(200, { ok: true, wasEnabled: false }, origin);
+      const had = (await accountsOf(owner)).some((a) => a.platform === 'meta' && a.account_id === body.account);
+      if (had) await removeAccount(owner, 'meta', body.account);
+      await logSend(owner, body.account, 'disabled', 'skipped', null, 'stop link (old)');
+      return reply(200, { ok: true, wasEnabled: had }, origin);
+    } else return reply(400, { error: 'link' }, origin);
+    const s = await digestOf(user as string);
+    if (s) {
+      await removeDigest(user as string);
+      await logSend(user as string, '', 'disabled', 'skipped', null, 'stop link');
+    }
     return reply(200, { ok: true, wasEnabled: !!s }, origin);
   }
 
-  if (action === 'digest.disconnect') {
-    const user = await metaUserId(body.token);
-    if (!user) return reply(403, { error: 'not verified' }, origin);
-    const ids = await rpc('vault_delete_user_tokens', { p_user: user });
-    const list: string[] = Array.isArray(ids) ? ids.map((x: any) => (typeof x === 'string' ? x : x && x.vault_delete_user_tokens)).filter((x: any) => typeof x === 'string' && META_ID.test(x)) : [];
-    for (const account of list) {
-      const s = await getSettings(account);
-      await db('digest_settings?account_id=eq.' + account, { method: 'DELETE' });
-      if (s) await mailDisabled(account, await accountName(account), s);
-    }
-    return reply(200, { ok: true, removed: list.length }, origin);
-  }
-
-  const account = body.accountId;
-  if (typeof account !== 'string' || !META_ID.test(account)) return reply(400, { error: 'account' }, origin);
-  const acc = await metaAccount(body.token, account);
-  if (!acc) return reply(403, { error: 'not verified' }, origin);
+  const user = typeof userId === 'string' && USER_ID.test(userId) ? userId : null;
+  if (!user) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
   const now = new Date().toISOString();
 
   if (action === 'digest.get') {
-    const s = await getSettings(account);
-    await claimOwner(account, s, owner);
-    const works = s ? await storedTokenWorks(account) : null;
-    const t = s ? await rpc('vault_token_status', { p_account: account }) : null;
-    const ts = Array.isArray(t) && t[0] ? t[0] : null;
-    return reply(200, { settings: s ? publicSettings(s) : null, tokenExpiresAt: ts ? ts.expires_at : null,
-      tokenWorks: works, timezone: acc.timezone_name || null }, origin);
+    const state = await digestState(user);
+    // الحساب المفتوح في الأداة: في الملخص؟ وصلاحيته شغالة؟ (طلب لـ Meta بس لو الحساب في الملخص)
+    const account = typeof body.accountId === 'string' && META_ID.test(body.accountId) ? body.accountId : null;
+    const included = !!account && (state.accounts as any[]).some((a) => a.platform === 'meta' && a.accountId === account);
+    return reply(200, { ...state, current: account ? { accountId: account, included, tokenWorks: included ? await storedTokenWorks(user, account) : null } : null }, origin);
+  }
+
+  if (action === 'digest.update') {
+    const s = await digestOf(user);
+    if (!s || !s.enabled) return reply(409, { error: 'not enabled' }, origin);
+    const patch: Record<string, unknown> = { updated_at: now };
+    if (body.email !== undefined) { const e = cleanEmail(body.email); if (!e) return reply(400, { error: 'email' }, origin); patch.email = e; }
+    if (body.days !== undefined) { const d = cleanDays(body.days); if (!d) return reply(400, { error: 'days' }, origin); patch.summary_days = d; }
+    if (body.hour !== undefined) { const h = cleanHour(body.hour); if (h === null) return reply(400, { error: 'hour' }, origin); patch.summary_hour = h; }
+    if (body.lang === 'ar' || body.lang === 'en') patch.lang = body.lang;
+    await db('user_digests?user_id=eq.' + user, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify(patch) });
+    const next = { ...s, ...patch };
+    if (patch.email && patch.email !== s.email) {   // تأكيد للعنوان الجديد
+      const names = [];
+      for (const a of await accountsOf(user)) names.push(a.platform === 'meta' ? (await accountName(a.account_id)) || a.account_id : a.account_id);
+      await mailEnabled(user, names, next);
+    }
+    return reply(200, { ok: true, ...(await digestState(user)) }, origin);
+  }
+
+  if (action === 'digest.disable') {
+    const s = await digestOf(user);
+    await removeDigest(user);
+    if (s) await mailDisabled(user, s);
+    return reply(200, { ok: true }, origin);
+  }
+
+  if (action === 'digest.remove') {
+    const platform = body.platform, account = body.accountId;
+    if (PLATFORMS.indexOf(platform) < 0 || typeof account !== 'string' || !ACCOUNT_ID.test(account)) return reply(400, { error: 'account' }, origin);
+    const stopped = await removeAccount(user, platform, account);
+    return reply(200, { ok: true, stopped, ...(await digestState(user)) }, origin);
+  }
+
+  if (action === 'digest.disconnect') {
+    // «فصل» Meta: كل حسابات Meta بتخرج من ملخص المستخدم وصلاحياتها بتتمسح (الملخص بيفضل لو فيه حسابات من منصات تانية)
+    const list = (await accountsOf(user)).filter((a) => a.platform === 'meta');
+    let stopped = false;
+    for (const a of list) stopped = (await removeAccount(user, 'meta', a.account_id)) || stopped;
+    await rpc('vault_user_delete', { p_user: user, p_account: null });
+    return reply(200, { ok: true, removed: list.length, stopped }, origin);
+  }
+
+  // باقي العمليات بحساب Meta مفتوح ومفتاحه
+  const account = body.accountId;
+  if (typeof account !== 'string' || !META_ID.test(account)) return reply(400, { error: 'account' }, origin);
+  if (typeof body.token !== 'string' || !TOKEN.test(body.token)) return reply(400, { error: 'token' }, origin);
+  const acc = await metaAccount(body.token, account);
+  if (!acc) return reply(403, { error: 'not verified' }, origin);
+
+  if (action === 'digest.refresh') {
+    const has = (await accountsOf(user)).some((a) => a.platform === 'meta' && a.account_id === account);
+    if (!has) return reply(200, { ok: true, enabled: false, hasDigest: !!(await digestOf(user)) }, origin);
+    const expiresAt = await storeToken(user, body.token, account);
+    if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
+    return reply(200, { ok: true, enabled: true, tokenExpiresAt: expiresAt }, origin);
+  }
+
+  if (action === 'digest.add') {
+    const s = await digestOf(user);
+    if (!s || !s.enabled) return reply(409, { error: 'not enabled' }, origin);
+    const list = await accountsOf(user);
+    if (!list.some((a) => a.platform === 'meta' && a.account_id === account) && list.length >= MAX_DIGEST_ACCOUNTS) return reply(409, { error: 'too many' }, origin);
+    const expiresAt = await storeToken(user, body.token, account);
+    if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
+    await db('user_digest_accounts?on_conflict=user_id,platform,account_id', { method: 'POST', headers: { 'prefer': 'resolution=ignore-duplicates,return=minimal' },
+      body: JSON.stringify({ user_id: user, platform: 'meta', account_id: account }) });
+    return reply(200, { ok: true, ...(await digestState(user)) }, origin);
   }
 
   if (action === 'digest.enable') {
@@ -284,46 +397,18 @@ export async function handleDigest(action: string, body: any, origin: string | n
     if (!days) return reply(400, { error: 'days' }, origin);
     const hour = body.hour === undefined ? DEFAULT_HOUR : cleanHour(body.hour);
     if (hour === null) return reply(400, { error: 'hour' }, origin);
-    const expiresAt = await storeToken(body.token, account);
+    const expiresAt = await storeToken(user, body.token, account);
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
-    const row = { account_id: account, email, enabled: true, summary_days: days, summary_hour: hour,
-      timezone: acc.timezone_name || 'Asia/Riyadh', lang: body.lang === 'en' ? 'en' : 'ar',
-      consent_at: now, consent_version: CONSENT_VERSION, updated_at: now, last_summary_until: yesterdayIn(acc.timezone_name || 'Asia/Riyadh'),
-      ...(owner ? { user_id: owner } : {}) };
-    await db('digest_settings?on_conflict=account_id', { method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(row) });
-    await mailEnabled(account, acc.name, row);
-    return reply(200, { ok: true, settings: publicSettings(row), tokenExpiresAt: expiresAt }, origin);
-  }
-
-  if (action === 'digest.update') {
-    const s = await getSettings(account);
-    if (!s || !s.enabled) return reply(409, { error: 'not enabled' }, origin);
-    const patch: Record<string, unknown> = { updated_at: now, timezone: acc.timezone_name || s.timezone };
-    if (owner) patch.user_id = owner;   // اللي عدّل الملخص بقى صاحبه: البريد بإعداداته
-    if (body.email !== undefined) { const e = cleanEmail(body.email); if (!e) return reply(400, { error: 'email' }, origin); patch.email = e; }
-    if (body.days !== undefined) { const d = cleanDays(body.days); if (!d) return reply(400, { error: 'days' }, origin); patch.summary_days = d; }
-    if (body.hour !== undefined) { const h = cleanHour(body.hour); if (h === null) return reply(400, { error: 'hour' }, origin); patch.summary_hour = h; }
-    if (body.lang === 'ar' || body.lang === 'en') patch.lang = body.lang;
-    await db('digest_settings?account_id=eq.' + account, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify(patch) });
-    const next = { ...s, ...patch };
-    if (patch.email && patch.email !== s.email) await mailEnabled(account, acc.name, next);   // تأكيد للعنوان الجديد
-    return reply(200, { ok: true, settings: publicSettings(next) }, origin);
-  }
-
-  if (action === 'digest.disable') {
-    const s = await getSettings(account);
-    await removeAll(account);
-    if (s) await mailDisabled(account, acc.name, s);
-    return reply(200, { ok: true }, origin);
-  }
-
-  if (action === 'digest.refresh') {
-    const s = await getSettings(account);
-    if (!s || !s.enabled) return reply(200, { ok: true, enabled: false }, origin);
-    await claimOwner(account, s, owner);
-    const expiresAt = await storeToken(body.token, account);
-    if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
-    return reply(200, { ok: true, enabled: true, tokenExpiresAt: expiresAt }, origin);
+    const tz = acc.timezone_name || 'Asia/Riyadh';
+    const row = { user_id: user, email, enabled: true, summary_days: days, summary_hour: hour, timezone: tz, lang: body.lang === 'en' ? 'en' : 'ar',
+      consent_at: now, consent_version: CONSENT_VERSION, updated_at: now, last_summary_until: yesterdayIn(tz) };
+    await db('user_digests?on_conflict=user_id', { method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(row) });
+    await db('user_digest_accounts?on_conflict=user_id,platform,account_id', { method: 'POST', headers: { 'prefer': 'resolution=ignore-duplicates,return=minimal' },
+      body: JSON.stringify({ user_id: user, platform: 'meta', account_id: account }) });
+    const names = [];
+    for (const a of await accountsOf(user)) names.push(a.platform === 'meta' ? (a.account_id === account ? acc.name : await accountName(a.account_id)) || a.account_id : a.account_id);
+    await mailEnabled(user, names, row);
+    return reply(200, { ok: true, tokenExpiresAt: expiresAt, ...(await digestState(user)) }, origin);
   }
 
   return reply(400, { error: 'action' }, origin);

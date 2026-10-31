@@ -7334,7 +7334,9 @@
     });
     testAsync('«خروج» بيمسح الربط المحفوظ وآخر حساب من الجهاز', function () {
       return fetch('/js/auth.js?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (src) {
-        ok(/DEVICE_KEYS = \['acc\.renew\.v1', 'acc\.lastAccount\.v1'\]/.test(src) && /function signOut\(\) \{\s*try \{ DEVICE_KEYS\.forEach/.test(src), 'signOut clears device keys');
+        ok(/DEVICE_KEYS = \['acc\.renew\.v1', 'acc\.lastAccount\.v1', 'acc\.dx\.fb\.v1', 'pauseproof\.value\.money\.v1', 'pauseproof\.value\.ack\.v1'\]/.test(src) && /function signOut\(\) \{\s*try \{ DEVICE_KEYS\.forEach/.test(src), 'signOut clears device keys');
+        // من ٣١ أكتوبر (كل حاجة لكل مستخدم): إجابات التشخيص ومبالغ لوحة القيمة وموافقتها على الجهاز بتتمسح كمان — نفس أسماء ui.js
+        eq([DX_FB_KEY, VALUE_MONEY_KEY, VALUE_ACK_KEY], ['acc.dx.fb.v1', 'pauseproof.value.money.v1', 'pauseproof.value.ack.v1'], 'same keys as ui.js');
         eq([RENEW_KEY, LAST_ACCOUNT_KEY], ['acc.renew.v1', 'acc.lastAccount.v1'], 'same keys as core.js');
       });
     });
@@ -7507,17 +7509,19 @@
       window.fetch = function (url, opts) { var body = opts && opts.body ? JSON.parse(opts.body) : null; calls.push(body); return serve(body || {}); };
       var realHint = localStorage.getItem(DIGEST_HINT_KEY);
       localStorage.removeItem(DIGEST_HINT_KEY);
-      DIGEST_ON = true; digestUi = digestFresh(); digestRefreshed = {}; digestKnown = {};
+      DIGEST_ON = true; digestUi = digestFresh(); digestRefreshed = {}; digestKnown = {}; digestHas = null;
       dxState = dxFresh(); dxState.status = 'ready'; dxState.accountId = 'meta:act_1';
       // البطاقة بقت في «الإعدادات» لحساب Meta المفتوح (activeSources) أياً كان عرض الملخص
-      var realMeta = activeSources.meta;
+      var realMeta = activeSources.meta, realInfo = accountInfo['meta:act_1'];
       activeSources.meta = 'act_1';
+      accountInfo['meta:act_1'] = { timeZone: 'Asia/Kuwait' };
       var restore = function () {
         window.fetch = realFetch;
         if (hadFB) window.FB = realFB; else delete window.FB;
         if (realHint === null) localStorage.removeItem(DIGEST_HINT_KEY); else localStorage.setItem(DIGEST_HINT_KEY, realHint);
         if (realMeta == null) delete activeSources.meta; else activeSources.meta = realMeta;
-        DIGEST_ON = realOn; digestUi = digestFresh(); digestRefreshed = {}; digestKnown = {}; dxReset(); showView('summary'); renderDigest();
+        if (realInfo === undefined) delete accountInfo['meta:act_1']; else accountInfo['meta:act_1'] = realInfo;
+        DIGEST_ON = realOn; digestUi = digestFresh(); digestRefreshed = {}; digestKnown = {}; digestHas = null; dxReset(); showView('summary'); renderDigest();
       };
       return Promise.resolve().then(function () { return fn(calls); }).then(function (v) { restore(); return v; }, function (e) { restore(); throw e; });
     };
@@ -7525,25 +7529,29 @@
     // فتح صفحة «الإعدادات» = البطاقة بتجيب حالتها من السيرفر
     var openPanel = function () { showView('settings'); return tick2(); };
 
-    testAsync('بطاقة الملخص التلقائي في «الإعدادات» لحساب Meta المفتوح أياً كان عرض الملخص، وبتشرح لو مفيش Meta، ومخفية لو الميزة مقفولة', function () {
-      return withDigest(function () { return ok200({ settings: null }); }, function (calls) {
+    // من ٣١ أكتوبر ٢٠٢٦ الملخص لكل مستخدم (قرار صاحب المنتج): ملخص واحد بحساباته (حتى ٥) وبإعداداته، والبطاقة بتعرضه أياً كان الحساب المفتوح
+    testAsync('بطاقة الملخص التلقائي في «الإعدادات»: ملخص المستخدم أياً كان عرض الملخص، وبتشرح لو مفيش ملخص ولا Meta، ومخفية لو الميزة مقفولة', function () {
+      return withDigest(function () { return ok200({ settings: null, accounts: [] }); }, function (calls) {
         renderDigest();
         ok(!panel().hidden, 'meta account open');
         eq(calls.length, 0, 'nothing asked from the server before Settings opens');
         // قبل كده كانت بتظهر بس في عرض Meta لوحده جوه الملخص
         dxState.accountId = 'all:meta:act_1,google:1'; renderDigest();
         ok(!panel().hidden, 'also while the summary shows all platforms');
-        delete activeSources.meta; renderDigest();
-        eq([panel().hidden, document.getElementById('digestCardNote').textContent], [true, t('set.page.digestNoMeta')], 'no Meta account: says how to get it');
-        activeSources.meta = 'act_1'; DIGEST_ON = false; renderDigest();
-        ok(document.getElementById('digestCard').hidden, 'hidden while the feature is off');
-        ok(!document.getElementById('dxAutoBtn'), 'the old button in the summary is gone');
+        eq(document.getElementById('digestCardNote').textContent, t('set.page.digestFor'), 'one summary for the accounts the user picks');
+        delete activeSources.meta;
+        return openPanel().then(function () {
+          ok(panel().textContent.indexOf(t('set.page.digestNoMeta')) > -1 && !panel().querySelector('#dxAutoEmail'), 'no summary and no Meta account: says how to start');
+          activeSources.meta = 'act_1'; DIGEST_ON = false; renderDigest();
+          ok(document.getElementById('digestCard').hidden, 'hidden while the feature is off');
+          ok(!document.getElementById('dxAutoBtn'), 'the old button in the summary is gone');
+        });
       });
     });
     testAsync('فتح الصندوق: بيجيب الحالة من السيرفر، والنموذج بالأحد والأربعاء ٩ صباحاً افتراضياً', function () {
-      return withDigest(function () { return ok200({ settings: null, timezone: 'Asia/Kuwait' }); }, function (calls) {
+      return withDigest(function () { return ok200({ settings: null, accounts: [] }); }, function (calls) {
         return openPanel().then(function () {
-          eq([calls[0].action, calls[0].accountId, calls[0].token], ['digest.get', 'act_1', 'tok-test-1234567890']);
+          eq([calls[0].action, calls[0].accountId, 'token' in calls[0]], ['digest.get', 'act_1', false], 'the user\'s summary — no Meta token needed to read it');
           ok(!panel().hidden && panel().querySelector('#dxAutoEmail'), 'form shown');
           eq(Array.prototype.map.call(panel().querySelectorAll('[data-digest-day].on'), function (x) { return x.getAttribute('data-digest-day'); }), ['0', '3']);
           eq(panel().querySelector('#dxAutoHour').value, '9');
@@ -7611,9 +7619,64 @@
       });
     });
     testAsync('صلاحية محفوظة مش شغالة: الصندوق بيقول كده بدل تاريخ الانتهاء', function () {
-      return withDigest(function () { return ok200({ settings: ON, tokenExpiresAt: '2026-11-27T20:42:24Z', tokenWorks: false, timezone: 'Asia/Kuwait' }); }, function () {
+      return withDigest(function () {
+        return ok200({ settings: ON, accounts: [{ platform: 'meta', accountId: 'act_1', name: 'Store', tokenExpiresAt: '2026-11-27T20:42:24Z', tokenProblem: true }],
+          current: { accountId: 'act_1', included: true, tokenWorks: false } });
+      }, function () {
         return openPanel().then(function () {
-          withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.problem')) > -1, 'problem shown'); });
+          withLang('ar', function () {
+            ok(panel().textContent.indexOf(t('dx.auto.problem')) > -1, 'problem shown');
+            ok(panel().textContent.indexOf(t('dx.auto.acctProblem')) > -1, 'and marked on the account in the list');
+          });
+        });
+      });
+    });
+    testAsync('ملخص المستخدم بأكتر من حساب: القائمة، وإضافة الحساب المفتوح بمفتاحه، والإزالة بعد تأكيد — وآخر حساب يوقف الملخص', function () {
+      var accounts = [{ platform: 'meta', accountId: 'act_7', name: 'Other store', tokenExpiresAt: '2026-11-27T20:42:24Z' }];
+      return withDigest(function (b) {
+        if (b.action === 'digest.add') accounts = accounts.concat([{ platform: 'meta', accountId: b.accountId, name: 'Store', tokenExpiresAt: '2026-12-01T00:00:00Z' }]);
+        if (b.action === 'digest.remove') accounts = accounts.filter(function (a) { return a.accountId !== b.accountId; });
+        var stopped = b.action === 'digest.remove' && !accounts.length;
+        return ok200({ ok: true, stopped: stopped, settings: stopped ? null : ON, accounts: accounts });
+      }, function (calls) {
+        return openPanel().then(function () {
+          withLang('ar', function () {
+            ok(panel().textContent.indexOf('Other store') > -1, 'the accounts in the summary are listed');
+            ok(panel().textContent.indexOf(t('dx.auto.accounts', { n: ar(1), max: ar(5) })) > -1, 'with the limit');
+          });
+          var add = panel().querySelector('[data-digest-add]');
+          ok(add, 'the open account is not in it: offered to add');
+          add.click();
+          return tick2();
+        }).then(function () {
+          var c = calls[calls.length - 1];
+          eq([c.action, c.accountId, c.token], ['digest.add', 'act_1', 'tok-test-1234567890'], 'added with its Meta token (proof of access)');
+          ok(!panel().querySelector('[data-digest-add]') && panel().querySelectorAll('.dx-auto-accts li').length === 2, 'now both are listed');
+          withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.added')) > -1, 'says so'); });
+          panel().querySelector('[data-digest-remove="meta:act_7"]').click();
+          eq(calls[calls.length - 1].action, 'digest.add', 'nothing sent before confirming');
+          withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.removeQ')) > -1, 'asks first'); });
+          panel().querySelector('[data-digest-remove-yes="meta:act_7"]').click();
+          return tick2();
+        }).then(function () {
+          var c = calls[calls.length - 1];
+          eq([c.action, c.platform, c.accountId, 'token' in c], ['digest.remove', 'meta', 'act_7', false]);
+          eq(panel().querySelectorAll('.dx-auto-accts li').length, 1);
+          panel().querySelector('[data-digest-remove="meta:act_1"]').click();
+          withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.removeLast')) > -1, 'the last one: says it turns the summary off'); });
+          panel().querySelector('[data-digest-remove-yes="meta:act_1"]').click();
+          return tick2();
+        }).then(function () {
+          ok(panel().querySelector('#dxAutoEmail'), 'summary off: back to the form');
+        });
+      });
+    });
+    testAsync('ملخص فيه ٥ حسابات: مفيش زرار إضافة، ورسالة الحد', function () {
+      var five = [1, 2, 3, 4, 5].map(function (i) { return { platform: 'meta', accountId: 'act_9' + i, name: 'S' + i }; });
+      return withDigest(function () { return ok200({ settings: ON, accounts: five }); }, function () {
+        return openPanel().then(function () {
+          ok(!panel().querySelector('[data-digest-add]'), 'no add button');
+          withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.full', { max: ar(5) })) > -1, 'says the limit'); });
         });
       });
     });
@@ -7649,7 +7712,7 @@
         eq(calls.length, 1, 'no refresh while the feature is off');
         disconnectPlatform('meta', true);
         var last = calls[calls.length - 1];
-        eq([last.action, last.token, 'accountId' in last], ['digest.disconnect', 'tok-test-1234567890', false]);
+        eq([last.action, 'token' in last, 'accountId' in last], ['digest.disconnect', false, false], 'the user\'s Meta accounts leave their summary (no token needed)');
       });
     });
     var hintEl = function () { return document.getElementById('dxAutoHint'); };
@@ -7698,7 +7761,7 @@
     testAsync('تلميح التفعيل: بيختفي بعد التفعيل، ومبيرجعش على طول بعد الإيقاف', function () {
       return withDigest(function (b) {
         if (b.action === 'digest.get') return ok200({ settings: null, timezone: 'Asia/Kuwait' });
-        if (b.action === 'digest.enable') return ok200({ ok: true, settings: ON, tokenExpiresAt: '2026-11-27T20:42:24Z' });
+        if (b.action === 'digest.enable') return ok200({ ok: true, settings: ON, accounts: [{ platform: 'meta', accountId: 'act_1' }], tokenExpiresAt: '2026-11-27T20:42:24Z' });
         return ok200({ ok: true, enabled: false });
       }, function () {
         digestAutoRefresh('act_1');

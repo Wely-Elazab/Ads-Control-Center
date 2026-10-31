@@ -76,7 +76,18 @@ export function cleanUserSettings(v: unknown): Record<string, unknown> | null {
   });
   if (Object.keys(plat).length) out.plat = plat;
   if (src.asked === true) out.asked = true;
+  const prefs = cleanPrefs(src.prefs);
+  if (prefs) out.prefs = prefs;
   return out;
+}
+// تفضيلات المستخدم (من ٣١ أكتوبر — كانت على كل جهاز لوحده): currency = عملة الأرقام المجمّعة (null = من غير تفضيل)، valueAck = وافق على
+// ملاحظة سجل لوحة «ما حققته مع الأداة». أي حاجة تانية بتتشال
+export function cleanPrefs(v: unknown): Record<string, unknown> | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const src = v as Record<string, unknown>, out: Record<string, unknown> = {};
+  if (src.currency === null || (typeof src.currency === 'string' && CURRENCY.test(src.currency))) out.currency = src.currency;
+  if (src.valueAck === true) out.valueAck = true;
+  return Object.keys(out).length ? out : null;
 }
 // قائمة حدود أكبر من المسموح (قبل التنظيف — التنظيف بيقطع)
 function tooManyIn(set: unknown): boolean {
@@ -110,6 +121,12 @@ export function cleanUserWrite(body: any): UserWrite | 'too many' | null {
     if (typeof body.changes !== 'object' || Array.isArray(body.changes)) return null;
     for (const k of Object.keys(body.changes)) {
       const v = body.changes[k];
+      if (k === 'prefs') {
+        const p = cleanPrefs(v);
+        if (!p) return null;
+        changes.prefs = p;
+        continue;
+      }
       if (k !== 'all' && USER_PLATFORMS.indexOf(k) < 0) return null;
       if (v === null) {
         if (k === 'all') return null;   // «كل الحسابات» مبتتمسحش — بتتحفظ فاضية لو لازم

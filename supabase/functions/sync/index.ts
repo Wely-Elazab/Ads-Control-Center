@@ -152,6 +152,10 @@ Deno.serve(async (req: Request) => {
     if (action === 'settings.get') return await handleSettings(action, body, origin);
     // سجل مشكلات التنبيه لكل مستخدم على كل حساب إعلاني (episodes.ts — لوحة «ما حققته مع الأداة») بنفس إثبات الوصول
     if (action === 'episodes.sync' || action === 'episodes.decide') return await handleEpisodes(action, body, user.id, origin);
+    // الملخص التلقائي لكل مستخدم (digest.ts — ٣١ أكتوبر): ملخصه هو، والعمليات اللي محتاجة مفتاح Meta بتتحقق منه جوه
+    if (typeof action === 'string' && action.indexOf('digest.') === 0 && action !== 'digest.preview' && action !== 'digest.previewSummary') {
+      return await handleDigest(action, body, origin, user.id);
+    }
 
     if (typeof body.token !== 'string' || !TOKEN.test(body.token)) return reply(400, { error: 'token' }, origin);
 
@@ -160,11 +164,9 @@ Deno.serve(async (req: Request) => {
       if (!admin) return reply(admin === null ? 503 : 403, { error: 'admins only' }, origin);
       if (typeof body.accountId !== 'string' || !META_ID.test(body.accountId)) return reply(400, { error: 'account' }, origin);
       const lang = body.lang === 'en' ? 'en' : 'ar';
-      if (action === 'digest.preview') return reply(200, await preview(body.token, body.accountId, lang), origin);
-      return reply(200, await previewSummary(body.token, body.accountId, lang, str(body.since, 10) || undefined, str(body.until, 10) || undefined, body.monthly === true), origin);
+      if (action === 'digest.preview') return reply(200, await preview(body.token, body.accountId, lang, user.id), origin);
+      return reply(200, await previewSummary(body.token, body.accountId, lang, str(body.since, 10) || undefined, str(body.until, 10) || undefined, body.monthly === true, user.id), origin);
     }
-
-    if (typeof action === 'string' && action.indexOf('digest.') === 0) return await handleDigest(action, body, origin, user.id);
 
     if (action === 'selfcheck' || action === 'testmail') {
       const admin = await isAppAdmin(body.token);
@@ -198,7 +200,8 @@ Deno.serve(async (req: Request) => {
       if (!(await metaAccount(body.token, id))) return reply(403, { error: 'not verified' }, origin);
 
       if (action === 'list') {
-        const r = await db('feedback?select=block,since,until,verdict,reasons,note,answered_at&view_key=eq.' +
+        // إجابات المستخدم ده بس (من ٣١ أكتوبر — كانت مشتركة لكل من يفتح الحساب)
+        const r = await db('feedback?select=block,since,until,verdict,reasons,note,answered_at&user_id=eq.' + user.id + '&view_key=eq.' +
           encodeURIComponent(body.viewKey) + '&order=answered_at.desc&limit=200', { method: 'GET' });
         const rows = await r.json();
         return reply(200, { entries: rows.map((x: any) => ({
@@ -207,8 +210,8 @@ Deno.serve(async (req: Request) => {
       }
       const row = cleanEntry(body.viewKey, body.entry, body.info);
       if (!row) return reply(400, { error: 'entry' }, origin);
-      await db('feedback?on_conflict=view_key,block,since,until', {
-        method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(row)
+      await db('feedback?on_conflict=user_id,view_key,block,since,until', {
+        method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ ...row, user_id: user.id })
       });
       return reply(200, { ok: true }, origin);
     }
