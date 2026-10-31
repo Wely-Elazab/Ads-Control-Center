@@ -4,7 +4,10 @@
 //     مباشرةً بنفس الطول، + التعديلات على الإعلانات ونتيجتها + حالة التنبيهات العاجلة («حُلّت/مستمرة»).
 //     مبنحفظش محتوى الملخص — آخر يوم غطّاه بس (last_summary_until)
 //
-// المحرك هو نفسه اللي في الأداة (js/i18n.js + alerts.js + core.js + diagnosis.js + meta.js) — مش نسخة تانية منه، عشان اللي
+// المنصات: Meta (المرحلة ١) وSnapchat (المرحلة ٢ — ٣١ أكتوبر: الأرقام بتيجي عن طريق الـ Worker، Live/api/digest-fetch.js، لأن
+// صلاحية Snapchat المحفوظة متتفتحش غير هناك). Google في المرحلة الجاية.
+//
+// المحرك هو نفسه اللي في الأداة (js/i18n.js + alerts.js + core.js + diagnosis.js + meta.js + snapchat.js) — مش نسخة تانية منه، عشان اللي
 // بيوصل بالبريد يطابق اللي العميل بيشوفه في الأداة بالظبط. الملفات دي سكريبتات متصفح بتتشارك النطاق العام،
 // فبتتحمّل بـ eval غير مباشر (نفس النطاق العام) مع بدائل بسيطة للمتصفح (document وlocalStorage وFB.api).
 // بتتجاب من GitHub على commit ثابت (ENGINE_COMMIT): محتواه مقفول برقمه، فمحدش يقدر يغيّر الكود اللي بيشتغل
@@ -16,11 +19,11 @@
 // العنصر أو مشكلة «مهمة» بقت «عاجلة» — دي بصمة جديدة فبتتبعت. مبنحفظش أي أرقام — النوع والعنصر والتواريخ بس.
 
 import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
-import { unseal, stopUrl, accountName, daysText, hourText } from './digest.ts';
+import { seal, unseal, sealedAad, stopUrl, accountName, daysText, hourText } from './digest.ts';
 import { joinReminders } from './join.ts';
 
 const ENGINE_COMMIT = '8f76f0f4ca027ef0b6f5fbe66ffbe8e57ee5dfee';
-const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'];
+const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js', 'snapchat.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
 const QUIET_FROM = 23, QUIET_UNTIL = 7;   // مفيش رسائل بالليل بتوقيت الحساب — اللي يظهر بالليل بيتبعت ٧ الصبح لو لسه قائم
@@ -130,6 +133,8 @@ let runUsage = freshUsage();   // التشغيل كله (بيطلع في سطر 
 let metaToken = '';
 // نهاية التشغيل الحالي (runAll بس — المعاينات من غير نهاية، بمهلة الطلب بس). صفر = مفيش
 let runDeadline = 0;
+// مفتاح المُشغّل (index.ts بيبعته لـ runAll من هيدر pg_cron) — بيروح للـ Worker مع طلبات Snapchat (Live/api/digest-fetch.js)
+let runnerKey = '';
 // مهلة الطلب الجاي: ٤٠ ثانية، أو اللي فاضل للتشغيل لو أقل. الوقت خلص = الطلب ميتبعتش أصلاً
 export function callTimeout(deadline: number, now: number): number {
   if (!deadline) return GRAPH_TIMEOUT_MS;
@@ -182,7 +187,8 @@ function loadEngine(): Promise<string[]> {
       installShims();
       for (const src of texts) (0, eval)(src);
       if (!g.PauseProofAlerts || !g.I18N || !g.DX || typeof g.transformRealAd !== 'function' || typeof g.adsPromise !== 'function' ||
-        typeof g.metaDiagnosisInput !== 'function' || typeof g.metaActivities !== 'function') throw new Error('engine incomplete');
+        typeof g.metaDiagnosisInput !== 'function' || typeof g.metaActivities !== 'function' ||
+        typeof g.transformSnapchatAds !== 'function' || typeof g.snapEditsOf !== 'function') throw new Error('engine incomplete');
       const live = await Promise.all(ENGINE_FILES.map((f) => fetch(SITE + '/js/' + f, { signal: AbortSignal.timeout(10000) }).then((r) => (r.ok ? r.text() : null)).catch(() => null)));
       const norm = (s: string) => s.replace(/\r\n/g, '\n');
       return ENGINE_FILES.filter((_f, i) => live[i] != null && norm(live[i] as string) !== norm(texts[i]));
@@ -307,17 +313,17 @@ function effectiveFor(us: Record<string, unknown> | null, platform: string, curr
 // alive = مفاتيح (العيلة|العنصر) للتنبيهات «المهمة» — مبتتبعتش، بس بتقول إن المشكلة لسه قائمة (resolveNow)
 function alertKey(a: any): string { return familyOf(String(a.code || 'other')) + '|' + String(a.adId || a.objectId || ''); }
 function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Target, sens: Sens = null): { urgent: any[]; alive: Record<string, boolean> } {
-  const source = 'meta:' + accountId;
-  const meta = {
-    [source]: {
-      label: 'Meta — ' + (acct.name || accountId), currency: acct.currency || null, timeZone: acct.timezone_name || null,
-      metaAccountStatus: acct.account_status != null ? Number(acct.account_status) : null,
-      spendCapReached: Number(acct.spend_cap) > 0 && Number(acct.amount_spent) >= Number(acct.spend_cap),
-      spendCap: Number(acct.spend_cap) || 0, amountSpent: Number(acct.amount_spent) || 0
-    }
-  };
+  return analyzeUrgent('meta:' + accountId, {
+    label: 'Meta — ' + (acct.name || accountId), currency: acct.currency || null, timeZone: acct.timezone_name || null,
+    metaAccountStatus: acct.account_status != null ? Number(acct.account_status) : null,
+    spendCapReached: Number(acct.spend_cap) > 0 && Number(acct.amount_spent) >= Number(acct.spend_cap),
+    spendCap: Number(acct.spend_cap) || 0, amountSpent: Number(acct.amount_spent) || 0
+  }, cands, target, sens);
+}
+// info = بيانات الحساب زي ما الأداة بتديها للمحرك (ui.js accountsMeta)
+function analyzeUrgent(source: string, info: Record<string, unknown>, cands: any[], target: Target, sens: Sens): { urgent: any[]; alive: Record<string, boolean> } {
   const custom = Object.assign({}, sens || {}, target ? { roasTarget: target.roas, roasBreakEven: target.be } : {});
-  const res = g.PauseProofAlerts.analyze(cands, meta, custom, alertFmt());
+  const res = g.PauseProofAlerts.analyze(cands, { [source]: info }, custom, alertFmt());
   const alive: Record<string, boolean> = {};
   res.alerts.forEach((a: any) => {
     if (a.level === 'warning' && !a.minor) alive[alertKey(a)] = true;
@@ -454,17 +460,17 @@ export function markMap(rows: Mark[]): Record<string, Mark> {
   return out;
 }
 // بصمات المستخدم على الحساب (user_alert_marks — من ٣١ أكتوبر لكل مستخدم: كل واحد «حُلّت/مستمرة» بتاعته بإعداداته)
-async function marksOf(user: string, account: string): Promise<Record<string, Mark>> {
+async function marksOf(user: string, platform: string, account: string): Promise<Record<string, Mark>> {
   const r = await db('user_alert_marks?select=kind,object_id,first_at,last_sent_at,last_seen_at,times_sent,resolved_at,last_code&user_id=eq.' + user +
-    '&platform=eq.meta&account_id=eq.' + account, { method: 'GET' });
+    '&platform=eq.' + platform + '&account_id=eq.' + encodeURIComponent(account), { method: 'GET' });
   return markMap((await r.json()) as Mark[]);
 }
-async function saveMarks(user: string, account: string, rows: Mark[]): Promise<void> {
+async function saveMarks(user: string, platform: string, account: string, rows: Mark[]): Promise<void> {
   if (!rows.length) return;
   await db('user_alert_marks?on_conflict=user_id,platform,account_id,kind,object_id', {
     method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' },
     // كل الصفوف بنفس الأعمدة (PostgREST في الإدخال الجماعي)
-    body: JSON.stringify(rows.map((r) => ({ user_id: user, platform: 'meta', account_id: account, kind: r.kind, object_id: r.object_id, first_at: r.first_at,
+    body: JSON.stringify(rows.map((r) => ({ user_id: user, platform, account_id: account, kind: r.kind, object_id: r.object_id, first_at: r.first_at,
       last_sent_at: r.last_sent_at, last_seen_at: r.last_seen_at, times_sent: r.times_sent, resolved_at: r.resolved_at, last_code: r.last_code ?? null })))
   });
 }
@@ -522,12 +528,13 @@ function countPhrase(n: number, en: boolean): string {
 }
 // رابط الأداة على الحساب نفسه (Live/js/route.js) — قبل كده /app لوحدها، فكانت بتفتح آخر حساب اتفتح على الجهاز
 // (مسؤول الإعلانات عنده كذا عميل). العاجل بيفتح تبويب التنبيهات على طول
-function appLink(account: string, view = ''): string {
-  const q = (account ? 'meta=' + encodeURIComponent(account) : '') + (view ? (account ? '&amp;' : '') + 'view=' + view : '');
+function appLink(platform: string, account: string, view = ''): string {
+  const q = (account ? platform + '=' + encodeURIComponent(account) : '') + (view ? (account ? '&amp;' : '') + 'view=' + view : '');
   return '<a href="' + SITE + '/app' + (q ? '?' + q : '') + '">Ads Center</a>';
 }
+const PLAT_NAME: Record<string, string> = { meta: 'Meta', snapchat: 'Snapchat', google: 'Google', tiktok: 'TikTok' };
 // رسالة عاجلة واحدة للمستخدم في كل فحص، فيها تنبيهات كل حساباته (قسم لكل حساب). حساب واحد = نفس الرسالة القديمة بالظبط
-type Section = { account: string; name: string; fresh: any[]; remind: { a: any; m: Mark }[] };
+type Section = { platform: string; account: string; name: string; fresh: any[]; remind: { a: any; m: Mark }[] };
 function accountsPhrase(n: number, en: boolean): string {
   if (en) return n + ' accounts';
   return n === 2 ? 'حسابين' : g.ar(n) + (n <= 10 ? ' حسابات' : ' حساباً');
@@ -556,42 +563,47 @@ function urgentMail(sections: Section[], tz: string, en: boolean, stop: string) 
       s.remind.forEach((r) => lines.push(alertBox(r.a, en ? 'We first alerted you on ' + dateText(r.m.first_at, tz, true) + '.'
         : 'أبلغناك به أول مرة يوم ' + dateText(r.m.first_at, tz, false) + '.')));
     }
-    if (!one) lines.push(en ? 'Details for this account are in ' + appLink(s.account, 'alerts') + '.' : 'تفاصيل هذا الحساب في ' + appLink(s.account, 'alerts') + '.');
+    if (!one) lines.push(en ? 'Details for this account are in ' + appLink(s.platform, s.account, 'alerts') + '.' : 'تفاصيل هذا الحساب في ' + appLink(s.platform, s.account, 'alerts') + '.');
   });
-  if (one) lines.push(en ? 'Full details are in ' + appLink(one.account, 'alerts') + '.' : 'التفاصيل الكاملة في ' + appLink(one.account, 'alerts') + '.');
+  if (one) lines.push(en ? 'Full details are in ' + appLink(one.platform, one.account, 'alerts') + '.' : 'التفاصيل الكاملة في ' + appLink(one.platform, one.account, 'alerts') + '.');
   lines.push(en ? 'We don\'t repeat the same alert: we remind you once if it lasts two more days, and your next summary shows whether it was resolved.'
     : 'لا نكرر التنبيه نفسه: نذكّرك به مرة واحدة إذا استمر يومين، ويبيّن ملخصك التالي هل حُلّ أم ما زال قائماً.');
   lines.push(en ? 'To stop the summary and alerts: <a href="' + stop + '">Stop</a>' : 'لإيقاف الملخص والتنبيهات: <a href="' + stop + '">إيقاف</a>');
   return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
 }
-function connectionMail(account: string, name: string, en: boolean, stop: string) {
-  const n = esc(name), app = appLink(account);
+function connectionMail(platform: string, account: string, name: string, en: boolean, stop: string) {
+  const n = esc(name), app = appLink(platform, account), p = PLAT_NAME[platform] || platform;
   const subject = en ? 'We lost access to ' + name + ' — open Ads Center to restore it' : 'توقف وصولنا إلى حساب ' + name + ' — افتح الأداة لإعادته';
   const lines = en ? [
     'Hello,',
-    'We can no longer read the figures of <strong>' + n + '</strong> on Meta, most likely because the access expired or was removed. The summary and urgent alerts are paused until then.',
-    'To restore them, open ' + app + ' and log in with Meta once — we renew the access automatically.',
+    'We can no longer read the figures of <strong>' + n + '</strong> on ' + p + ', most likely because the access expired or was removed. The summary and urgent alerts are paused until then.',
+    'To restore them, open ' + app + ' and log in with ' + p + ' once — we renew the access automatically.',
     'To stop the summary and alerts instead: <a href="' + stop + '">Stop</a>'
   ] : [
     'مرحباً،',
-    'لم نعد نستطيع قراءة أرقام حساب <strong>' + n + '</strong> لدى Meta، غالباً لأن صلاحية الدخول انتهت أو أُلغيت. لذلك توقّف الملخص والتنبيهات العاجلة مؤقتاً.',
-    'لإعادتها: افتح ' + app + ' وسجّل الدخول بحساب Meta مرة واحدة، وسنجدد الصلاحية تلقائياً.',
+    'لم نعد نستطيع قراءة أرقام حساب <strong>' + n + '</strong> لدى ' + p + '، غالباً لأن صلاحية الدخول انتهت أو أُلغيت. لذلك توقّف الملخص والتنبيهات العاجلة مؤقتاً.',
+    'لإعادتها: افتح ' + app + ' وسجّل الدخول بحساب ' + p + ' مرة واحدة، وسنجدد الصلاحية تلقائياً.',
     'وإذا أردت إيقافها نهائياً: <a href="' + stop + '">إيقاف الملخص والتنبيهات</a>'
   ];
   return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
 }
-function expiryMail(account: string, name: string, expiresAt: string, tz: string, en: boolean, stop: string) {
-  const n = esc(name), app = appLink(account);
+// Meta بتحدد مدة الصلاحية (نحو ٦٠ يوم). Snapchat: إحنا اللي بنحددها — ٦٠ يوم من آخر مرة العميل فتح الحساب ده في الأداة (digest.ts)
+function expiryMail(platform: string, account: string, name: string, expiresAt: string, tz: string, en: boolean, stop: string) {
+  const n = esc(name), app = appLink(platform, account), meta = platform === 'meta';
   const subject = en ? 'Open Ads Center to keep alerts for ' + name + ' running' : 'افتح Ads Center ليستمر الملخص والتنبيهات لحساب ' + name;
   const lines = en ? [
     'Hello,',
-    'Our read access to <strong>' + n + '</strong> ends on ' + dateText(expiresAt, tz, true) + ' (Meta limits it to about 60 days), and the summary and alerts stop after that.',
-    'To renew it, just open ' + app + ' and log in with Meta once — nothing else is needed.',
+    'Our read access to <strong>' + n + '</strong> ends on ' + dateText(expiresAt, tz, true) +
+      (meta ? ' (Meta limits it to about 60 days)' : ' (we keep it for 60 days after you last open this account in the tool)') + ', and the summary and alerts stop after that.',
+    meta ? 'To renew it, just open ' + app + ' and log in with Meta once — nothing else is needed.'
+      : 'To renew it, just open this account in ' + app + ' once — nothing else is needed.',
     'To stop the summary and alerts instead: <a href="' + stop + '">Stop</a>'
   ] : [
     'مرحباً،',
-    'تنتهي صلاحية قراءة حساب <strong>' + n + '</strong> يوم ' + dateText(expiresAt, tz, false) + ' (تحددها Meta بنحو ٦٠ يوماً)، وبعدها يتوقف الملخص والتنبيهات.',
-    'لتجديدها يكفي أن تفتح ' + app + ' وتسجّل الدخول بحساب Meta مرة واحدة، دون أي إجراء آخر.',
+    'تنتهي صلاحية قراءة حساب <strong>' + n + '</strong> يوم ' + dateText(expiresAt, tz, false) +
+      (meta ? ' (تحددها Meta بنحو ٦٠ يوماً)' : ' (نحتفظ بها ٦٠ يوماً من آخر مرة تفتح فيها هذا الحساب في الأداة)') + '، وبعدها يتوقف الملخص والتنبيهات.',
+    meta ? 'لتجديدها يكفي أن تفتح ' + app + ' وتسجّل الدخول بحساب Meta مرة واحدة، دون أي إجراء آخر.'
+      : 'لتجديدها يكفي أن تفتح هذا الحساب في ' + app + ' مرة واحدة، دون أي إجراء آخر.',
     'وإذا أردت إيقافها نهائياً: <a href="' + stop + '">إيقاف الملخص والتنبيهات</a>'
   ];
   return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
@@ -737,7 +749,7 @@ function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: strin
     P(esc(en ? 'Urgent alerts since the previous summary' : 'التنبيهات العاجلة منذ الملخص السابق'), 'font-weight:700') + rows.join('') + '</div>';
 }
 // محتوى ملخص حساب واحد (بيتحط في الرسالة كقسم — رسالة واحدة لكل حسابات المستخدم من ٣١ أكتوبر)
-type SumSection = { account: string; name: string; sum: { composed: any; actions: any }; alerts: string | null };
+type SumSection = { platform: string; account: string; name: string; sum: { composed: any; actions: any }; alerts: string | null };
 function summaryParts(sec: SumSection): string[] {
   const o = sec.sum.composed, t = g.I18N.t, parts: string[] = [];
   parts.push('<div style="margin:0 0 16px">' + P(esc(o.period), MUTED) +
@@ -779,7 +791,7 @@ function summaryMail(secs: SumSection[], since: string, until: string, s: Settin
     if (!one) parts.push('<p style="margin:22px 0 10px;font-size:18px;font-weight:700;line-height:1.6;border-bottom:1px solid #e5e7eb;padding-bottom:6px">' +
       esc(sec.name) + '</p>');
     parts.push(...summaryParts(sec));
-    if (!one) parts.push('<div>' + P((en ? 'Details: ' : 'التفاصيل: ') + appLink(sec.account), MUTED) + '</div>');
+    if (!one) parts.push('<div>' + P((en ? 'Details: ' : 'التفاصيل: ') + appLink(sec.platform, sec.account), MUTED) + '</div>');
   });
   if (missing.length) {
     parts.push('<div>' + P(esc(en ? 'We could not read the figures of: ' + missing.join(', ') + ' — open the tool and log in to the platform again.'
@@ -787,7 +799,7 @@ function summaryMail(secs: SumSection[], since: string, until: string, s: Settin
   }
   const days = daysText(s.summary_days || [0, 3], en ? 'en' : 'ar'), hour = hourText(s.summary_hour == null ? 9 : s.summary_hour, en ? 'en' : 'ar');
   const target = one ? '<strong>' + esc(one.name) + '</strong>' : (en ? 'your accounts' : 'حساباتك');
-  const tz = esc(s.timezone || 'UTC'), app = one ? appLink(one.account) : appLink('');
+  const tz = esc(s.timezone || 'UTC'), app = one ? appLink(one.platform, one.account) : appLink('', '');
   parts.push(monthly
     ? (en ? 'You receive this monthly summary for ' + target + ' on the first Sunday of each month, alongside your summary on ' + days + '. Full details are in ' + app + '.'
       : 'يصلك هذا الملخص الشهري لـ' + target + ' في أول أحد من كل شهر، إلى جانب ملخصك ' + days + '. التفاصيل الكاملة في ' + app + '.')
@@ -807,36 +819,100 @@ function summaryMail(secs: SumSection[], since: string, until: string, s: Settin
 // واحدة فيها قسم لكل حساب. نفس الحساب عند أكتر من مستخدم: الإعلانات بتتجاب مرة في التشغيل (RUN_CANDS)، وكل مستخدم صلاحيته بتتأكد لوحدها
 type Settings = { user_id: string; email: string; lang: string; timezone: string; summary_days: number[]; summary_hour: number; last_summary_until: string | null;
   last_monthly?: string | null };
-type DAcct = { user_id: string; platform: string; account_id: string; checked_at: string | null };
+type DAcct = { user_id: string; platform: string; account_id: string; name?: string | null; checked_at: string | null };
 // الفحص العاجل مرة في الساعة لكل حساب، مع إن المُشغّل بيشتغل كل ١٠ دقايق (عشان الملخصات اللي ميعادها واحد متتأخرش)
 function urgentDueFor(a: DAcct): boolean { return !a.checked_at || Date.now() - Date.parse(a.checked_at) >= URGENT_EVERY_MS; }
 const RUN_CANDS = new Map<string, any[]>();
 // الملخص بيستنى التشغيل الجاي لو أرقام حساب فشلت مؤقتاً — وبعد ٣ ساعات من ميعاده بيتبعت بالحسابات اللي اتقرت
 const SUMMARY_PARTIAL_AFTER_H = 3;
+// المنصات اللي المُشغّل بيقراها لحد دلوقتي (Google في المرحلة الجاية)
+const RUN_PLATFORMS: Record<string, boolean> = { meta: true, snapchat: true };
+const RETRY_OUTCOMES: Record<string, boolean> = { 'meta-retry': true, 'snap-retry': true, error: true };
 
-type AcctResult = { account: string; name: string; outcome: string; section: Section | null; keep: Mark[]; sentRows: Mark[];
+type AcctResult = { platform: string; account: string; name: string; outcome: string; section: Section | null; keep: Mark[]; sentRows: Mark[];
   summary: SumSection | null; monthly: SumSection | null };
-async function checkUserAccount(s: Settings, a: DAcct, us: Record<string, unknown> | null,
-  o: { doUrgent: boolean; due: { since: string; until: string } | null; monthly: { since: string; until: string } | null; stop: string }): Promise<AcctResult> {
+type CheckOpts = { doUrgent: boolean; due: { since: string; until: string } | null; monthly: { since: string; until: string } | null; stop: string };
+function blankResult(platform: string, account: string, name: string): AcctResult {
+  return { platform, account, name, outcome: 'error', section: null, keep: [], sentRows: [], summary: null, monthly: null };
+}
+
+// الوصول ضاع: رسالة واحدة وتذكير واحد بعد يومين (لكل حساب — رسالتها لوحدها زي الأول)
+async function lostAccess(s: Settings, res: AcctResult, marks: Record<string, Mark>, o: CheckOpts): Promise<AcctResult> {
+  const user = s.user_id, now = Date.now(), iso = new Date(now).toISOString();
+  res.outcome = 'lost';
+  const m = marks['connection|'];
+  const due = !m || m.resolved_at || (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS);
+  if (!due) { await saveMarks(user, res.platform, res.account, [{ ...m, last_seen_at: iso }]); return res; }
+  if (await send(user, res.account, 'urgent', s.email, connectionMail(res.platform, res.account, res.name, s.lang === 'en', o.stop))) {
+    await saveMarks(user, res.platform, res.account, [m && !m.resolved_at ? { ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1 } : newMark('connection', '', iso)]);
+  }
+  return res;
+}
+// الوصول رجع (بصمة «الوصول ضاع» بتتقفل)، والصلاحية قربت تخلص: رسالة واحدة (بتتحل لوحدها لما العميل يفتح الأداة وتتجدد) — مش بالليل
+async function accessMarks(s: Settings, res: AcctResult, marks: Record<string, Mark>, expiresAtIso: string | null, tz: string, o: CheckOpts): Promise<Mark[]> {
+  const keep: Mark[] = [], now = Date.now(), iso = new Date(now).toISOString();
+  const conn = marks['connection|'];
+  if (conn && !conn.resolved_at) keep.push({ ...conn, resolved_at: iso });
+  const exp = marks['expiry|'];
+  const expiresAt = expiresAtIso ? Date.parse(expiresAtIso) : NaN;
+  if (isFinite(expiresAt) && expiresAt - now < EXPIRY_WARN_MS) {
+    if (o.doUrgent && (!exp || exp.resolved_at)) {
+      if (await send(s.user_id, res.account, 'expiry', s.email, expiryMail(res.platform, res.account, res.name, expiresAtIso as string, tz, s.lang === 'en', o.stop))) {
+        keep.push(newMark('expiry', '', iso));
+      }
+    }
+  } else if (exp && !exp.resolved_at) keep.push({ ...exp, resolved_at: iso });
+  return keep;
+}
+// التنبيهات العاجلة قصاد البصمات: الجديد بيتبعت، والمستمر يومين بعد أول رسالة بيتفكّر بيه مرة، والباقي بيتسجّل إنه لسه ظاهر،
+// واللي مبقاش ظاهر بيتقفل «حُلّت» بقاعدة resolveNow
+function urgentPass(res: AcctResult, all: { urgent: any[]; alive: Record<string, boolean>; failed: Failed }, marks: Record<string, Mark>, keep: Mark[], sentRows: Mark[]): void {
+  const now = Date.now(), iso = new Date(now).toISOString();
+  const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], seen: Record<string, boolean> = {};
+  for (const al of all.urgent) {
+    // البصمة بالعيلة (familyOf) — والنوع نفسه في last_code. التذكير بيعرض نص التنبيه الحالي، فلو المشكلة زادت («يومان» بقت
+    // «أسبوع كامل») التذكير بيقولها
+    const code = String(al.code || 'other'), obj = String(al.adId || al.objectId || '');
+    const k = alertKey(al);
+    if (seen[k]) continue;
+    seen[k] = true;
+    const m = marks[k];
+    if (!m || m.resolved_at) { fresh.push(al); sentRows.push(newMark(familyOf(code), obj, iso, code)); }
+    else if (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS) {
+      remind.push({ a: al, m });
+      sentRows.push({ ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1, last_code: code });
+    } else keep.push({ ...m, last_seen_at: iso, last_code: code });
+  }
+  for (const k in marks) {
+    const m = marks[k];
+    if (seen[k] || m.resolved_at || SYSTEM_KINDS[m.kind]) continue;
+    const r = resolveNow(m, !!all.alive[k], all.failed, now);
+    if (r === 'seen') keep.push({ ...m, last_seen_at: iso });
+    else if (r === 'resolve') keep.push({ ...m, resolved_at: iso });
+  }
+  if (fresh.length || remind.length) res.section = { platform: res.platform, account: res.account, name: res.name, fresh, remind };
+}
+// الملخص (والشهري): «حُلّت/مستمرة» بحالة الساعة دي — اللي هيتبعت دلوقتي معدود كأنه اتبعت
+async function summarySections(res: AcctResult, marks: Record<string, Mark>, cands: any[], tz: string, en: boolean, target: Target, o: CheckOpts,
+  build: (since: string, until: string) => Promise<{ composed: any; actions: any }>): Promise<void> {
+  if (!o.due && !o.monthly) return;
+  res.keep.concat(res.sentRows).forEach((m) => { marks[familyOf(m.kind) + '|' + m.object_id] = m; });
+  const sec = async (w: { since: string; until: string }): Promise<SumSection> =>
+    ({ platform: res.platform, account: res.account, name: res.name, sum: await build(w.since, w.until), alerts: alertStatusHtml(marks, cands, w.since, tz, en, target) });
+  if (o.due) res.summary = await sec(o.due);
+  if (o.monthly) res.monthly = await sec(o.monthly);
+}
+
+function checkUserAccount(s: Settings, a: DAcct, us: Record<string, unknown> | null, o: CheckOpts): Promise<AcctResult> {
+  return a.platform === 'snapchat' ? checkSnapAccount(s, a, us, o) : checkMetaAccount(s, a, us, o);
+}
+async function checkMetaAccount(s: Settings, a: DAcct, us: Record<string, unknown> | null, o: CheckOpts): Promise<AcctResult> {
   const user = s.user_id, account = a.account_id, en = s.lang === 'en', tz = s.timezone || 'UTC';
-  const res: AcctResult = { account, name: (await accountName(account)) || account, outcome: 'error', section: null, keep: [], sentRows: [], summary: null, monthly: null };
+  const res = blankResult('meta', account, (await accountName(account)) || account);
   const rows = await rpc('vault_user_get', { p_user: user, p_account: account });
   const t = Array.isArray(rows) && rows[0] ? rows[0] : null;
-  const marks = await marksOf(user, account);
-  const now = Date.now(), iso = new Date(now).toISOString();
-
-  // الوصول ضاع: رسالة واحدة وتذكير واحد بعد يومين (لكل حساب — رسالتها لوحدها زي الأول)
-  const lostAccess = async (): Promise<AcctResult> => {
-    res.outcome = 'lost';
-    const m = marks['connection|'];
-    const due = !m || m.resolved_at || (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS);
-    if (!due) { await saveMarks(user, account, [{ ...m, last_seen_at: iso }]); return res; }
-    if (await send(user, account, 'urgent', s.email, connectionMail(account, res.name, en, o.stop))) {
-      await saveMarks(user, account, [m && !m.resolved_at ? { ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1 } : newMark('connection', '', iso)]);
-    }
-    return res;
-  };
-  if (!t) return await lostAccess();
+  const marks = await marksOf(user, 'meta', account);
+  if (!t) return await lostAccess(s, res, marks, o);
   let token = '';
   try { token = await unseal(t.ciphertext, t.iv, account); } catch (_) {
     // عطل عندنا (مفتاح التشفير اتغيّر؟) مش عند العميل — منبعتلوش حاجة
@@ -851,21 +927,10 @@ async function checkUserAccount(s: Settings, a: DAcct, us: Record<string, unknow
     if (fail === 'retry') { res.outcome = 'meta-retry'; return res; }
     if (!acct) {
       await rpc('vault_user_mark_error', { p_user: user, p_account: account, p_error: 'meta rejected stored token' });
-      return await lostAccess();
+      return await lostAccess(s, res, marks, o);
     }
     res.name = acct.name || account;
-    const keep: Mark[] = [];
-    const conn = marks['connection|'];
-    if (conn && !conn.resolved_at) keep.push({ ...conn, resolved_at: iso });
-
-    // الصلاحية قربت تخلص: رسالة واحدة (بتتحل لوحدها لما العميل يفتح الأداة وتتجدد) — مش بالليل
-    const exp = marks['expiry|'];
-    const expiresAt = t.expires_at ? Date.parse(t.expires_at) : NaN;
-    if (isFinite(expiresAt) && expiresAt - now < EXPIRY_WARN_MS) {
-      if (o.doUrgent && (!exp || exp.resolved_at)) {
-        if (await send(user, account, 'expiry', s.email, expiryMail(account, res.name, t.expires_at, acct.timezone_name || tz, en, o.stop))) keep.push(newMark('expiry', '', iso));
-      }
-    } else if (exp && !exp.resolved_at) keep.push({ ...exp, resolved_at: iso });
+    const keep = await accessMarks(s, res, marks, t.expires_at, acct.timezone_name || tz, o);
 
     let cands = RUN_CANDS.get(account) || null;
     if (!cands) {
@@ -879,47 +944,14 @@ async function checkUserAccount(s: Settings, a: DAcct, us: Record<string, unknow
     const sentRows: Mark[] = [];
     if (o.doUrgent) {
       // التعديلات من آخر فحص (أو آخر ساعتين لأول فحص)
-      const editsSince = a.checked_at ? Date.parse(a.checked_at) : now - 2 * 3600000;
-      const all = await allUrgent(account, acct, cands, editsSince, eff.target, eff.sens);
-      const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], seen: Record<string, boolean> = {};
-      for (const al of all.urgent) {
-        // البصمة بالعيلة (familyOf) — والنوع نفسه في last_code. التذكير بيعرض نص التنبيه الحالي، فلو المشكلة زادت («يومان» بقت
-        // «أسبوع كامل») التذكير بيقولها
-        const code = String(al.code || 'other'), obj = String(al.adId || al.objectId || '');
-        const k = alertKey(al);
-        if (seen[k]) continue;
-        seen[k] = true;
-        const m = marks[k];
-        if (!m || m.resolved_at) { fresh.push(al); sentRows.push(newMark(familyOf(code), obj, iso, code)); }
-        else if (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS) {
-          remind.push({ a: al, m });
-          sentRows.push({ ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1, last_code: code });
-        } else keep.push({ ...m, last_seen_at: iso, last_code: code });
-      }
-      for (const k in marks) {
-        const m = marks[k];
-        if (seen[k] || m.resolved_at || SYSTEM_KINDS[m.kind]) continue;
-        const r = resolveNow(m, !!all.alive[k], all.failed, now);
-        if (r === 'seen') keep.push({ ...m, last_seen_at: iso });
-        else if (r === 'resolve') keep.push({ ...m, resolved_at: iso });
-      }
-      if (fresh.length || remind.length) res.section = { account, name: res.name, fresh, remind };
+      const editsSince = a.checked_at ? Date.parse(a.checked_at) : Date.now() - 2 * 3600000;
+      urgentPass(res, await allUrgent(account, acct, cands, editsSince, eff.target, eff.sens), marks, keep, sentRows);
     }
     res.keep = keep;
     res.sentRows = sentRows;
-
-    // الملخص (والشهري): «حُلّت/مستمرة» بحالة الساعة دي — اللي هيتبعت دلوقتي معدود كأنه اتبعت
-    if (o.due || o.monthly) {
-      keep.concat(sentRows).forEach((m) => { marks[familyOf(m.kind) + '|' + m.object_id] = m; });
-      if (o.due) {
-        const sum = await buildSummary(user, account, acct, o.due.since, o.due.until, eff.target, cands, eff.sens);
-        res.summary = { account, name: res.name, sum, alerts: alertStatusHtml(marks, cands, o.due.since, acct.timezone_name || tz, en, eff.target) };
-      }
-      if (o.monthly) {
-        const sum = await buildSummary(user, account, acct, o.monthly.since, o.monthly.until, eff.target, cands, eff.sens);
-        res.monthly = { account, name: res.name, sum, alerts: alertStatusHtml(marks, cands, o.monthly.since, acct.timezone_name || tz, en, eff.target) };
-      }
-    }
+    const list = cands;
+    await summarySections(res, marks, list, acct.timezone_name || tz, en, eff.target, o,
+      (since, until) => buildSummary(user, account, acct, since, until, eff.target, list, eff.sens));
     res.outcome = 'ok';
     return res;
   } finally {
@@ -928,17 +960,175 @@ async function checkUserAccount(s: Settings, a: DAcct, us: Record<string, unknow
   }
 }
 
+// ---------- Snapchat (المرحلة ٢ من «الملخص لكل المنصات» — ٣١ أكتوبر ٢٠٢٦) ----------
+// النسخة المقفولة بتروح للـ Worker (Live/api/digest-fetch.js) يفتحها لصاحبها ويجدد الجلسة وينفّذ نفس طلب الأداة (api/snapchat-ads-fetch.js)،
+// وبيرجّع نسخة جديدة بنحفظها مكان القديمة (تاريخ الانتهاء زي ما هو). auth = Snapchat (أو النسخة) رفضت = المستخدم يربط تاني.
+// مفيش مشاركة أرقام بين المستخدمين هنا (زي RUN_CANDS لـ Meta): كل مستخدم بصلاحيته هو، فالرفض بيبان لصاحبه
+type SnapCtx = { user: string; account: string; sealed: string };
+async function snapCall(ctx: SnapCtx, call: Record<string, unknown>): Promise<{ ok: boolean; auth: boolean; data: any }> {
+  let r: Response;
+  try {
+    r = await fetch(SITE + '/api/digest-fetch', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-runner-key': runnerKey },
+      body: JSON.stringify({ platform: 'snapchat', user: ctx.user, sealed: ctx.sealed, call }),
+      signal: AbortSignal.timeout(callTimeout(runDeadline, Date.now()))
+    });
+  } catch (_) { return { ok: false, auth: false, data: null }; }
+  const j = await r.json().catch(() => null);
+  if (!j) return { ok: false, auth: false, data: null };
+  if (r.status === 401 && j.code === 'AUTH') return { ok: false, auth: true, data: null };
+  if (!r.ok) return { ok: false, auth: false, data: null };
+  if (typeof j.sealed === 'string' && j.sealed && j.sealed !== ctx.sealed) {
+    ctx.sealed = j.sealed;
+    const c = await seal(j.sealed, sealedAad(ctx.user, 'snapchat', ctx.account));
+    await rpc('vault_sealed_rotate', { p_user: ctx.user, p_platform: 'snapchat', p_account: ctx.account, p_cipher: c.ct, p_iv: c.iv }).catch(() => {});
+  }
+  // رد Snapchat نفسها على الطلب: ٤٠١/٤٠٣ = الصلاحية على الحساب ده اتشالت
+  if (j.status === 401 || j.status === 403) return { ok: false, auth: true, data: null };
+  return { ok: j.status === 200, auth: false, data: j.data };
+}
+// نفس خطوات loadSnapchatAdsForAccount في js/snapchat.js من غير الواجهة. needPeriod = الملخص محتاج أرقام الفترة نفسها (من غيرها
+// periodOf بيرجّع أرقام الأسبوع). أرقام الأسبوع فشلت = null (منحكمش على حاجة — زي Meta)
+async function snapCandidates(ctx: SnapCtx, tz: string, period: Record<string, unknown>, needPeriod = false): Promise<{ cands: any[] | null; account: any; auth: boolean }> {
+  const r = await snapCall(ctx, { action: 'ads', adAccountId: ctx.account, clientTz: tz, period });
+  if (!r.ok || !r.data) return { cands: null, account: null, auth: r.auth };
+  const p = r.data;
+  if (p.statsError || (needPeriod && !p.periodStats)) return { cands: null, account: p.account || null, auth: false };
+  const list = p.ads || [];
+  const cands = list.length ? g.transformSnapchatAds(list, (p.stats && p.stats.timeseries_stats) || [], g.daysFromRange(p.range), p.account && p.account.currency,
+    p.squads, p.campaigns, p.periodStats, p.storeStats ? p.storeStats.timeseries_stats || [] : null, p.periodStoreStats, p.creatives, p.media) : [];
+  cands.forEach((c: any) => { c.source = 'snapchat:' + ctx.account; });
+  return { cands, account: p.account || {}, auth: false };
+}
+// وسم «عُدّل…» على الإعلانات (زي js/snapchat.js loadSnapchatEdits — المحرك بيحكم بيه): سجل تعديلات الحملات والمجموعات والإعلانات
+// الشغّالة في دفعات ٢٠ ورا بعض (حد طلبات Cloudflare وحد سرعة Snapchat)، وتعديلات آخر ٨ أيام على الإعلان ومجموعته وحملته.
+// دفعة فشلت = عناصرها من غير وسم (زي الأداة). الوقت قرّب يخلص = منكمّلش الدفعات
+const SNAP_CHANGE_BATCH = 20, SNAP_EDIT_DAYS = 8;
+async function snapEdits(ctx: SnapCtx, cands: any[], tz: string): Promise<void> {
+  const want: Record<string, Record<string, number>> = { campaign: {}, adsquad: {}, ad: {} };
+  cands.forEach((c) => {
+    if (!c.active) return;
+    if (c.campaignId) want.campaign[c.campaignId] = 1;
+    if (c.adsetId) want.adsquad[c.adsetId] = 1;
+    if (c.nativeId) want.ad[c.nativeId] = 1;
+  });
+  const all: { level: string; id: string }[] = [];
+  ['campaign', 'adsquad', 'ad'].forEach((l) => Object.keys(want[l]).forEach((id) => all.push({ level: l, id })));
+  const changes: Record<string, any[]> = {};
+  for (let i = 0; i < all.length; i += SNAP_CHANGE_BATCH) {
+    if (runDeadline && Date.now() > runDeadline - 30000) break;
+    const batch = all.slice(i, i + SNAP_CHANGE_BATCH), ids: Record<string, string[]> = { campaign: [], adsquad: [], ad: [] };
+    batch.forEach((x) => ids[x.level].push(x.id));
+    const r = await snapCall(ctx, { action: 'changes', ids });
+    if (!r.ok || !r.data || !Array.isArray(r.data.changes)) continue;
+    (Array.isArray(r.data.done) ? r.data.done : batch.map((x) => x.level + ':' + x.id)).forEach((k: string) => { changes[k] = []; });
+    r.data.changes.forEach((ch: any) => { const k = ch.level + ':' + ch.id; if (changes[k]) changes[k].push(ch); });
+  }
+  const since = g.shiftKey(g.todayKeyInTz(tz), -SNAP_EDIT_DAYS), byObj: Record<string, any[]> = {};
+  Object.keys(changes).forEach((k) => changes[k].forEach((ch: any) => {
+    g.snapEditsOf(ch, tz).forEach((e: any) => { if (e.date >= since) (byObj[k] = byObj[k] || []).push(e); });
+  }));
+  cands.forEach((c) => {
+    const list = ([] as any[]).concat(byObj['ad:' + c.nativeId] || [], (c.adsetId && byObj['adsquad:' + c.adsetId]) || [], (c.campaignId && byObj['campaign:' + c.campaignId]) || [])
+      .sort((x: any, y: any) => (x.time < y.time ? -1 : x.time > y.time ? 1 : 0));
+    c.edits = list.length ? list : null;
+  });
+}
+// تنبيهات Snapchat العاجلة: المحرك (ui.js accountsMeta لحساب غير Meta) + الروابط المعطّلة. تنبيهات الموقع (Meta بس) والتعديل
+// الكبير (من سجل Meta) مش هنا لسه
+async function snapUrgent(account: string, name: string, tz: string, cur: string | null, cands: any[], target: Target, sens: Sens): Promise<{ urgent: any[]; alive: Record<string, boolean>; failed: Failed }> {
+  const ua = analyzeUrgent('snapchat:' + account, { label: 'Snapchat — ' + name, currency: cur, timeZone: tz, metaAccountStatus: null, spendCapReached: false,
+    spendCap: 0, amountSpent: 0 }, cands, target, sens);
+  const failed: Failed = { site: false, edits: false, links: false };
+  let links: any[] = [];
+  try { links = g.PauseProofAlerts.linkAlerts(await brokenLinks(cands)); } catch (e) {
+    failed.links = true;
+    console.error('extra alerts links', String((e as Error).message || e).slice(0, 160));
+  }
+  return { urgent: ua.urgent.concat(links), alive: ua.alive, failed };
+}
+// «التكلفة مقابل الحد الذي حددته» زي الأداة (ui.js costLines: costAds + periodOf) — إعلانات الحساب بأرقام فترة الملخص
+function snapCostLine(cands: any[], sens: Sens, since: string, until: string): string | null {
+  if (!sens || typeof g.DX.costVsMax !== 'function') return null;
+  const s = g.PauseProofAlerts.mergeSettings(sens);
+  if (!s.maxCost || !Object.keys(s.maxCost).length) return null;
+  const ads = cands.filter((c: any) => c.results != null && c.resultKey !== 'reach').map((c: any) => {
+    const p = g.periodOf(c);
+    return { resultKey: c.resultKey, campaignId: c.campaignId, currency: c.currency, spend: p.spend || 0, results: p.results };
+  });
+  return g.DX.costVsMax(ads, s, g.fmtRange(since, until));
+}
+// التقرير (DX) زي loadSnapchatDiagnosis في الأداة + سطر المقارنة برقم Snapchat وسطر التكلفة من إعلانات الفترة. لو إعلانات الفترة فشلت
+// السطرين بيتشالوا والملخص بيكمّل. التعديلات ونتيجتها (Meta بس لحد دلوقتي) مش هنا
+async function snapSummary(ctx: SnapCtx, tz: string, cur: string | null, since: string, until: string, target: Target, sens: Sens): Promise<{ composed: any; actions: any }> {
+  const ws = g.DX.windows(since, until);
+  const d = await snapCall(ctx, { action: 'diagnosis', adAccountId: ctx.account, clientTz: tz, daily: { since: ws[ws.length - 1].since, until },
+    windows: ws.slice(0, 3).map((w: any) => ({ since: w.since, until: w.until })) });
+  if (!d.ok || !d.data) throw new Error('snapchat diagnosis ' + (d.auth ? 'auth' : 'failed'));
+  // تقييمات «هل كان التشخيص صحيحاً؟» لـ Snapchat على الجهاز بس (ui.js syncableView: Meta بس بتتحفظ عندنا)
+  const input = { since, until, currency: cur, timezone: tz, daily: d.data.daily || [], dims: d.data.dims || [], feedback: [] };
+  const composed = g.DX.compose(g.DX.analyze(input), { mail: true, target });
+  composed.platCmp = null;
+  composed.costCmp = null;
+  try {
+    const p = await snapCandidates(ctx, tz, { preset: 'custom', since, until }, true);
+    if (p.cands) {
+      composed.platCmp = g.DX.platCompare(input, 'snapchat', p.cands);
+      composed.costCmp = snapCostLine(p.cands, sens, since, until);
+    }
+  } catch (e) {
+    console.error('summary snapchat lines failed', String((e as Error).message || e).slice(0, 200));
+  }
+  return { composed, actions: null };
+}
+async function checkSnapAccount(s: Settings, a: DAcct, us: Record<string, unknown> | null, o: CheckOpts): Promise<AcctResult> {
+  const user = s.user_id, account = a.account_id, en = s.lang === 'en';
+  const res = blankResult('snapchat', account, a.name || account);
+  const rows = await rpc('vault_sealed_get', { p_user: user, p_platform: 'snapchat', p_account: account });
+  const t = Array.isArray(rows) && rows[0] ? rows[0] : null;
+  const marks = await marksOf(user, 'snapchat', account);
+  // مفيش نسخة، أو عدّى ٦٠ يوم من آخر مرة المستخدم فتح الحساب في الأداة = نفس «الوصول ضاع» (افتح الأداة على الحساب)
+  if (!t || !(Date.parse(t.expires_at) > Date.now())) return await lostAccess(s, res, marks, o);
+  let sealed = '';
+  try { sealed = await unseal(t.ciphertext, t.iv, sealedAad(user, 'snapchat', account)); } catch (_) {
+    await rpc('vault_sealed_mark_error', { p_user: user, p_platform: 'snapchat', p_account: account, p_error: 'decrypt failed' });
+    res.outcome = 'decrypt-failed';
+    return res;
+  }
+  const ctx: SnapCtx = { user, account, sealed };
+  const week = await snapCandidates(ctx, s.timezone || 'UTC', { preset: 'last7' });
+  if (week.auth) {
+    await rpc('vault_sealed_mark_error', { p_user: user, p_platform: 'snapchat', p_account: account, p_error: 'snapchat rejected stored access' });
+    return await lostAccess(s, res, marks, o);
+  }
+  if (!week.cands) { res.outcome = 'snap-retry'; return res; }
+  const info = week.account || {}, tz = info.timezone || s.timezone || 'UTC', cur = info.currency || null, cands = week.cands;
+  const keep = await accessMarks(s, res, marks, t.expires_at, tz, o);
+  // إعدادات المستخدم لحساب Snapchat ده — نفس اللي الأداة بتحكم بيه
+  const eff = effectiveFor(us, 'snapchat', cur);
+  const sentRows: Mark[] = [];
+  if (o.doUrgent) {
+    await snapEdits(ctx, cands, tz);
+    urgentPass(res, await snapUrgent(account, res.name, tz, cur, cands, eff.target, eff.sens), marks, keep, sentRows);
+  }
+  res.keep = keep;
+  res.sentRows = sentRows;
+  await summarySections(res, marks, cands, tz, en, eff.target, o, (since, until) => snapSummary(ctx, tz, cur, since, until, eff.target, eff.sens));
+  res.outcome = 'ok';
+  return res;
+}
+
 async function processUser(s: Settings, accts: DAcct[], deadline: number): Promise<string> {
   const user = s.user_id, en = s.lang === 'en', tz = s.timezone || 'UTC';
   const hour = hourIn(tz);
   const night = hour >= QUIET_FROM || hour < QUIET_UNTIL;
   const due = summaryDue(s), monthly = monthlyDue(s);
-  // المرحلة ١ من الملخص لكل مستخدم: حسابات Meta (Snapchat وGoogle في المرحلتين الجاية)
-  const meta = accts.filter((a) => a.platform === 'meta');
+  const key = (platform: string, account: string) => platform + ':' + account;
+  const mine = accts.filter((a) => RUN_PLATFORMS[a.platform]);
   // بالليل التنبيهات العاجلة بتستنى الصبح، بس الملخص بيتبعت في الساعة اللي العميل اختارها حتى لو بدري
   const urgentNow: Record<string, boolean> = {};
-  if (!night) meta.forEach((a) => { if (urgentDueFor(a)) urgentNow[a.account_id] = true; });
-  const work = due || monthly ? meta : meta.filter((a) => urgentNow[a.account_id]);
+  if (!night) mine.forEach((a) => { if (urgentDueFor(a)) urgentNow[key(a.platform, a.account_id)] = true; });
+  const work = due || monthly ? mine : mine.filter((a) => urgentNow[key(a.platform, a.account_id)]);
   if (!work.length) return night ? 'quiet' : 'skip';
 
   g.I18N.setLang(en ? 'en' : 'ar');
@@ -948,10 +1138,10 @@ async function processUser(s: Settings, accts: DAcct[], deadline: number): Promi
   for (const a of work) {
     if (Date.now() > deadline) break;
     try {
-      results.push(await checkUserAccount(s, a, us, { doUrgent: !!urgentNow[a.account_id], due, monthly, stop }));
+      results.push(await checkUserAccount(s, a, us, { doUrgent: !!urgentNow[key(a.platform, a.account_id)], due, monthly, stop }));
     } catch (e) {
       console.error('runner account failed', String((e as Error).message || e).slice(0, 200));
-      results.push({ account: a.account_id, name: a.account_id, outcome: 'error', section: null, keep: [], sentRows: [], summary: null, monthly: null });
+      results.push(blankResult(a.platform, a.account_id, a.name || a.account_id));
     }
   }
   const complete = results.length === work.length;
@@ -966,15 +1156,15 @@ async function processUser(s: Settings, accts: DAcct[], deadline: number): Promi
     outcome += sent ? (anyFresh ? '+sent' : '+reminded') : '+send-failed';
   }
   for (const r of results) {
-    await saveMarks(user, r.account, sent ? r.keep.concat(r.sentRows) : r.keep);
+    await saveMarks(user, r.platform, r.account, sent ? r.keep.concat(r.sentRows) : r.keep);
     // عطل أو فحص تم: الفحص الجاي بعد ساعة مش بعد ١٠ دقايق
-    if (urgentNow[r.account] || r.outcome !== 'ok') await markChecked(user, r.account);
+    if (urgentNow[key(r.platform, r.account)] || r.outcome !== 'ok') await markChecked(user, r.platform, r.account);
   }
 
   // الملخص والشهري: بعد ما كل الحسابات تتقري. عطل مؤقت في حساب = التشغيل الجاي، وبعد ٣ ساعات من الميعاد بالحسابات اللي اتقرت
   const late = hourIn(tz) >= (s.summary_hour == null ? 9 : s.summary_hour) + SUMMARY_PARTIAL_AFTER_H;
-  const retrying = results.some((r) => r.outcome === 'meta-retry' || r.outcome === 'error');
-  const missing = results.filter((r) => r.outcome === 'lost' || r.outcome === 'decrypt-failed' || (late && (r.outcome === 'meta-retry' || r.outcome === 'error'))).map((r) => r.name);
+  const retrying = results.some((r) => RETRY_OUTCOMES[r.outcome]);
+  const missing = results.filter((r) => r.outcome === 'lost' || r.outcome === 'decrypt-failed' || (late && RETRY_OUTCOMES[r.outcome])).map((r) => r.name);
   const ready = complete && (!retrying || late);
   for (const kind of ['summary', 'monthly'] as const) {
     const win = kind === 'summary' ? due : monthly;
@@ -992,8 +1182,9 @@ async function processUser(s: Settings, accts: DAcct[], deadline: number): Promi
 }
 
 // ---------- نقاط الدخول ----------
-export async function runAll(): Promise<Record<string, unknown>> {
+export async function runAll(key = ''): Promise<Record<string, unknown>> {
   const started = Date.now();
+  runnerKey = key;
   runUsage = freshUsage();
   RUN_CANDS.clear();
   // تذكير طلبات الانضمام المتأخرة (join.ts) — قبل المحرك، عشان لو GitHub وقع التذكير ميتأخرش
@@ -1003,9 +1194,9 @@ export async function runAll(): Promise<Record<string, unknown>> {
   if (outdated.length) await rpc('beat', { p_source: 'runner-engine-outdated' }).catch(() => {});
   const r = await db('user_digests?select=user_id,email,lang,timezone,summary_days,summary_hour,last_summary_until,last_monthly&enabled=is.true&limit=500', { method: 'GET' });
   const all = (await r.json()) as Settings[];
-  const ra = await db('user_digest_accounts?select=user_id,platform,account_id,checked_at&limit=5000', { method: 'GET' });
+  const ra = await db('user_digest_accounts?select=user_id,platform,account_id,name,checked_at&limit=5000', { method: 'GET' });
   const byUser: Record<string, DAcct[]> = {};
-  ((await ra.json()) as DAcct[]).forEach((a) => { (byUser[a.user_id] = byUser[a.user_id] || []).push(a); });
+  ((await ra.json()) as DAcct[]).forEach((a) => { if (RUN_PLATFORMS[a.platform]) (byUser[a.user_id] = byUser[a.user_id] || []).push(a); });
   // الملخصات اللي ميعادها جه الأول، وبعدها الفحص العاجل الأقدم — واللي مفيش عليه حاجة بيتخطّى من غير أي طلب
   const mailDue = (s: Settings) => (summaryDue(s) || monthlyDue(s) ? 1 : 0);
   const oldest = (s: Settings) => Math.min(...(byUser[s.user_id] || []).map((a) => (a.checked_at ? Date.parse(a.checked_at) : 0)), Date.now());
@@ -1023,7 +1214,7 @@ export async function runAll(): Promise<Record<string, unknown>> {
     } catch (e) {
       // النوع والرسالة بس — من غير أي بيانات حساب. ومنعيدوش كل ١٠ دقايق لحد الساعة الجاية
       console.error('runner user failed', String((e as Error).message || e).slice(0, 200));
-      for (const a of byUser[s.user_id] || []) if (urgentDueFor(a)) await markChecked(s.user_id, a.account_id);
+      for (const a of byUser[s.user_id] || []) if (urgentDueFor(a)) await markChecked(s.user_id, a.platform, a.account_id);
     }
     outcomes[out] = (outcomes[out] || 0) + 1;
   }
@@ -1031,8 +1222,8 @@ export async function runAll(): Promise<Record<string, unknown>> {
   // meta = مستوى الوصول وأعلى استهلاك لحدود Meta في التشغيل ده (من غير أي بيانات حساب)
   return { users: all.length, due: list.length, outcomes, engineOutdated: outdated, joinReminded, meta: runUsage };
 }
-async function markChecked(user: string, account: string): Promise<void> {
-  await db('user_digest_accounts?user_id=eq.' + user + '&platform=eq.meta&account_id=eq.' + account, {
+async function markChecked(user: string, platform: string, account: string): Promise<void> {
+  await db('user_digest_accounts?user_id=eq.' + user + '&platform=eq.' + platform + '&account_id=eq.' + encodeURIComponent(account), {
     method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ checked_at: new Date().toISOString() })
   }).catch(() => {});
 }
@@ -1060,8 +1251,8 @@ export async function previewSummary(token: string, accountId: string, lang: str
       const cands = (await loadCandidates(accountId, acct)) || [];
       const eff = effectiveFor(user ? await userSettingsOf(user) : null, 'meta', acct.currency || null);
       const sum = await buildSummary(user, accountId, acct, win.since, win.until, eff.target, cands, eff.sens);
-      const alerts = alertStatusHtml(user ? await marksOf(user, accountId) : {}, cands, win.since, tz, en, eff.target);
-      const mail = summaryMail([{ account: accountId, name: acct.name || accountId, sum, alerts }], win.since, win.until, s, en, await stopUrl(user), monthly);
+      const alerts = alertStatusHtml(user ? await marksOf(user, 'meta', accountId) : {}, cands, win.since, tz, en, eff.target);
+      const mail = summaryMail([{ platform: 'meta', account: accountId, name: acct.name || accountId, sum, alerts }], win.since, win.until, s, en, await stopUrl(user), monthly);
       return { engineCommit: ENGINE_COMMIT, engineOutdated: outdated, metaUsage: usage, since: win.since, until: win.until, subject: mail.subject, html: mail.html, text: mail.text };
     } finally {
       metaToken = '';
@@ -1086,7 +1277,7 @@ export async function preview(token: string, accountId: string, lang: string, us
       // المعاينة: التعديلات الكبيرة من آخر ٢٤ ساعة (عشان تبان أمثلة)
       const eff = effectiveFor(user ? await userSettingsOf(user) : null, 'meta', acct.currency || null);
       const urgent = (await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, eff.target, eff.sens)).urgent;
-      const mail = urgentMail([{ account: accountId, name: acct.name || accountId, fresh: urgent, remind: [] }], acct.timezone_name || 'UTC', en, await stopUrl(user));
+      const mail = urgentMail([{ platform: 'meta', account: accountId, name: acct.name || accountId, fresh: urgent, remind: [] }], acct.timezone_name || 'UTC', en, await stopUrl(user));
       return {
         engineCommit: ENGINE_COMMIT, engineOutdated: outdated, metaUsage: usage, ads: cands.length,
         urgent: urgent.map((a: any) => ({ code: a.code || null, adId: a.adId || null, objectId: a.objectId || null, title: a.title, detail: a.detail })),

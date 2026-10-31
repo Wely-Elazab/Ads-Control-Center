@@ -133,7 +133,8 @@ Deno.serve(async (req: Request) => {
     if (action === 'run') {
       const key = req.headers.get('x-runner-key') || '';
       if (!(await rpc('runner_key_ok', { p_key: key }))) return reply(403, { error: 'key' }, origin);
-      const job = runAll().then((r) => console.log('runner', JSON.stringify(r)))
+      // المفتاح نفسه بيروح للـ Worker مع طلبات Snapchat (runner.ts snapCall ← Live/api/digest-fetch.js)
+      const job = runAll(key).then((r) => console.log('runner', JSON.stringify(r)))
         .catch((e) => console.error('runner failed', String(e && (e as Error).message || e).slice(0, 200)));
       if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime) { EdgeRuntime.waitUntil(job); return reply(202, { accepted: true }, origin); }
       await job;

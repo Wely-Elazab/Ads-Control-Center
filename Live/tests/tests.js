@@ -4583,6 +4583,75 @@
       });
     });
 
+    // الملخص التلقائي لكل المنصات (٣١ أكتوبر ٢٠٢٦): المُشغّل معاه نسخة المستخدم المقفولة ومبيقدرش يفتحها — بيبعتها للـ Worker بمفتاحه
+    testAsync('المُشغّل: /api/digest-fetch بمفتاح المُشغّل بس، والنسخة بتتفتح لصاحبها بس، ومفتاح الجلسة ومفتاح التجديد مبيطلعوش', function () {
+      var w, env = { SNAPCHAT_CLIENT_ID: 'id', SNAPCHAT_CLIENT_SECRET: 'secret' }, KEY = new Array(65).join('k');
+      var A = '11111111-2222-3333-4444-555555555555', B = '99999999-8888-7777-6666-555555555555';
+      var keyChecks = 0, auth = [], sealedA;
+      var call = { action: 'daily', adAccountId: 'acc-1', adIds: ['ad-1'], since: '2026-10-20', until: '2026-10-26' };
+      return withPlatform(function (u, p) {
+        if (p.refresh_token === 'ref-1') return { body: { access_token: 'acc-9', expires_in: 3600 } };
+        return { status: 400, body: { error: 'invalid_grant' } };
+      }, function (sent) {
+        var platformFetch = window.fetch;
+        var reply = function (obj) { return Promise.resolve(new Response(JSON.stringify(obj), { status: 200, headers: { 'Content-Type': 'application/json' } })); };
+        window.fetch = function (url, opts) {
+          var u = String(url);
+          if (u.indexOf('/rest/v1/rpc/runner_key_check') > -1) { keyChecks++; return reply(JSON.parse(opts.body).p_key === KEY); }
+          if (u.indexOf('adsapi.snapchat.com') > -1) {
+            auth.push(opts && opts.headers && opts.headers.Authorization);
+            return reply(/\/stats\?/.test(u) ? { request_status: 'SUCCESS', timeseries_stats: [] } : { adaccounts: [{ adaccount: { id: 'acc-1', timezone: 'Asia/Riyadh' } }] });
+          }
+          return platformFetch.apply(this, arguments);
+        };
+        var runner = function (body, key, method) {
+          var h = { 'Content-Type': 'application/json' };
+          if (key) h['x-runner-key'] = key;
+          return w.default.fetch(new Request(location.origin + '/api/digest-fetch', { method: method || 'POST', headers: h, body: method === 'GET' ? undefined : JSON.stringify(body) }),
+            Object.assign({ ASSETS: { fetch: function (req) { return fetch(new URL(req.url).pathname); } } }, env)).then(json);
+        };
+        return import('/api/_seal.js').then(function (s) {
+          return s.sealToken('snapchat', 'secret', 'ref-1', undefined, A);
+        }).then(function (sl) {
+          sealedA = sl;
+          return worker();
+        }).then(function (m) {
+          w = m;
+          eq(Object.keys(w.RUNNER_HANDLERS), ['digest-fetch']);
+          ok(!('digest-fetch' in w.HANDLERS), 'not reachable with a tool sign-in either');
+          return runner({ platform: 'snapchat', user: A, sealed: sealedA, call: call }, null);
+        }).then(function (r) {
+          eq([r.status, r.data.code, keyChecks, sent.length], [403, 'RUNNER', 0, 0], 'no runner key: refused before anything');
+          return runner({ platform: 'snapchat', user: A, sealed: sealedA, call: call }, new Array(65).join('x'));
+        }).then(function (r) {
+          eq([r.status, keyChecks, sent.length], [403, 1, 0], 'a wrong key: the database says no');
+          return runner({}, KEY, 'GET');
+        }).then(function (r) {
+          eq(r.status, 405, 'POST only');
+          return runner({ platform: 'snapchat', user: B, sealed: sealedA, call: call }, KEY);
+        }).then(function (r) {
+          eq([r.status, r.data.code, sent.length], [401, 'AUTH', 0], 'another user\'s copy does not open');
+          return runner({ platform: 'snapchat', user: A, sealed: sealedA, call: { action: 'accounts' } }, KEY);
+        }).then(function (r) {
+          eq(r.status, 400, 'only the requests the runner needs');
+          return runner({ platform: 'snapchat', user: A, sealed: sealedA, call: call }, KEY);
+        }).then(function (r) {
+          eq([r.status, r.data.status], [200, 200]);
+          eq(r.data.data, { spend: {} }, 'the same reply as the tool\'s own request');
+          eq([sent.length, sent[0].params.grant_type, sent[0].params.refresh_token], [1, 'refresh_token', 'ref-1']);
+          ok(auth.length === 2 && auth.every(function (a) { return a === 'Bearer acc-9'; }), 'the fresh session is used for Snapchat');
+          ok(JSON.stringify(r.data).indexOf('acc-9') < 0 && JSON.stringify(r.data).indexOf('ref-1') < 0, 'neither the session nor the refresh token leaves the worker');
+          ok(/^v2\./.test(r.data.sealed) && r.data.sealed !== sealedA, 'a fresh copy for the server');
+          eq(keyChecks, 2, 'the right key is remembered for a few minutes');
+          return import('/api/_seal.js').then(function (s) { return s.sealToken('snapchat', 'secret', 'ref-revoked', undefined, A); });
+        }).then(function (revoked) {
+          return runner({ platform: 'snapchat', user: A, sealed: revoked, call: call }, KEY);
+        }).then(function (r) {
+          eq([r.status, r.data.code], [401, 'AUTH'], 'Snapchat rejected the refresh token = connect again');
+        }).then(function () { window.fetch = platformFetch; }, function (e) { window.fetch = platformFetch; throw e; });
+      });
+    });
+
     testAsync('Google: الطريقة الجديدة بتشتغل بس لما السر موجود، ودخول من غير صلاحية Google Ads مرفوض، و«فصل» بيلغي الصلاحية عند Google', function () {
       var w, env = { GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret' }, sealed;
       var ADS = 'https://www.googleapis.com/auth/adwords';
@@ -7168,7 +7237,33 @@
       var text = withLang('ar', function () { return DX.toText({ period: 'p', title: 'T', tone: 'bad', kpis: [], blocks: [], notes: [], platCmp: line }, 'Acc'); });
       ok(text.indexOf(line) > -1, text);
       eq(DX.platCompare({ since: '2026-10-04', until: '2026-10-04', daily: [{ date: '2026-10-04', spend: 1, pur: 1, rev: 1, ppur: null }] }, 'meta'), null, 'a day without a platform number');
-      eq(DX.platCompare(inp, 'snapchat'), null, 'Meta only (others come from the ads)');
+      eq(DX.platCompare(inp, 'snapchat'), null, 'other platforms need their ads');
+    });
+    // ٣١ أكتوبر: سطر Snapchat اتنقل من ui.js للمحرك عشان ملخص Snapchat بالبريد يقوله (runner.ts snapSummary)
+    test('سطر المقارنة لـ Snapchat من إعلانات الفترة: نفس الكلام في الأداة والمحرك، وإعلان من غير رقم منصة = من غير سطر', function () {
+      var inp = { since: '2026-10-04', until: '2026-10-05', currency: 'SAR', daily: [{ date: '2026-10-03', spend: 50 }, { date: '2026-10-04', spend: 100 }, { date: '2026-10-05', spend: 100 }] };
+      var ad = function (id, pur, platPur) {
+        var p = buildPeriod(100, pur, pur * 200);
+        p.plat = { results: platPur, sales: platPur * 200 };
+        return { id: id, source: 'snapchat:s1', platform: 'Snapchat', resultKey: 'purchase', period: p };
+      };
+      var cands = [ad('a', 2, 6), ad('b', 1, 2), { id: 'c', source: 'snapchat:s1', platform: 'Snapchat', resultKey: 'link_click', period: buildPeriod(10, 5, 0) }];
+      var line = withLang('ar', function () { return DX.platCompare(inp, 'snapchat', cands); });
+      ok(line && /تنسب Snapchat لهذه الفترة ٨ طلبات بمبيعات ١٬٦٠٠ ر\.س \(عائد ×٨\)/.test(line), line || 'no line');
+      var saved = { src: dxState.sources.snapchat, cands: candidates.slice() };
+      try {
+        dxState.sources.snapchat = { input: inp };
+        candidates.length = 0;
+        cands.forEach(function (c) { candidates.push(c); });
+        eq(withLang('ar', function () { return platCompare(['snapchat']); }).text, line, 'the tool shows the engine line');
+      } finally {
+        dxState.sources.snapchat = saved.src;
+        candidates.length = 0;
+        saved.cands.forEach(function (c) { candidates.push(c); });
+      }
+      cands[1].period.plat = null;
+      eq(DX.platCompare(inp, 'snapchat', cands), null, 'an ad without a platform number = no line');
+      eq(DX.platCompare(inp, 'snapchat', [ad('a', 3, 3)]), null, 'the platform does not attribute more = no line');
     });
     // حساب حقيقي ١٨ أكتوبر: «رُفعت ميزانية المجموعة أمس من ١٠ لـ ٢٠ $، ونحتاج ٣ أيام كاملة» وجنبه فرصة «زيادة الميزانية» من أيام قبل التعديل
     test('تعديل حديث: فرصة «زيادة الميزانية» بتفضل فرصة بس اقتراحها «انتظر أثر التعديل»، والحكم زي ما هو ومعاه الوسم', function () {
@@ -7625,7 +7720,7 @@
       }, function () {
         return openPanel().then(function () {
           withLang('ar', function () {
-            ok(panel().textContent.indexOf(t('dx.auto.problem')) > -1, 'problem shown');
+            ok(panel().textContent.indexOf(t('dx.auto.problem', { platform: 'Meta' })) > -1, 'problem shown, naming the platform');
             ok(panel().textContent.indexOf(t('dx.auto.acctProblem')) > -1, 'and marked on the account in the list');
           });
         });
@@ -7690,6 +7785,86 @@
         return openPanel().then(function () {
           ok(!panel().querySelector('[data-digest-add]'), 'no add button');
           withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.full', { max: ar(5) })) > -1, 'says the limit'); });
+        });
+      });
+    });
+    // المرحلة ٢ (٣١ أكتوبر ٢٠٢٦ — «واجعل الملخص لكل المنصات»): حساب Snapchat بنسخته المقفولة اللي على الجهاز (core.js sealedFor)
+    var SNAP_ACC = 'cd3b3bfe-4361-484c-9985-51c2d1264860', SNAP_SEALED = 'v2.' + new Array(17).join('A') + '.' + new Array(41).join('B');
+    var withSnap = function (fn) {
+      var saved = { snap: activeSources.snapchat, opts: platformOptions.snapchat, tz: valueTzOf['snapchat:' + SNAP_ACC], sealed: sealedFor('snapchat') };
+      activeSources.snapchat = SNAP_ACC;
+      platformOptions.snapchat = [{ value: SNAP_ACC, label: 'Snapchat — Snap store' }];
+      valueTzOf['snapchat:' + SNAP_ACC] = 'Asia/Dubai';
+      keepSealed('snapchat', SNAP_SEALED);
+      var restore = function () {
+        if (saved.snap == null) delete activeSources.snapchat; else activeSources.snapchat = saved.snap;
+        if (saved.opts === undefined) delete platformOptions.snapchat; else platformOptions.snapchat = saved.opts;
+        if (saved.tz === undefined) delete valueTzOf['snapchat:' + SNAP_ACC]; else valueTzOf['snapchat:' + SNAP_ACC] = saved.tz;
+        keepSealed('snapchat', saved.sealed);
+      };
+      return Promise.resolve().then(fn).then(function (v) { restore(); return v; }, function (e) { restore(); throw e; });
+    };
+    testAsync('ملخص بحساب Snapchat من غير Meta: التفعيل بالنسخة المقفولة واسم الحساب وتوقيته، وتجديدها لما يتفتح، و«فصل» Snapchat', function () {
+      var state = { settings: null, accounts: [] };
+      return withDigest(function (b) {
+        if (b.action === 'digest.enable') state = { settings: ON, accounts: [{ platform: 'snapchat', accountId: SNAP_ACC, name: 'Snap store', tokenExpiresAt: '2026-12-30T00:00:00Z' }] };
+        return ok200(Object.assign({ ok: true, enabled: true }, state));
+      }, function (calls) {
+        return withSnap(function () {
+          delete activeSources.meta;   // Snapchat بس (withDigest بيرجّعه)
+          return openPanel().then(function () {
+            eq([calls[0].action, calls[0].platform, calls[0].accountId], ['digest.get', 'snapchat', SNAP_ACC], 'asks about the open Snapchat account');
+            ok(panel().querySelector('#dxAutoEmail'), 'the form: a Snapchat account can start a summary');
+            withLang('ar', function () { ok(panel().textContent.indexOf(t('dx.auto.intro', { name: 'Snap store' })) > -1, 'names the Snapchat account'); });
+            panel().querySelector('#dxAutoEmail').value = 'a@store.com';
+            panel().querySelector('#dxAutoConsent').checked = true;
+            panel().querySelector('[data-digest-save]').click();
+            return tick2();
+          }).then(function () {
+            var c = calls[calls.length - 1];
+            eq([c.action, c.platform, c.accountId, c.sealed, c.name, c.timezone, 'token' in c], ['digest.enable', 'snapchat', SNAP_ACC, SNAP_SEALED, 'Snap store', 'Asia/Dubai', false],
+              'the sealed copy from the device, the account name and its time zone — no Meta token');
+            ok(panel().querySelector('.dx-auto-accts') && panel().textContent.indexOf('Snap store') > -1, 'listed in the summary');
+            // فتح الحساب بيجدد نسخته على الخادم (مرة في الجلسة)
+            var before = calls.length;
+            digestAutoRefresh(SNAP_ACC, 'snapchat'); digestAutoRefresh(SNAP_ACC, 'snapchat');
+            eq(calls.length - before, 1, 'once per session');
+            var r = calls[calls.length - 1];
+            eq([r.action, r.platform, r.accountId, r.sealed], ['digest.refresh', 'snapchat', SNAP_ACC, SNAP_SEALED]);
+            // «فصل» Snapchat: حساباتها بتخرج من الملخص وصلاحياتها بتتمسح
+            var n = calls.length;
+            disconnectPlatform('snapchat', true);
+            eq(calls.slice(n).filter(function (x) { return x && x.action === 'digest.disconnect'; }), [{ action: 'digest.disconnect', platform: 'snapchat' }]);
+          });
+        });
+      });
+    });
+    testAsync('الملخص مفعّل بحساب Meta وحساب Snapchat مفتوح مش فيه: زرار إضافته بنسخته المقفولة، ومن غير نسخة مفيش زرار', function () {
+      var accounts = [{ platform: 'meta', accountId: 'act_1', name: 'Store', tokenExpiresAt: '2026-11-27T20:42:24Z' }];
+      return withDigest(function (b) {
+        if (b.action === 'digest.add') accounts = accounts.concat([{ platform: b.platform || 'meta', accountId: b.accountId, name: b.name, tokenExpiresAt: '2026-12-30T00:00:00Z' }]);
+        return ok200({ ok: true, settings: ON, accounts: accounts, current: { accountId: 'act_1', included: true, tokenWorks: true } });
+      }, function (calls) {
+        return withSnap(function () {
+          return openPanel().then(function () {
+            ok(!panel().querySelector('[data-digest-add="meta"]'), 'the Meta account is already in it');
+            var add = panel().querySelector('[data-digest-add="snapchat"]');
+            ok(add, 'offered to add the open Snapchat account');
+            withLang('ar', function () { eq(add.textContent, t('dx.auto.add', { name: 'Snap store' })); });
+            add.click();
+            return tick2();
+          }).then(function () {
+            var c = calls[calls.length - 1];
+            eq([c.action, c.platform, c.accountId, c.sealed, 'token' in c], ['digest.add', 'snapchat', SNAP_ACC, SNAP_SEALED, false]);
+            ok(!panel().querySelector('[data-digest-add]') && panel().querySelectorAll('.dx-auto-accts li').length === 2, 'both listed, nothing left to add');
+            // من غير النسخة المقفولة (اتمسحت أو الربط قديم) مفيش إثبات — مفيش زرار
+            accounts = accounts.slice(0, 1);
+            keepSealed('snapchat', null);
+            digestUi = digestFresh();
+            return openPanel();
+          }).then(function () {
+            ok(!panel().querySelector('[data-digest-add="snapchat"]'), 'no sealed copy on the device = no add button');
+          });
         });
       });
     });
@@ -8502,9 +8677,9 @@
         ok(went[1] && went[1][0].indexOf('/login?next=') === 0 && went[1][1] === true, 'expired session: ' + JSON.stringify(went[1]));
       }, function (e) { restore(); throw e; });
     });
-    // المُشغّل في Supabase (runner.ts) بيحمّل ٥ ملفات بس من الأداة (ENGINE_FILES) وبيستخدم أسماءها العامة (g.اسم).
-    // تغيير اسم دالة في core.js مثلاً كان بيكسر البريد من غير ما أي اختبار هنا يفشل (المرحلة ٢، ب٣)
-    testAsync('عقد المُشغّل: الملفات الخمسة اللي بيحمّلها runner.ts لوحدها فيها كل اسم بيستخدمه', function () {
+    // المُشغّل في Supabase (runner.ts) بيحمّل ملفات المحرك بس من الأداة (ENGINE_FILES — snapchat.js اتضاف ٣١ أكتوبر للملخص لكل المنصات)
+    // وبيستخدم أسماءها العامة (g.اسم). تغيير اسم دالة في core.js مثلاً كان بيكسر البريد من غير ما أي اختبار هنا يفشل (المرحلة ٢، ب٣)
+    testAsync('عقد المُشغّل: ملفات المحرك اللي بيحمّلها runner.ts لوحدها فيها كل اسم بيستخدمه', function () {
       return fetch('/__repo/supabase/functions/sync/runner.ts').then(function (r) {
         if (!r.ok) throw new Error('runner.ts is not served (' + r.status + ') — run the tests with Live/tests/serve.ps1');
         return r.text();
@@ -8515,7 +8690,7 @@
         var names = {};
         src.replace(/\bg\.([A-Za-z_$][\w$]*)/g, function (_, n) { if (own.indexOf(n) < 0) names[n] = 1; });
         ok(Object.keys(names).length >= 20, 'found the names (' + Object.keys(names).length + ')');
-        // إطار فاضي من غير صفحة الأداة، والملفات الخمسة بس بنفس الترتيب — زي المُشغّل بالظبط
+        // إطار فاضي من غير صفحة الأداة، وملفات المحرك بس بنفس الترتيب — زي المُشغّل بالظبط
         var f = document.createElement('iframe');
         f.style.display = 'none';
         document.body.appendChild(f);
@@ -8534,7 +8709,7 @@
         return files.reduce(function (p, file) { return p.then(function () { return load(file); }); }, Promise.resolve()).then(function () {
           var missing = Object.keys(names).filter(function (n) { return typeof w[n] === 'undefined'; });
           f.remove();
-          eq(files, ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js'], 'engine files');
+          eq(files, ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js', 'snapchat.js'], 'engine files');
           eq(missing, [], 'names runner.ts uses that the engine files do not define');
         }, function (e) { f.remove(); throw e; });
       });

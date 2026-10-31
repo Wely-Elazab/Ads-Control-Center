@@ -36,7 +36,7 @@ jobs:
       - name: Engine pin matches the engine files
         run: |
           pin=$(grep -oE "ENGINE_COMMIT = '[0-9a-f]{40}'" supabase/functions/sync/runner.ts | grep -oE '[0-9a-f]{40}')
-          files="Live/js/i18n.js Live/js/alerts.js Live/js/core.js Live/js/diagnosis.js Live/js/meta.js"
+          files="Live/js/i18n.js Live/js/alerts.js Live/js/core.js Live/js/diagnosis.js Live/js/meta.js Live/js/snapchat.js"
           if ! git diff --quiet "$pin" HEAD -- $files; then
             echo "::error file=supabase/functions/sync/runner.ts::ENGINE_COMMIT ($pin) is older than the engine files. Pin the latest engine commit and redeploy sync."
             git diff --stat "$pin" HEAD -- $files

@@ -2196,15 +2196,25 @@ var DX = (function () {
   // (runner.ts). من صفوف الملخص نفسها: ppur/prev = رقم المنصة لكل يوم (meta.js) — مجموع الإعلانات بيزيد لأن Meta بتشيل التكرار بينها.
   // null = يوم من غير رقم منصة، أو المنصة مش بتنسب أكتر. (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦: البريد كان بيقول «٥ طلبات» من غير السطر،
   // ومدير الإعلانات بيقول ١٦ — فاللي بيقارن بيفتكر رقمنا غلط)
-  function platCompare(input, platform) {
-    if (!input || platform !== 'meta') return null;
+  // غير Meta (Snapchat وغيرها): مجموع رقم المنصة لإعلانات الشراء في الفترة — cands = إعلانات الحساب بأرقام الفترة (core.js periodOf/platOf)،
+  // وكلها لازم يبقى ليها رقم منصة. اتنقل هنا من ui.js (٣١ أكتوبر ٢٠٢٦) عشان ملخص Snapchat بالبريد يقول نفس السطر (runner.ts snapSummary)
+  function platCompare(input, platform, cands) {
+    if (!input) return null;
     var plat = { pur: 0, rev: 0 }, spend = 0, store = 0, ok = true;
-    (input.daily || []).forEach(function (r) {
-      if (!r || !(r.date >= input.since && r.date <= input.until)) return;
-      spend += r.spend || 0;
-      if (r.ppur == null) ok = false;
-      plat.pur += r.ppur || 0; plat.rev += r.prev || 0; store += r.pur || 0;
-    });
+    if (platform === 'meta') {
+      (input.daily || []).forEach(function (r) {
+        if (!r || !(r.date >= input.since && r.date <= input.until)) return;
+        spend += r.spend || 0;
+        if (r.ppur == null) ok = false;
+        plat.pur += r.ppur || 0; plat.rev += r.prev || 0; store += r.pur || 0;
+      });
+    } else {
+      if (!cands) return null;
+      (input.daily || []).forEach(function (r) { if (r && r.date >= input.since && r.date <= input.until) spend += r.spend || 0; });
+      var src = cands.filter(function (c) { return c.resultKey === 'purchase'; });
+      ok = src.length > 0 && src.every(function (c) { return !!platOf(c); });
+      src.forEach(function (c) { var pp = platOf(c); if (pp) { plat.pur += pp.results || 0; plat.rev += pp.sales || 0; store += periodOf(c).results || 0; } });
+    }
     if (!ok || !(Math.round(plat.pur) > Math.round(store))) return null;
     return t('dx.platCmp', { plat: t('dx.plat.' + platform), orders: ordersText(Math.round(plat.pur)), sales: money(plat.rev, input.currency || null),
       roas: spend > 0 ? roasStr(plat.rev / spend) : '—' });

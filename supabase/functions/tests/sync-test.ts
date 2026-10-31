@@ -445,7 +445,7 @@ Deno.test('البريد بيقرا سجل الحساب بس — من غيره أ
 function restoreDigestEnv() { Deno.env.delete('RESEND_API_KEY'); restoreFetch(); }
 function fakeDigestDb() {
   const store = {
-    digests: [] as any[], accounts: [] as any[], tokens: [] as any[], marks: 0, logs: [] as any[], mails: [] as any[],
+    digests: [] as any[], accounts: [] as any[], tokens: [] as any[], sealed: [] as any[], marks: 0, logs: [] as any[], mails: [] as any[],
     names: { act_1: 'Store one', act_2: 'Store two' } as Record<string, string>, legacyOwner: {} as Record<string, string>
   };
   const q = (url: string) => new URLSearchParams(url.split('?')[1] || '');
@@ -473,6 +473,20 @@ function fakeDigestDb() {
       return json(store.tokens.filter((t) => t.user === body.p_user).map((t) => ({ account_id: t.account, expires_at: t.expires_at, updated_at: null, last_error: null })));
     }
     if (url.indexOf('/rest/v1/rpc/vault_user_get') > -1) return json([]);
+    // نسخ Snapchat المقفولة (vault_sealed_*): بنحفظ اللي اتبعت (المشفّر) عشان الاختبار يتأكد إنه مش النسخة نفسها
+    if (url.indexOf('/rest/v1/rpc/vault_sealed_put') > -1) {
+      store.sealed = store.sealed.filter((t) => !(t.user === body.p_user && t.platform === body.p_platform && t.account === body.p_account))
+        .concat([{ user: body.p_user, platform: body.p_platform, account: body.p_account, cipher: body.p_cipher, iv: body.p_iv, expires_at: body.p_expires }]);
+      return new Response('', { status: 200 });
+    }
+    if (url.indexOf('/rest/v1/rpc/vault_sealed_delete') > -1) {
+      store.sealed = store.sealed.filter((t) => !(t.user === body.p_user && (body.p_platform == null || t.platform === body.p_platform) &&
+        (body.p_account == null || t.account === body.p_account)));
+      return new Response('', { status: 200 });
+    }
+    if (url.indexOf('/rest/v1/rpc/vault_sealed_status') > -1) {
+      return json(store.sealed.filter((t) => t.user === body.p_user).map((t) => ({ platform: t.platform, account_id: t.account, expires_at: t.expires_at, updated_at: null, last_error: null })));
+    }
     if (url.indexOf('/rest/v1/user_digests') > -1) {
       if (method === 'GET') return json(store.digests.filter((d) => d.user_id === u));
       if (method === 'POST') { store.digests = store.digests.filter((d) => d.user_id !== body.user_id).concat([body]); return new Response(null, { status: 201 }); }
@@ -487,7 +501,9 @@ function fakeDigestDb() {
       const plat = eqv(p, 'platform'), acc = eqv(p, 'account_id');
       if (method === 'GET') return json(store.accounts.filter((a) => a.user_id === u));
       if (method === 'POST') {
-        if (!store.accounts.some((a) => a.user_id === body.user_id && a.platform === body.platform && a.account_id === body.account_id)) store.accounts.push(body);
+        const had = store.accounts.find((a) => a.user_id === body.user_id && a.platform === body.platform && a.account_id === body.account_id);
+        if (!had) store.accounts.push(body);
+        else if (String((init!.headers as Record<string, string>).prefer).indexOf('merge-duplicates') > -1) Object.assign(had, body);
         return new Response(null, { status: 201 });
       }
       if (method === 'DELETE') {
@@ -574,5 +590,56 @@ Deno.test('«فصل» Meta: حسابات Meta بتخرج من ملخص المس�
     await handleDigest('digest.enable', { token: T, accountId: 'act_1', email: 'a@store.com', lang: 'ar', consent: true }, null, A);
     const r = await handleDigest('digest.disconnect', {}, null, A);
     assertEquals([(await r.json()).removed, store.accounts.length, store.tokens.length, store.digests.length], [1, 0, 0, 0]);
+  } finally { restoreDigestEnv(); }
+});
+// المرحلة ٢ (٣١ أكتوبر ٢٠٢٦ — «واجعل الملخص لكل المنصات»): حساب Snapchat بنسخته المقفولة من الأداة، مشفّرة تاني عندنا
+Deno.test('الملخص بحساب Snapchat: التفعيل والإضافة بالنسخة المقفولة (مشفّرة تاني)، والتجديد، والإزالة، و«فصل» Snapchat بس', async () => {
+  const A = '11111111-2222-3333-4444-555555555555';
+  const T = 'TOKEN_abcdefghijklmnopqrstuvwxyz';
+  const SNAP = 'cd3b3bfe-4361-484c-9985-51c2d1264860', SNAP2 = '0f0e0d0c-0b0a-4908-8706-050403020100';
+  const SEALED = 'v2.' + 'A'.repeat(16) + '.' + 'B'.repeat(40);
+  const open = { platform: 'snapchat', accountId: SNAP, sealed: SEALED, name: 'Snap store\u0007', timezone: 'Asia/Dubai' };
+  const store = fakeDigestDb();
+  const call = async (action: string, body: Record<string, unknown>) => {
+    const r = await handleDigest(action, body, null, A);
+    return { status: r.status, body: await r.json() };
+  };
+  try {
+    // شكل غلط: منصة مش مدعومة، ورقم حساب مش بتاع Snapchat، ونسخة مش بشكل _seal.js
+    assertEquals((await call('digest.enable', { ...open, platform: 'google', email: 'a@store.com', consent: true })).status, 400);
+    assertEquals((await call('digest.enable', { ...open, accountId: 'act_1', email: 'a@store.com', consent: true })).status, 400);
+    assertEquals((await call('digest.enable', { ...open, sealed: 'not-sealed', email: 'a@store.com', consent: true })).status, 400);
+    const en = await call('digest.enable', { ...open, email: 'a@store.com', consent: true, lang: 'ar' });
+    assertEquals(en.status, 200);
+    assertEquals([en.body.settings.timezone, en.body.accounts.map((a: any) => [a.platform, a.accountId, a.name])], ['Asia/Dubai', [['snapchat', SNAP, 'Snap store']]],
+      'the account time zone, and the name without control characters');
+    assertEquals(store.sealed.length, 1);
+    assert(store.sealed[0].cipher.indexOf(SEALED) < 0 && store.sealed[0].cipher.indexOf('AAAAAAAA') < 0, 'stored encrypted again, not as sent');
+    const days = (Date.parse(store.sealed[0].expires_at) - Date.now()) / 86400000;
+    assert(days > 59.9 && days <= 60, 'kept 60 days from now');
+    assert(String(store.mails[store.mails.length - 1].html).indexOf('Snap store') > -1, 'the confirmation names the account');
+    // حساب Meta في نفس الملخص، وحساب Snapchat تاني
+    assertEquals((await call('digest.add', { token: T, accountId: 'act_1' })).status, 200);
+    const add = await call('digest.add', { ...open, accountId: SNAP2, name: 'Second snap' });
+    assertEquals(add.body.accounts.map((a: any) => a.platform + ':' + a.name), ['snapchat:Snap store', 'meta:Store one', 'snapchat:Second snap']);
+    const got = await call('digest.get', { platform: 'snapchat', accountId: SNAP2 });
+    assertEquals([got.body.current.platform, got.body.current.included, got.body.current.tokenWorks], ['snapchat', true, true]);
+    // التجديد: نسخة جديدة + ٦٠ يوم من دلوقتي + الاسم بيتحدّث. حساب مش في الملخص = enabled false
+    store.sealed[0].expires_at = new Date(Date.now() + 86400000).toISOString();
+    const rf = await call('digest.refresh', { ...open, name: 'Snap store new' });
+    assertEquals(rf.body.enabled, true);
+    assert(Date.parse(store.sealed.find((t) => t.account === SNAP).expires_at) - Date.now() > 59 * 86400000, 'renewed');
+    assertEquals(store.accounts.find((a) => a.account_id === SNAP).name, 'Snap store new');
+    assertEquals((await call('digest.refresh', { ...open, accountId: '22222222-3333-4444-5555-666666666666' })).body, { ok: true, enabled: false, hasDigest: true });
+    // الإزالة: الحساب ونسخته بس
+    const rm = await call('digest.remove', { platform: 'snapchat', accountId: SNAP2 });
+    assertEquals([rm.body.stopped, store.sealed.map((t) => t.account)], [false, [SNAP]]);
+    // «فصل» Snapchat: حسابات Snapchat ونسخها بتخرج، وMeta بتفضل
+    const dc = await call('digest.disconnect', { platform: 'snapchat' });
+    assertEquals([dc.body.removed, dc.body.stopped, store.sealed.length, store.accounts.map((a) => a.platform)], [1, false, 0, ['meta']]);
+    // الإيقاف بيمسح كل حاجة
+    await call('digest.add', { ...open });
+    await call('digest.disable', {});
+    assertEquals([store.digests.length, store.sealed.length, store.tokens.length], [0, 0, 0]);
   } finally { restoreDigestEnv(); }
 });

@@ -87,5 +87,27 @@ export async function loginUser(request) {
 // true = الطلب ده من دخول مكتمل
 export async function checkLogin(request) { return !!(await loginUser(request)); }
 
+// مفتاح المُشغّل (pg_cron ← supabase/functions/sync/runner.ts ← api/digest-fetch.js — الملخص التلقائي لكل المنصات، ٣١ أكتوبر ٢٠٢٦):
+// بنسأل قاعدة البيانات (runner_key_check — بتقارن بصمة SHA-256 بس، فمفيش مقارنة حرف بحرف للمفتاح نفسه)، والإجابة الصح بتتحفظ ٥ دقايق
+// ببصمة المفتاح مش المفتاح. مفيش سر جديد: نفس مفتاح المُشغّل اللي في Vault
+const runnerOkUntil = new Map();
+async function keyPrint(key) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
+  return Array.prototype.map.call(new Uint8Array(d), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+}
+export async function runnerKeyOk(key) {
+  if (typeof key !== 'string' || key.length < 32 || key.length > 256) return false;
+  const k = await keyPrint(key), until = runnerOkUntil.get(k);
+  if (until && until > Date.now()) return true;
+  try {
+    const r = await fetch(PROJECT + '/rest/v1/rpc/runner_key_check', {
+      method: 'POST', headers: { 'apikey': PUBLISHABLE_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ p_key: key })
+    });
+    const ok = r.ok && (await r.json().catch(function () { return false; })) === true;
+    if (ok) { runnerOkUntil.clear(); runnerOkUntil.set(k, Date.now() + OK_TTL_MS); }
+    return ok;
+  } catch (e) { return false; }
+}
+
 // للاختبارات: يبدأ من غير مفاتيح ولا إجابات محفوظة
-export function resetLoginCache() { keysP = null; keysAt = 0; okUntil.clear(); }
+export function resetLoginCache() { keysP = null; keysAt = 0; okUntil.clear(); runnerOkUntil.clear(); }

@@ -123,6 +123,8 @@
       var snapNotes = payload.statsError ? [msg('note.spendFailed', { msg: payload.statsError })] : (payload.periodStats ? [] : [msg('note.periodFailed')]);
       setLoading('snapchat', false, connectedText(snapNotes));
       render();
+      // الحساب في ملخص المستخدم بالبريد؟ نسخته المحفوظة على الخادم بتتجدد (٦٠ يوم من النهارده) — ui.js digestAutoRefresh
+      if (typeof digestAutoRefresh === 'function') digestAutoRefresh(adAccountId, 'snapchat');
       loadSnapchatDiagnosis(adAccountId, payload.account || {}, token);
       // صور الفيديوهات الأول (بتبان على الكروت)، وبعدها سجل التعديلات — ورا بعض عشان حد سرعة Snapchat (١٠ في الثانية للمفتاح)
       loadSnapchatThumbs(adAccountId, token).then(function () { return loadSnapchatCatalog(adAccountId, token); }).then(function () {

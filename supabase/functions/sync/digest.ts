@@ -4,12 +4,13 @@
 // إعدادات التنبيهات (المستهدف وحد الخسارة والحدود) مش هنا: إعدادات المستخدم (settings.ts)
 //
 // صلاحية Meta: بنبدّل المفتاح القصير (ساعة أو اتنين) بمفتاح طويل (نحو ٦٠ يوم) بسر التطبيق، ونشفّره AES-256-GCM بـ TOKEN_ENC_KEY
-// ومربوط برقم الحساب، ونحفظه للمستخدم عن طريق دوال vault_user_* بس.
+// ومربوط برقم الحساب، ونحفظه للمستخدم عن طريق دوال vault_user_* بس. Snapchat (من ٣١ أكتوبر): النسخة المقفولة من مفتاح التجديد،
+// مشفّرة تاني بنفس المفتاح، عن طريق دوال vault_sealed_* (storeSealed تحت).
 // الإيقاف (أو «فصل» أو رابط الإيقاف) = الصلاحيات والإعدادات بيتمسحوا فوراً. سياسة الخصوصية، البندين ٣ و٧
 
 import { GRAPH, META_APP_ID, META_ID, SITE, TOKEN, db, rpc, metaAccount, reply, sendEmail, mailHtml, esc } from './lib.ts';
 
-const CONSENT_VERSION = '2026-10-31';   // سياسة الخصوصية: ملخص لكل مستخدم بإعداداته وحساباته
+const CONSENT_VERSION = '2026-10-31-snapchat';   // سياسة الخصوصية: ملخص لكل مستخدم بإعداداته وحساباته، وحسابات Snapchat فيه
 const USER_ID = /^[0-9a-f-]{36}$/;
 const PLATFORMS = ['meta', 'snapchat', 'google', 'tiktok'];
 const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -104,6 +105,32 @@ async function storeToken(user: string, token: string, account: string): Promise
   return ll.expiresAt;
 }
 
+// ---------- Snapchat (المرحلة ٢ من «الملخص لكل المنصات» — ٣١ أكتوبر ٢٠٢٦) ----------
+// الأداة بتبعت النسخة المقفولة من مفتاح التجديد (Live/api/_seal.js — مقفولة بسر التطبيق اللي في Cloudflare بس، ومربوطة بحساب الدخول
+// للأداة). منقدرش نفتحها هنا ولا نتأكد بيها من الحساب: Snapchat نفسها بترفض لو مفيش صلاحية، والمُشغّل بيبعتها للـ Worker يفتحها
+// (Live/api/digest-fetch.js). بنشفّرها تاني بمفتاحنا (مربوطة بالمستخدم والمنصة والحساب)، وصلاحيتها عندنا ٦٠ يوم من آخر فتح للأداة
+// بالحساب ده — زي Meta، والمُشغّل مبيمدّهاش
+export const SNAP_ID = /^[0-9a-f-]{36}$/i;
+const SEALED = /^v[12]\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{20,4000}$/;   // نفس شكل _seal.js
+const SEALED_DAYS = 60;
+export function sealedAad(user: string, platform: string, account: string): string { return 'sealed:' + platform + ':' + user + ':' + account; }
+async function storeSealed(user: string, platform: string, account: string, sealed: string): Promise<string> {
+  const expiresAt = new Date(Date.now() + SEALED_DAYS * 86400000).toISOString();
+  const c = await seal(sealed, sealedAad(user, platform, account));
+  await rpc('vault_sealed_put', { p_user: user, p_platform: platform, p_account: account, p_cipher: c.ct, p_iv: c.iv, p_expires: expiresAt });
+  return expiresAt;
+}
+// اسم الحساب زي ما ظاهر في الأداة (للقائمة والرسائل بس) — من غير رموز تحكم
+function cleanName(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 200);
+  return s || null;
+}
+function cleanTz(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length > 64 || !/^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(v)) return null;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: v }); return v; } catch (_) { return null; }
+}
+
 // ---------- الإعدادات ----------
 export function cleanEmail(v: unknown): string | null {
   const s = typeof v === 'string' ? v.trim() : '';
@@ -135,27 +162,38 @@ async function digestOf(user: string): Promise<any | null> {
   const rows = await r.json();
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
 }
-async function accountsOf(user: string): Promise<{ platform: string; account_id: string }[]> {
-  const r = await db('user_digest_accounts?select=platform,account_id,added_at&user_id=eq.' + user + '&order=added_at.asc', { method: 'GET' });
+async function accountsOf(user: string): Promise<{ platform: string; account_id: string; name?: string | null }[]> {
+  const r = await db('user_digest_accounts?select=platform,account_id,name,added_at&user_id=eq.' + user + '&order=added_at.asc', { method: 'GET' });
   const rows = await r.json();
   return Array.isArray(rows) ? rows : [];
+}
+// اسم الحساب: Meta من ad_accounts (بيتحدّث مع كل مزامنة)، والباقي اللي اتحفظ مع الحساب في الملخص
+async function nameOf(a: { platform: string; account_id: string; name?: string | null }): Promise<string> {
+  return (a.platform === 'meta' ? await accountName(a.account_id) : a.name) || a.account_id;
 }
 function publicSettings(s: any) {
   return { email: s.email, enabled: s.enabled !== false, days: s.summary_days, hour: s.summary_hour, timezone: s.timezone, lang: s.lang };
 }
-// حالة الملخص اللي بترجع للأداة: الإعدادات، والحسابات (الاسم من ad_accounts وتاريخ انتهاء صلاحية Meta)
+// صلاحيات المستخدم المحفوظة: Meta (vault_user_status) والنسخ المقفولة (vault_sealed_status) — بمفتاح «المنصة:الحساب»
+async function tokensOf(user: string): Promise<Record<string, any>> {
+  const out: Record<string, any> = {};
+  const st = await rpc('vault_user_status', { p_user: user }).catch(() => null);
+  (Array.isArray(st) ? st : []).forEach((x: any) => { out['meta:' + x.account_id] = x; });
+  const ss = await rpc('vault_sealed_status', { p_user: user }).catch(() => null);
+  (Array.isArray(ss) ? ss : []).forEach((x: any) => { out[x.platform + ':' + x.account_id] = x; });
+  return out;
+}
+// حالة الملخص اللي بترجع للأداة: الإعدادات، والحسابات (الاسم، وتاريخ انتهاء صلاحية القراءة، وهل فيها مشكلة)
 async function digestState(user: string): Promise<Record<string, unknown>> {
   const s = await digestOf(user);
   if (!s) return { settings: null, accounts: [] };
   const list = await accountsOf(user);
-  const st = await rpc('vault_user_status', { p_user: user }).catch(() => null);
-  const byId: Record<string, any> = {};
-  (Array.isArray(st) ? st : []).forEach((x: any) => { byId[x.account_id] = x; });
+  const tokens = await tokensOf(user);
   const accounts = [];
   for (const a of list) {
-    const t = a.platform === 'meta' ? byId[a.account_id] : null;
-    accounts.push({ platform: a.platform, accountId: a.account_id, name: a.platform === 'meta' ? (await accountName(a.account_id)) || null : null,
-      tokenExpiresAt: t ? t.expires_at : null, tokenProblem: !!(t && t.last_error) || (a.platform === 'meta' && !t) });
+    const t = tokens[a.platform + ':' + a.account_id];
+    accounts.push({ platform: a.platform, accountId: a.account_id, name: a.platform === 'meta' ? (await accountName(a.account_id)) || null : a.name || null,
+      tokenExpiresAt: t ? t.expires_at : null, tokenProblem: !t || !!t.last_error });
   }
   return { settings: publicSettings(s), accounts };
 }
@@ -234,6 +272,7 @@ async function mailDisabled(user: string, s: any): Promise<void> {
 // الإيقاف: الصلاحيات والملخص وحساباته (on delete cascade) وبصماته بتتمسح فوراً
 async function removeDigest(user: string): Promise<void> {
   await rpc('vault_user_delete', { p_user: user, p_account: null });
+  await rpc('vault_sealed_delete', { p_user: user, p_platform: null, p_account: null });
   await db('user_alert_marks?user_id=eq.' + user, { method: 'DELETE' });
   await db('user_digests?user_id=eq.' + user, { method: 'DELETE' });
 }
@@ -241,6 +280,7 @@ async function removeDigest(user: string): Promise<void> {
 async function removeAccount(user: string, platform: string, account: string): Promise<boolean> {
   await db('user_digest_accounts?user_id=eq.' + user + '&platform=eq.' + platform + '&account_id=eq.' + encodeURIComponent(account), { method: 'DELETE' });
   if (platform === 'meta') await rpc('vault_user_delete', { p_user: user, p_account: account });
+  else await rpc('vault_sealed_delete', { p_user: user, p_platform: platform, p_account: account });
   await db('user_alert_marks?user_id=eq.' + user + '&platform=eq.' + platform + '&account_id=eq.' + encodeURIComponent(account), { method: 'DELETE' });
   const left = await accountsOf(user);
   if (left.length) return false;
@@ -272,14 +312,15 @@ async function storedTokenWorks(user: string, account: string): Promise<boolean 
 // ---------- العمليات ----------
 // كل العمليات لصاحب الدخول (userId من index.ts requireLogin) — ملخصه هو بس. إضافة حساب Meta محتاجة مفتاحه (token) بيثبت إن صاحبه
 // شايف الحساب. رابط الإيقاف (stop) من غير دخول: توقيعه هو الإثبات
-//   digest.get     ← { accountId? , token? }  الملخص وحساباته (ولو الحساب المفتوح في الملخص: صلاحيته شغالة؟)
-//   digest.enable  ← { token, accountId, email, days?, hour?, lang, consent: true }  تفعيل بالحساب المفتوح
-//   digest.add     ← { token, accountId }     إضافة حساب Meta تاني للملخص
+// الحساب المفتوح (open) = Meta: { accountId, token }، أو Snapchat: { platform: 'snapchat', accountId, sealed, name?, timezone? }
+//   digest.get     ← { platform?, accountId? }  الملخص وحساباته (ولو الحساب المفتوح في الملخص: صلاحيته شغالة؟)
+//   digest.enable  ← { ...open, email, days?, hour?, lang, consent: true }  تفعيل بالحساب المفتوح
+//   digest.add     ← { ...open }                 إضافة الحساب المفتوح للملخص
 //   digest.remove  ← { platform, accountId }  إخراج حساب (آخر حساب = إيقاف الملخص)
 //   digest.update  ← { email?, days?, hour?, lang? }
 //   digest.disable ← {}                       إيقاف الملخص كله
-//   digest.refresh ← { token, accountId }     الأداة بتبعته لما حساب Meta يتفتح — بيجدد صلاحيته لو الحساب في الملخص
-//   digest.disconnect ← {}                    «فصل» Meta: حسابات Meta بتخرج من الملخص وصلاحياتها بتتمسح
+//   digest.refresh ← { ...open }              الأداة بتبعته لما الحساب يتفتح — بيجدد صلاحيته (٦٠ يوم) لو الحساب في الملخص
+//   digest.disconnect ← { platform? }         «فصل» المنصة (Meta لو مفيش): حساباتها بتخرج من الملخص وصلاحياتها بتتمسح
 //   stop           ← { u, sig } | { account, sig }   رابط الإيقاف (الجديد لكل مستخدم، والقديم لكل حساب في رسائل اتبعتت قبل كده)
 export async function handleDigest(action: string, body: any, origin: string | null, userId: string | null = null): Promise<Response> {
   if (action === 'stop') {
@@ -315,10 +356,13 @@ export async function handleDigest(action: string, body: any, origin: string | n
 
   if (action === 'digest.get') {
     const state = await digestState(user);
-    // الحساب المفتوح في الأداة: في الملخص؟ وصلاحيته شغالة؟ (طلب لـ Meta بس لو الحساب في الملخص)
-    const account = typeof body.accountId === 'string' && META_ID.test(body.accountId) ? body.accountId : null;
-    const included = !!account && (state.accounts as any[]).some((a) => a.platform === 'meta' && a.accountId === account);
-    return reply(200, { ...state, current: account ? { accountId: account, included, tokenWorks: included ? await storedTokenWorks(user, account) : null } : null }, origin);
+    // الحساب المفتوح في الأداة: في الملخص؟ وصلاحيته شغالة؟ Meta: طلب لـ Meta (لو الحساب في الملخص). Snapchat: آخر فحص للمُشغّل
+    // (مفيش طريقة نتأكد بيها هنا — النسخة بتتفتح في الـ Worker بس)
+    const platform = body.platform === 'snapchat' ? 'snapchat' : 'meta';
+    const account = typeof body.accountId === 'string' && (platform === 'meta' ? META_ID : SNAP_ID).test(body.accountId) ? body.accountId : null;
+    const row = account ? (state.accounts as any[]).find((a) => a.platform === platform && a.accountId === account) : null;
+    const works = !row ? null : platform === 'meta' ? await storedTokenWorks(user, account as string) : !row.tokenProblem;
+    return reply(200, { ...state, current: account ? { platform, accountId: account, included: !!row, tokenWorks: works } : null }, origin);
   }
 
   if (action === 'digest.update') {
@@ -333,7 +377,7 @@ export async function handleDigest(action: string, body: any, origin: string | n
     const next = { ...s, ...patch };
     if (patch.email && patch.email !== s.email) {   // تأكيد للعنوان الجديد
       const names = [];
-      for (const a of await accountsOf(user)) names.push(a.platform === 'meta' ? (await accountName(a.account_id)) || a.account_id : a.account_id);
+      for (const a of await accountsOf(user)) names.push(await nameOf(a));
       await mailEnabled(user, names, next);
     }
     return reply(200, { ok: true, ...(await digestState(user)) }, origin);
@@ -354,26 +398,43 @@ export async function handleDigest(action: string, body: any, origin: string | n
   }
 
   if (action === 'digest.disconnect') {
-    // «فصل» Meta: كل حسابات Meta بتخرج من ملخص المستخدم وصلاحياتها بتتمسح (الملخص بيفضل لو فيه حسابات من منصات تانية)
-    const list = (await accountsOf(user)).filter((a) => a.platform === 'meta');
+    // «فصل» منصة في الأداة: كل حساباتها بتخرج من ملخص المستخدم وصلاحياتها بتتمسح (الملخص بيفضل لو فيه حسابات من منصات تانية)
+    const platform = body.platform === 'snapchat' ? 'snapchat' : 'meta';
+    const list = (await accountsOf(user)).filter((a) => a.platform === platform);
     let stopped = false;
-    for (const a of list) stopped = (await removeAccount(user, 'meta', a.account_id)) || stopped;
-    await rpc('vault_user_delete', { p_user: user, p_account: null });
+    for (const a of list) stopped = (await removeAccount(user, platform, a.account_id)) || stopped;
+    if (platform === 'meta') await rpc('vault_user_delete', { p_user: user, p_account: null });
+    else await rpc('vault_sealed_delete', { p_user: user, p_platform: platform, p_account: null });
     return reply(200, { ok: true, removed: list.length, stopped }, origin);
   }
 
-  // باقي العمليات بحساب Meta مفتوح ومفتاحه
+  // باقي العمليات بالحساب المفتوح في الأداة وإثبات الوصول ليه: Meta = { accountId, token } — بنتأكد من Meta دلوقتي ونبدّله بمفتاح طويل.
+  // Snapchat = { platform: 'snapchat', accountId, sealed, name?, timezone? } — النسخة المقفولة (SNAP_ID فوق)، وSnapchat بتتأكد في أول فحص
+  const platform = body.platform === undefined ? 'meta' : body.platform;
+  if (platform !== 'meta' && platform !== 'snapchat') return reply(400, { error: 'platform' }, origin);
   const account = body.accountId;
-  if (typeof account !== 'string' || !META_ID.test(account)) return reply(400, { error: 'account' }, origin);
-  if (typeof body.token !== 'string' || !TOKEN.test(body.token)) return reply(400, { error: 'token' }, origin);
-  const acc = await metaAccount(body.token, account);
-  if (!acc) return reply(403, { error: 'not verified' }, origin);
+  if (typeof account !== 'string' || !(platform === 'meta' ? META_ID : SNAP_ID).test(account)) return reply(400, { error: 'account' }, origin);
+  let acc: any = null;
+  if (platform === 'meta') {
+    if (typeof body.token !== 'string' || !TOKEN.test(body.token)) return reply(400, { error: 'token' }, origin);
+    acc = await metaAccount(body.token, account);
+    if (!acc) return reply(403, { error: 'not verified' }, origin);
+  } else if (typeof body.sealed !== 'string' || body.sealed.length > 4096 || !SEALED.test(body.sealed)) return reply(400, { error: 'sealed' }, origin);
+  const name = platform === 'meta' ? (acc.name || null) : cleanName(body.name);
+  // يحفظ صلاحية الحساب للمستخدم ويرجّع تاريخ انتهائها (null = Meta رفضت التبديل)
+  const store = (): Promise<string | null> => platform === 'meta' ? storeToken(user, body.token, account) : storeSealed(user, platform, account, body.sealed);
+  // الحساب في الملخص (الاسم بيتحدّث لغير Meta — Meta اسمها من ad_accounts)
+  const saveAccount = () => db('user_digest_accounts?on_conflict=user_id,platform,account_id', {
+    method: 'POST', headers: { 'prefer': (platform === 'meta' ? 'resolution=ignore-duplicates' : 'resolution=merge-duplicates') + ',return=minimal' },
+    body: JSON.stringify(platform === 'meta' ? { user_id: user, platform, account_id: account } : { user_id: user, platform, account_id: account, name })
+  });
 
   if (action === 'digest.refresh') {
-    const has = (await accountsOf(user)).some((a) => a.platform === 'meta' && a.account_id === account);
+    const has = (await accountsOf(user)).some((a) => a.platform === platform && a.account_id === account);
     if (!has) return reply(200, { ok: true, enabled: false, hasDigest: !!(await digestOf(user)) }, origin);
-    const expiresAt = await storeToken(user, body.token, account);
+    const expiresAt = await store();
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
+    if (platform !== 'meta' && name) await saveAccount();
     return reply(200, { ok: true, enabled: true, tokenExpiresAt: expiresAt }, origin);
   }
 
@@ -381,11 +442,10 @@ export async function handleDigest(action: string, body: any, origin: string | n
     const s = await digestOf(user);
     if (!s || !s.enabled) return reply(409, { error: 'not enabled' }, origin);
     const list = await accountsOf(user);
-    if (!list.some((a) => a.platform === 'meta' && a.account_id === account) && list.length >= MAX_DIGEST_ACCOUNTS) return reply(409, { error: 'too many' }, origin);
-    const expiresAt = await storeToken(user, body.token, account);
+    if (!list.some((a) => a.platform === platform && a.account_id === account) && list.length >= MAX_DIGEST_ACCOUNTS) return reply(409, { error: 'too many' }, origin);
+    const expiresAt = await store();
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
-    await db('user_digest_accounts?on_conflict=user_id,platform,account_id', { method: 'POST', headers: { 'prefer': 'resolution=ignore-duplicates,return=minimal' },
-      body: JSON.stringify({ user_id: user, platform: 'meta', account_id: account }) });
+    await saveAccount();
     return reply(200, { ok: true, ...(await digestState(user)) }, origin);
   }
 
@@ -397,16 +457,16 @@ export async function handleDigest(action: string, body: any, origin: string | n
     if (!days) return reply(400, { error: 'days' }, origin);
     const hour = body.hour === undefined ? DEFAULT_HOUR : cleanHour(body.hour);
     if (hour === null) return reply(400, { error: 'hour' }, origin);
-    const expiresAt = await storeToken(user, body.token, account);
+    const expiresAt = await store();
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
-    const tz = acc.timezone_name || 'Asia/Riyadh';
+    // توقيت الملخص: توقيت الحساب اللي اتفعّل بيه (Meta من Meta نفسها، وSnapchat زي ما الأداة شايفاه)
+    const tz = (platform === 'meta' ? acc.timezone_name : cleanTz(body.timezone)) || 'Asia/Riyadh';
     const row = { user_id: user, email, enabled: true, summary_days: days, summary_hour: hour, timezone: tz, lang: body.lang === 'en' ? 'en' : 'ar',
       consent_at: now, consent_version: CONSENT_VERSION, updated_at: now, last_summary_until: yesterdayIn(tz) };
     await db('user_digests?on_conflict=user_id', { method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(row) });
-    await db('user_digest_accounts?on_conflict=user_id,platform,account_id', { method: 'POST', headers: { 'prefer': 'resolution=ignore-duplicates,return=minimal' },
-      body: JSON.stringify({ user_id: user, platform: 'meta', account_id: account }) });
+    await saveAccount();
     const names = [];
-    for (const a of await accountsOf(user)) names.push(a.platform === 'meta' ? (a.account_id === account ? acc.name : await accountName(a.account_id)) || a.account_id : a.account_id);
+    for (const a of await accountsOf(user)) names.push(a.platform === platform && a.account_id === account && name ? name : await nameOf(a));
     await mailEnabled(user, names, row);
     return reply(200, { ok: true, tokenExpiresAt: expiresAt, ...(await digestState(user)) }, origin);
   }

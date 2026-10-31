@@ -19,7 +19,8 @@ import snapchatToken from '../api/snapchat-token.js';
 import snapchatAdsFetch from '../api/snapchat-ads-fetch.js';
 import tiktokToken from '../api/tiktok-token.js';
 import tiktokAdsFetch from '../api/tiktok-ads-fetch.js';
-import { loginUser } from '../api/_login.js';
+import digestFetch from '../api/digest-fetch.js';
+import { loginUser, runnerKeyOk } from '../api/_login.js';
 
 // الـ endpoints المنشورة — discount متشال عن قصد مع صفحة الأسعار المخفية،
 // والملفات اللي بتبدأ بـ "_" مش endpoints أصلاً
@@ -32,6 +33,11 @@ export const HANDLERS = {
   'snapchat-ads-fetch': snapchatAdsFetch,
   'tiktok-token': tiktokToken,
   'tiktok-ads-fetch': tiktokAdsFetch
+};
+// endpoints للمُشغّل بس (supabase/functions/sync/runner.ts — الملخص التلقائي لكل المنصات): مفيش دخول للأداة (مفيش مستخدم فاتح)،
+// والإثبات هيدر x-runner-key. POST بس
+export const RUNNER_HANDLERS = {
+  'digest-fetch': digestFetch
 };
 
 // التحويلات (permanent: true = 308، وfalse = 307)
@@ -217,6 +223,11 @@ export default {
         const user = request.method === 'OPTIONS' ? null : await loginUser(request);
         if (request.method !== 'OPTIONS' && !user) return withSecurityHeaders(jsonError(401, 'سجّل الدخول إلى الأداة أولاً.', 'LOGIN'));
         return withSecurityHeaders(await runVercelHandler(HANDLERS[name], request, env, user));
+      }
+      if (Object.prototype.hasOwnProperty.call(RUNNER_HANDLERS, name)) {
+        if (request.method !== 'POST') return withSecurityHeaders(jsonError(405, 'Method Not Allowed', 'METHOD'));
+        if (!(await runnerKeyOk(request.headers.get('x-runner-key')))) return withSecurityHeaders(jsonError(403, 'Forbidden', 'RUNNER'));
+        return withSecurityHeaders(await runVercelHandler(RUNNER_HANDLERS[name], request, env, null));
       }
       // مسار API مش موجود: رد JSON (مش صفحة 404 بتاعة الزوار) — عشان أي كود بيستدعيه يفهم الرد
       return withSecurityHeaders(jsonError(404, 'Not found', 'NOT_FOUND'));

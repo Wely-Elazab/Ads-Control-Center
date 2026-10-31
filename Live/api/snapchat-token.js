@@ -5,7 +5,8 @@
 // محتاج سرّين في إعدادات الـ Worker على Cloudflare (Settings → Variables and Secrets، نوع Secret):
 //   SNAPCHAT_CLIENT_ID     = الـ Client ID بتاعك من Snapchat Business Manager
 //   SNAPCHAT_CLIENT_SECRET = الـ Client Secret بتاعك (سري، أبداً متحطوش في أي ملف بيتنشر)
-// مفتاح التجديد نفسه مبيتحفظش عندنا — بيتقفل ويتحفظ على جهاز العميل (_seal.js)
+// مفتاح التجديد نفسه مبيتحفظش عندنا — بيتقفل ويتحفظ على جهاز العميل (_seal.js)، ولو العميل ضاف الحساب لملخصه بالبريد
+// نسخة مقفولة منه بتتحفظ مشفّرة على الخادم (digest-fetch.js بيفتحها للمُشغّل)
 
 import { guardRequest } from './_cors.js';
 import { text, badRequest } from './_input.js';
@@ -21,7 +22,8 @@ function expectedRedirect(req) {
   return (local ? 'http://' : 'https://') + host + '/app';
 }
 
-async function tokenRequest(params) {
+// بيستخدمها كمان api/digest-fetch.js (تجديد جلسة الملخص التلقائي من النسخة المحفوظة عندنا)
+export async function tokenRequest(params) {
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
