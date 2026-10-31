@@ -10,7 +10,7 @@ import { cleanEmail, daysText, hourText, linkSig, sameString, seal, unseal } fro
 import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import { callTimeout, familyOf, freshUsage, markMap, readUsage, resolveNow, settingsChoice } from '../sync/runner.ts';
-import { cleanAccountSettings, cleanUserSettings, handleSettings, handleUserSettings } from '../sync/settings.ts';
+import { MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
@@ -269,7 +269,7 @@ Deno.test('إعدادات المستخدم: «كل الحسابات» دايما
   assertEquals(cleanUserSettings({ all: [1] }), null, 'a bad all-accounts set is refused, not emptied');
   assertEquals(cleanUserSettings({ plat: 'x' }), null);
 });
-Deno.test('إعدادات المستخدم: سجل صاحب الدخول بس — القراءة والحفظ مقصورين على رقمه، والحفظ بعد التنظيف', async () => {
+Deno.test('إعدادات المستخدم: سجل صاحب الدخول بس — القراءة مقصورة على رقمه، وآخر استخدام مرة في اليوم', async () => {
   const U = '11111111-2222-3333-4444-555555555555';
   const calls: { method: string; url: string; body: any }[] = [];
   let usedAt = '2025-01-01T00:00:00Z';
@@ -278,7 +278,7 @@ Deno.test('إعدادات المستخدم: سجل صاحب الدخول بس �
       const method = (init && init.method) || 'GET';
       calls.push({ method, url, body: init && init.body ? JSON.parse(String(init.body)) : null });
       if (method === 'GET') return json([{ settings: { all: { roasTarget: 5, roasBreakEven: 5 } }, updated_at: '2026-10-26T00:00:00Z', used_at: usedAt }]);
-      return new Response(null, { status: method === 'POST' ? 201 : 204 });
+      return new Response(null, { status: 204 });
     }
     throw new Error('unexpected fetch ' + url);
   });
@@ -292,15 +292,67 @@ Deno.test('إعدادات المستخدم: سجل صاحب الدخول بس �
     await handleUserSettings('usettings.get', { userId: 'someone-else' }, U, null);
     assertEquals(calls.map((c) => c.method), ['GET'], 'used today: no extra write');
     assert(calls[0].url.indexOf('someone-else') < 0, 'a user id in the request is ignored');
-    calls.length = 0;
-    const set = await handleUserSettings('usettings.set', { settings: { all: { roasTarget: 4, roasBreakEven: 2, evil: 9 }, plat: { meta: { cprWarnMultiple: 2 } } } }, U, null);
-    assertEquals(set.status, 200);
-    assertEquals((await set.json()).settings, { all: { roasTarget: 4, roasBreakEven: 2 }, plat: { meta: { cprWarnMultiple: 2 } } });
-    const post = calls.find((c) => c.method === 'POST');
-    assert(post && post.body.user_id === U && post.body.used_at === post.body.updated_at, 'saved for this user, saving counts as use');
-    assertEquals((await handleUserSettings('usettings.set', { settings: [1] }, U, null)).status, 400);
     assertEquals((await handleUserSettings('usettings.get', {}, 'not-a-user', null)).status, 401);
     assertEquals((await handleUserSettings('usettings.drop', {}, U, null)).status, 400);
+  } finally { restoreFetch(); }
+});
+// مراجعة ٣١ أكتوبر («دقق جيداً»): الحفظ بالسجل كله من نسخة الجهاز كان بيمسح تعديل جهاز تاني — دلوقتي المجموعات اللي اتغيّرت بس،
+// والدمج في قاعدة البيانات وهو مقفول (user_settings_apply — اتجرّبت على Postgres نفسه)
+Deno.test('حفظ إعدادات المستخدم: المجموعات اللي اتغيّرت بس متنضّفة، وnull = إلغاء تخصيص، والمستهدف لـ«كل الحسابات» مع بعض، وأي جزء غلط = رفض الطلب كله', () => {
+  assertEquals(cleanUserWrite({ changes: { all: { roasTarget: 4, roasBreakEven: 2, evil: 1 }, snapchat: null }, asked: true }),
+    { base: null, changes: { all: { roasTarget: 4, roasBreakEven: 2 }, snapchat: null }, goals: null, asked: true });
+  assertEquals(cleanUserWrite({ goals: { roasTarget: 5, roasBreakEven: 4, cprWarnMultiple: 3 }, asked: true }),
+    { base: null, changes: {}, goals: { roasTarget: 5, roasBreakEven: 4 }, asked: true }, 'goals = the two goals only');
+  assertEquals(cleanUserWrite({ base: { all: { roasTarget: 5, roasBreakEven: 5 }, plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 } } } }),
+    { base: { all: { roasTarget: 5, roasBreakEven: 5 }, plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 } } }, changes: {}, goals: null, asked: false }, 'base alone = «create if missing»');
+  assertEquals(cleanUserWrite({ asked: true }), { base: null, changes: {}, goals: null, asked: true });
+  assertEquals(cleanUserWrite({ changes: { all: null } }), null, 'all accounts cannot be removed');
+  assertEquals(cleanUserWrite({ changes: { myspace: {} } }), null, 'unknown platform');
+  assertEquals(cleanUserWrite({ changes: { meta: [1] } }), null, 'a bad set refuses the whole request');
+  assertEquals(cleanUserWrite({ changes: [] }), null);
+  assertEquals(cleanUserWrite({ goals: { roasTarget: 5 } }), null, 'a target alone');
+  assertEquals(cleanUserWrite({ goals: { roasTarget: 2, roasBreakEven: 4 } }), null, 'loss limit above the target');
+  assertEquals(cleanUserWrite({ base: [1] }), null);
+  assertEquals(cleanUserWrite({}), null, 'nothing to save');
+  assertEquals(cleanUserWrite({ asked: 'yes' }), null);
+  const big: Record<string, number> = {};
+  for (let i = 0; i <= MAX_KEYS; i++) big['c' + i] = 1;
+  assertEquals(cleanUserWrite({ changes: { all: { campaignMaxCost: big } } }), 'too many', 'over the cap: refused, not cut silently');
+  assertEquals(cleanUserWrite({ base: { all: {}, plat: { meta: { maxCost: big } } } }), 'too many');
+  delete big.c0;
+  const ok2000 = cleanUserWrite({ changes: { all: { campaignMaxCost: big } } }) as UserWrite;
+  assertEquals(Object.keys((ok2000.changes.all as any).campaignMaxCost).length, MAX_KEYS, 'exactly the cap: all kept');
+});
+Deno.test('حفظ إعدادات المستخدم: دالة الدمج المقفولة لصاحب الدخول بس، والرد = السجل كله — والصفحة القديمة بالسجل كله مبتمسحش تخصيص مش فيه', async () => {
+  const U = '11111111-2222-3333-4444-555555555555';
+  const rpcs: any[] = [];
+  stubFetch((url, init) => {
+    if (url.indexOf('/rest/v1/rpc/user_settings_apply') > -1) {
+      const args = JSON.parse(String(init && init.body));
+      rpcs.push(args);
+      return json({ all: { roasTarget: 4, roasBreakEven: 2 }, plat: { meta: { roasTarget: 9, roasBreakEven: 3 } }, asked: true });
+    }
+    throw new Error('unexpected fetch ' + url);
+  });
+  try {
+    const set = await handleUserSettings('usettings.set', { changes: { all: { roasTarget: 4, roasBreakEven: 2, evil: 9 } }, asked: true, userId: 'someone-else' }, U, null);
+    assertEquals(set.status, 200);
+    assertEquals(rpcs[0], { p_user: U, p_base: null, p_changes: { all: { roasTarget: 4, roasBreakEven: 2 } }, p_goals: null, p_asked: true }, 'cleaned, and only for this user');
+    assertEquals((await set.json()).settings, { all: { roasTarget: 4, roasBreakEven: 2 }, plat: { meta: { roasTarget: 9, roasBreakEven: 3 } }, asked: true }, 'the whole merged record back');
+    // صفحة اتفتحت قبل ٣١ أكتوبر (السجل كله): بيتحوّل لتعديل «كل الحسابات» والمنصات اللي فيه — من غير إلغاء تخصيص مش فيه
+    await handleUserSettings('usettings.set', { settings: { all: { roasTarget: 6, roasBreakEven: 2 }, plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 }, myspace: {} }, asked: true } }, U, null);
+    assertEquals(rpcs[1].p_changes, { all: { roasTarget: 6, roasBreakEven: 2 }, snapchat: { roasTarget: 2, roasBreakEven: 1 } });
+    assertEquals(rpcs[1].p_asked, true);
+    assert(!('meta' in rpcs[1].p_changes), 'Meta (customized from another device) is not removed');
+    const before = rpcs.length;
+    const big: Record<string, number> = {};
+    for (let i = 0; i <= MAX_KEYS; i++) big['c' + i] = 1;
+    const tooMany = await handleUserSettings('usettings.set', { changes: { all: { campaignMaxCost: big } } }, U, null);
+    assertEquals([tooMany.status, (await tooMany.json()).error, rpcs.length], [400, 'too many', before], 'refused with a clear reason, nothing saved');
+    assertEquals((await handleUserSettings('usettings.set', { changes: { all: null } }, U, null)).status, 400);
+    assertEquals((await handleUserSettings('usettings.set', {}, U, null)).status, 400);
+    assertEquals(rpcs.length, before, 'bad requests save nothing');
+    assertEquals((await handleUserSettings('usettings.set', { asked: true }, 'not-a-user', null)).status, 401);
   } finally { restoreFetch(); }
 });
 // سجل مشكلات التنبيه (لوحة «قيمة الأداة» — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦): رقم الإعلان والنوع والأوقات بس، من غير أي أرقام

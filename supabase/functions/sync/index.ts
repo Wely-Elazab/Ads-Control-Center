@@ -36,6 +36,9 @@ import { handleEpisodes } from './episodes.ts';
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
 const MAX_BODY = 16 * 1024;
+// حفظ إعدادات المستخدم بس ممكن يكبر عن كده: «كل الحسابات» فيها حدود حملات كل الحسابات مع بعض (لحد ٢٬٠٠٠ في القائمة — settings.ts
+// MAX_KEYS، مراجعة ٣١ أكتوبر). باقي العمليات على الحد القديم
+const MAX_BODY_SETTINGS = 256 * 1024;
 const REASONS = ['offer', 'stock', 'price', 'site', 'shipping', 'ads', 'season', 'tracking', 'other'];
 const KINDS = ['urgent', 'why', 'decision', 'watch', 'opportunity', 'follow', 'note'];
 const META_VIEW = /^meta:(act_\d{1,30})$/;
@@ -108,8 +111,9 @@ Deno.serve(async (req: Request) => {
   let body: any;
   try {
     const text = await req.text();
-    if (text.length > MAX_BODY) return reply(413, { error: 'too large' }, origin);
+    if (text.length > MAX_BODY_SETTINGS) return reply(413, { error: 'too large' }, origin);
     body = JSON.parse(text);
+    if (text.length > MAX_BODY && !(body && body.action === 'usettings.set')) return reply(413, { error: 'too large' }, origin);
   } catch (_) {
     return reply(400, { error: 'json' }, origin);
   }

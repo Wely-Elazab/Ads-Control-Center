@@ -6,7 +6,8 @@
 // أقصى تكلفة لكل نوع نتيجة متسجّلة بعملتها (maxCostCur) وبتتحوّل لعملة كل حساب وقت الاستخدام (alerts.js settingsForAccount).
 //
 //   usettings.get ← {}            → { settings | null }
-//   usettings.set ← { settings }  → { ok, settings }   (القيم بعد التنظيف)
+//   usettings.set ← { changes?, goals?, asked?, base? } → { ok, settings }   (المجموعات اللي اتغيّرت بس، والرد = السجل كله بعد الدمج —
+//                   cleanUserWrite تحت، من ٣١ أكتوبر)
 //
 // الشرط: دخول الأداة (index.ts requireLogin قبل الدالة دي) — السجل بتاع صاحب الدخول نفسه بس، فمفيش رقم مستخدم في الطلب أصلاً.
 // أرقام بس، من غير أي أرقام إعلانات.
@@ -14,7 +15,7 @@
 // سجل الحساب الإعلاني القديم (account_settings — من ٢٤ أكتوبر لحد التحديث ده) بيتقري بس (settings.get): الأداة بتنقله مرة واحدة
 // لإعدادات المستخدم، والبريد بيرجعله لو الملخص لسه مالوش صاحب. نفس شرطه القديم: مفتاح المنصة بيثبت إن صاحبه شايف الحساب
 //   settings.get ← { platform, accountId, platformToken }  → { settings | null }
-import { META_ID, db, reply, metaAccount } from './lib.ts';
+import { META_ID, db, rpc, reply, metaAccount } from './lib.ts';
 
 const SNAP_API = 'https://adsapi.snapchat.com/v1';
 const SNAP_ID = /^[A-Za-z0-9-]{1,64}$/;
@@ -28,10 +29,14 @@ const SCALAR: Record<string, [number, number]> = {
   accountDropRatio: [0.01, 1], roasTarget: [0.1, 50], roasBreakEven: [0.1, 50]
 };
 const MAP_KEY = /^[A-Za-z0-9_.:-]{1,64}$/;
+// أقصى عدد حدود في القائمة الواحدة (أنواع النتائج، أو الحملات). كان ٥٠٠ والزيادة بتتقطع في صمت؛ من ٣١ أكتوبر (مراجعة الإعدادات لكل
+// مستخدم) «كل الحسابات» فيها حدود حملات كل الحسابات مع بعض، فالحد ٢٬٠٠٠، والزيادة بترفض الحفظ كله بسببها ('too many') بدل ما حدود
+// تضيع من غير ما حد يعرف. نفس الرقم في المحرك (alerts.js costMap)
+export const MAX_KEYS = 2000;
 function cleanMap(v: unknown): Record<string, number> | null {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
   const out: Record<string, number> = {};
-  Object.keys(v as Record<string, unknown>).slice(0, 500).forEach((k) => {
+  Object.keys(v as Record<string, unknown>).slice(0, MAX_KEYS).forEach((k) => {
     const n = (v as Record<string, unknown>)[k];
     if (MAP_KEY.test(k) && typeof n === 'number' && isFinite(n) && n > 0 && n <= 1e9) out[k] = Math.round(n * 10000) / 10000;
   });
@@ -73,6 +78,62 @@ export function cleanUserSettings(v: unknown): Record<string, unknown> | null {
   if (src.asked === true) out.asked = true;
   return out;
 }
+// قائمة حدود أكبر من المسموح (قبل التنظيف — التنظيف بيقطع)
+function tooManyIn(set: unknown): boolean {
+  if (!set || typeof set !== 'object') return false;
+  return ['maxCost', 'campaignMaxCost'].some((k) => {
+    const m = (set as Record<string, unknown>)[k];
+    return !!m && typeof m === 'object' && Object.keys(m as Record<string, unknown>).length > MAX_KEYS;
+  });
+}
+
+// طلب الحفظ (usettings.set) بالمجموعات اللي اتغيّرت بس (مراجعة الإعدادات لكل مستخدم ٣١ أكتوبر — الحفظ بالسجل كله كان بيمسح تعديل
+// جهاز تاني). الدمج في قاعدة البيانات وهو مقفول (الترحيل 20261031100000_user_settings_apply.sql):
+//   changes = { all?: {…}, meta?|snapchat?|google?|tiktok?: {…} | null }   مجموعة كاملة مكان القديمة، وnull = إلغاء تخصيص المنصة
+//   goals   = { roasTarget, roasBreakEven } بيتدمجوا في «كل الحسابات» (نافذة أول مرة — من غير ما تلمس باقي قيمها)
+//   asked   = true (نافذة أول مرة اتعرضت)
+//   base    = السجل كله لو المستخدم لسه مالوش سجل (نقل الإعدادات القديمة) — بيتجاهل لو السجل موجود
+// أي جزء غلط = null (الطلب كله بيترفض — مبنحفظش نص طلب)، وقائمة أكبر من MAX_KEYS = 'too many'
+export type UserWrite = { base: Record<string, unknown> | null; changes: Record<string, unknown>; goals: Record<string, unknown> | null; asked: boolean };
+export function cleanUserWrite(body: any): UserWrite | 'too many' | null {
+  if (!body || typeof body !== 'object') return null;
+  const raw: unknown[] = [];
+  let base: Record<string, unknown> | null = null;
+  if (body.base != null) {
+    base = cleanUserSettings(body.base);
+    if (!base) return null;
+    raw.push(body.base.all);
+    if (body.base.plat && typeof body.base.plat === 'object') USER_PLATFORMS.forEach((k) => raw.push(body.base.plat[k]));
+  }
+  const changes: Record<string, unknown> = {};
+  if (body.changes != null) {
+    if (typeof body.changes !== 'object' || Array.isArray(body.changes)) return null;
+    for (const k of Object.keys(body.changes)) {
+      const v = body.changes[k];
+      if (k !== 'all' && USER_PLATFORMS.indexOf(k) < 0) return null;
+      if (v === null) {
+        if (k === 'all') return null;   // «كل الحسابات» مبتتمسحش — بتتحفظ فاضية لو لازم
+        changes[k] = null;
+        continue;
+      }
+      const clean = cleanAccountSettings(v);
+      if (!clean) return null;
+      raw.push(v);
+      changes[k] = clean;
+    }
+  }
+  let goals: Record<string, unknown> | null = null;
+  if (body.goals != null) {
+    if (typeof body.goals !== 'object' || Array.isArray(body.goals)) return null;
+    const g = cleanAccountSettings({ roasTarget: body.goals.roasTarget, roasBreakEven: body.goals.roasBreakEven });
+    if (!g || g.roasTarget == null) return null;   // الاتنين مع بعض، وحد الخسارة مش فوق المستهدف
+    goals = { roasTarget: g.roasTarget, roasBreakEven: g.roasBreakEven };
+  }
+  const asked = body.asked === true;
+  if (!base && !Object.keys(changes).length && !goals && !asked) return null;
+  if (raw.some(tooManyIn)) return 'too many';
+  return { base, changes, goals, asked };
+}
 
 export async function handleUserSettings(action: string, body: any, userId: string, origin: string | null): Promise<Response> {
   if (!/^[0-9a-f-]{36}$/.test(userId)) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
@@ -89,13 +150,22 @@ export async function handleUserSettings(action: string, body: any, userId: stri
     return reply(200, { settings: row ? row.settings : null, updatedAt: row ? row.updated_at : null }, origin);
   }
   if (action === 'usettings.set') {
-    const clean = cleanUserSettings(body && body.settings);
-    if (!clean) return reply(400, { error: 'settings' }, origin);
-    await db('user_settings?on_conflict=user_id', {
-      method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ user_id: userId, settings: clean, updated_at: now, used_at: now })
-    });
-    return reply(200, { ok: true, settings: clean }, origin);
+    let req = body;
+    // صفحة اتفتحت قبل ٣١ أكتوبر بتبعت السجل كله (settings): بيتحفظ كتعديل لـ«كل الحسابات» وللمنصات اللي فيه — من غير ما يشيل
+    // تخصيص منصة مش فيه (اتعمل من جهاز تاني). بعد ما الصفحات القديمة تتحدّث يتشال
+    if (body && body.settings != null && body.changes == null && body.base == null && body.goals == null) {
+      const s = body.settings, changes: Record<string, unknown> = {};
+      if (s && typeof s === 'object' && !Array.isArray(s)) {
+        if (s.all != null) changes.all = s.all;
+        if (s.plat && typeof s.plat === 'object') Object.keys(s.plat).forEach((k) => { if (USER_PLATFORMS.indexOf(k) > -1) changes[k] = s.plat[k]; });
+      }
+      req = { changes, asked: s && s.asked === true };
+    }
+    const w = cleanUserWrite(req);
+    if (w === 'too many') return reply(400, { error: 'too many' }, origin);
+    if (!w) return reply(400, { error: 'settings' }, origin);
+    const settings = await rpc('user_settings_apply', { p_user: userId, p_base: w.base, p_changes: w.changes, p_goals: w.goals, p_asked: w.asked });
+    return reply(200, { ok: true, settings }, origin);
   }
   return reply(400, { error: 'action' }, origin);
 }

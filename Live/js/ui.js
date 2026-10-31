@@ -397,6 +397,12 @@
   var userSet = null;
   var userSetState = 'none';   // none / loading / migrate (مالوش سجل: بننقل القديم لما الحسابات تخلص تحميل) / ready / error
   var migrating = false;
+  // مراجعة ٣١ أكتوبر (طلب صاحب المنتج «دقق جيداً»):
+  //  - userSetBase = سجل اتنقل في الجلسة ومتحفظش (قراءة سجل قديم فشلت): بيتبعت مع أول حفظ، والسيرفر بيبدأ بيه لو لسه مفيش سجل
+  //  - userSetGen = بيزيد مع كل حفظ (أوله وآخره): قراءة بدأت قبل حفظ أو خلصت بعده متتسجلش فوقه
+  //  - userSetFails = قراءات فشلت ورا بعض (إعادة تلقائية بفواصل متزايدة)
+  var userSetBase = null, userSetFetchedAt = 0, userSetGen = 0, userSetInFlight = 0, userSetRefreshing = false, userSetFails = 0;
+  var USER_RETRY_MS = [30000, 60000, 120000, 300000];
   function settingsKnown() { return userSetState === 'ready'; }
   function sourceCurrency(source) {
     var info = accountInfo[source];
@@ -426,14 +432,18 @@
     Object.keys(plainObject(o.plat) || {}).forEach(function (p) { if (PLATFORMS.indexOf(p) > -1 && plainObject(o.plat[p])) plat[p] = o.plat[p]; });
     return { all: plainObject(o.all) || {}, plat: plat, asked: o.asked === true };
   }
-  function cloneUserSet() { return normUserSet(JSON.parse(JSON.stringify(userSet || {}))); }
   function canonText(v) {
     if (!v || typeof v !== 'object') return JSON.stringify(v);
     if (Array.isArray(v)) return '[' + v.map(canonText).join(',') + ']';
     return '{' + Object.keys(v).sort().map(function (k) { return JSON.stringify(k) + ':' + canonText(v[k]); }).join(',') + '}';
   }
-  // أول ما الأداة تتفتح في الجلسة: نجيب سجل المستخدم (بالتوازي مع تحميل الإعلانات). الفشل (شبكة) = قيم البداية، والنافذة بتعرض
-  // «حاول مرة أخرى»
+  function adoptUserSet(rec) {
+    userSet = normUserSet(rec);
+    userSetState = 'ready';
+    userSetFetchedAt = Date.now();
+    userSetFails = 0;
+  }
+  // أول ما الأداة تتفتح في الجلسة: نجيب سجل المستخدم (بالتوازي مع تحميل الإعلانات)
   function pullUserSettings() {
     if (userSetState === 'migrate') { migrateUserSettings(); return; }
     if (userSetState !== 'none') return;
@@ -441,15 +451,53 @@
     userSetState = 'loading';
     syncCall({ action: 'usettings.get' }).then(function (res) {
       var rec = plainObject(res && res.settings);
-      if (rec) { userSet = normUserSet(rec); userSetState = 'ready'; settingsArrived(); render(); return; }
+      if (rec) { adoptUserSet(rec); settingsArrived(); render(); return; }
       // مالوش سجل: قيم البداية لحد ما النقل يخلص (النافذة من غير حساب متصل بتعرضها، والحفظ منها بيعمل السجل ويلغي النقل)
       userSet = normUserSet({});
       userSetState = 'migrate';
       migrateBy = Date.now() + MIGRATE_WAIT;
       setTimeout(migrateUserSettings, MIGRATE_WAIT + 500);
       migrateUserSettings();
-    }, function () { userSetState = 'error'; settingsArrived(); });
+    }, userSettingsFailed);
   }
+  // القراءة فشلت (شبكة): التنبيهات بقيم البداية لحد ما تنجح. قبل ٣١ أكتوبر ده كان بيحصل في صمت ومن غير إعادة — دلوقتي بنقول كده مرة
+  // في شريط الحالة، وبنعيد لوحدنا بفواصل متزايدة (٣٠ ثانية ← ٥ دقايق — «Exponential Backoff And Jitter»، AWS Architecture Blog)،
+  // وفوراً لما المستخدم يرجع للتبويب
+  function userSettingsFailed() {
+    userSetState = 'error';
+    var wait = USER_RETRY_MS[Math.min(userSetFails, USER_RETRY_MS.length - 1)];
+    if (!userSetFails) setStatus(msg('settings.err.loadAuto'));
+    userSetFails++;
+    setTimeout(retryUserSettings, wait);
+    settingsArrived();
+  }
+  function retryUserSettings() {
+    if (userSetState !== 'error') return;
+    userSetState = 'none';
+    pullUserSettings();
+  }
+  // تحديث السجل وهو جاهز (فتح النافذة، أو الرجوع للتبويب بعد دقيقة — «revalidate on focus»، SWR وTanStack Query): تعديل اتعمل من
+  // جهاز تاني بيظهر هنا من غير إعادة تحميل الصفحة. قبل ٣١ أكتوبر الصفحة الفاتحة فضلت تحكم بالإعدادات القديمة لحد ما تتقفل
+  function refreshUserSettings() {
+    if (userSetState !== 'ready' || userSetRefreshing || (window.AuthLogin && !AuthLogin.read())) return;
+    var gen = userSetGen;
+    userSetRefreshing = true;
+    syncCall({ action: 'usettings.get' }).then(function (res) {
+      userSetRefreshing = false;
+      var rec = plainObject(res && res.settings);
+      if (!rec || gen !== userSetGen || userSetInFlight) return;   // حفظ حصل وهي ماشية: رده هو الأحدث
+      userSetFetchedAt = Date.now();
+      if (canonText(normUserSet(rec)) === canonText(userSet)) return;
+      adoptUserSet(rec);
+      settingsRefreshed();
+      render();
+    }, function () { userSetRefreshing = false; });
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible') return;
+    if (userSetState === 'error') retryUserSettings();
+    else if (Date.now() - userSetFetchedAt > 60000) refreshUserSettings();
+  });
   // المستخدم مالوش سجل لسه: الإعدادات القديمة بتتنقل مرة واحدة — سجل الحساب المفتوح في Meta وSnapchat (كانت لكل حساب من ٢٤
   // أكتوبر)، ونسخة الجهاز (Google وTikTok كانوا عليها). سجل Meta (وإلا Snapchat) = «كل الحسابات»، وSnapchat لو مختلف = إعدادات
   // Snapchat الخاصة — عشان محدش يحس إن حاجة اتغيّرت. بنستنى الحسابات تخلص تحميل (الحساب المفتوح هو اللي اتظبط غالباً)
@@ -501,28 +549,41 @@
       migrating = false;
       userSet = normUserSet(next);
       userSetState = 'ready';
+      userSetBase = next;
       settingsArrived();
       render();
-      // بيتحفظ لو كل الطلبات نجحت بس — من غيرها ممكن نحفظ «قيم البداية» فوق سجل حساب مقريناهوش (الجلسة الجاية بتحاول تاني)
+      // بيتحفظ لو كل القراءات نجحت بس — من غيرها ممكن نحفظ «قيم البداية» مكان سجل حساب مقريناهوش (الجلسة الجاية بتقرا تاني،
+      // إلا لو المستخدم حفظ حاجة: ساعتها بيتبعت مع حفظه). «إنشاء لو مش موجود» بس: جهاز تاني سبقنا = بناخد سجله
       if (failed) return;
-      syncCall({ action: 'usettings.set', settings: next }).then(function (r) {
-        if (r && r.settings && !settingsSaving) userSet = normUserSet(r.settings);
-        dropDeviceSettings();
-      }, function () { /* الجلسة دي بالمنقول، والجلسة الجاية بتحاول تاني */ });
+      writeUserSettings({}).then(function () { settingsRefreshed(); render(); }, function () { /* الجلسة دي بالمنقول، ويتبعت مع أول حفظ */ });
     });
   }
-  // done() بعد ما السيرفر يأكد، fail(e) لو مأكدش — الإعدادات بتفضل زي ما هي
-  function saveUserSettings(next, done, fail) {
-    syncCall({ action: 'usettings.set', settings: next }).then(function (r) {
-      userSet = normUserSet((r && r.settings) || next);
-      userSetState = 'ready';
+  // الحفظ: المجموعات اللي اتغيّرت بس (changes)، أو المستهدف وحد الخسارة لـ«كل الحسابات» (goals)، أو asked — والسيرفر بيدمجها على
+  // السجل الحالي وهو مقفول، ويرجّع السجل كله (settings.ts cleanUserWrite). قبل ٣١ أكتوبر الحفظ كان بالسجل كله من نسخة الجهاز، فجهاز
+  // فاتح من بدري كان بيمسح تعديل جهاز تاني من غير ما حد يعرف («التحديث المفقود»)
+  function writeUserSettings(body) {
+    var req = Object.assign({ action: 'usettings.set' }, body);
+    if (userSetBase) req.base = userSetBase;
+    userSetGen++;
+    userSetInFlight++;
+    return syncCall(req).then(function (r) {
+      userSetInFlight--;
+      userSetGen++;
+      var rec = plainObject(r && r.settings);
+      if (!rec) throw new Error('bad reply');
+      userSetBase = null;
+      adoptUserSet(rec);
       dropDeviceSettings();
-      done();
-    }, fail);
+      return userSet;
+    }, function (e) {
+      userSetInFlight--;
+      userSetGen++;
+      throw e;
+    });
   }
 
   var ALERT_FMT = { money: money, currencyLabel: currencyLabel, num: numAr, num2: numAr2, int: function (n) { return ar(Math.round(n || 0)); } };
-  var analysis = PauseProofAlerts.analyze([], {}, alertSettings, ALERT_FMT);
+  var analysis = PauseProofAlerts.analyze([], {}, {}, ALERT_FMT);
 
   // اسم كل حساب وعملته وحالته — عشان تنبيهات مستوى الحساب
   function accountsMeta() {
@@ -3214,23 +3275,29 @@
   }
 
   // نطاق النافذة (قرار صاحب المنتج ٢٦ أكتوبر ٢٠٢٦: «الوضع الافتراضي… لكل الحسابات المتصلة، ويكون هناك خيار تخصيص التنبيه لكل
-  // منصة»): «كل الحسابات» هو الافتراضي، وكل منصة متصلة ليها تبويب بيتبع «كل الحسابات» لحد ما المستخدم يخصّصها (بتبدأ بنسخة منها،
-  // ومبتتحفظش غير بـ«حفظ»)، والتخصيص المحفوظ بيتلغي بزرار. اللي اتكتب في تبويب بيفضل لو اتنقل لتبويب تاني ورجع (settingsTyped)
-  var settingsScope = 'all', settingsDraft = {}, settingsTyped = {}, settingsFormState = 'loading', settingsSaving = false, settingsCostCur = null;
+  // منصة»): «كل الحسابات» هو الافتراضي، وكل منصة متصلة ليها تبويب بيتبع «كل الحسابات» لحد ما المستخدم يخصّصها (بتبدأ بنسخة منها)،
+  // والتخصيص المحفوظ بيتلغي بزرار.
+  // مراجعة ٣١ أكتوبر: تعديلات كل تبويب بتفضل لحد «حفظ» (settingsPending — التبويب اللي اتعدّل بيتحقق منه قبل ما تسيبه)، و«حفظ»
+  // بيحفظها كلها مرة واحدة. قبل كده كان بيحفظ التبويب الظاهر بس ويقفل، فتعديل تبويب تاني كان بيضيع من غير ما حد يعرف («منع الخطأ»
+  // — Nielsen Norman Group). التبويب اللي فيه تعديل متحفظش عليه «•». ✕ أو Esc = إلغاء التعديلات كلها
+  var settingsScope = 'all', settingsPending = {}, settingsDirty = false, settingsFormState = 'loading', settingsSaving = false, settingsCostCur = null;
   var settingsSaveBtn = document.getElementById('settingsSave');
   function settingsSources() { return PLATFORMS.map(sourceOf).filter(Boolean); }
   function customOf(p) { return userSet && userSet.plat && userSet.plat[p] ? userSet.plat[p] : null; }
-  // تبويبات المنصات: المتصلة، واللي ليها تخصيص محفوظ (عشان يتلغي حتى لو المنصة مش متصلة دلوقتي)
-  function scopePlatforms() { return PLATFORMS.filter(function (p) { return sourceOf(p) || customOf(p); }); }
-  // المجموعة اللي النطاق بيعدّلها: «كل الحسابات»، أو المنصة لو متخصّصة أو بتتخصّص دلوقتي، وإلا null (= بتتبع «كل الحسابات»)
+  // المنصة ليها إعدادات خاصة (محفوظة، أو بتتخصّص في النافذة دي)
+  function ownSet(p) { return !!(customOf(p) || settingsPending[p]); }
+  // تبويبات المنصات: المتصلة، واللي ليها تخصيص (عشان يتلغي حتى لو المنصة مش متصلة دلوقتي)
+  function scopePlatforms() { return PLATFORMS.filter(function (p) { return sourceOf(p) || ownSet(p); }); }
+  // المجموعة اللي النطاق بيعدّلها: تعديل متحفظش، وإلا المحفوظ («كل الحسابات» أو المنصة المتخصّصة)، وإلا null (= بتتبع «كل الحسابات»)
   function scopeSet(scope) {
     if (!userSet) return null;
+    if (settingsPending[scope]) return settingsPending[scope];
     if (scope === 'all') return userSet.all || {};
-    return customOf(scope) || settingsDraft[scope] || null;
+    return customOf(scope);
   }
   // الحسابات المفتوحة اللي النطاق بيتطبّق عليها (أنواع النتائج والحملات في قسم التكلفة)
   function scopeSources(scope) {
-    return settingsSources().filter(function (s) { var p = platformOfSource(s); return scope === 'all' ? !customOf(p) : p === scope; });
+    return settingsSources().filter(function (s) { var p = platformOfSource(s); return scope === 'all' ? !ownSet(p) : p === scope; });
   }
   // مالوش سجل ولا حساب متصل (النقل مستني حساب): الخانات على قيم البداية، والحفظ بيعمل السجل
   function settingsStateNow() {
@@ -3238,12 +3305,14 @@
     return userSetState === 'error' ? 'error' : 'loading';
   }
   function scopeHtml(scope) {
-    var plats = scopePlatforms(), custom = plats.filter(customOf);
+    var plats = scopePlatforms(), custom = plats.filter(ownSet);
     var name = function (p) { return PLATFORM_NAMES[p]; };
     var tabs = plats.length ? '<div class="settings-scope" role="group" aria-label="' + esc(t('settings.scope.aria')) + '">' +
       ['all'].concat(plats).map(function (p) {
-        var label = p === 'all' ? t('settings.scope.all') : name(p) + (customOf(p) ? ' · ' + t('settings.scope.custom') : '');
-        return '<button type="button" class="chip' + (p === scope ? ' active' : '') + '" data-settings-scope="' + p + '" aria-pressed="' + (p === scope) + '">' + esc(label) + '</button>';
+        var label = p === 'all' ? t('settings.scope.all') : name(p) + (ownSet(p) ? ' · ' + t('settings.scope.custom') : '');
+        var unsaved = settingsPending[p] ? ' title="' + esc(t('settings.scope.unsaved')) + '"' : '';
+        return '<button type="button" class="chip' + (p === scope ? ' active' : '') + '" data-settings-scope="' + p + '" aria-pressed="' + (p === scope) + '"' + unsaved + '>' +
+          esc(label) + (settingsPending[p] ? ' •<span class="sr-only"> ' + esc(t('settings.scope.unsaved')) + '</span>' : '') + '</button>';
       }).join('') + '</div>' : '';
     var note, action = '';
     if (scope === 'all') {
@@ -3285,10 +3354,11 @@
   }
   function costRate(from, to) { return !from || !to || from === to ? 1 : DX.pegRate(from, to); }
   function costTargets(sources, current, saved) {
-    var ads = costAds(sources), types = {}, camps = {}, odd = {}, conv = false;
+    var ads = costAds(sources), types = {}, camps = {}, odd = {}, conv = false, curs = {};
     var cur = costCurrencyOf(sources, ads, Object.keys(current.maxCost).length ? saved : null);
     ads.forEach(function (c) {
       var p = periodOf(c), sp = p.spend || 0, rs = p.results || 0, rate = costRate(c.currency, cur);
+      if (c.currency) curs[c.currency] = true;
       if (c.resultKey) {
         var tp = types[c.resultKey] || (types[c.resultKey] = { key: c.resultKey, spend: 0, results: 0 });
         if (rate) { tp.spend += sp * rate; tp.results += rs; }
@@ -3301,6 +3371,7 @@
     });
     sources.forEach(function (s) {
       var k = sourceCurrency(s);
+      if (k) curs[k] = true;
       if (!k || !cur || k === cur) return;
       if (DX.pegRate(k, cur)) conv = true; else odd[k] = true;
     });
@@ -3311,7 +3382,10 @@
     sources.forEach(function (s) { plats[platformOfSource(s)] = true; });
     return {
       types: Object.keys(types).map(function (k) { return types[k]; }).sort(bySpend), camps: Object.keys(camps).map(function (k) { return camps[k]; }).sort(bySpend),
-      currency: cur, odd: Object.keys(odd), converted: conv, manyPlatforms: Object.keys(plats).length > 1
+      currency: cur, odd: Object.keys(odd), converted: conv, manyPlatforms: Object.keys(plats).length > 1,
+      // عملة واحدة معروفة في النطاق — حملة محفوظة مش ظاهرة (عملتها مجهولة) بتاخدها، وإلا من غير عملة (مراجعة ٣١ أكتوبر: كانت بتاخد
+      // عملة المجموعة حتى لو حسابها بعملة تانية)
+      oneCurrency: Object.keys(curs).length <= 1
     };
   }
   function costRow(name, label, help, value, unit, placeholder) {
@@ -3326,12 +3400,12 @@
       return costRow('type:' + x.key, t('settings.cost.type', { one: t('res1.' + x.key) }), costNow(x.spend, x.results, x.key, tg.currency), current.maxCost[x.key], unit);
     }).join('');
     var campRows = tg.camps.map(function (x) {
-      var keys = Object.keys(x.keys), one = keys.length === 1 ? keys[0] : null, ccur = x.cur || tg.currency;
-      // حد النوع ظاهر خافت جوه خانة الحملة — بعملة الحملة (مش مربوطة = من غيره)
-      var r = one && current.maxCost[one] ? costRate(tg.currency, ccur) : null;
+      var keys = Object.keys(x.keys), one = keys.length === 1 ? keys[0] : null, ccur = x.cur || (tg.oneCurrency ? tg.currency : null);
+      // حد النوع ظاهر خافت جوه خانة الحملة — بعملة الحملة (مش مربوطة أو مجهولة = من غيره)
+      var r = one && ccur && current.maxCost[one] ? costRate(tg.currency, ccur) : null;
       var inherited = r ? String(Math.round(current.maxCost[one] * r * 100) / 100) : '';
       var help = [tg.manyPlatforms && x.plat ? PLATFORM_NAMES[x.plat] : '', DX.listText(keys.map(function (k) { return t('res.' + k); })), costNow(x.spend, x.results, one, ccur)].filter(Boolean).join(' — ');
-      return costRow('camp:' + x.id, x.name || t('settings.cost.campId', { id: x.id }), help, current.campaignMaxCost[x.id], currencyLabel(ccur), inherited);
+      return costRow('camp:' + x.id, x.name || t('settings.cost.campId', { id: x.id }), help, current.campaignMaxCost[x.id], ccur ? currencyLabel(ccur) : '', inherited);
     }).join('');
     var anyCamp = Object.keys(current.campaignMaxCost).length > 0;
     var notes = (tg.converted && typeRows ? '<p class="settings-where">' + esc(t('settings.cost.conv', { cur: unit })) + '</p>' : '') +
@@ -3347,6 +3421,7 @@
     var state = settingsFormState = settingsStateNow();
     var errEl = document.getElementById('settingsError');
     if (errEl) errEl.textContent = '';
+    settingsDirty = false;
     if (state !== 'ready') {
       settingsSaveBtn.disabled = true;
       settingsForm.innerHTML = state === 'loading'
@@ -3357,7 +3432,7 @@
     }
     if (settingsScope !== 'all' && scopePlatforms().indexOf(settingsScope) < 0) settingsScope = 'all';
     var set = scopeSet(settingsScope);
-    settingsSaveBtn.disabled = settingsSaving || !set;
+    settingsSaveBtn.disabled = settingsSaving || (!set && !Object.keys(settingsPending).length);
     if (!set) { settingsForm.innerHTML = scopeHtml(settingsScope); return; }
     var current = PauseProofAlerts.mergeSettings(set);
     var groups = {};
@@ -3370,22 +3445,22 @@
         return '<fieldset class="settings-group"><legend>' + esc(g) + '</legend>' + groups[g].map(function (m) { return settingRow(m, current[m.key]); }).join('') + '</fieldset>';
       }).join('') + '</details>';
     settingsForm.innerHTML = scopeHtml(settingsScope) + settingsCoreHtml(current) + costSectionHtml(scopeSources(settingsScope), current, set.maxCostCur) + advancedHtml;
-    var typed = settingsTyped[settingsScope];
-    if (typed) settingsForm.querySelectorAll('input[name], input[data-cost]').forEach(function (i) { var k = typedKey(i); if (k in typed) i.value = typed[k]; });
   }
-  function typedKey(input) { return input.getAttribute('data-cost') ? 'cost:' + input.getAttribute('data-cost') : input.name; }
-  function keepTyped() {
-    var map = {};
-    settingsForm.querySelectorAll('input[name], input[data-cost]').forEach(function (i) { map[typedKey(i)] = i.value; });
-    if (Object.keys(map).length) settingsTyped[settingsScope] = map;
-  }
+  // كتب حاجة في التبويب الظاهر (التبديل بيتحقق منها ويحتفظ بيها، والتحديث من جهاز تاني ميمسحهاش)
+  settingsForm.addEventListener('input', function () { settingsDirty = true; });
   // سجل المستخدم وصل والنافذة مستنياه — بنرسمها (مش وهو بيكتب: الخانات مبتظهرش غير في حالة ready)
   function settingsArrived() {
     if (!settingsOverlay.classList.contains('hidden') && settingsFormState !== 'ready') renderSettingsForm();
   }
+  // تعديل من جهاز تاني وصل والنافذة مفتوحة: بنرسمها بالجديد لو المستخدم لسه مكتبش حاجة في التبويب الظاهر (اللي اتكتب بيفضل،
+  // والحفظ بالمجموعات اللي اتغيّرت بس)
+  function settingsRefreshed() {
+    if (settingsOverlay.classList.contains('hidden') || settingsSaving || settingsDirty) return;
+    renderSettingsForm();
+  }
   // نسخة «كل الحسابات» للمنصة: حدود حملات المنصات التانية (المعروفة من الإعلانات المحمّلة) مبتتنسخش
   function draftFrom(p) {
-    var base = JSON.parse(JSON.stringify((userSet && userSet.all) || {}));
+    var base = JSON.parse(JSON.stringify(scopeSet('all') || {}));
     if (base.campaignMaxCost) {
       var other = {};
       candidates.forEach(function (c) { if (c.campaignId && platformOfSource(c.source) !== p) other[String(c.campaignId)] = true; });
@@ -3394,17 +3469,34 @@
     }
     return base;
   }
-  // إلغاء التخصيص: المسودة بتتشال وبس، والمحفوظ بيتحفظ من غيرها على طول (المنصة بترجع لـ«كل الحسابات»)
+  // قيم التبويب الظاهر بعد التحقق — null لو فيها خطأ (بيظهر جنب الخانة)
+  function scopeFromForm() {
+    clearSettingsErrors();
+    var r = readSettingsForm();
+    if (showSettingsErrors(r, settingsErrorEl)) return null;
+    var set = withKept(scopeSet(settingsScope) || {}, r.values, r.managed);
+    if (set.maxCost && r.managed.indexOf('maxCostCur') > -1 && settingsCostCur) set.maxCostCur = settingsCostCur;
+    return set;
+  }
+  // قبل ما يسيب التبويب: اللي اتكتب فيه بيتحقق منه ويفضل لحد «حفظ» (false = فيه خطأ، والتبويب مبيتغيّرش)
+  function stashScope() {
+    if (!settingsDirty || !scopeSet(settingsScope)) return true;
+    var set = scopeFromForm();
+    if (!set) return false;
+    settingsPending[settingsScope] = set;
+    return true;
+  }
+  // إلغاء التخصيص: اللي لسه متحفظش بيتشال وبس، والمحفوظ بيتلغي على السيرفر على طول (المنصة بترجع لـ«كل الحسابات») — تعديلات
+  // التبويبات التانية بتفضل مستنية «حفظ»
   function uncustomize(p) {
     if (settingsSaving) return;
-    delete settingsTyped[p];
-    if (!customOf(p)) { delete settingsDraft[p]; renderSettingsForm(); return; }
-    var next = cloneUserSet();
-    delete next.plat[p];
+    if (!customOf(p)) { delete settingsPending[p]; renderSettingsForm(); return; }
+    var changes = {};
+    changes[p] = null;
     setSaving(settingsSaveBtn, true, 'settings.save');
-    saveUserSettings(next, function () {
+    writeUserSettings({ changes: changes }).then(function () {
       setSaving(settingsSaveBtn, false, 'settings.save');
-      delete settingsDraft[p];
+      delete settingsPending[p];
       renderSettingsForm();
       render();
     }, function (e) {
@@ -3415,24 +3507,26 @@
   settingsForm.addEventListener('click', function (e) {
     var tab = e.target.closest('[data-settings-scope]');
     if (tab) {
-      if (settingsSaving) return;
-      keepTyped();
+      if (settingsSaving || !stashScope()) return;
       settingsScope = tab.getAttribute('data-settings-scope');
       renderSettingsForm();
+      // التركيز بيرجع للتبويب المختار بعد الرسم (WAI-ARIA Authoring Practices — كان بيضيع لأول الصفحة)
+      var chip = settingsForm.querySelector('[data-settings-scope="' + settingsScope + '"]');
+      if (chip) chip.focus();
       return;
     }
-    if (e.target.closest('[data-settings-custom]')) { settingsDraft[settingsScope] = draftFrom(settingsScope); renderSettingsForm(); return; }
+    if (e.target.closest('[data-settings-custom]')) { settingsPending[settingsScope] = draftFrom(settingsScope); renderSettingsForm(); return; }
     if (e.target.closest('[data-settings-uncustom]')) { uncustomize(settingsScope); return; }
-    if (e.target.closest('[data-settings-retry]')) { userSetState = 'none'; pullUserSettings(); renderSettingsForm(); }
+    if (e.target.closest('[data-settings-retry]')) { userSetState = 'none'; userSetFails = 0; pullUserSettings(); renderSettingsForm(); }
   });
 
-  // فتح النافذة بيعيد طلب سجل المستخدم لو المحاولة الأولى فشلت (النافذة محتاجاه — مش بنعرض خانات قبل ما نعرف اللي محفوظ). بتفتح
-  // على «كل الحسابات»، إلا لو الفلتر على منصة واحدة متخصّصة
+  // فتح النافذة: أحدث نسخة من السيرفر (تعديل من جهاز تاني — مراجعة ٣١ أكتوبر)، وإعادة الطلب لو المحاولة الأولى فشلت (مش بنعرض خانات
+  // قبل ما نعرف اللي محفوظ). بتفتح على «كل الحسابات»، إلا لو الفلتر على منصة واحدة متخصّصة
   function openAlertSettings() {
-    if (userSetState === 'error') userSetState = 'none';
+    if (userSetState === 'error') { userSetState = 'none'; userSetFails = 0; }
     pullUserSettings();
-    settingsDraft = {};
-    settingsTyped = {};
+    refreshUserSettings();
+    settingsPending = {};
     var one = platSel && platSel.length === 1 ? platSel[0] : null;
     settingsScope = one && customOf(one) ? one : 'all';
     renderSettingsForm();
@@ -3533,31 +3627,29 @@
     KEPT_KEYS.forEach(function (k) { if ((managed || []).indexOf(k) < 0 && !(k in out) && prev && prev[k]) out[k] = prev[k]; });
     return out;
   }
-  // الحفظ في سجل المستخدم (السيرفر) — النافذة بتفضل مفتوحة لحد ما يتأكد، والفشل بيظهر فيها
-  function saveErrText() { return t('settings.err.save'); }
+  // الحفظ في سجل المستخدم (السيرفر) — النافذة بتفضل مفتوحة لحد ما يتأكد، والفشل بيظهر فيها بسببه
+  function saveErrText(e) { return t(e && e.code === 'too many' ? 'settings.err.tooMany' : 'settings.err.save'); }
   function setSaving(btn, on, idleKey) {
     settingsSaving = on;
     btn.disabled = on;
     btn.textContent = t(on ? 'settings.saving' : idleKey);
   }
+  // «حفظ»: التبويب الظاهر (بعد التحقق) وكل تبويب اتعدّل قبله، في طلب واحد بالمجموعات اللي اتغيّرت بس
   settingsSaveBtn.addEventListener('click', function () {
     if (settingsSaving || settingsFormState !== 'ready') return;
-    var scope = settingsScope, prev = scopeSet(scope);
-    if (!prev) return;
-    clearSettingsErrors();
-    var r = readSettingsForm();
-    if (showSettingsErrors(r, settingsErrorEl)) return;
-    var set = withKept(prev, r.values, r.managed);
-    if (set.maxCost && r.managed.indexOf('maxCostCur') > -1 && settingsCostCur) set.maxCostCur = settingsCostCur;
-    var next = cloneUserSet();
-    if (scope === 'all') next.all = set; else next.plat[scope] = set;
-    // شاف سؤال المستهدف هنا وساب الخانتين فاضيين بقصد — نافذة أول مرة متسألهوش تاني على أي جهاز
-    next.asked = true;
+    if (scopeSet(settingsScope)) {
+      var set = scopeFromForm();
+      if (!set) return;
+      settingsPending[settingsScope] = set;
+    }
+    var scopes = Object.keys(settingsPending), changes = {};
+    if (!scopes.length) return;
+    scopes.forEach(function (s) { changes[s] = settingsPending[s]; });
     setSaving(settingsSaveBtn, true, 'settings.save');
-    saveUserSettings(next, function () {
+    // شاف سؤال المستهدف هنا وساب الخانتين فاضيين بقصد — نافذة أول مرة متسألهوش تاني على أي جهاز
+    writeUserSettings({ changes: changes, asked: true }).then(function () {
       setSaving(settingsSaveBtn, false, 'settings.save');
-      delete settingsDraft[scope];
-      delete settingsTyped[scope];
+      settingsPending = {};
       settingsOverlay.classList.add('hidden');
       render();
     }, function (e) {
@@ -3569,7 +3661,8 @@
   // ---------- نافذة أول مرة: ضبط التنبيهات على أهداف المتجر ----------
   // أول ما المستخدم يفتح حساب وإعداداته مفيهاش مستهدف وحد خسارة لـ«كل الحسابات» (وسجله وصل من السيرفر)، بتظهر مرة واحدة للمستخدم
   // (asked في سجله — مش لكل جهاز): السؤالين عن الفلوس لكل حساباته، مع توضيح إنها بتتعدّل وبتتخصّص لكل منصة من «الإعدادات» ←
-  // «إعدادات التنبيهات». «لاحقاً» أو ✕ أو Esc = حكم الربح بيستنى، ومبتظهرش تاني
+  // «إعدادات التنبيهات». «لاحقاً» أو ✕ أو Esc = حكم الربح بيستنى، ومبتظهرش تاني.
+  // من ٣١ أكتوبر الحفظ بالمستهدف وحد الخسارة بس (goals — بيتدمجوا في «كل الحسابات» على السيرفر)، مش بنسخة الجهاز كلها
   var welcomeOverlay = document.getElementById('welcomeOverlay');
   var welcomeForm = document.getElementById('welcomeForm');
   var welcomeErrorEl = document.getElementById('welcomeError');
@@ -3600,22 +3693,17 @@
     welcomeDone = true;
     welcomeOpen = false;
     welcomeOverlay.classList.add('hidden');
-    if (userSet && !userSet.asked) {
-      var next = cloneUserSet();
-      next.asked = true;
-      saveUserSettings(next, function () {}, function () {});
-    }
+    if (userSet && !userSet.asked) writeUserSettings({ asked: true }).then(function () {}, function () {});
   }
   welcomeSaveBtn.addEventListener('click', function () {
     if (settingsSaving || !welcomeOpen) return;
     clearSettingsErrors(welcomeForm, welcomeErrorEl);
     var r = readSettingsForm(welcomeForm);
     if (showSettingsErrors(r, welcomeErrorEl)) return;
-    var next = cloneUserSet();
-    next.all = Object.assign({}, next.all, r.values);
-    next.asked = true;
+    // الخانتين فاضيين = «لاحقاً» بس (حكم الربح بيستنى)
+    var goals = r.values.roasTarget != null ? { roasTarget: r.values.roasTarget, roasBreakEven: r.values.roasBreakEven } : null;
     setSaving(welcomeSaveBtn, true, 'welcome.save');
-    saveUserSettings(next, function () {
+    writeUserSettings(goals ? { goals: goals, asked: true } : { asked: true }).then(function () {
       setSaving(welcomeSaveBtn, false, 'welcome.save');
       closeWelcome();
       render();

@@ -292,11 +292,13 @@
   function countBelowP(k, lambda, days) { var phi = phiOf(lambda, days); return lambda > 0 && k < lambda ? gammq(k / phi + 1, lambda / phi) : 1; }
   // إعدادات الحساب كاملة: القيمة المحفوظة لو صحيحة (جوه حدودها)، وإلا قيمة البداية. المستهدف وحد الخسارة null لو مش محفوظين
   // (حكم الربح بيستنى). والتكلفة المقبولة لكل نتيجة (مراجعة الإعدادات — قرار صاحب المنتج): maxCost لكل نوع نتيجة في الحساب،
-  // وcampaignMaxCost لكل حملة (متجر بفئات أسعار مختلفة: تكلفة الطلب أو المحادثة بتختلف من حملة لحملة)
+  // وcampaignMaxCost لكل حملة (متجر بفئات أسعار مختلفة: تكلفة الطلب أو المحادثة بتختلف من حملة لحملة). لحد ٢٬٠٠٠ في القائمة — نفس
+  // حد السيرفر (settings.ts MAX_KEYS، مراجعة ٣١ أكتوبر: «كل الحسابات» فيها حدود حملات كل الحسابات مع بعض؛ كان ٥٠٠ والزيادة بتضيع)
+  var MAX_COST_KEYS = 2000;
   function costMap(v) {
     var out = {};
     if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
-    Object.keys(v).slice(0, 500).forEach(function (k) {
+    Object.keys(v).slice(0, MAX_COST_KEYS).forEach(function (k) {
       var n = v[k];
       if (k.length <= 64 && typeof n === 'number' && isFinite(n) && n > 0 && n <= 1e9) out[k] = n;
     });
@@ -1632,6 +1634,7 @@
     SETTINGS_ORDER: SETTINGS_ORDER,
     mergeSettings: mergeSettings,
     settingsForAccount: settingsForAccount,
+    MAX_COST_KEYS: MAX_COST_KEYS,
     analyze: analyze,
     // اختبار العائد مقابل حد (بواسون مركّب مع جاما) — الملخص بيستخدمه لسطر المستهدف (diagnosis.js targetLine)، معيار واحد للأداة
     roasP: roasP,

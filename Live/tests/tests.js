@@ -99,7 +99,7 @@
     var prev = window.syncCall, calls = [];
     window.syncCall = function (b) { calls.push(JSON.parse(JSON.stringify(b))); return new Promise(function () {}); };
     calls.restore = function () { window.syncCall = prev; setSaving(settingsSaveBtn, false, 'settings.save'); setSaving(welcomeSaveBtn, false, 'welcome.save'); settingsOverlay.classList.add('hidden'); };
-    calls.last = function () { var c = calls[calls.length - 1]; return c && c.settings ? c.settings.all : null; };
+    calls.last = function () { var c = calls[calls.length - 1]; return c && c.changes ? c.changes.all : null; };
     return calls;
   }
 
@@ -111,7 +111,8 @@
     // إعدادات المستخدم (٢٦ أكتوبر) — كل اختبار بسجل فاضي وصل خلاص (قيم البداية، ونافذة أول مرة اتسألت)، من غير طلبات للسيرفر
     useSettings({});
     migrating = false;
-    settingsScope = 'all'; settingsDraft = {}; settingsTyped = {}; settingsSaving = false;
+    settingsScope = 'all'; settingsPending = {}; settingsDirty = false; settingsSaving = false;
+    userSetBase = null; userSetGen = 0; userSetInFlight = 0; userSetRefreshing = false; userSetFails = 0;
     welcomeDone = false; welcomeOpen = false; welcomeOverlay.classList.add('hidden');
     period = { preset: 'last7' };
     // حالة المنصات والحسابات والجلسات — كل اختبار يبدأ من غير أي منصة متصلة
@@ -3578,7 +3579,7 @@
     });
 
     // ---------- إعدادات التنبيهات لكل مستخدم (قرار صاحب المنتج ٢٦ أكتوبر ٢٠٢٦: «نعم اجعلها لكل مستخدم»، والافتراضي «لكل الحسابات
-    // المتصلة» مع اختيار تخصيص منصة) ----------
+    // المتصلة» مع اختيار تخصيص منصة) — ومراجعتها ٣١ أكتوبر («دقق جيداً»): الحفظ بالجزء اللي اتغيّر بس، وتعديلات كل التبويبات ----------
     function withSync(answer, fn) {
       var prev = window.syncCall, prevRead = AuthLogin.read, calls = [];
       window.syncCall = function (b) { calls.push(JSON.parse(JSON.stringify(b))); return answer(b, calls.length); };
@@ -3592,6 +3593,32 @@
       };
       return Promise.resolve().then(function () { return fn(calls); }).then(done, function (e) { done(); throw e; });
     }
+    // سيرفر وهمي بنفس دمج قاعدة البيانات (user_settings_merge — اتجرّبت على Postgres نفسه ٣١ أكتوبر): السجل، وطلبات الحفظ
+    function fakeServer(initial) {
+      var copy = function (v) { return v == null ? v : JSON.parse(JSON.stringify(v)); };
+      var srv = { rec: copy(initial === undefined ? null : initial), sets: [] };
+      srv.answer = function (b) {
+        if (b.action === 'usettings.get') return Promise.resolve({ settings: copy(srv.rec) });
+        if (b.action !== 'usettings.set') return Promise.resolve({});
+        srv.sets.push(copy(b));
+        var cur = srv.rec || copy(b.base) || { all: {} }, ch = b.changes || {};
+        Object.keys(ch).forEach(function (k) {
+          if (k === 'all') { if (ch.all) cur.all = copy(ch.all); }
+          else if (ch[k] === null) { if (cur.plat) delete cur.plat[k]; }
+          else { cur.plat = cur.plat || {}; cur.plat[k] = copy(ch[k]); }
+        });
+        if (b.goals) cur.all = Object.assign({}, cur.all, b.goals);
+        if (b.asked) cur.asked = true;
+        if (cur.plat && !Object.keys(cur.plat).length) delete cur.plat;
+        srv.rec = cur;
+        return Promise.resolve({ ok: true, settings: copy(cur) });
+      };
+      return srv;
+    }
+    // كتابة في خانة زي المستخدم (حدث input — النافذة بتعرف إن فيه تعديل)
+    function typeIn(input, value) { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }
+    var inp = function (k) { return settingsForm.querySelector('[name="' + k + '"]'); };
+    var tab = function (p) { return settingsForm.querySelector('[data-settings-scope="' + p + '"]'); };
     var META_TOKEN = { token: 'TEST_meta_token_1234567890', expiresAt: Date.now() + 86400000 };
     var SNAP_TOKEN = { token: 'snap.test-token_1234567890', expiresAt: Date.now() + 86400000 };
     var actionsOf = function (calls) { return calls.map(function (c) { return c.action; }); };
@@ -3606,6 +3633,15 @@
       eq(f('snapchat', 'USD'), { roasTarget: 2, roasBreakEven: 1 }, 'a customized platform: its own set only');
       eq(PauseProofAlerts.settingsForAccount(null, 'meta', 'SAR', DX.pegRate), {}, 'no record: start values');
       eq(PauseProofAlerts.settingsForAccount({ all: { maxCost: { lead: 30 } } }, 'meta', 'USD', DX.pegRate).maxCost, { lead: 30 }, 'an old record without a currency: as is');
+    });
+    // مراجعة ٣١ أكتوبر: «كل الحسابات» فيها حدود حملات كل الحسابات مع بعض — الحد كان ٥٠٠ والزيادة بتضيع في صمت
+    test('حد قوائم الحدود ٢٬٠٠٠ في المحرك زي السيرفر، ورفض السيرفر بسببه بيتقال بوضوح', function () {
+      var big = {};
+      for (var i = 0; i < 2001; i++) big['c' + i] = 1;
+      eq(Object.keys(PauseProofAlerts.mergeSettings({ campaignMaxCost: big }).campaignMaxCost).length, 2000);
+      eq(PauseProofAlerts.MAX_COST_KEYS, 2000);
+      eq(saveErrText({ code: 'too many' }), t('settings.err.tooMany'));
+      eq(saveErrText(new Error('HTTP 502')), t('settings.err.save'));
     });
     testAsync('إعدادات المستخدم من السيرفر بتحكم كل الحسابات في كل المنصات، والمنصة المتخصّصة بإعداداتها — طلب واحد في الجلسة من غير مفتاح منصة', function () {
       return withSync(function (b) {
@@ -3631,10 +3667,11 @@
       });
     });
     testAsync('نقل الإعدادات القديمة مرة واحدة: سجل Meta = «كل الحسابات»، وSnapchat لو مختلف = إعداداته الخاصة، وبعد الحسابات ما تخلص تحميل', function () {
+      var srv = fakeServer(null);
       return withSync(function (b) {
         if (b.action === 'usettings.get') return Promise.resolve({ settings: null });
         if (b.action === 'settings.get') return Promise.resolve({ settings: b.platform === 'meta' ? { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 } } : { roasTarget: 2, roasBreakEven: 1 } });
-        return Promise.resolve({ ok: true, settings: b.settings });
+        return srv.answer(b);
       }, function (calls) {
         userSet = null; userSetState = 'none';
         alertSettings = { roasTarget: 3, roasBreakEven: 1 };
@@ -3652,19 +3689,39 @@
         }).then(function () {
           eq(calls.map(function (c) { return [c.action, c.platform || null, c.accountId || null, c.platformToken || null]; }), [
             ['usettings.get', null, null, null], ['settings.get', 'meta', 'act_1', META_TOKEN.token], ['settings.get', 'snapchat', 'abc-1', SNAP_TOKEN.token], ['usettings.set', null, null, null]]);
-          var s = calls[3].settings;
-          eq(s.all, { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR' }, 'the Meta record = all accounts, its max cost in its account currency');
-          eq(s.plat, { snapchat: { roasTarget: 2, roasBreakEven: 1 } }, 'Snapchat was different: its own settings, so nothing changes for it');
+          var c = calls[3];
+          ok(c.base && !c.changes && !c.goals, 'sent as «create if missing» (base), not as a change');
+          eq(c.base.all, { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR' }, 'the Meta record = all accounts, its max cost in its account currency');
+          eq(c.base.plat, { snapchat: { roasTarget: 2, roasBreakEven: 1 } }, 'Snapchat was different: its own settings, so nothing changes for it');
           eq(JSON.stringify(alertSettings), '{}', 'the device copy is gone once saved');
+          eq(userSetBase, null, 'saved: nothing left to send');
           eq([settingsFor('meta:act_1').roasBreakEven, settingsFor('snapchat:abc-1').roasBreakEven], [5, 1]);
         });
       });
     });
-    testAsync('نقل الإعدادات القديمة بيستنى المنصة المتذكَّرة على الجهاز لحد ما ترجع (من غيرها كان هيحفظ قيم البداية مكان سجلها)', function () {
+    testAsync('نقل الإعدادات القديمة من جهازين في نفس الوقت: التاني بياخد سجل الأول (إنشاء لو مش موجود بس)', function () {
+      var srv = fakeServer(null);
       return withSync(function (b) {
         if (b.action === 'usettings.get') return Promise.resolve({ settings: null });
         if (b.action === 'settings.get') return Promise.resolve({ settings: { roasTarget: 5, roasBreakEven: 5 } });
-        return Promise.resolve({ ok: true, settings: b.settings });
+        if (!srv.rec) srv.rec = { all: { roasTarget: 9, roasBreakEven: 9 }, asked: true };   // الجهاز التاني سبق بلحظة
+        return srv.answer(b);
+      }, function () {
+        userSet = null; userSetState = 'none';
+        activeSources.meta = 'act_1'; sessionTokens.meta = META_TOKEN;
+        runAnalysis();
+        return tick().then(function () {
+          eq(srv.sets[0].base.all, { roasTarget: 5, roasBreakEven: 5 }, 'this device offered its move');
+          eq([srv.rec.all.roasTarget, userSet.all.roasTarget], [9, 9], 'the record already there is kept, and used here too');
+        });
+      });
+    });
+    testAsync('نقل الإعدادات القديمة بيستنى المنصة المتذكَّرة على الجهاز لحد ما ترجع (من غيرها كان هيحفظ قيم البداية مكان سجلها)', function () {
+      var srv = fakeServer(null);
+      return withSync(function (b) {
+        if (b.action === 'usettings.get') return Promise.resolve({ settings: null });
+        if (b.action === 'settings.get') return Promise.resolve({ settings: { roasTarget: 5, roasBreakEven: 5 } });
+        return srv.answer(b);
       }, function (calls) {
         userSet = null; userSetState = 'none';
         lastAccounts.meta = 'act_1'; lastAccounts.snapchat = 'abc-1';
@@ -3680,35 +3737,50 @@
           return tick();
         }).then(function () {
           eq(actionsOf(calls), ['usettings.get', 'settings.get', 'settings.get', 'usettings.set']);
-          eq(calls[3].settings.all, { roasTarget: 5, roasBreakEven: 5 }, 'Meta came back: its record moved');
+          eq(calls[3].base.all, { roasTarget: 5, roasBreakEven: 5 }, 'Meta came back: its record moved');
         });
       });
     });
-    testAsync('نقل الإعدادات القديمة فشل: الجلسة دي بنسخة الجهاز، ومفيش حفظ فوق سجل حساب مقريناهوش (الجلسة الجاية بتحاول تاني)', function () {
+    testAsync('نقل الإعدادات القديمة فشل: الجلسة دي بالمنقول ومفيش حفظ لوحده، وأول حفظ من المستخدم بياخده معاه (مكانش بيضيع)', function () {
+      var srv = fakeServer(null);
       return withSync(function (b) {
         if (b.action === 'usettings.get') return Promise.resolve({ settings: null });
-        return Promise.reject(new Error('HTTP 500'));
+        if (b.action === 'settings.get') return Promise.reject(new Error('HTTP 500'));
+        return srv.answer(b);
       }, function (calls) {
         userSet = null; userSetState = 'none';
-        alertSettings = { roasTarget: 5, roasBreakEven: 5 };
+        alertSettings = { roasTarget: 5, roasBreakEven: 5, cprWarnMultiple: 2 };
         activeSources.meta = 'act_1';
         sessionTokens.meta = META_TOKEN;
         runAnalysis();
         return tick().then(function () {
-          eq(actionsOf(calls), ['usettings.get', 'settings.get'], 'nothing saved');
+          eq(actionsOf(calls), ['usettings.get', 'settings.get'], 'nothing saved by itself (the next session reads again)');
           ok(settingsKnown(), 'the tool works with what it has');
           eq(settingsFor('meta:act_1').roasBreakEven, 5, 'this session: the device copy');
           eq(alertSettings.roasTarget, 5, 'the device copy is kept for the next try');
+          openAlertSettings();
+          return tick();
+        }).then(function () {
+          typeIn(inp('roasTarget'), '6');
+          settingsSaveBtn.click();
+          return tick();
+        }).then(function () {
+          var c = srv.sets[0];
+          ok(c.base && c.base.all.cprWarnMultiple === 2, 'the moved settings go with the first save');
+          eq([srv.rec.all.roasTarget, srv.rec.all.cprWarnMultiple], [6, 2], 'the record starts from them, then the change');
+          eq(userSetBase, null, 'sent once');
         });
       });
     });
-    testAsync('نافذة الإعدادات: «كل الحسابات» هو الافتراضي، وتخصيص منصة بزرار، والحفظ في سجل المستخدم، وإلغاء التخصيص، والفشل بيظهر', function () {
-      var answer = function (b) { return Promise.resolve({ ok: true, settings: b.settings }); };
-      return withSync(function (b) { return answer(b); }, function (calls) {
+    testAsync('نافذة الإعدادات: «كل الحسابات» الافتراضي، وتخصيص منصة بزرار، والحفظ بالجزء اللي اتغيّر بس (تعديل جهاز تاني بيفضل)، وإلغاء التخصيص، والفشل بيظهر', function () {
+      var srv = fakeServer({ all: { roasTarget: 4, roasBreakEven: 2, maxCost: { lead: 30 }, maxCostCur: 'SAR' }, asked: true });
+      var fail = false;
+      return withSync(function (b) {
+        if (fail && b.action === 'usettings.set') { var e = new Error('HTTP 502'); e.status = 502; return Promise.reject(e); }
+        return srv.answer(b);
+      }, function () {
         activeSources.meta = 'act_1'; activeSources.snapchat = 'abc-1';
-        useSettings({ roasTarget: 4, roasBreakEven: 2, maxCost: { lead: 30 }, maxCostCur: 'SAR' });
-        var inp = function (k) { return settingsForm.querySelector('[name="' + k + '"]'); };
-        var tab = function (p) { return settingsForm.querySelector('[data-settings-scope="' + p + '"]'); };
+        useSettings(srv.rec.all);
         openAlertSettings();
         ok(tab('all') && tab('meta') && tab('snapchat') && !tab('google'), 'all accounts + a tab per connected platform');
         ok(tab('all').classList.contains('active'), 'all accounts by default');
@@ -3721,47 +3793,145 @@
         ok(settingsForm.textContent.indexOf(t('settings.scope.follows', { platform: 'Snapchat' })) > -1, 'says so');
         settingsForm.querySelector('[data-settings-custom]').click();
         eq([inp('roasTarget').value, inp('roasBreakEven').value], ['4', '2'], 'starts as a copy of all accounts');
-        eq(calls.length, 0, 'customizing alone saves nothing');
-        inp('roasTarget').value = '3'; inp('roasBreakEven').value = '1.5';
+        ok(tab('snapchat').textContent.indexOf('•') > -1, 'not saved yet: marked');
+        eq(srv.sets.length, 0, 'customizing alone saves nothing');
+        typeIn(inp('roasTarget'), '3'); typeIn(inp('roasBreakEven'), '1.5');
         settingsSaveBtn.click();
         ok(settingsSaveBtn.disabled, 'busy while saving');
         return tick().then(function () {
-          var c = calls[0];
-          eq([c.action, c.settings.all.roasTarget, c.settings.plat.snapchat.roasTarget, c.settings.plat.snapchat.roasBreakEven, c.settings.asked], ['usettings.set', 4, 3, 1.5, true]);
-          ok(!('platformToken' in c) && !('accountId' in c), 'per user: no account, no platform token');
+          var c = srv.sets[0];
+          eq(Object.keys(c.changes), ['snapchat'], 'only the changed part is sent');
+          eq([c.changes.snapchat.roasTarget, c.changes.snapchat.roasBreakEven, c.asked], [3, 1.5, true]);
+          ok(!('settings' in c) && !('platformToken' in c) && !('accountId' in c), 'per user, and never the whole record');
           ok(settingsOverlay.classList.contains('hidden'), 'closed after the save');
           eq([settingsFor('snapchat:abc-1').roasTarget, settingsFor('meta:act_1').roasTarget], [3, 4]);
           openAlertSettings();
+          return tick();
+        }).then(function () {
+          // جهاز تاني خصّص Meta بعد ما النافذة دي اتفتحت (الصفحة دي متعرفش)
+          srv.rec.plat.meta = { roasTarget: 9, roasBreakEven: 3 };
           ok(tab('snapchat').textContent.indexOf(t('settings.scope.custom')) > -1, 'the customized tab says so');
           ok(settingsForm.textContent.indexOf(t('settings.scope.except', { platforms: 'Snapchat' })) > -1, 'all accounts names the exception');
-          inp('roasTarget').value = '6';
+          typeIn(inp('roasTarget'), '6');
           tab('meta').click();
+          ok(document.activeElement === tab('meta'), 'focus stays on the chosen tab');
           tab('all').click();
           eq(inp('roasTarget').value, '6', 'what was typed stays when switching tabs');
-          answer = function () { var e = new Error('HTTP 502'); e.status = 502; return Promise.reject(e); };
+          ok(tab('all').textContent.indexOf('•') > -1, 'and the tab is marked unsaved');
+          fail = true;
           settingsSaveBtn.click();
           return tick();
         }).then(function () {
           ok(!settingsOverlay.classList.contains('hidden'), 'failed save keeps the window open');
           eq(document.getElementById('settingsError').textContent, t('settings.err.save'));
-          eq(userSet.all.roasTarget, 4, 'unchanged');
-          answer = function (b) { return Promise.resolve({ ok: true, settings: b.settings }); };
+          eq(srv.rec.all.roasTarget, 4, 'nothing changed on the server');
+          fail = false;
           settingsSaveBtn.click();
           return tick();
         }).then(function () {
-          var s = calls[calls.length - 1].settings;
-          eq([s.all.roasTarget, s.all.maxCost, s.all.maxCostCur, s.plat.snapchat.roasTarget], [6, { lead: 30 }, 'SAR', 3], 'max cost and its currency kept, the platform untouched');
+          var c = srv.sets[srv.sets.length - 1];
+          eq(Object.keys(c.changes), ['all']);
+          eq([c.changes.all.roasTarget, c.changes.all.maxCost, c.changes.all.maxCostCur], [6, { lead: 30 }, 'SAR'], 'the max cost and its currency kept');
+          // قبل ٣١ أكتوبر الحفظ كان بالسجل كله من الصفحة دي، فكان بيمسح تخصيص Meta اللي اتعمل من الجهاز التاني
+          eq([srv.rec.plat.meta.roasTarget, srv.rec.plat.snapchat.roasTarget], [9, 3], 'the other device\'s Meta customization survives, Snapchat too');
+          eq(settingsFor('meta:act_1').roasTarget, 9, 'and this page now has it');
           openAlertSettings();
+          return tick();
+        }).then(function () {
           tab('snapchat').click();
           settingsForm.querySelector('[data-settings-uncustom]').click();
           return tick();
         }).then(function () {
-          var s = calls[calls.length - 1].settings;
-          ok(!s.plat.snapchat, 'customization removed');
+          eq(srv.sets[srv.sets.length - 1].changes, { snapchat: null }, 'removing a customization sends only that');
+          ok(!srv.rec.plat.snapchat && srv.rec.plat.meta, 'Snapchat removed, Meta kept');
           eq(settingsFor('snapchat:abc-1').roasTarget, 6, 'Snapchat follows all accounts again');
           ok(settingsForm.querySelector('[data-settings-custom]'), 'back to «customize»');
         });
       });
+    });
+    testAsync('«حفظ» بيحفظ تعديلات كل التبويبات في طلب واحد (قبل كده التبويب الظاهر بس، والتاني كان بيضيع)، والقيمة الغلط بتمنع ترك التبويب', function () {
+      var srv = fakeServer({ all: { roasTarget: 4, roasBreakEven: 2 }, plat: { snapchat: { roasTarget: 3, roasBreakEven: 1 } }, asked: true });
+      return withSync(srv.answer, function () {
+        activeSources.meta = 'act_1'; activeSources.snapchat = 'abc-1';
+        useSettings(srv.rec.all, srv.rec.plat);
+        openAlertSettings();
+        return tick().then(function () {
+          typeIn(inp('roasTarget'), 'abc');
+          tab('snapchat').click();
+          ok(tab('all').classList.contains('active') && settingsForm.querySelector('.setting-row.invalid [name="roasTarget"]'), 'a wrong value: stays on the tab, with the error next to it');
+          typeIn(inp('roasTarget'), '7');
+          tab('snapchat').click();
+          ok(tab('snapchat').classList.contains('active'), 'fixed: moves on');
+          eq(inp('roasTarget').value, '3', 'Snapchat shows its own');
+          typeIn(inp('roasBreakEven'), '2');
+          settingsSaveBtn.click();
+          return tick();
+        }).then(function () {
+          eq(srv.sets.length, 1, 'one request');
+          eq(Object.keys(srv.sets[0].changes).sort(), ['all', 'snapchat'], 'both tabs');
+          eq([srv.rec.all.roasTarget, srv.rec.plat.snapchat.roasTarget, srv.rec.plat.snapchat.roasBreakEven], [7, 3, 2]);
+          ok(settingsOverlay.classList.contains('hidden'));
+        });
+      });
+    });
+    testAsync('فتح النافذة بيجيب أحدث نسخة (تعديل من جهاز تاني) — ومبيمسحش اللي المستخدم بدأ يكتبه', function () {
+      var srv = fakeServer({ all: { roasTarget: 4, roasBreakEven: 2 }, asked: true });
+      return withSync(srv.answer, function (calls) {
+        activeSources.meta = 'act_1';
+        useSettings({ roasTarget: 4, roasBreakEven: 2 });
+        srv.rec.all = { roasTarget: 6, roasBreakEven: 3 };   // اتغيّرت من جهاز تاني
+        openAlertSettings();
+        eq(inp('roasTarget').value, '4', 'shows what it has right away');
+        return tick().then(function () {
+          eq(actionsOf(calls), ['usettings.get'], 'one fresh read on open');
+          eq(inp('roasTarget').value, '6', 'then the latest from the server');
+          eq(settingsFor('meta:act_1').roasTarget, 6, 'the alerts follow it too');
+          closeOverlays();
+          srv.rec.all = { roasTarget: 8, roasBreakEven: 3 };
+          openAlertSettings();
+          typeIn(inp('roasTarget'), '5');   // بدأ يكتب قبل ما الرد يوصل
+          return tick();
+        }).then(function () {
+          eq(inp('roasTarget').value, '5', 'what the user typed stays');
+          eq(userSet.all.roasTarget, 8, 'the rest is up to date');
+        });
+      });
+    });
+    testAsync('قراءة بدأت قبل حفظ متتسجلش فوقه (الرد القديم بيتجاهل)', function () {
+      var resolveGet = null;
+      return withSync(function (b) {
+        if (b.action === 'usettings.get') return new Promise(function (r) { resolveGet = r; });
+        return Promise.resolve({ ok: true, settings: { all: { roasTarget: 7, roasBreakEven: 2 }, asked: true } });
+      }, function () {
+        useSettings({ roasTarget: 4, roasBreakEven: 2 });
+        refreshUserSettings();
+        return writeUserSettings({ changes: { all: { roasTarget: 7, roasBreakEven: 2 } } }).then(function () {
+          resolveGet({ settings: { all: { roasTarget: 4, roasBreakEven: 2 }, asked: true } });   // الرد القديم وصل بعد الحفظ
+          return tick();
+        }).then(function () {
+          eq(userSet.all.roasTarget, 7, 'the save wins');
+        });
+      });
+    });
+    testAsync('قراءة الإعدادات فشلت: رسالة في شريط الحالة مرة واحدة، وإعادة تلقائية لحد ما تنجح (قبل كده قيم البداية في صمت)', function () {
+      var keepRetry = USER_RETRY_MS, n = 0;
+      USER_RETRY_MS = [5];
+      return withSync(function (b) {
+        if (b.action !== 'usettings.get') return Promise.resolve({});
+        n++;
+        return n < 3 ? Promise.reject(new Error('network')) : Promise.resolve({ settings: { all: { roasTarget: 4, roasBreakEven: 2 }, asked: true } });
+      }, function () {
+        userSet = null; userSetState = 'none';
+        pullUserSettings();
+        return tick().then(function () {
+          eq(userSetState, 'error');
+          eq(document.getElementById('connectStatus').textContent, t('settings.err.loadAuto'), 'says so');
+          return new Promise(function (r) { setTimeout(r, 80); });
+        }).then(function () {
+          eq([n, userSetState, userSetFails], [3, 'ready', 0], 'tried again by itself until it worked');
+          eq(settingsFor('meta:act_1').roasTarget, 4);
+        });
+      }).then(function () { USER_RETRY_MS = keepRetry; }, function (e) { USER_RETRY_MS = keepRetry; throw e; });
     });
     test('نافذة الإعدادات قبل ما سجل المستخدم يوصل، أو لو معرفناش نجيبه: مفيش خانات ولا حفظ، و«حاول مرة أخرى» بيطلبه تاني', function () {
       var prev = window.syncCall, prevRead = AuthLogin.read, asked = 0;
@@ -3787,11 +3957,18 @@
         ok(settingsForm.querySelector('[name="roasTarget"]') && !settingsSaveBtn.disabled, 'no record, no account: the form on start values');
       } finally { window.syncCall = prev; AuthLogin.read = prevRead; closeOverlays(); }
     });
-    testAsync('نافذة أول مرة للمستخدم: بتستنى سجله، والحفظ في «كل الحسابات»، و«لاحقاً» أو Esc بيتسجّلوا في سجله فمتظهرش على أي جهاز', function () {
-      var answer = function (b) { return Promise.resolve({ ok: true, settings: b.settings }); };
+    testAsync('نافذة أول مرة للمستخدم: بتستنى سجله، والحفظ بالمستهدف وحد الخسارة بس (باقي «كل الحسابات» زي ما هو)، و«لاحقاً» أو Esc بيتسجّلوا في سجله', function () {
+      var srv = fakeServer(null), fail = false;
       var hidden = function () { return welcomeOverlay.classList.contains('hidden'); };
-      var fresh = function (all) { userSet = normUserSet({ all: all || {} }); userSetState = 'ready'; welcomeDone = false; };
-      return withSync(function (b) { return answer(b); }, function (calls) {
+      // مستخدم من غير مستهدف، وعنده حد تكلفة محفوظ (من جهاز تاني) — نسخة الصفحة متعرفوش
+      var fresh = function (all) {
+        srv.rec = { all: Object.assign({ maxCost: { purchase: 30 }, maxCostCur: 'USD' }, all || {}) };
+        userSet = normUserSet({ all: all || {} }); userSetState = 'ready'; welcomeDone = false;
+      };
+      return withSync(function (b) {
+        if (fail && b.action === 'usettings.set') { var e = new Error('HTTP 502'); e.status = 502; return Promise.reject(e); }
+        return srv.answer(b);
+      }, function () {
         fresh();
         maybeShowWelcome();
         ok(hidden(), 'no account yet: nothing');
@@ -3809,45 +3986,46 @@
         welcomeForm.querySelector('[name="roasTarget"]').value = '3';
         document.getElementById('welcomeSave').click();
         ok(!hidden() && welcomeForm.querySelector('.setting-row.invalid [name="roasTarget"]'), 'target below the loss point: error');
-        eq(calls.length, 0, 'nothing sent');
+        eq(srv.sets.length, 0, 'nothing sent');
         welcomeForm.querySelector('[name="roasTarget"]').value = '5';
         document.getElementById('welcomeSave').click();
         return tick().then(function () {
-          var c = calls[0] || {};
-          eq([c.action, c.settings.all.roasTarget, c.settings.all.roasBreakEven, c.settings.asked], ['usettings.set', 5, 4, true]);
-          eq(calls.length, 1, 'one save');
+          eq(srv.sets.length, 1, 'one save');
+          eq(srv.sets[0].goals, { roasTarget: 5, roasBreakEven: 4 }, 'only the two goals');
+          ok(srv.sets[0].asked && !srv.sets[0].changes, 'no whole set from this page');
+          eq(srv.rec.all, { maxCost: { purchase: 30 }, maxCostCur: 'USD', roasTarget: 5, roasBreakEven: 4 }, 'the cost limit saved from the other device stays');
           ok(hidden(), 'closed');
           render();
           ok(hidden(), 'never again');
           fresh();
           render();
           ok(!hidden(), 'asked again for a user without goals');
-          calls.length = 0;
           document.getElementById('welcomeSkip').click();
           ok(hidden());
           return tick();
         }).then(function () {
-          eq([calls.length, calls[0].settings.asked, calls[0].settings.all], [1, true, {}], '«Later»: only remembered, profit waits');
+          var c = srv.sets[srv.sets.length - 1];
+          ok(c.asked && !c.goals && !c.changes, '«Later»: only remembered, profit waits');
           fresh();
           render();
-          calls.length = 0;
           closeOverlays();
           ok(hidden(), 'Esc closes it');
           return tick();
         }).then(function () {
-          ok(calls.length === 1 && calls[0].settings.asked === true, 'Esc is remembered too');
+          var c = srv.sets[srv.sets.length - 1];
+          ok(c.asked && !c.goals, 'Esc is remembered too');
           fresh();
           render();
           welcomeForm.querySelector('[name="roasTarget"]').value = '5';
           welcomeForm.querySelector('[name="roasBreakEven"]').value = '4';
-          answer = function () { var e = new Error('HTTP 502'); e.status = 502; return Promise.reject(e); };
+          fail = true;
           document.getElementById('welcomeSave').click();
           return tick();
         }).then(function () {
           ok(!hidden(), 'failed save keeps the window open');
           eq(welcomeErrorEl.textContent, t('settings.err.save'));
-          eq(userSet.all, {}, 'nothing changed');
-          answer = function (b) { return Promise.resolve({ ok: true, settings: b.settings }); };
+          eq(srv.rec.all.roasTarget, undefined, 'nothing changed');
+          fail = false;
           closeOverlays();
           fresh({ roasTarget: 4, roasBreakEven: 2 });
           render();
@@ -3888,11 +4066,11 @@
       ];
     }
     testAsync('نافذة الإعدادات: أقصى تكلفة لكل نوع نتيجة ولكل حملة — نفس إعلانات المحرك، والفاضي يشيل الحد، والمبلغ الغلط خطأ ظاهر', function () {
-      var answer = function (b) { return Promise.resolve({ ok: true, settings: b.settings }); };
-      return withSync(function (b) { return answer(b); }, function (calls) {
+      var srv = fakeServer({ all: { roasTarget: 4, roasBreakEven: 2, maxCost: { message: 12, lead: 30 }, campaignMaxCost: { 'c-gone': 50 } }, asked: true });
+      return withSync(srv.answer, function () {
         activeSources.meta = 'act_1';
         sessionTokens.meta = META_TOKEN;
-        useSettings({ roasTarget: 4, roasBreakEven: 2, maxCost: { message: 12, lead: 30 }, campaignMaxCost: { 'c-gone': 50 } });
+        useSettings(srv.rec.all);
         candidates = costAccount();
         var cost = function (name) { return settingsForm.querySelector('[data-cost="' + name + '"]'); };
         openAlertSettings();
@@ -3909,7 +4087,7 @@
         cost('type:message').value = '-5';
         cost('camp:c-prem').value = 'abc';
         settingsSaveBtn.click();
-        eq(calls.length, 0, 'nothing sent');
+        eq(srv.sets.length, 0, 'nothing sent');
         eq(settingsForm.querySelectorAll('.setting-row.invalid [data-cost]').length, 2);
         ok(settingsForm.textContent.indexOf(t('set.err.cost')) > -1);
         cost('type:message').value = '12,5';
@@ -3918,14 +4096,14 @@
         cost('camp:c-gone').value = '';
         settingsSaveBtn.click();
         return tick().then(function () {
-          var sets = calls.filter(function (c) { return c.action === 'usettings.set'; }), s = sets[0].settings.all;
+          var s = srv.sets[0].changes.all;
           eq([s.maxCost, s.campaignMaxCost, s.maxCostCur], [{ message: 12.5 }, { 'c-prem': 1500 }, 'SAR'], 'decimal comma, thousands separator, emptied = removed, the limits currency saved');
           openAlertSettings();
           settingsForm.querySelectorAll('[data-cost]').forEach(function (i) { i.value = ''; });
           settingsSaveBtn.click();
           return tick();
         }).then(function () {
-          var s = calls.filter(function (c) { return c.action === 'usettings.set'; })[1].settings.all;
+          var s = srv.sets[1].changes.all;
           ok(!('maxCost' in s) && !('campaignMaxCost' in s) && !('maxCostCur' in s), 'all emptied: no limits (or their currency) kept from the old record');
           // المحرك بياخد حد الحملة قبل حد الحساب
           useSettings({ roasTarget: 4, roasBreakEven: 2, maxCost: { message: 12 }, campaignMaxCost: { 'c-prem': 60 } });
@@ -3951,6 +4129,15 @@
         sec = settingsForm.querySelector('[data-cost-section]');
         ok(sec.textContent.indexOf(t('settings.cost.conv', { cur: currencyLabel('SAR') })) > -1, 'a pegged currency: says it is converted');
         ok(sec.textContent.indexOf(t('settings.cost.odd', { currencies: currencyLabel('EGP') || 'EGP', cur: currencyLabel('SAR') })) < 0, 'no EGP account any more: no note');
+        // حد محفوظ لحملة مش ظاهرة والنطاق فيه عملتين: من غير عملة (مراجعة ٣١ أكتوبر — كانت بتاخد عملة المجموعة حتى لو حسابها بعملة تانية)
+        useSettings({ maxCost: { message: 12 }, maxCostCur: 'SAR', campaignMaxCost: { 'c-gone': 50 } });
+        renderSettingsForm();
+        var gone = settingsForm.querySelector('[data-cost="camp:c-gone"]');
+        eq([gone.closest('.setting-row').querySelector('.setting-unit').textContent, gone.placeholder], ['', ''], 'unknown campaign currency: no unit, no faded limit');
+        delete accountInfo['google:1'];
+        renderSettingsForm();
+        gone = settingsForm.querySelector('[data-cost="camp:c-gone"]');
+        eq(gone.closest('.setting-row').querySelector('.setting-unit').textContent, currencyLabel('SAR'), 'one currency in scope: that one');
       } finally { delete accountInfo['meta:act_1']; delete accountInfo['google:1']; settingsOverlay.classList.add('hidden'); }
     });
     test('ملخص المتجر: التكلفة مقابل الحد لكل نوع نتيجة (أرقام من غير حكم)، والحملات بحدها الخاص برّه الرقم، و«كل المنصات» من غيره', function () {
