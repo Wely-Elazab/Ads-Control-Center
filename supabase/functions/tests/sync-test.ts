@@ -7,7 +7,7 @@
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
 import { corsHeaders, esc, reply, str, stripHidden } from '../sync/lib.ts';
 import { MAX_PER_PLATFORM, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
-import { bearer, cleanCode, verifyJwt } from '../sync/auth.ts';
+import { bearer, cleanCode, newCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
@@ -98,6 +98,25 @@ Deno.test('رمز الدخول: الأرقام العربية والفارسية
   assertEquals(cleanCode('۱۲۳ ۴۵۶'), '123456');
   assertEquals(cleanCode(' 123 456 '), '123456');
   for (const bad of ['12345', '1234567', 'abcdef', '', null, undefined]) assertEquals(cleanCode(bad), null, String(bad));
+});
+// مراجعة ١ نوفمبر ٢٠٢٦ (ق٨): انحياز باقي القسمة — القيم من ٤٬٢٩٤٬٠٠٠٬٠٠٠ لفوق بتترمي ونسحب غيرها.
+// من غير الإصلاح أول قيمة كانت هتطلع «000000»
+Deno.test('رمز الدخول: ٦ أرقام، والقيم اللي فوق أكبر مضاعف للمليون بتترمي', () => {
+  for (let i = 0; i < 50; i++) assertMatch(newCode(), /^\d{6}$/);
+  const seq = [4294000000, 4294967295, 1234567];
+  const own = Object.getOwnPropertyDescriptor(crypto, 'getRandomValues');   // غالباً undefined (الدالة على النموذج الأصلي)
+  Object.defineProperty(crypto, 'getRandomValues', {
+    configurable: true, writable: true,
+    value: (a: Uint32Array) => { a[0] = seq.shift() as number; return a; }
+  });
+  try {
+    assertEquals(newCode(), '234567');
+    assertEquals(seq.length, 0, 'لازم القيمتين الأوليين يترموا');
+  } finally {
+    // الاختبارات اللي بعده (seal وغيره) محتاجة الدالة الأصلية — بترجع زي ما كانت بالظبط
+    if (own) Object.defineProperty(crypto, 'getRandomValues', own);
+    else delete (crypto as unknown as Record<string, unknown>).getRandomValues;
+  }
 });
 Deno.test('مفتاح الدخول في الهيدر: Bearer بس', () => {
   assertEquals(bearer(new Request('https://x.test', { headers: { authorization: 'Bearer abc.def.ghi' } })), 'abc.def.ghi');

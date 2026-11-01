@@ -102,6 +102,33 @@
     });
   }
 
+  // كلمة المرور الجديدة ظهرت في تسريبات قبل كده؟ (مراجعة ١ نوفمبر ٢٠٢٦، ق٧ — NIST SP 800-63B: «SHALL» تتقارن بقائمة
+  // المسرَّب). خيار Supabase نفسه للخطة المدفوعة بس، فبنسأل نفس المصدر (Pwned Passwords) من المتصفح بإخفاء الهوية:
+  // بنبعت أول ٥ حروف من بصمة SHA-1 بس، والرد كل البصمات اللي بتبدأ بيهم، والمقارنة هنا على الجهاز — كلمة المرور
+  // نفسها وبصمتها الكاملة مبيطلعوش. Add-Padding: الرد بحجم ثابت تقريباً، فحجمه مبيكشفش حاجة (السطور الزيادة عددها ٠).
+  // بيرجّع عدد مرات الظهور، أو null لو المصدر مش متاح (شبكة، حجب، ٥ ثواني): ساعتها بنكمّل — منقفلش الدخول بسبب خدمة برّه
+  var PWNED_URL = 'https://api.pwnedpasswords.com/range/';
+  function pwnedCount(password) {
+    if (!global.crypto || !crypto.subtle || typeof TextEncoder === 'undefined' || typeof AbortController === 'undefined') return Promise.resolve(null);
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 5000);
+    return crypto.subtle.digest('SHA-1', new TextEncoder().encode(password)).then(function (buf) {
+      var hex = Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('').toUpperCase();
+      var suffix = hex.slice(5);
+      return fetch(PWNED_URL + hex.slice(0, 5), { headers: { 'Add-Padding': 'true' }, cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer', signal: ctrl.signal })
+        .then(function (r) { return r.ok ? r.text() : null; })
+        .then(function (body) {
+          if (body == null) return null;
+          var lines = body.split('\n');
+          for (var i = 0; i < lines.length; i++) {
+            var parts = lines[i].trim().split(':');
+            if (parts[0] === suffix) return Number(parts[1]) || 0;
+          }
+          return 0;
+        });
+    }).then(function (n) { clearTimeout(timer); return n; }, function () { clearTimeout(timer); return null; });
+  }
+
   // بيقفل الجلسة دي (على الجهاز وعند Supabase) — forget من غير ما يتنقل (صفحة الدخول: «الدخول بحساب آخر»)
   function forget() {
     var s = read();
@@ -171,7 +198,7 @@
 
   global.AuthLogin = {
     read: read, token: token, headers: headers, headersNow: headersNow, signIn: signIn, sendCode: sendCode, verifyCode: verifyCode,
-    forgot: forgot, status: status, resetPassword: resetPassword, signOut: signOut, forget: forget, toLogin: toLogin, safeNext: safeNext,
+    forgot: forgot, status: status, resetPassword: resetPassword, pwnedCount: pwnedCount, signOut: signOut, forget: forget, toLogin: toLogin, safeNext: safeNext,
     // رد من /api أو sync معناه «الدخول خلص أو مش مكتمل» (مش «ربط المنصة خلص»)
     isLoginFailure: function (res) { return !!res && res.status === 401 && !!res.data && res.data.code === 'LOGIN'; }
   };

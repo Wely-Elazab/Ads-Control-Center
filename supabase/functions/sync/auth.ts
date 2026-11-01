@@ -123,9 +123,15 @@ function passwordMail(url: string, en: boolean) {
 }
 
 // ---------- الرمز ----------
-function newCode(): string {
-  const n = crypto.getRandomValues(new Uint32Array(1))[0] % 1000000;
-  return String(n).padStart(6, '0');
+// ٢³² مبتتقسمش على مليون، فباقي القسمة لوحده كان بيخلّي أول ٩٦٧٬٢٩٦ رمز أرجح من الباقي (انحياز باقي القسمة).
+// الحل: أي قيمة فوق أكبر مضاعف للمليون تحت ٢³² بتترمي ونسحب غيرها (NIST SP 800-90A، الملحق A.5.1 — طريقة
+// الإهمال البسيطة). احتمال الرمي ٠٫٠٢٪، فالسحبة التانية نادرة
+const CODE_LIMIT = 4294000000;   // floor(2^32 / 1e6) × 1e6
+export function newCode(): string {
+  const buf = new Uint32Array(1);
+  let n: number;
+  do { n = crypto.getRandomValues(buf)[0]; } while (n >= CODE_LIMIT);
+  return String(n % 1000000).padStart(6, '0');
 }
 function codeHash(session: string, code: string): Promise<string> { return linkSig(CODE_LABEL, session + ':' + code); }
 // الأرقام العربية والفارسية بتتحوّل، وأي مسافات بتتشال

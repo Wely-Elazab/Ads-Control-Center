@@ -26,6 +26,7 @@
     sends: { ar: 'طلبت رموزاً كثيرة. اضغط «الدخول بحساب آخر» وسجّل الدخول من جديد بعد قليل.', en: 'You\'ve asked for many codes. Press "Use another account" and sign in again a little later.' },
     mail: { ar: 'تعذّر إرسال الرمز الآن. حاول مرة أخرى بعد قليل.', en: 'We couldn\'t send the code right now. Please try again shortly.' },
     weak: { ar: 'اختر كلمة مرور من ٨ أحرف على الأقل.', en: 'Please choose a password of at least 8 characters.' },
+    pwned: { ar: 'ظهرت كلمة المرور هذه في تسريبات بيانات سابقة على الإنترنت، فيسهل تخمينها. اختر كلمة مرور أخرى.', en: 'This password has appeared in past data breaches, so it\'s easy to guess. Please choose a different one.' },
     mismatch: { ar: 'كلمتا المرور غير متطابقتين.', en: 'The two passwords don\'t match.' },
     link: { ar: 'انتهت صلاحية الرابط أو استُخدم من قبل. اطلب رابطاً جديداً من «نسيت كلمة المرور؟».', en: 'This link has expired or was already used. Ask for a new one from "Forgot your password?".' },
     failed: { ar: 'حدث خطأ. حاول مرة أخرى بعد قليل، أو راسلنا على support@adscenter.online.', en: 'Something went wrong. Please try again shortly, or email us at support@adscenter.online.' },
@@ -166,7 +167,12 @@
     if (p1.length < MIN_PASSWORD) { error('resetError', 'weak', 0, 'rPassword'); return; }
     if (p1 !== p2) { error('resetError', 'mismatch', 0, 'rConfirm'); return; }
     busy('resetSubmit', true);
-    A.resetPassword(resetToken, p1).then(function (res) {
+    // كلمة مرور مسرَّبة قبل كده بتترفض قبل ما تتحفظ (auth.js pwnedCount). المصدر مش متاح (null) = بنكمّل
+    A.pwnedCount(p1).then(function (seen) {
+      if (seen > 0) { busy('resetSubmit', false); error('resetError', 'pwned', 0, 'rPassword'); return null; }
+      return A.resetPassword(resetToken, p1);
+    }).then(function (res) {
+      if (!res) return;
       busy('resetSubmit', false);
       if (!res.ok) { error('resetError', res.error === 'weak' ? 'weak' : (res.error === 'link' ? 'link' : (res.error === 'network' ? 'network' : 'failed'))); return; }
       $('rPassword').value = ''; $('rConfirm').value = '';

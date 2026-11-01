@@ -91,6 +91,7 @@ export function canonicalPath(path) {
 //   لازم تفضل same-origin-allow-popups مش same-origin — نوافذ تسجيل الدخول بتاعة Google وMeta بتكلّم
 //   صفحتنا عن طريق النافذة اللي فتحتها (تحذير في js/google.js)
 // upgrade-insecure-requests: أي صورة إعلان رابطها http بتتطلب https بدل ما تتمنع
+// api.pwnedpasswords.com: فحص كلمة المرور الجديدة في التسريبات (js/auth.js pwnedCount — أول ٥ حروف من البصمة بس)
 export const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -98,7 +99,7 @@ export const SECURITY_HEADERS = {
   'Permissions-Policy': 'geolocation=(), microphone=(), camera=(), payment=()',
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
   'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' https://connect.facebook.net https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' https: data: blob:; media-src 'self' https: blob:; connect-src 'self' https://connect.facebook.net https://graph.facebook.com https://*.facebook.com https://accounts.google.com https://oauth2.googleapis.com https://rhrrnxsgodiideqeollo.supabase.co; frame-src https://*.facebook.com https://accounts.google.com https://business-api.tiktok.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://accounts.snapchat.com https://business-api.tiktok.com; object-src 'none'; upgrade-insecure-requests"
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' https://connect.facebook.net https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' https: data: blob:; media-src 'self' https: blob:; connect-src 'self' https://connect.facebook.net https://graph.facebook.com https://*.facebook.com https://accounts.google.com https://oauth2.googleapis.com https://rhrrnxsgodiideqeollo.supabase.co https://api.pwnedpasswords.com; frame-src https://*.facebook.com https://accounts.google.com https://business-api.tiktok.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://accounts.snapchat.com https://business-api.tiktok.com; object-src 'none'; upgrade-insecure-requests"
 };
 
 // أقصى حجم لجسم طلب /api — أكبر طلب حقيقي (توكن + أرقام + فترة) أقل من ١٠ كيلوبايت

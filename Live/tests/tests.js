@@ -4292,6 +4292,33 @@
         ['/app', '/app?code=1&state=snapchat', '/app', '/app', '/app', '/app']);
     });
 
+    // مراجعة ١ نوفمبر ٢٠٢٦ (ق٧ — NIST SP 800-63B): كلمة المرور بتتقارن بقائمة المسرَّب.
+    // بصمة SHA-1 لـ "password" هي 5BAA6:1E4C9B93F3F0682250B6CF8331B7EE68FD8 — أول ٥ حروف بس هي اللي بتتبعت
+    testAsync('كلمة المرور المسرَّبة بتترفض، والمصدر لو مش متاح الدخول مبيتقفلش', function () {
+      var realFetch = window.fetch, asked = [];
+      var restore = function () { window.fetch = realFetch; };
+      window.fetch = function (url) {
+        asked.push(String(url));
+        return Promise.resolve({ ok: true, text: function () {
+          return Promise.resolve('1E4C9B93F3F0682250B6CF8331B7EE68FD8:9659365\r\n0000000000000000000000000000000000A:0');
+        } });
+      };
+      return AuthLogin.pwnedCount('password').then(function (n) {
+        eq(n, 9659365, 'ظهرت في التسريبات');
+        eq(asked[0], 'https://api.pwnedpasswords.com/range/5BAA6', 'أول ٥ حروف من البصمة بس');
+        ok(asked[0].indexOf('1E4C9B93') === -1, 'باقي البصمة مبيطلعش من الجهاز');
+        window.fetch = function () { return Promise.resolve({ ok: true, text: function () { return Promise.resolve('AAAA:1'); } }); };
+        return AuthLogin.pwnedCount('a-password-nobody-leaked-9f3b');
+      }).then(function (n) {
+        eq(n, 0, 'مش في التسريبات');
+        window.fetch = function () { return Promise.reject(new Error('offline')); };
+        return AuthLogin.pwnedCount('anything');
+      }).then(function (n) {
+        eq(n, null, 'المصدر مش متاح = منقفلش الدخول');
+        restore();
+      }, function (e) { restore(); throw e; });
+    });
+
     testAsync('الجلسة على الجهاز: الهيدر، والتجديد قبل ما تخلص، ولو اتلغت بتتشال', function () {
       var key = 'ac.login', prev = localStorage.getItem(key), realFetch = window.fetch, calls = [];
       var restore = function () { window.fetch = realFetch; if (prev == null) localStorage.removeItem(key); else localStorage.setItem(key, prev); };
