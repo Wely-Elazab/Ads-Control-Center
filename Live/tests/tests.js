@@ -1784,6 +1784,33 @@
       candidates = []; runAnalysis();
     });
 
+    // مراجعة ١ نوفمبر ٢٠٢٦، الطبقة ٨ (جولة المُختبِر): اسم الإعلان جاي من المنصة، ومين عنده صلاحية على
+    // الحساب الإعلاني يقدر يحطّ فيه أي نص. بنعدّيه في مسار العرض الحقيقي ونتأكد إنه بيبان كنص لا ككود.
+    // OWASP XSS Prevention Cheat Sheet — القاعدة ١ (الهروب قبل الحقن في HTML)
+    test('اسم إعلان فيه وسوم: بيتعرض كنص، ومبيبقاش عنصراً في الصفحة', function () {
+      var PAYLOAD = '<img src=x onerror=e()>" onmouseover=\'f()\'';
+      var bad = ad('inj', { aid: 'sa', daily: steady(400), res: steady(0), key: 'lead' });
+      bad.offer = PAYLOAD;
+      candidates = [ad('g1', { daily: steady(100), res: steady(5), key: 'lead' }), ad('g2', { daily: steady(100), res: steady(5), key: 'lead' }), bad];
+      withLang('ar', function () {
+        runAnalysis();
+        var al = analysis.alerts.filter(function (a) { return a.adName === PAYLOAD; });
+        ok(al.length, 'لازم يطلع تنبيه على الإعلان ده');
+        var html = al.map(function (a) { return alertMarkup(a, 0) + attnAlertHtml(a); }).join('');
+        var doc = new DOMParser().parseFromString('<body>' + html + '</body>', 'text/html');
+        // مفيش عنصر اتولد من النص، ولا سمة بتشغّل كود
+        eq(doc.querySelectorAll('img, script, iframe, object, embed, svg').length, 0, 'عنصر اتحقن: ' + html.slice(0, 400));
+        eq(doc.querySelectorAll('[onerror], [onmouseover], [onload], [onclick]').length, 0, 'سمة بتشغّل كود: ' + html.slice(0, 400));
+        // وبيبان للعميل كنص كامل (مش متشال ولا متقصقص) — ده اللي بيفرّق بين هروب صح وحذف
+        ok(doc.body.textContent.indexOf('<img src=x onerror=e()>') > -1, 'النص نفسه لازم يبان: ' + doc.body.textContent.slice(0, 200));
+        // ونفس النص في بطاقة الإعلان ومعاينتها (مسار تاني بيعرض نصوص الإعلان)
+        var card = new DOMParser().parseFromString('<body>' + cardMarkup(bad) + previewMarkup(bad) + '</body>', 'text/html');
+        eq(card.querySelectorAll('img[src="x"], script, iframe, object, embed').length, 0, 'عنصر اتحقن في البطاقة');
+        eq(card.querySelectorAll('[onerror], [onmouseover], [onload], [onclick]').length, 0, 'سمة بتشغّل كود في البطاقة');
+      });
+      candidates = []; runAnalysis();
+    });
+
     // ---- مراجعة الإعدادات (٢٤ أكتوبر — قرارات صاحب المنتج) ----
     test('حساب من غير مستهدف وحد خسارة: حكم الربح بيستنى («حدّد هدف الربح») ومفيش تنبيه ربح ولا فرصة، والهدر شغّال', function () {
       var ads = [ad('g1', { daily: steady(100), res: steady(2), sales: steady(600) }), ad('g2', { daily: steady(100), res: steady(2), sales: steady(600) }),
