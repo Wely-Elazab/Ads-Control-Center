@@ -9,12 +9,11 @@
 // جديد (أو بمفتاح تجديد جديد لو Snapchat بعتت واحد). مفتاح الجلسة نفسه مبيطلعش من هنا.
 // الإثبات إن الطلب من المُشغّل: هيدر x-runner-key (worker.js ← _login.js runnerKeyOk). من غير دخول للأداة (مفيش مستخدم فاتح)
 
-import { text, badRequest } from './_input.js';
+import { text, badRequest, UUID } from './_input.js';
 import { sealToken, unsealToken, SEALED_MAX } from './_seal.js';
 import { tokenRequest } from './snapchat-token.js';
 import snapchatAdsFetch from './snapchat-ads-fetch.js';
 
-const USER_ID = /^[0-9a-f-]{36}$/;
 // اللي المُشغّل محتاجه بس: الإعلانات وأرقامها، وأرقام الملخص، وسجل التعديلات، والإنفاق اليومي
 const ACTIONS = { ads: 1, diagnosis: 1, changes: 1, daily: 1 };
 
@@ -36,7 +35,7 @@ async function callHandler(handler, headers, body) {
 
 export default async function handler(req, res) {
   const body = req.body || {};
-  const user = typeof body.user === 'string' && USER_ID.test(body.user) ? body.user : null;
+  const user = typeof body.user === 'string' && UUID.test(body.user) ? body.user : null;
   const sealed = text(body.sealed, SEALED_MAX);
   const call = body.call && typeof body.call === 'object' && !Array.isArray(body.call) ? body.call : null;
   if (body.platform !== 'snapchat' || !user || !sealed || !call || !ACTIONS[call.action]) { badRequest(res, 'طلب المُشغّل غير صالح.'); return; }

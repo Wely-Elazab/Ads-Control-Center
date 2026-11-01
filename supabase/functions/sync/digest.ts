@@ -11,7 +11,10 @@
 import { GRAPH, META_APP_ID, META_ID, SITE, TOKEN, db, rpc, metaAccount, reply, sendEmail, mailHtml, esc } from './lib.ts';
 
 const CONSENT_VERSION = '2026-10-31-snapchat';   // سياسة الخصوصية: ملخص لكل مستخدم بإعداداته وحساباته، وحسابات Snapchat فيه
-const USER_ID = /^[0-9a-f-]{36}$/;
+// شكل المعرّف بالظبط: ٨-٤-٤-٤-١٢ بالشرطات في أماكنها (مراجعة ١ نوفمبر ٢٠٢٦، ح٣ — المتساهل القديم
+// /^[0-9a-f-]{36}$/ كان بيقبل ٣٦ شرطة ورا بعض). نفس الشكل اللي في Live/api/_input.js
+const UUID_SHAPE = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const USER_ID = new RegExp('^' + UUID_SHAPE + '$', 'i');
 const PLATFORMS = ['meta', 'snapchat', 'google', 'tiktok'];
 const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const DEFAULT_DAYS = [0, 3];   // الأحد والأربعاء
@@ -110,8 +113,8 @@ async function storeToken(user: string, token: string, account: string): Promise
 // للأداة). منقدرش نفتحها هنا ولا نتأكد بيها من الحساب: Snapchat نفسها بترفض لو مفيش صلاحية، والمُشغّل بيبعتها للـ Worker يفتحها
 // (Live/api/digest-fetch.js). بنشفّرها تاني بمفتاحنا (مربوطة بالمستخدم والمنصة والحساب)، وصلاحيتها عندنا ٦٠ يوم من آخر فتح للأداة
 // بالحساب ده — زي Meta، والمُشغّل مبيمدّهاش
-export const SNAP_ID = /^[0-9a-f-]{36}$/i;
-const SEALED = /^v[12]\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{20,4000}$/;   // نفس شكل _seal.js
+export const SNAP_ID = new RegExp('^' + UUID_SHAPE + '$', 'i');
+const SEALED = /^v2\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{20,4000}$/;   // نفس شكل _seal.js (v2 بس من ١ نوفمبر ٢٠٢٦)
 const SEALED_DAYS = 60;
 export function sealedAad(user: string, platform: string, account: string): string { return 'sealed:' + platform + ':' + user + ':' + account; }
 async function storeSealed(user: string, platform: string, account: string, sealed: string): Promise<string> {

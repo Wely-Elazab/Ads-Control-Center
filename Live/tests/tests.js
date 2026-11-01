@@ -4553,8 +4553,9 @@
         });
       });
     });
-    // النسخ القديمة (v1، قبل ١٧ أكتوبر ٢٠٢٦ — المنصة بس جوه التشفير) بتتفتح لحد أول تجديد أو ٦٠ يوم، عشان العملاء ميربطوش من الأول
-    testAsync('النسخ القديمة v1 (من غير صاحب دخول) بتتفتح لحد ٦٠ يوم، وبنفس المنصة والسر بس', function () {
+    // النسخ القديمة (v1، قبل ١٧ أكتوبر ٢٠٢٦ — المنصة بس جوه التشفير) اتوقف قبولها في ١ نوفمبر ٢٠٢٦ (ح١):
+    // مفيش نسخة بتتفتح دلوقتي من غير ما صاحب الدخول يكون جوه التشفير
+    testAsync('النسخ القديمة v1 (من غير صاحب دخول) مبقتش تتفتح خالص', function () {
       var enc = new TextEncoder(), now = Date.parse('2026-10-17T00:00:00Z');
       var b64u = function (bytes) { var s = ''; new Uint8Array(bytes).forEach(function (b) { s += String.fromCharCode(b); }); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
       var iv = crypto.getRandomValues(new Uint8Array(12));
@@ -4573,7 +4574,7 @@
           ]);
         });
       }).then(function (r) {
-        eq(r, ['refresh-old', null, null, null]);
+        eq(r, [null, null, null, null]);
       });
     });
 

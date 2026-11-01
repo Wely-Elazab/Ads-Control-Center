@@ -19,9 +19,12 @@
 const enc = new TextEncoder();
 export const SEAL_MAX_IDLE_MS = 60 * 86400000;
 export const SEALED_MAX = 4096;
-const SEALED_SHAPE = /^v[12]\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{20,4000}$/;
-// المنصة (v1)، أو المنصة + رقم صاحب الدخول (v2)
-function boundTo(platform, userId) { return enc.encode(userId ? platform + ':' + userId : platform); }
+// v2 بس (مراجعة ١ نوفمبر ٢٠٢٦، ح١): v1 كانت مقبولة ١٥ يوم انتقالية من ١٧ أكتوبر، وأي جهاز فتح الأداة فيهم
+// اتحوّل لـ v2 عند أول تجديد. الباقي نسخ على أجهزة ساكنة من قبل ١٧ أكتوبر — صاحبها بيربط مرة واحدة وخلاص.
+// بكده الثغرة اتقفلت بالكامل: مفيش نسخة بتتفتح من غير ما صاحب الدخول يكون جوه التشفير
+const SEALED_SHAPE = /^v2\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{20,4000}$/;
+// المنصة + رقم صاحب الدخول
+function boundTo(platform, userId) { return enc.encode(platform + ':' + userId); }
 
 function b64u(bytes) {
   let s = '';
@@ -58,10 +61,10 @@ export async function sealToken(platform, secret, refreshToken, now, userId) {
 // بترجّع مفتاح التجديد، أو null لو النسخة بشكل غلط أو اتعدّلت أو لمنصة تانية أو لصاحب دخول تاني أو عدّى عليها ٦٠ يوم
 export async function unsealToken(platform, secret, sealed, now, userId) {
   if (typeof sealed !== 'string' || sealed.length > SEALED_MAX || !SEALED_SHAPE.test(sealed)) return null;
+  if (typeof userId !== 'string' || !userId) return null;
   const parts = sealed.split('.');
-  if (parts[0] === 'v2' && (typeof userId !== 'string' || !userId)) return null;
   try {
-    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64u(parts[1]), additionalData: boundTo(platform, parts[0] === 'v2' ? userId : null) },
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64u(parts[1]), additionalData: boundTo(platform, userId) },
       await sealKey(platform, secret), unb64u(parts[2]));
     const data = JSON.parse(new TextDecoder().decode(pt));
     if (!data || typeof data.rt !== 'string' || !data.rt || typeof data.at !== 'number') return null;

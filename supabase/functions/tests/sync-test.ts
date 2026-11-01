@@ -6,7 +6,7 @@
 
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
 import { corsHeaders, esc, reply, str, stripHidden } from '../sync/lib.ts';
-import { MAX_PER_PLATFORM, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
+import { MAX_PER_PLATFORM, SNAP_ID, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, newCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
@@ -90,6 +90,16 @@ Deno.test('التشفير: المفتاح المحفوظ بيرجع زي ما ه
   await assertRejects(() => unseal(s.ct, s.iv, 'act_2'));
   const s2 = await seal('EAA-test-token', 'act_1');
   assert(s2.iv !== s.iv && s2.ct !== s.ct, 'a fresh IV every time');
+});
+
+// مراجعة ١ نوفمبر ٢٠٢٦ (ح٣): شكل المعرّف صارم — الشكل القديم كان بيقبل ٣٦ شرطة ورا بعض
+Deno.test('شكل رقم الحساب: UUID بالظبط، مش أي ٣٦ حرف', () => {
+  assertEquals(SNAP_ID.test('cd3b3bfe-4361-484c-9985-51c2d1264860'), true);
+  assertEquals(SNAP_ID.test('CD3B3BFE-4361-484C-9985-51C2D1264860'), true, 'الحروف الكبيرة مقبولة');
+  for (const bad of ['------------------------------------', 'cd3b3bfe43614 84c998551c2d1264860',
+    'cd3b3bfe-4361-484c-9985-51c2d126486', 'cd3b3bfe-4361-484c-9985-51c2d1264860x', '']) {
+    assertEquals(SNAP_ID.test(bad), false, 'لازم يترفض: ' + bad);
+  }
 });
 
 // ---------- auth.ts ----------
