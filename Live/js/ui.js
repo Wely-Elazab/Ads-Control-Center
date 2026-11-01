@@ -3292,7 +3292,7 @@
 
     if (!candidates.length) {
       alertsSummaryEl.innerHTML = '';
-      alertsListEl.innerHTML = '<div class="empty-state">' + t('alerts.loginFirst') + '</div>';
+      alertsListEl.innerHTML = '<div class="empty-state">' + esc(t('alerts.loginFirst')) + '</div>';
       return;
     }
 
@@ -3323,7 +3323,7 @@
     });
     alertsListEl.innerHTML = list.length
       ? list.map(alertMarkup).join('')
-      : '<div class="empty-state">' + (alertsLevelFilter === 'urgent' ? t('alerts.noneUrgent') : t('alerts.noneType')) + '</div>';
+      : '<div class="empty-state">' + esc(t(alertsLevelFilter === 'urgent' ? 'alerts.noneUrgent' : 'alerts.noneType')) + '</div>';
   }
 
   alertsSummaryEl.addEventListener('click', function (e) {
