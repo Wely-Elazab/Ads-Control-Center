@@ -5270,6 +5270,27 @@
       });
     });
 
+    // شكوى صاحب المنتج ٢ نوفمبر ٢٠٢٦: «قائمة الحسابات الاعلانية جزء منها لا يعرض بشكل واضح في عرض الموبايل».
+    // مقيس على الموقع: يمين القائمة ٤٠٧ والشاشة ٣٧٥ — مربعات الاختيار كانت مقطوعة
+    testAsync('قائمة الحسابات بتظهر كاملة جوه الشاشة على الموبايل (ومربع الاختيار مش مقطوع)', function () {
+      return toolFrame(375, 812).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        w.platformOptions.meta = [{ value: 'act_1', label: 'Meta — Level Up' }, { value: 'act_2', label: 'Meta — Second' }];
+        w.platformOptions.snapchat = [{ value: 'sn1', label: 'Snapchat — Coda Self Service' }];
+        w.activeSources.meta = 'act_1';
+        w.renderAccountPicker();
+        d.getElementById('acctPickBtn').click();
+        var panel = d.getElementById('acctPanel').getBoundingClientRect();
+        var boxes = Array.prototype.map.call(d.querySelectorAll('#acctList .acct-box'), function (b) { return b.getBoundingClientRect(); });
+        var out = { panelFits: panel.left >= 0 && panel.right <= 375, boxes: boxes.length,
+          boxesInside: boxes.filter(function (r) { return r.left >= 0 && r.right <= 375; }).length,
+          // ومفيش تمرير أفقي في الصفحة كلها
+          extraWidth: d.documentElement.scrollWidth - d.documentElement.clientWidth };
+        eq(out, { panelFits: true, boxes: 3, boxesInside: 3, extraWidth: 0 });
+        f.remove();
+      });
+    });
+
     // الشكل لازم يتقاس في الأداة الحقيقية (بالستايل بتاعها) — صفحة الاختبارات نفسها من غير ستايل الأداة
     [['ar', ''], ['en', '&lang=en']].forEach(function (lc) {
       testAsync('جدول الأيام على الهاتف (' + lc[0] + '): تحت عنوانه، وبيفتح على أمس والإجمالي واليوم، واسم الصف ظاهر', function () {

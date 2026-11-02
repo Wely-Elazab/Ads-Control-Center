@@ -514,6 +514,10 @@
        فالشاشة بتفضل مكبّرة (شكوى صاحب المنتج ٢ نوفمبر ٢٠٢٦ على قائمة الحسابات). ١٦px بتمنع التقريب
        من أصله. على الموبايل بس عشان شكل الديسكتوب ميتغيّرش */
     input, select, textarea, .acct-search, .sort-select, .dx-auto-field input, .dx-auto-field select { font-size: 16px; }
+    /* القائمة كانت متعلّقة بزرار الحسابات، والزرار نفسه في آخر الشريط — فعرضها (٣٥١px) كان بيطلع برّه
+       الشاشة ٣٢px، ومربعات الاختيار كانت مقطوعة (مقيس على الموقع ٢ نوفمبر ٢٠٢٦: يمين القائمة ٤٠٧ والشاشة ٣٧٥).
+       على الموبايل بقت متعلّقة بالشاشة نفسها تحت الشريط (ارتفاعه ٥٦px ثابت)، فبتظهر كاملة دايماً */
+    .acct-panel { position: fixed; top: 60px; inset-inline: 12px; width: auto; max-height: calc(100dvh - 150px); }
   }
 
   .icon-toggle:focus-visible, .lang-toggle:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
