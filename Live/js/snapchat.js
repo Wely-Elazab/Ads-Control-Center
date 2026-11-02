@@ -189,8 +189,9 @@
   // أول منتج للكارت، والمنتجات جوه الإعلان (ui.js snapMediaView). snapProducts[المجموعة] = المنتجات (فاضية = مفيش)
   var snapProducts = {};
   // سبب إن المجموعة رجعت من غير منتجات (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Coda: مجموعة رجعت صفر منتج، والكارت فضل
-  // بخلفية فاضية من غير أي كلام). 'set' = مقدرناش نقرا المجموعة، 'search' = مقدرناش نقرا منتجاتها،
-  // 'net' = الطلب نفسه فشل، '' = المجموعة فاضية فعلاً عند Snapchat
+  // بخلفية فاضية من غير أي كلام). { code, status }: code = 'set' مقدرناش نقرا المجموعة، 'search' مقدرناش
+  // نقرا منتجاتها، 'net' الطلب نفسه فشل، '' المجموعة فاضية فعلاً. وstatus = رد Snapchat على المجموعة —
+  // ٤٠٣ معناها الحساب المربوط مش ليه صلاحية على الكتالوج ده (ده اللي حصل في Coda: كتالوج شغّال وتاني مرفوض)
   var snapProductErr = {};
   function loadSnapchatCatalog(adAccountId, token) {
     var source = 'snapchat:' + adAccountId, sets = {};
@@ -202,9 +203,9 @@
       return apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'products', productSetId: id }).then(function (res) {
         if (res.ok && res.data && Array.isArray(res.data.products)) {
           snapProducts[id] = res.data.products;
-          snapProductErr[id] = res.data.error || '';
-        } else snapProductErr[id] = 'net';
-      }, function () { snapProductErr[id] = 'net'; }).then(step);
+          snapProductErr[id] = { code: res.data.error || '', status: res.data.setStatus || null };
+        } else snapProductErr[id] = { code: 'net', status: null };
+      }, function () { snapProductErr[id] = { code: 'net', status: null }; }).then(step);
     };
     return step().then(function () {
       if (!isCurrentLoad('snapchat', token)) return;

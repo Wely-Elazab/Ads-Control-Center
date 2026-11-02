@@ -2767,6 +2767,17 @@
 
   var DEST_LABELS = i18nMap({ whatsapp: 'dest.whatsapp', messenger: 'dest.messenger', website: 'dest.website' });
 
+  // ليه إعلان الكتالوج في Snapchat مظهرش صور؟ (snapchat.js snapProductErr = { code, status })
+  // ٤٠٣ = الحساب المربوط مش ليه صلاحية على الكتالوج — ده اللي العميل يقدر يصلّحه بنفسه من مدير الأعمال
+  // (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Coda: كتالوج بيشتغل وتاني بيترفض في نفس الحساب).
+  // ٤٠٤ = المجموعة مبقتش موجودة. غير كده = مقدرناش نقرا. ومفيش code = المجموعة فاضية فعلاً
+  function setNoteKey(why) {
+    if (!why || !why.code) return 'x.snapSetEmpty';
+    if (why.status === 403) return 'x.snapSetNoAccess';
+    if (why.status === 404) return 'x.snapSetGone';
+    return 'x.snapSetFailed';
+  }
+
   function issueMarkup(i) {
     return '<div class="issue-item ' + LEVELS[i.level].cls + '">' +
       '<div class="issue-title"><span class="issue-level">' + LEVELS[i.level].label + '</span>' + esc(i.title) + '</div>' +
@@ -3068,7 +3079,7 @@
         if (openSeq !== expandSeq) return;
         if (!items || !items.length) {
           el.innerHTML = previewMarkup(c) +
-            '<p class="snap-set-note">' + esc(t(why === 'net' || why === 'set' || why === 'search' ? 'x.snapSetFailed' : 'x.snapSetEmpty')) + '</p>' +
+            '<p class="snap-set-note">' + esc(t(setNoteKey(why))) + '</p>' +
             '<div class="snap-page"></div>';
           return;
         }
@@ -3083,11 +3094,11 @@
       else apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'products', productSetId: c.snapProductSetId }).then(function (res) {
         var ok = res.ok && res.data && Array.isArray(res.data.products);
         var list = ok ? res.data.products : [];
-        var why = ok ? (res.data.error || '') : 'net';
+        var why = ok ? { code: res.data.error || '', status: res.data.setStatus || null } : { code: 'net', status: null };
         if (typeof snapProducts !== 'undefined') snapProducts[c.snapProductSetId] = list;
         if (typeof snapProductErr !== 'undefined') snapProductErr[c.snapProductSetId] = why;
         showItems(list, why);
-      }, function () { showItems([], 'net'); });
+      }, function () { showItems([], { code: 'net', status: null }); });
       return;
     }
     if (!vsrc) {

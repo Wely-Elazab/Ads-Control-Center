@@ -5744,6 +5744,23 @@
       eq(metaImageUrl({ creative: { asset_feed_spec: { videos: [{ video_id: '1', thumbnail_url: small }] } } }), small);
       withLang('ar', function () { eq(landingText('https://www.shop.com/products/%D9%86%D8%B8%D8%A7%D8%B1%D8%A9/?utm_source=x'), 'shop.com/products/نظارة'); });
     });
+    // حساب حقيقي ٢ نوفمبر ٢٠٢٦ (Coda): إعلان كتالوج Snapchat فضل بخلفية فاضية من غير أي كلام،
+    // وSnapchat كانت بترجّع ٤٠٣ على كتالوجه بينما كتالوج تاني في نفس الحساب بيشتغل
+    test('Snapchat: سبب غياب صور الكتالوج بيتقال بالظبط — والـ٤٠٣ العميل يقدر يصلّحه بنفسه', function () {
+      eq(setNoteKey({ code: 'set', status: 403 }), 'x.snapSetNoAccess', 'مفيش صلاحية على الكتالوج');
+      eq(setNoteKey({ code: 'set', status: 404 }), 'x.snapSetGone', 'المجموعة مبقتش موجودة');
+      eq(setNoteKey({ code: 'set', status: 500 }), 'x.snapSetFailed');
+      eq(setNoteKey({ code: 'search', status: null }), 'x.snapSetFailed');
+      eq(setNoteKey({ code: 'net', status: null }), 'x.snapSetFailed');
+      // مفيش خطأ = المجموعة فاضية فعلاً عند Snapchat، مش عطل عندنا
+      eq(setNoteKey({ code: '', status: null }), 'x.snapSetEmpty');
+      eq(setNoteKey(undefined), 'x.snapSetEmpty');
+      // وكل مفتاح منهم ليه نص فعلاً في اللغتين
+      ['x.snapSetNoAccess', 'x.snapSetGone', 'x.snapSetFailed', 'x.snapSetEmpty'].forEach(function (k) {
+        withLang('ar', function () { ok(t(k) !== k && t(k).length > 20, 'عربي: ' + k); });
+        withLang('en', function () { ok(t(k) !== k && t(k).length > 20, 'إنجليزي: ' + k); });
+      });
+    });
     // حساب حقيقي ٢ نوفمبر ٢٠٢٦ (Level Up): ٢٥ إعلان من ١٠١ كابشنهم كان اسم الإعلان، و٢٢ منهم نصهم موجود
     // في asset_feed_spec اللي مكناش بنطلبه. النص بييجي من ٤ أماكن مختلفة حسب نوع الإعلان
     test('Meta: نص الإعلان من كل مكان Meta بتحطه فيه (المختصر، والنسخ المتعددة، وspec)', function () {

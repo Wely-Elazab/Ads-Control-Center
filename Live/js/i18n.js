@@ -266,6 +266,9 @@
       // إعلان كتالوج Snapchat: صوره ووجهته من مجموعة المنتجات، فإن لم تصلنا المنتجات فلا صورة ولا وجهة
       'x.snapSetEmpty': 'صور هذا الإعلان تأتي من مجموعة منتجاته، ولم تُرجع Snapchat أي منتج فيها. تأكّد أن المجموعة غير فارغة في مدير إعلانات Snapchat.',
       'x.snapSetFailed': 'صور هذا الإعلان تأتي من مجموعة منتجاته، وتعذّر على الأداة قراءتها من Snapchat الآن.',
+      // ٤٠٣ من Snapchat (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Coda: كتالوج يعمل وآخر يُرفض في الحساب نفسه)
+      'x.snapSetNoAccess': 'صور هذا الإعلان تأتي من كتالوج منتجات، وحساب Snapchat الذي ربطته لا يملك صلاحية عليه — لذلك ترفض Snapchat الطلب. امنح حسابك صلاحية هذا الكتالوج من «مدير الأعمال» في Snapchat ثم أعد تحميل الأداة.',
+      'x.snapSetGone': 'مجموعة منتجات هذا الإعلان لم تعد موجودة في Snapchat، فلا توجد صور نعرضها.',
       'x.snapCatalogDest': 'لكل منتج في الكتالوج صفحته الخاصة، فلا توجد صفحة مقصودة واحدة لهذا الإعلان.',
       'x.pmaxNote': 'هذه حملة Performance Max: يوزّع Google ميزانيتها تلقائياً على جميع أماكن الظهور، ولا يوفّر أرقام كل إعلان على حدة، لذا نعرضها على مستوى الحملة كاملة.',
       'x.spend': 'الإنفاق',
@@ -1783,6 +1786,8 @@
       'x.noLink': 'The platform returned no destination for this ad.',
       'x.snapSetEmpty': 'This ad\'s images come from its product set, and Snapchat returned no products in it. Check that the set isn\'t empty in Snapchat Ads Manager.',
       'x.snapSetFailed': 'This ad\'s images come from its product set, and the tool couldn\'t read it from Snapchat right now.',
+      'x.snapSetNoAccess': 'This ad\'s images come from a product catalog, and the Snapchat account you connected has no permission on it, so Snapchat refuses the request. Grant your account access to that catalog in Snapchat Business Manager, then reload the tool.',
+      'x.snapSetGone': 'This ad\'s product set no longer exists in Snapchat, so there are no images to show.',
       'x.snapCatalogDest': 'Each product in the catalog has its own page, so this ad has no single landing page.',
       'x.pmaxNote': 'This is a Performance Max campaign: Google spreads its budget across all placements automatically and doesn\'t report each ad separately, so we show it at campaign level.',
       'x.spend': 'Spend',
