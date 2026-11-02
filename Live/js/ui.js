@@ -86,6 +86,7 @@
   // بحث بالاسم أو الرقم، ومجموعة لكل منصة، و✓ جنب المختار. اختيار حساب = نفس «change» القديم (loadSource)
   var acctPicker = document.getElementById('acctPicker'), acctPickBtn = document.getElementById('acctPickBtn');
   var acctPanel = document.getElementById('acctPanel'), acctSearch = document.getElementById('acctSearch'), acctList = document.getElementById('acctList');
+  var acctDone = document.getElementById('acctDone');
   // «Meta — اسم الحساب» ← «اسم الحساب» (الشعار بيقول المنصة)
   function acctName(label) { return String(label || '').replace(/^[^—]*—\s*/, ''); }
   function acctPlats() { return PLAT_ORDER.filter(function (p) { return (platformOptions[p] || []).length; }); }
@@ -108,12 +109,19 @@
       });
       if (!opts.length) return;
       any = true;
-      html += '<div class="acct-group" role="presentation">' + platLogo(p) + esc(PLATFORM_NAMES[p]) + '</div>';
+      // كل منصة بلونها وشعارها: العنوان وكل حساب جواه (طلب صاحب المنتج ٢ نوفمبر ٢٠٢٦ — «ليس مجرد لوجو
+      // المنصة فوق الحسابات كلها، بل وبجانب كل حساب لوجو المنصة ايضاً»)
+      html += '<div class="acct-group plat-' + esc(p) + '" role="presentation">' + platLogo(p) +
+        '<span class="acct-group-name">' + esc(PLATFORM_NAMES[p]) + '</span>' +
+        '<span class="acct-group-count">' + esc(ar(opts.length)) + '</span></div>';
       opts.forEach(function (o) {
         var on = o.value === activeSources[p];
-        html += '<button type="button" class="acct-opt' + (on ? ' on' : '') + '" role="option" aria-selected="' + on + '" data-acct-plat="' + esc(p) + '" data-acct-id="' + esc(o.value) + '">' +
-          '<span class="acct-opt-name" dir="auto">' + esc(acctName(o.label)) + '</span>' +
-          (on ? '<span class="acct-opt-check" role="img" aria-label="' + esc(t('acct.selected')) + '">✓</span>' : '') + '</button>';
+        // مربع اختيار: الضغط في أي مكان على الصف بيختار أو بيلغي الاختيار (role=checkbox — الصف كله هو المربع)
+        html += '<button type="button" class="acct-opt plat-' + esc(p) + (on ? ' on' : '') + '" role="checkbox" aria-checked="' + on + '"' +
+          ' data-acct-plat="' + esc(p) + '" data-acct-id="' + esc(o.value) + '">' +
+          '<span class="acct-box" aria-hidden="true">' + (on ? '✓' : '') + '</span>' +
+          platLogo(p) +
+          '<span class="acct-opt-name" dir="auto">' + esc(acctName(o.label)) + '</span></button>';
       });
     });
     acctList.innerHTML = any ? html : '<p class="acct-empty">' + esc(t('acct.none')) + '</p>';
@@ -139,18 +147,30 @@
       e.preventDefault();
       if (e.key === 'ArrowUp' && i === 0) acctSearch.focus(); else if (all[i + (e.key === 'ArrowDown' ? 1 : -1)]) all[i + (e.key === 'ArrowDown' ? 1 : -1)].focus();
     });
+    // الضغط على الصف = تبديل الاختيار (اختيار أو إلغاء)، والقائمة بتفضل مفتوحة عشان العميل يقدر يغيّر
+    // أكتر من حساب ورا بعض ويشوف أثر اختياره — بتتقفل لما يضغط برّه أو على «تم» (طلب صاحب المنتج ٢ نوفمبر ٢٠٢٦)
     acctList.addEventListener('click', function (e) {
       var b = e.target.closest('[data-acct-id]');
       if (!b) return;
       var p = b.getAttribute('data-acct-plat'), id = b.getAttribute('data-acct-id');
-      openAccountPanel(false);
-      acctPickBtn.focus();
-      if (activeSources[p] === id) return;
-      accountSelect.value = id;
-      loadSource(p, id);
+      if (activeSources[p] === id) deselectAccount(p);
+      else { accountSelect.value = id; loadSource(p, id); }
       renderAccountPicker();
+      renderAccountList();
+      // التركيز بيفضل على نفس الصف بعد إعادة الرسم (القائمة بتتبني من أول وجديد)
+      var again = acctList.querySelector('[data-acct-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+      if (again) again.focus();
     });
-    document.addEventListener('click', function (e) { if (!acctPanel.hidden && !acctPicker.contains(e.target)) openAccountPanel(false); });
+    if (acctDone) acctDone.addEventListener('click', function () { openAccountPanel(false); acctPickBtn.focus(); });
+    // القفل بالضغط برّه القائمة. بنسأل مسار الحدث مش الصفحة: الضغطة على حساب بتعيد بناء القائمة فوراً،
+    // فالعنصر اللي اتضغط بيطلع برّه الصفحة قبل ما السطر ده يشتغل، وcontains كانت بترد «برّه» وتقفل القائمة
+    // غلط (ظهرت في الاختبار، ٢ نوفمبر ٢٠٢٦). composedPath بيتحسب وقت إطلاق الحدث فمبيتأثرش
+    document.addEventListener('click', function (e) {
+      if (acctPanel.hidden) return;
+      var path = typeof e.composedPath === 'function' ? e.composedPath() : null;
+      if (path ? path.indexOf(acctPicker) > -1 : acctPicker.contains(e.target)) return;
+      openAccountPanel(false);
+    });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !acctPanel.hidden) { openAccountPanel(false); acctPickBtn.focus(); } });
   }
 
@@ -199,6 +219,26 @@
     if (platform === 'tiktok' && validToken(sessionTokens.tiktok) && (platformOptions.tiktok || []).length) { loadSource('tiktok', platformOptions.tiktok[0].value); return; }
     reconnectPlatform(platform);
   }
+  // إلغاء اختيار حساب من غير فصل المنصة (طلب صاحب المنتج ٢ نوفمبر ٢٠٢٦): إعلانات الحساب بتختفي وبس.
+  // المنصة بتفضل مربوطة بمفتاحها وقائمة حساباتها، فالعميل يقدر يختار حساب تاني بضغطة من غير ما يسجّل
+  // دخول من أول وجديد. قبل كده الطريقة الوحيدة لإخفاء حساب كانت «فصل» المنصة كلها.
+  // بنمسح آخر حساب محفوظ كمان عشان التحديث الجاي ميرجّعهوش لوحده
+  function deselectAccount(platform) {
+    if (!activeSources[platform]) return;
+    beginLoad(platform);                 // أي رد لسه جاي من الحساب ده بيتجاهل
+    loadingPlatforms[platform] = false;
+    numbersPending[platform] = false;
+    candidates = candidates.filter(function (c) { return platformOfSource(c.source) !== platform; });
+    delete activeSources[platform];
+    forgetAccount(platform);
+    dxReset(platform);
+    setPlatformState(platform, null);
+    document.body.classList.toggle('is-loading', anyLoading());
+    cardGrid.setAttribute('aria-busy', anyLoading() ? 'true' : 'false');
+    saveSession();
+    render();
+  }
+
   // فصل منصة = تسجيل خروج من الأداة بس: بيمسح إعلاناتها وحساباتها ومفتاح الدخول وآخر حساب محفوظ
   // من المتصفح ده. العميل بيفضل داخل على فيسبوك/Google نفسهم (مش شغلنا نخرّجه منهم)
   function disconnectPlatform(platform, quiet) {
@@ -3016,12 +3056,17 @@
     if (c.platform !== 'Meta' || !(c.videoId || c.catalog)) return;
     // الفيديو بحساب إنستغرام: الريلز الأول (الفيديو بطوله من غير فراغ — PREVIEW_REQUEST)
     var order = c.igPreview ? (c.videoId ? ['reels', 'ig', 'fb'] : ['ig', 'reels', 'fb']) : ['fb', 'ig', 'reels'], poster = el.innerHTML;
-    var hint = '<p class="pv-hint">' + esc(t('x.pv.hint') + (c.catalog ? ' ' + t('x.pv.catalog') : '')) + '</p>';
+    // تبويب «الفيديو بالصوت» (طلب صاحب المنتج ٢ نوفمبر ٢٠٢٦): معاينات Meta صفحات بتاعتها جوه إطار من نطاق تاني،
+    // والمتصفحات بتمنع أي فيديو بيشتغل لوحده جوه إطار إنه يطلّع صوت — ومقدرش نفك الكتم من برّه الإطار.
+    // فبنزوّد تبويب بالفيديو نفسه بمشغّل كامل (صوت وتقديم وملء شاشة). متاح للفيديو بس
+    if (c.videoId) order = order.concat(['video']);
+    var hint = '<p class="pv-hint">' + esc(t('x.pv.hint') + (c.videoId ? ' ' + t('x.pv.muted') : '') + (c.catalog ? ' ' + t('x.pv.catalog') : '')) + '</p>';
     var load = function (k, first) {
       var mine = ++previewSeq, key = c.id + '|' + k;
       el.innerHTML = previewTabsHtml(order, k) + '<div class="pv-body">' + poster + '</div>' + hint;
       var body = el.querySelector('.pv-body');
       var show = function (frame) { body.innerHTML = '<div class="video-embed-wrap">' + frame + '</div>'; fitEmbeds(body); };
+      if (k === 'video') { videoFallback(c, body, openSeq); return; }
       if (previewCache[key]) { show(previewCache[key]); return; }
       var params = { ad_format: PREVIEW_FORMATS[k] }, size = PREVIEW_REQUEST[k];
       if (size) { params.width = size.width; params.height = size.height; }
@@ -3155,19 +3200,24 @@
     });
   }
   function videoFallback(c, el, openSeq) {
-    // تضمين رسمي، ثم ملف مباشر، ثم رابط خارجي — محتاجة صلاحية على صفحة الفيديو (من غيرها: «Application does not have permission»)
+    // الملف المباشر الأول، ثم تضمين فيسبوك، ثم رابط خارجي — محتاجة صلاحية على صفحة الفيديو
+    // (من غيرها: «Application does not have permission»).
+    // الترتيب اتقلب في ٢ نوفمبر ٢٠٢٦: الملف المباشر بيتعرض بمشغّل المتصفح نفسه، فالصوت وأزرار التحكم
+    // تحت إيد العميل. تضمين فيسبوك إطار من نطاق تاني، والمتصفح بيمنع الصوت جوّاه لو الفيديو بدأ لوحده
     metaApi('/' + c.videoId, { fields: 'embed_html,source,permalink_url,picture' }, function (vidResp) {
       if (openSeq !== expandSeq) return;
       var mediaHtml = '';
       var embedFrame = vidResp && metaIframeHtml(vidResp.embed_html);
       var videoSrc = vidResp && safeUrl(vidResp.source);
       var posterSrc = vidResp && safeUrl(vidResp.picture);
-      if (embedFrame) {
-        mediaHtml = '<div class="video-embed-wrap">' + embedFrame + '</div>';
-      } else if (videoSrc) {
+      if (videoSrc) {
+        // الملف المباشر أحسن من تضمين فيسبوك هنا: مشغّل المتصفح نفسه بصوت وتقديم وملء شاشة، والعميل هو اللي
+        // بيضغط تشغيل فالصوت مسموح (المتصفح بيمنع الصوت للي بيشتغل لوحده بس)
         mediaHtml = '<video class="real-video" controls playsinline preload="metadata"' +
           (posterSrc ? ' poster="' + esc(posterSrc) + '"' : '') +
           '><source src="' + esc(videoSrc) + '" type="video/mp4"></video>';
+      } else if (embedFrame) {
+        mediaHtml = '<div class="video-embed-wrap">' + embedFrame + '</div>';
       }
       // الرابط لازم يفضل على facebook.com — قيمة زي «@موقع-تاني.com/» كانت هتحوّل الرابط لدومين تاني
       var permalink = vidResp && typeof vidResp.permalink_url === 'string' && vidResp.permalink_url.charAt(0) === '/' &&

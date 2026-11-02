@@ -5789,7 +5789,8 @@
           showMedia({ id: 'PV1', platform: 'Meta', format: 'video', videoId: 'v1', igPreview: true, themeClass: 'pv-t0' });
           eq(asked[0], 'INSTAGRAM_REELS');
           eq(sizes[0], '320x640', 'reels asked at the size that fits the video');
-          eq([].map.call(el.querySelectorAll('[data-pv]'), function (b) { return b.getAttribute('data-pv'); }), ['reels', 'ig', 'fb']);
+          // «الفيديو بالصوت» تبويب زيادة للفيديو بس (٢ نوفمبر ٢٠٢٦): معاينات Meta إطار من نطاق تاني والمتصفح بيمنع الصوت جوّاه
+          eq([].map.call(el.querySelectorAll('[data-pv]'), function (b) { return b.getAttribute('data-pv'); }), ['reels', 'ig', 'fb', 'video']);
           ok(el.querySelector('.pv-body iframe'), 'preview frame');
           el.querySelector('[data-pv="fb"]').click();
           eq(asked[1], 'MOBILE_FEED_STANDARD');
@@ -6790,7 +6791,11 @@
           var list = document.getElementById('acctList');
           ok(!document.getElementById('acctPanel').hidden, 'panel open');
           eq(Array.prototype.map.call(list.querySelectorAll('.acct-opt.on'), function (b) { return b.getAttribute('data-acct-id'); }), ['act_1', 'sn1'], 'the selected one in each platform');
-          eq(list.querySelectorAll('.acct-opt-check').length, 2, '✓ beside them');
+          // ٢ نوفمبر ٢٠٢٦: كل صف مربع اختيار، وشعار منصته جنبه، والمجموعة بلون المنصة
+          eq(list.querySelectorAll('.acct-opt[aria-checked="true"]').length, 2, 'المختار في كل منصة');
+          eq(list.querySelectorAll('.acct-opt .plat-logo').length, 3, 'شعار المنصة جنب كل حساب');
+          ok(list.querySelector('.acct-group.plat-meta') && list.querySelector('.acct-group.plat-snapchat'), 'كل مجموعة بلون منصتها');
+          ok(list.querySelector('.acct-opt.plat-snapchat'), 'والصف كمان');
           var search = document.getElementById('acctSearch');
           search.value = 'second'; search.dispatchEvent(new Event('input'));
           eq(Array.prototype.map.call(list.querySelectorAll('[data-acct-id]'), function (b) { return b.getAttribute('data-acct-id'); }), ['act_2'], 'search by name');
@@ -6799,7 +6804,18 @@
           search.value = 'act_2'; search.dispatchEvent(new Event('input'));
           list.querySelector('[data-acct-id="act_2"]').click();
           eq(asked, [['meta', 'act_2']], 'picking loads the account');
-          ok(document.getElementById('acctPanel').hidden, 'panel closed');
+          // القائمة بتفضل مفتوحة بعد الاختيار — بتتقفل بـ«تم» أو بضغطة برّه (طلب صاحب المنتج ٢ نوفمبر ٢٠٢٦)
+          ok(!document.getElementById('acctPanel').hidden, 'لازم تفضل مفتوحة بعد الاختيار');
+          // الضغط على المختار تاني = إلغاء الاختيار، والمنصة بتفضل مربوطة (القائمة لسه فيها حساباتها)
+          activeSources.meta = 'act_2';
+          renderAccountList();
+          list.querySelector('[data-acct-id="act_2"]').click();
+          eq(activeSources.meta, undefined, 'الضغطة التانية بتلغي الاختيار');
+          eq((platformOptions.meta || []).length, 2, 'والمنصة لسه مربوطة بحساباتها');
+          eq(asked.length, 1, 'وإلغاء الاختيار مبيحمّلش حاجة');
+          ok(!document.getElementById('acctPanel').hidden, 'والقائمة لسه مفتوحة');
+          document.getElementById('acctDone').click();
+          ok(document.getElementById('acctPanel').hidden, '«تم» بتقفلها');
         });
       } finally {
         Object.keys(platformOptions).forEach(function (k) { delete platformOptions[k]; }); Object.assign(platformOptions, old.opts);

@@ -457,14 +457,36 @@
   .acct-search { font-family: inherit; font-size: 14px; color: var(--ink); background: var(--bg, var(--card)); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; margin-bottom: 6px; }
   .acct-search:focus-visible { outline: 2px solid var(--verified); outline-offset: 1px; }
   .acct-list { overflow-y: auto; min-height: 0; }
-  .acct-group { display: flex; align-items: center; gap: 6px; margin: 8px 6px 4px; font-size: 12px; font-weight: 800; color: var(--ink-soft); }
-  .acct-group .plat-logo { width: 14px; height: 14px; }
-  .acct-opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: start; font-family: inherit; font-size: 13.5px; color: var(--ink);
-    background: none; border: none; border-radius: 8px; padding: 9px 10px; cursor: pointer; }
+  /* كل منصة بلونها (--brand من .plat-*): شريط جانبي على المجموعة، وشعار جنب كل حساب، والمختار بلون منصته
+     (طلب صاحب المنتج ٢ نوفمبر ٢٠٢٦ — «توضيح الفرق في عرض شكل والوان الحسابات الاعلانية لكل منصة») */
+  .acct-group { display: flex; align-items: center; gap: 7px; margin: 12px 0 4px; padding: 5px 8px; border-radius: 8px;
+    font-size: 12px; font-weight: 800; color: var(--ink-soft); background: color-mix(in srgb, var(--brand, var(--line)) 12%, transparent);
+    border-inline-start: 3px solid var(--brand, var(--line)); }
+  .acct-group:first-child { margin-top: 2px; }
+  .acct-group .plat-logo { width: 15px; height: 15px; flex: 0 0 auto; }
+  .acct-group-name { flex: 1 1 auto; min-width: 0; }
+  .acct-group-count { font-weight: 700; color: var(--ink-faint); font-size: 11.5px; }
+  /* الشعار جنب كل حساب: Snapchat أصفر على أبيض مش مقروء، فبيتحط على خلفية علامته */
+  .acct-opt .plat-logo { width: 15px; height: 15px; flex: 0 0 auto; opacity: .95; }
+  .acct-opt.plat-snapchat .plat-logo { color: #000; background: var(--brand); border-radius: 4px; padding: 1px; }
+  /* مربع الاختيار: الصف كله هو المربع — الضغط في أي مكان فيه بيختار أو بيلغي */
+  .acct-box { flex: 0 0 auto; width: 18px; height: 18px; border: 2px solid var(--line); border-radius: 5px; display: flex;
+    align-items: center; justify-content: center; font-size: 12px; font-weight: 900; line-height: 1; }
+  .acct-tip { margin: 8px 2px 6px; font-size: 11.5px; line-height: 1.6; color: var(--ink-faint); }
+  .acct-done { width: 100%; font-family: inherit; font-size: 14px; font-weight: 700; color: var(--ink); background: var(--sending-bg);
+    border: 1px solid var(--line); border-radius: 9px; padding: 9px 12px; cursor: pointer; }
+  .acct-done:hover { background: var(--line); }
+  .acct-done:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
+  /* الصف كله زرار واحد: مربع الاختيار ← شعار المنصة ← الاسم. مساحة لمس ٤٤px (إرشادات آبل) */
+  .acct-opt { display: flex; align-items: center; justify-content: flex-start; gap: 9px; width: 100%; min-height: 44px; text-align: start;
+    font-family: inherit; font-size: 13.5px; color: var(--ink);
+    background: none; border: none; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
   .acct-opt:hover, .acct-opt:focus-visible { background: var(--sending-bg); outline: none; }
-  .acct-opt.on { background: var(--verified-bg); color: var(--verified); font-weight: 700; }
-  .acct-opt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .acct-opt-check { flex: 0 0 auto; font-size: 13px; }
+  .acct-opt:focus-visible { outline: 2px solid var(--verified); outline-offset: -2px; }
+  .acct-opt-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* المختار بلون منصته — بعد قواعد .acct-opt عشان تسود عليها */
+  .acct-opt.on { background: color-mix(in srgb, var(--brand, var(--verified)) 10%, transparent); font-weight: 700; }
+  .acct-opt.on .acct-box { background: var(--brand, var(--verified)); border-color: var(--brand, var(--verified)); color: var(--on-brand, #fff); }
   .acct-empty { margin: 10px 6px; font-size: 13px; color: var(--ink-soft); }
   .appbar-icons { display: flex; align-items: center; gap: 8px; }
   .install-btn { border-color: var(--verified); color: var(--verified); }
@@ -488,6 +510,10 @@
     .acct-pick-btn { max-width: 100%; }
     .acct-pick-name { max-width: 90px; }
     .brand-tag { display: none; }
+    /* iOS Safari بيقرّب الصفحة تلقائياً على أي حقل خطه أقل من ١٦px، ومبيرجّعش التقريب بعد كده —
+       فالشاشة بتفضل مكبّرة (شكوى صاحب المنتج ٢ نوفمبر ٢٠٢٦ على قائمة الحسابات). ١٦px بتمنع التقريب
+       من أصله. على الموبايل بس عشان شكل الديسكتوب ميتغيّرش */
+    input, select, textarea, .acct-search, .sort-select, .dx-auto-field input, .dx-auto-field select { font-size: 16px; }
   }
 
   .icon-toggle:focus-visible, .lang-toggle:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
@@ -1017,10 +1043,13 @@
            وقائمة فيها بحث بالاسم وعلامة ✓ جنب المختار (طلب صاحب المنتج ٢٦ أكتوبر ٢٠٢٦ — ui.js renderAccountPicker) -->
       <select id="accountSelect" class="sort-select account-select hidden" aria-label="الحساب الإعلاني" data-i18n-aria="account.aria" tabindex="-1" aria-hidden="true"></select>
       <div class="acct-picker" id="acctPicker" hidden>
-        <button type="button" class="acct-pick-btn" id="acctPickBtn" aria-haspopup="listbox" aria-expanded="false" aria-controls="acctPanel" aria-label="الحسابات الإعلانية المختارة" data-i18n-aria="acct.pick.aria"></button>
+        <button type="button" class="acct-pick-btn" id="acctPickBtn" aria-haspopup="true" aria-expanded="false" aria-controls="acctPanel" aria-label="الحسابات الإعلانية المختارة" data-i18n-aria="acct.pick.aria"></button>
         <div class="acct-panel" id="acctPanel" hidden>
           <input type="search" id="acctSearch" class="acct-search" autocomplete="off" placeholder="ابحث باسم الحساب" data-i18n-placeholder="acct.search" aria-label="ابحث باسم الحساب" data-i18n-aria="acct.search">
-          <div id="acctList" class="acct-list" role="listbox" aria-label="الحسابات الإعلانية" data-i18n-aria="acct.list"></div>
+          <!-- group مش listbox: كل صف مربع اختيار مستقل بيتفتح ويتقفل (٢ نوفمبر ٢٠٢٦) -->
+          <div id="acctList" class="acct-list" role="group" aria-label="الحسابات الإعلانية" data-i18n-aria="acct.list"></div>
+          <p class="acct-tip" data-i18n="acct.tip">اضغط على الحساب لاختياره، واضغط عليه مرة أخرى لإلغاء اختياره — ويظل مربوطاً بالمنصة.</p>
+          <button type="button" class="acct-done" id="acctDone" data-i18n="acct.done">تم</button>
         </div>
       </div>
       <button type="button" class="icon-toggle" id="resetAllBtn" title="تحديث البيانات" aria-label="تحديث البيانات" data-i18n-title="btn.refresh" data-i18n-aria="btn.refresh">↻</button>
