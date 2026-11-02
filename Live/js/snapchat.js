@@ -188,6 +188,10 @@
   // بتقول «Preview Not Supported» له): أول المنتجات في كل مجموعة (api/snapchat-ads-fetch.js action=products — طلبين لكل مجموعة)، صورة
   // أول منتج للكارت، والمنتجات جوه الإعلان (ui.js snapMediaView). snapProducts[المجموعة] = المنتجات (فاضية = مفيش)
   var snapProducts = {};
+  // سبب إن المجموعة رجعت من غير منتجات (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Coda: مجموعة رجعت صفر منتج، والكارت فضل
+  // بخلفية فاضية من غير أي كلام). 'set' = مقدرناش نقرا المجموعة، 'search' = مقدرناش نقرا منتجاتها،
+  // 'net' = الطلب نفسه فشل، '' = المجموعة فاضية فعلاً عند Snapchat
+  var snapProductErr = {};
   function loadSnapchatCatalog(adAccountId, token) {
     var source = 'snapchat:' + adAccountId, sets = {};
     candidates.forEach(function (c) { if (c.source === source && c.snapProductSetId && !(c.snapProductSetId in snapProducts)) sets[c.snapProductSetId] = 1; });
@@ -196,8 +200,11 @@
       if (next >= all.length || !isCurrentLoad('snapchat', token)) return Promise.resolve();
       var id = all[next++];
       return apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'products', productSetId: id }).then(function (res) {
-        if (res.ok && res.data && Array.isArray(res.data.products)) snapProducts[id] = res.data.products;
-      }, function () { /* من غير منتجات */ }).then(step);
+        if (res.ok && res.data && Array.isArray(res.data.products)) {
+          snapProducts[id] = res.data.products;
+          snapProductErr[id] = res.data.error || '';
+        } else snapProductErr[id] = 'net';
+      }, function () { snapProductErr[id] = 'net'; }).then(step);
     };
     return step().then(function () {
       if (!isCurrentLoad('snapchat', token)) return;
@@ -475,8 +482,11 @@
         headline: (cr && cr.headline) || ad.name || ('Snapchat #' + ad.id), desc: (cr && cr.brand) || '',
         offer: ad.name || id, caption: (cr && cr.headline) || '',
         cta: (cr && cr.cta) || null,
-        // إعلانات من غير وسيط واحد: مجموعة منتجات (COLLECTION) أو قصة من كذا لقطة (COMPOSITE) — مش «صورة ثابتة»
-        badgeKey: cr && cr.type === 'COLLECTION' ? 'card.snapCollection' : (cr && cr.type === 'COMPOSITE' ? 'card.snapStory' : null),
+        // إعلانات من غير وسيط واحد: مجموعة منتجات (COLLECTION) أو قصة من كذا لقطة (COMPOSITE) — مش «صورة ثابتة».
+        // وإعلان الكتالوج (render_type = DYNAMIC) صوره بتيجي من مجموعة المنتجات نفسها، فكان بيتوسم «صورة ثابتة» غلط
+        // (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Coda)
+        badgeKey: cr && cr.type === 'COLLECTION' ? 'card.snapCollection'
+          : (cr && cr.type === 'COMPOSITE' ? 'card.snapStory' : (cr && cr.dynamic ? 'card.snapCatalog' : null)),
         landing: landing || '—', landingKind: landing ? 'website' : null,
         daysAgo: ad.created_at ? daysBetween(ad.created_at) : null,
         updatedDaysAgo: ad.updated_at ? daysBetween(ad.updated_at) : null,

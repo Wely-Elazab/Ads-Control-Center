@@ -5744,6 +5744,24 @@
       eq(metaImageUrl({ creative: { asset_feed_spec: { videos: [{ video_id: '1', thumbnail_url: small }] } } }), small);
       withLang('ar', function () { eq(landingText('https://www.shop.com/products/%D9%86%D8%B8%D8%A7%D8%B1%D8%A9/?utm_source=x'), 'shop.com/products/نظارة'); });
     });
+    // حساب حقيقي ٢ نوفمبر ٢٠٢٦ (Level Up): ٢٥ إعلان من ١٠١ كابشنهم كان اسم الإعلان، و٢٢ منهم نصهم موجود
+    // في asset_feed_spec اللي مكناش بنطلبه. النص بييجي من ٤ أماكن مختلفة حسب نوع الإعلان
+    test('Meta: نص الإعلان من كل مكان Meta بتحطه فيه (المختصر، والنسخ المتعددة، وspec)', function () {
+      // ١) الإعلان العادي: Meta بتملا body/title
+      eq(creativeText({ body: 'نص الإعلان', title: 'العنوان' }).text, 'نص الإعلان');
+      // ٢) الإعلان المبني على منشور موجود: body فاضي والنص في asset_feed_spec — ده اللي كان ضايع
+      var post = creativeText({ body: '', title: '', asset_feed_spec: { bodies: [{ text: 'نص من المنشور' }], titles: [{ text: 'عنوان من المنشور' }] } });
+      eq([post.text, post.headline], ['نص من المنشور', 'عنوان من المنشور']);
+      // ٣) من object_story_spec مباشرة (فيديو ورابط وكتالوج)
+      eq(creativeText({ object_story_spec: { video_data: { message: 'نص فيديو', title: 'عنوان فيديو' } } }).text, 'نص فيديو');
+      eq(creativeText({ object_story_spec: { link_data: { message: 'نص رابط', name: 'عنوان رابط', description: 'وصف' } } }).desc, 'وصف');
+      eq(creativeText({ object_story_spec: { template_data: { message: 'نص كتالوج' } } }).text, 'نص كتالوج');
+      // ٤) مفيش نص خالص = null (مش اسم الإعلان — اللي بيقرر العرض)
+      eq(creativeText({}).text, null);
+      eq(creativeText({ body: '   ', asset_feed_spec: { bodies: [{ text: '  ' }] } }).text, null, 'المسافات لوحدها مش نص');
+      // الترتيب: المختصر بتاع Meta الأول لما يكون موجود
+      eq(creativeText({ body: 'المختصر', asset_feed_spec: { bodies: [{ text: 'النسخة' }] } }).text, 'المختصر');
+    });
     // ٢٥ أكتوبر («لازال مقاس عرض الفيديوهات في ميتا لم يتعالج»): الفيديو بيبدأ بالريلز بمقاس ٣٢٠×٦٤٠ (الفيديو بطوله من غير فراغ)
     test('Meta: معاينة الفيديو والكتالوج بأزرار صيغ — الفيديو بالريلز الأول، والكتالوج بإنستغرام الأول، وفيسبوك الأول لو مالوش حساب إنستغرام', function () {
       var hadFB = 'FB' in window, prevFB = window.FB, asked = [], sizes = [];

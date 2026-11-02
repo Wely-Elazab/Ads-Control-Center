@@ -216,6 +216,7 @@
       // الكروت
       'card.staticDesign': 'صورة ثابتة',
       'card.snapCollection': 'إعلان مجموعة منتجات',
+      'card.snapCatalog': 'إعلان كتالوج',
       'card.snapStory': 'قصة من عدة لقطات',
       'card.pmaxSub': 'حملة كاملة — لا يعرض Google إعلاناتها منفصلة',
       'card.adFallback': 'إعلان {platform} رقم {id}',
@@ -258,6 +259,14 @@
       // الإعلان المتعدَّل: الحكم على الأيام اللي بعد آخر تعديل بس (alerts.js — days)
       'x.basisPeriodEdit': 'التقييم مبني على الأيام المكتملة بعد آخر تعديل ({n})، ولا يُحتسب اليوم الجاري لأنه لم يكتمل.',
       'x.noText': '(بدون نص)',
+      // الإعلان المبني على منشور موجود: نصه ووجهته داخل المنشور، وقراءته تحتاج صلاحية على الصفحة لا نطلبها
+      'x.fromPostText': 'هذا الإعلان يستخدم منشوراً موجوداً على صفحتك، ونصّه محفوظ داخل المنشور نفسه لا داخل الإعلان. ولأن الأداة تقرأ حسابك الإعلاني فقط ولا تطلب صلاحية على الصفحة، لا يصلنا النص. افتحه على المنصة لتراه.',
+      'x.fromPostLink': 'وجهة هذا الإعلان محفوظة داخل المنشور نفسه، والأداة تقرأ حسابك الإعلاني فقط ولا تطلب صلاحية على الصفحة. افتحه على المنصة لتراها.',
+      'x.noLink': 'لم تُرجع المنصة وجهة لهذا الإعلان.',
+      // إعلان كتالوج Snapchat: صوره ووجهته من مجموعة المنتجات، فإن لم تصلنا المنتجات فلا صورة ولا وجهة
+      'x.snapSetEmpty': 'صور هذا الإعلان تأتي من مجموعة منتجاته، ولم تُرجع Snapchat أي منتج فيها. تأكّد أن المجموعة غير فارغة في مدير إعلانات Snapchat.',
+      'x.snapSetFailed': 'صور هذا الإعلان تأتي من مجموعة منتجاته، وتعذّر على الأداة قراءتها من Snapchat الآن.',
+      'x.snapCatalogDest': 'لكل منتج في الكتالوج صفحته الخاصة، فلا توجد صفحة مقصودة واحدة لهذا الإعلان.',
       'x.pmaxNote': 'هذه حملة Performance Max: يوزّع Google ميزانيتها تلقائياً على جميع أماكن الظهور، ولا يوفّر أرقام كل إعلان على حدة، لذا نعرضها على مستوى الحملة كاملة.',
       'x.spend': 'الإنفاق',
       'x.results': 'النتائج',
@@ -1730,6 +1739,7 @@
 
       'card.staticDesign': 'Static image',
       'card.snapCollection': 'Collection ad',
+      'card.snapCatalog': 'Catalog ad',
       'card.snapStory': 'Multi-snap story',
       'card.pmaxSub': 'Whole campaign — Google doesn\'t report its ads separately',
       'card.adFallback': '{platform} ad #{id}',
@@ -1768,6 +1778,12 @@
       'x.basisPeriod': 'The verdict is based on the last 7 complete days; today isn\'t counted when judging results because it isn\'t over yet.',
       'x.basisPeriodEdit': 'The verdict is based on the complete days since the last change ({n}); today isn\'t counted because it isn\'t over yet.',
       'x.noText': '(no text)',
+      'x.fromPostText': 'This ad uses an existing post on your Page, and its text lives inside that post rather than inside the ad. Because the tool reads only your ad account and asks for no Page permission, the text doesn\'t reach us. Open it on the platform to read it.',
+      'x.fromPostLink': 'This ad\'s destination lives inside the post itself, and the tool reads only your ad account and asks for no Page permission. Open it on the platform to see it.',
+      'x.noLink': 'The platform returned no destination for this ad.',
+      'x.snapSetEmpty': 'This ad\'s images come from its product set, and Snapchat returned no products in it. Check that the set isn\'t empty in Snapchat Ads Manager.',
+      'x.snapSetFailed': 'This ad\'s images come from its product set, and the tool couldn\'t read it from Snapchat right now.',
+      'x.snapCatalogDest': 'Each product in the catalog has its own page, so this ad has no single landing page.',
       'x.pmaxNote': 'This is a Performance Max campaign: Google spreads its budget across all placements automatically and doesn\'t report each ad separately, so we show it at campaign level.',
       'x.spend': 'Spend',
       'x.results': 'Results',

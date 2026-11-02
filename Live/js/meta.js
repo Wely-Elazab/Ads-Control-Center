@@ -690,6 +690,30 @@
     return !!(row && ((row.actions || []).some(hasWindows) || (row.action_values || []).some(hasWindows)));
   }
 
+  // نصوص الإعلان من كل مكان Meta بتحطهم فيه (حساب حقيقي ٢ نوفمبر ٢٠٢٦):
+  //   - الإعلان العادي: creative.body وcreative.title (Meta بتملاهم من object_story_spec)
+  //   - الإعلان بأكتر من نسخة (Advantage+ / الإبداع الديناميكي) والمبني على منشور موجود: asset_feed_spec.bodies/titles
+  //   - وقت ما Meta مترجّعش المختصر: object_story_spec نفسه (link_data.message، video_data.message…)
+  // بنرجّع { text, headline, desc } وأي حاجة مش موجودة = null (مش اسم الإعلان — اللي بيقرر ده مكان العرض)
+  function firstText(list) {
+    for (var i = 0; list && i < list.length; i++) {
+      var s = list[i] && typeof list[i].text === 'string' ? list[i].text.trim() : '';
+      if (s) return s;
+    }
+    return null;
+  }
+  function nz(v) { return typeof v === 'string' && v.trim() ? v.trim() : null; }
+  function creativeText(creative) {
+    creative = creative || {};
+    var spec = creative.object_story_spec || {}, feed = creative.asset_feed_spec || {};
+    var L = spec.link_data || {}, V = spec.video_data || {}, T = spec.template_data || {};
+    return {
+      text: nz(creative.body) || nz(L.message) || nz(V.message) || nz(T.message) || firstText(feed.bodies),
+      headline: nz(creative.title) || nz(L.name) || nz(V.title) || nz(T.name) || firstText(feed.titles),
+      desc: nz(L.description) || nz(V.link_description) || nz(T.description) || firstText(feed.descriptions)
+    };
+  }
+
   function destinationInfo(creative) {
     try {
       var spec = creative.object_story_spec || {}, feed = creative.asset_feed_spec || {};
@@ -740,9 +764,12 @@
     // على التكلفة لإعلان أو مجموعة جوّاها (مركز المساعدة ٥١١١٠٧٢٣٣٤٢٠٥٢٨ — المرحلة ٥ ق٢)، فحكم التكلفة هناك مبيبقاش «عاجل»
     'campaign{id,name,effective_status,start_time,stop_time,daily_budget,lifetime_budget,' + META_ISSUES + '},';
   var META_AD_FIELDS_BASIC = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},campaign{id,name},';
+  // bodies/titles/descriptions في asset_feed_spec (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Level Up): الإعلان المبني على منشور موجود
+  // (object_type = SHARE) بيرجّع body وtitle فاضيين، والنص الحقيقي جوه asset_feed_spec. مكناش بنطلبهم خالص، فالكابشن كان
+  // بيقع على اسم الإعلان في ٢٥ إعلان من ١٠١ — ٢٢ منهم نصهم موجود هنا
   var META_CREATIVE_FULL = '{title,body,image_url,image_hash,thumbnail_url,video_id,effective_object_story_id,effective_instagram_media_id,product_set_id,' +
-    'asset_feed_spec{images{hash,url},videos{video_id,thumbnail_url},link_urls{website_url},call_to_action_types},' +
-    'object_story_spec{instagram_user_id,link_data{link,picture,image_hash,call_to_action,child_attachments{image_hash,picture}},video_data{video_id,call_to_action,image_url,image_hash},template_data{link,call_to_action}}}';
+    'asset_feed_spec{images{hash,url},videos{video_id,thumbnail_url},link_urls{website_url},call_to_action_types,bodies{text},titles{text},descriptions{text}},' +
+    'object_story_spec{instagram_user_id,link_data{message,name,description,link,picture,image_hash,call_to_action,child_attachments{image_hash,picture}},video_data{message,title,link_description,video_id,call_to_action,image_url,image_hash},template_data{message,name,description,link,call_to_action}}}';
   var META_CREATIVE_BASIC = '{title,body,image_url,thumbnail_url,video_id,' +
     'object_story_spec{link_data{link,picture,call_to_action},video_data{video_id,call_to_action,image_url}}}';
   var META_AD_FIELD_ATTEMPTS = [
@@ -929,6 +956,11 @@
     }
 
     var dest = destinationInfo(creative);
+    var txt = creativeText(creative);
+    // الإعلان المبني على منشور موجود ومالوش نص ولا وجهة عندنا: نصه ورابطه جوه المنشور نفسه، وقراءة المنشور
+    // محتاجة صلاحية على الصفحة (ads_read لوحدها بترجّع «Missing permissions» — حساب حقيقي ٢ نوفمبر ٢٠٢٦).
+    // بنعلّمه عشان الواجهة تقول السبب بدل ما تسيب الخانة فاضية من غير كلام
+    var fromPost = !!creative.effective_object_story_id && !creative.object_story_spec;
 
     return {
       id: ad.id,
@@ -961,10 +993,13 @@
       catalog: !!(creative.product_set_id || (creative.object_story_spec && creative.object_story_spec.template_data)),
       productSetId: creative.product_set_id || null,
       thumbUrl: imageUrl,
-      headline: creative.title || ad.name,
-      desc: creative.body || '',
+      headline: txt.headline || ad.name,
+      desc: txt.text || txt.desc || '',
       offer: ad.name,
-      caption: creative.body || creative.title || ad.name,
+      // الكابشن = نص الإعلان نفسه. مبقاش بيقع على اسم الإعلان لما ميلاقيش: null معناها «مفيش نص وصلنا»،
+      // والواجهة بتفرّق بين ده وبين إعلان نصه جوه منشور مش ليه صلاحية عندنا (fromPost)
+      caption: txt.text || txt.headline || null,
+      textFromPost: fromPost,
       landing: dest.url,
       landingKind: dest.kind,
       daysAgo: daysBetween(ad.created_time),

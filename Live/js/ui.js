@@ -2861,16 +2861,24 @@
     document.getElementById('expandIssues').innerHTML = a.issues.length
       ? a.issues.map(issueMarkup).join('')
       : (c.active ? '<div class="issue-none">' + t('x.noIssues') + '</div>' : '');
-    document.getElementById('expandCaption').textContent = c.campaignLevel ? t('x.pmaxNote') : (c.caption || c.headline || t('x.noText'));
+    // النص: لو مفيش، بنقول السبب بدل «(بدون نص)» الصامتة — الإعلان المبني على منشور موجود نصه جوه المنشور
+    // وقراءته محتاجة صلاحية على الصفحة (حساب حقيقي ٢ نوفمبر ٢٠٢٦)
+    var capEl = document.getElementById('expandCaption');
+    var capText = c.campaignLevel ? t('x.pmaxNote') : (c.caption || (c.textFromPost ? t('x.fromPostText') : t('x.noText')));
+    capEl.textContent = capText;
+    capEl.classList.toggle('expand-caption-note', !c.campaignLevel && !c.caption);
 
     var destLabel = DEST_LABELS[c.landingKind] || t('dest.default');
     // الرابط بيبقى قابل للضغط بس لو http/https — غير كده بيتعرض كنص عادي
     var landingHref = safeUrl(c.landing);
     // النص: النطاق والمسار مقروءين («store.com/products/نظارة-…» بدل %D9%86…) من غير باراميترات التتبّع — الرابط
     // الكامل في الرابط نفسه وفي التلميح
+    // ولا وجهة: نفس المبدأ — السبب مكتوب بدل شَرطة صامتة
+    // إعلان كتالوج Snapchat: لكل منتج صفحته، فمفيش صفحة واحدة — ده مش نقص بيانات
+    var noLinkWhy = c.snapDynamic ? 'x.snapCatalogDest' : (c.textFromPost ? 'x.fromPostLink' : 'x.noLink');
     var landingInner = landingHref
       ? '<a href="' + esc(landingHref) + '" target="_blank" rel="noopener noreferrer" class="expand-landing-value mono" dir="ltr" title="' + esc(c.landing) + '">' + esc(landingText(landingHref)) + '</a>'
-      : '<span class="expand-landing-value mono">' + esc(c.landing || '—') + '</span>';
+      : '<span class="expand-landing-value expand-caption-note">' + esc(t(noLinkWhy)) + '</span>';
     document.getElementById('expandLanding').innerHTML = '<div class="expand-landing"><span class="expand-landing-label">' + destLabel + '</span>' + landingInner + '</div>';
 
     var cur = c.currency;
@@ -3054,21 +3062,32 @@
     if (!vsrc && c.snapProductSetId) {
       // الكتالوج: منتجات المجموعة (snapchat.js loadSnapchatCatalog)، ومن غير زرار المعاينة لو ديناميكي (Snapchat بيقول «Preview Not
       // Supported» — اتجرّب ٢٥ أكتوبر)
-      var showItems = function (items) {
+      // مفيش منتجات = الكارت كان بيفضل خلفية فاضية من غير أي كلام (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Coda).
+      // دلوقتي بيقول السبب: المجموعة فاضية عند Snapchat، ولا إحنا مقدرناش نقراها
+      var showItems = function (items, why) {
         if (openSeq !== expandSeq) return;
-        if (!items || !items.length) return;
+        if (!items || !items.length) {
+          el.innerHTML = previewMarkup(c) +
+            '<p class="snap-set-note">' + esc(t(why === 'net' || why === 'set' || why === 'search' ? 'x.snapSetFailed' : 'x.snapSetEmpty')) + '</p>' +
+            '<div class="snap-page"></div>';
+          return;
+        }
         el.innerHTML = catalogGridHtml(items.map(function (p) {
           return { image: p.image, name: p.name, price: p.price && p.price.value > 0 ? money(p.price.value, p.price.currency || c.currency) : '', url: p.url };
         }), t('dx.plat.snapchat')) + '<div class="snap-page"></div>';
         if (!c.snapDynamic && c.snapCreativeId) ask().then(function () { if (openSeq === expandSeq) pageBtn(); });
       };
       el.innerHTML = previewMarkup(c) + '<div class="snap-page"></div>';
-      if (typeof snapProducts !== 'undefined' && snapProducts[c.snapProductSetId]) showItems(snapProducts[c.snapProductSetId]);
+      var errOf = function () { return typeof snapProductErr !== 'undefined' ? snapProductErr[c.snapProductSetId] : ''; };
+      if (typeof snapProducts !== 'undefined' && snapProducts[c.snapProductSetId]) showItems(snapProducts[c.snapProductSetId], errOf());
       else apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'products', productSetId: c.snapProductSetId }).then(function (res) {
-        var list = res.ok && res.data && Array.isArray(res.data.products) ? res.data.products : [];
+        var ok = res.ok && res.data && Array.isArray(res.data.products);
+        var list = ok ? res.data.products : [];
+        var why = ok ? (res.data.error || '') : 'net';
         if (typeof snapProducts !== 'undefined') snapProducts[c.snapProductSetId] = list;
-        showItems(list);
-      }, function () { /* المعاينة زي ما هي */ });
+        if (typeof snapProductErr !== 'undefined') snapProductErr[c.snapProductSetId] = why;
+        showItems(list, why);
+      }, function () { showItems([], 'net'); });
       return;
     }
     if (!vsrc) {
