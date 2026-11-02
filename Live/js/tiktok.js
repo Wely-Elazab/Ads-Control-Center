@@ -168,7 +168,8 @@
         format: ad.ad_format && /VIDEO|SINGLE_VIDEO/i.test(ad.ad_format) ? 'video' : 'image',
         thumbUrl: null,
         headline: ad.ad_name || ('TikTok #' + ad.ad_id), desc: ad.ad_text || '',
-        offer: ad.ad_name || id, caption: ad.ad_text || ad.ad_name || '',
+        // الكابشن منقعش على اسم الإعلان (مراجعة ٢ نوفمبر ٢٠٢٦ — نفس قاعدة Meta وSnapchat)
+        offer: ad.ad_name || id, caption: ad.ad_text || null,
         landing: ad.landing_page_url || '—', landingKind: ad.landing_page_url ? 'website' : null,
         daysAgo: ad.create_time ? daysBetween(tiktokTime(ad.create_time)) : null,
         updatedDaysAgo: ad.modify_time ? daysBetween(tiktokTime(ad.modify_time)) : null,

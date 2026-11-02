@@ -480,7 +480,9 @@
         thumbUrl: md && md.type === 'IMAGE' ? md.url || null : null,
         videoSrc: md && md.type === 'VIDEO' ? md.url || null : null,
         headline: (cr && cr.headline) || ad.name || ('Snapchat #' + ad.id), desc: (cr && cr.brand) || '',
-        offer: ad.name || id, caption: (cr && cr.headline) || '',
+        // الكابشن = نص الإعلان نفسه (العنوان في Snapchat — مفيش نص طويل عندها)، وmull لو مفيش:
+        // منقعش على اسم الإعلان زي Meta (مراجعة ٢ نوفمبر ٢٠٢٦)
+        offer: ad.name || id, caption: (cr && cr.headline) || null,
         cta: (cr && cr.cta) || null,
         // إعلانات من غير وسيط واحد: مجموعة منتجات (COLLECTION) أو قصة من كذا لقطة (COMPOSITE) — مش «صورة ثابتة».
         // وإعلان الكتالوج (render_type = DYNAMIC) صوره بتيجي من مجموعة المنتجات نفسها، فكان بيتوسم «صورة ثابتة» غلط
