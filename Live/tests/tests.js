@@ -5290,6 +5290,26 @@
         f.remove();
       });
     });
+    // iOS بيقرّب على أي حقل خطه أقل من ١٦px ومبيرجّعش التقريب. الإصلاح الأول كان جوه استعلام الموبايل، وقاعدة
+    // .sort-select اللي بعده في الملف غلبته — قائمة الفترة فضلت ١٣px على الموقع (مقيس ٣ نوفمبر ٢٠٢٦). بنقيس الخط
+    // الفعلي لكل حقل بالستايل الحقيقي، مش بنقرا القاعدة
+    testAsync('كل حقل إدخال وقائمة في الأداة خطه ١٦px على الموبايل (عشان iOS ميقرّبش الشاشة)', function () {
+      return toolFrame(375, 812).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        var small = Array.prototype.filter.call(d.querySelectorAll('input:not([type=checkbox]):not([type=radio]):not([type=hidden]), select, textarea'), function (el) {
+          return parseFloat(w.getComputedStyle(el).fontSize) < 16;
+        }).map(function (el) { return (el.id || el.className || el.tagName) + '=' + w.getComputedStyle(el).fontSize; });
+        eq(small, [], 'حقول خطها أقل من ١٦px');
+        f.remove();
+      });
+    });
+    testAsync('وعلى الديسكتوب الخط زي ما هو (الإصلاح للموبايل بس)', function () {
+      return toolFrame(1200, 800).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        eq(w.getComputedStyle(d.getElementById('periodSelect')).fontSize, '13px', 'قائمة الفترة على الديسكتوب');
+        f.remove();
+      });
+    });
 
     // الشكل لازم يتقاس في الأداة الحقيقية (بالستايل بتاعها) — صفحة الاختبارات نفسها من غير ستايل الأداة
     [['ar', ''], ['en', '&lang=en']].forEach(function (lc) {

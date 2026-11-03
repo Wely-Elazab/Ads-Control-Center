@@ -510,10 +510,6 @@
     .acct-pick-btn { max-width: 100%; }
     .acct-pick-name { max-width: 90px; }
     .brand-tag { display: none; }
-    /* iOS Safari بيقرّب الصفحة تلقائياً على أي حقل خطه أقل من ١٦px، ومبيرجّعش التقريب بعد كده —
-       فالشاشة بتفضل مكبّرة (شكوى صاحب المنتج ٢ نوفمبر ٢٠٢٦ على قائمة الحسابات). ١٦px بتمنع التقريب
-       من أصله. على الموبايل بس عشان شكل الديسكتوب ميتغيّرش */
-    input, select, textarea, .acct-search, .sort-select, .dx-auto-field input, .dx-auto-field select { font-size: 16px; }
     /* القائمة كانت متعلّقة بزرار الحسابات، والزرار نفسه في آخر الشريط — فعرضها (٣٥١px) كان بيطلع برّه
        الشاشة ٣٢px، ومربعات الاختيار كانت مقطوعة (مقيس على الموقع ٢ نوفمبر ٢٠٢٦: يمين القائمة ٤٠٧ والشاشة ٣٧٥).
        على الموبايل بقت متعلّقة بالشاشة نفسها تحت الشريط (ارتفاعه ٥٦px ثابت)، فبتظهر كاملة دايماً */
@@ -1026,6 +1022,17 @@
   }
   /* «تقليل الحركة»: كل الحركة بتخلص على طول (من غير تأخير ولا تكرار) والمحتوى بيظهر في مكانه */
   @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0s !important; } }
+
+  /* iOS Safari بيقرّب الصفحة تلقائياً على أي حقل خطه أقل من ١٦px، ومبيرجّعش التقريب بعد كده —
+     فالشاشة بتفضل مكبّرة (شكوى صاحب المنتج ٢ نوفمبر ٢٠٢٦ على قائمة الحسابات). ١٦px بتمنع التقريب من أصله.
+     لازم تفضل آخر قاعدة في الملف: أول ما اتحطت جوه استعلام الموبايل اللي فوق، قاعدة .sort-select (١٣px) اللي
+     بعدها في الملف وبنفس القوة كانت بتغلبها — قائمة الفترة فضلت ١٣px (مقيس على الموقع ٣ نوفمبر ٢٠٢٦).
+     على الموبايل بس عشان شكل الديسكتوب ميتغيّرش */
+  @media (max-width: 720px) {
+    /* .period-custom .date-input (حقلا «من / إلى») قاعدتها بفئتين فبتغلب input — الاختبار اللي بيقيس كل حقل لقاها */
+    input, select, textarea, .acct-search, .sort-select, .dx-auto-field input, .dx-auto-field select,
+    .period-custom .date-input { font-size: 16px; }
+  }
 
 </style>
 </head>
