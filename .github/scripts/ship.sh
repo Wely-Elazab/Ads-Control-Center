@@ -39,9 +39,10 @@ if [ "$ok" != "success" ]; then echo "CI did not pass on ${sha:0:7} (${ok:-timeo
 git push -q origin "$sha:refs/heads/main"
 # بناء Cloudflare نفسه (الدليل الأقوى): مقارنة الملفات لوحدها مبتثبتش حاجة لو الإيداع مغيّرش Live/js
 # (اتلاحظ ١٧ أكتوبر في أول تشغيل). الفروع التانية مبتتبنيش (Preview Builds مقفولة)، فأي بناء على الإيداع ده هو النشر
-echo "main -> ${sha:0:7}: waiting for the Cloudflare build"
+# ٨ دقايق مش ٥: البناء يوم ٣ نوفمبر خلص بعد الحد فالسكربت قال «فشل» والنشر كان ماشي
+echo "main -> ${sha:0:7}: waiting for the Cloudflare build (up to 8 min)"
 build=""
-for i in $(seq 1 20); do
+for i in $(seq 1 32); do
   sleep 15
   cr=$(gh_api "commits/$sha/check-runs?filter=all&check_name=Workers%20Builds:%20ads-center" "main IS updated to ${sha:0:7}; confirm the Cloudflare build and the site by hand")
   if echo "$cr" | grep -qE '"conclusion": *"success"'; then build=success; break; fi
@@ -52,7 +53,8 @@ if [ "$build" != "success" ]; then echo "Cloudflare build ${build:-did not finis
 echo "Cloudflare build succeeded; checking the site"
 # الملفات اللي مبتتنشرش عن قصد (Live/.assetsignore — زي js/pricing.js) مبتتقارنش
 skip=$(git show "$sha:Live/.assetsignore" | tr -d '\r' | grep -E '^js/' | sed 's#^#Live/#' || true)
-for i in $(seq 1 24); do
+# ٨ دقايق: توزيع Cloudflare على الحافة بياخد وقت أطول أحياناً، والنتيجة كانت «فشل» كاذب
+for i in $(seq 1 48); do
   sleep 10
   diff=0
   for f in $(git ls-tree --name-only "$sha" Live/js/ | grep '\.js$'); do
@@ -65,4 +67,8 @@ for i in $(seq 1 24); do
   if [ "$diff" -eq 0 ]; then echo "live: every Live/js file matches ${sha:0:7}"; exit 0; fi
   echo "  $(date +%T) $diff file(s) not live yet"
 done
-echo "the site does not match ${sha:0:7} after 4 minutes: check the Cloudflare build"; exit 1
+# main اتحدّث والبناء نجح فعلاً — اللي مكملش هو وصول الملفات للحافة. التكرار مش محتاج دفع تاني:
+# الفحص ده لوحده بيعيده (نفس اللفة فوق)، أو افتح الموقع وقارن
+echo "main IS updated to ${sha:0:7} and the Cloudflare build succeeded, but $diff file(s) are not live yet after 8 minutes."
+echo "nothing to push again — re-run this script to re-check, or compare the files on the site yourself."
+exit 1
