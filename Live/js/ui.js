@@ -2192,12 +2192,17 @@
   function compareRangeFor(pp, cc) {
     if (!window.DX || !DX.compareWindow) return null;
     var d = dxPeriodFor(BROWSER_TZ, pp, cc);
-    return DX.compareWindow(d.since, d.until, { unit: d.unit, cmp: d.cmp });
+    var w = DX.compareWindow(d.since, d.until, { unit: d.unit, cmp: d.cmp, partial: d.partial });
+    return Object.assign(w, { partial: d.partial || null });
+  }
+  // «٢٠–٢٦ أكتوبر»، واليوم «٢ نوفمبر حتى ٢:٠٠ م»
+  function compareRangeText(w) {
+    return t('period.vs', { range: w.partial ? t('period.dayHour', { day: fmtKey(w.since), time: DX.hourText(w.partial.hour) }) : fmtRange(w.since, w.until) });
   }
   function syncPeriodUi() {
     var r = resolvePeriodFor(BROWSER_TZ), w = compareRangeFor();
     document.getElementById('periodBtnMain').textContent = periodBtnText(r);
-    document.getElementById('periodBtnCmp').textContent = w ? t('period.vs', { range: fmtRange(w.since, w.until) }) : '';
+    document.getElementById('periodBtnCmp').textContent = w ? compareRangeText(w) : '';
     var today = todayKeyInTz(BROWSER_TZ);
     [dateFrom, dateTo, cmpFrom, cmpTo].forEach(function (el) { el.max = today; });
   }
@@ -2212,7 +2217,12 @@
       b.tabIndex = on ? 0 : -1;
     });
     var w = compareRangeFor(pendingPeriodValue(), { mode: 'prev' });
-    document.getElementById('cmpPrevRange').textContent = w ? '(' + fmtRange(w.since, w.until) + ')' : '';
+    document.getElementById('cmpPrevRange').textContent = w ? '(' + (w.partial ? t('period.dayHour', { day: fmtKey(w.since), time: DX.hourText(w.partial.hour) }) : fmtRange(w.since, w.until)) + ')' : '';
+    // اليوم بيتقارن بأمس لحد نفس الساعة بس: يوم ناقص قصاد أيام كاملة كان هيبان «انخفاض» كاذب
+    var today = !!(w && w.partial);
+    cmpCustom.disabled = today;
+    if (today && cmpCustom.checked) { cmpCustom.checked = false; cmpPrev.checked = true; }
+    document.getElementById('periodCmpToday').hidden = !today;
     document.getElementById('cmpDates').hidden = !cmpCustom.checked;
   }
   function pickPreset(preset) {

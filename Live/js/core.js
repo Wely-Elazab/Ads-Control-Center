@@ -537,12 +537,23 @@
     if (since > until) since = until;
     var unit = p.preset === 'lastMonth' ? 'month' : (p.preset === 'thisMonth' && since.slice(8) === '01' ? 'mtd' : null);
     var cmp = cm.mode === 'custom' && cm.until < since ? { since: cm.since, until: cm.until } : null;
+    // «اليوم» (وهذا الشهر في أوله): النهارده نفسه لحد آخر ساعة مكتملة، مقارنةً بأمس لحد نفس الساعة (طلب صاحب المنتج ٣ نوفمبر ٢٠٢٦ —
+    // كان بيعرض أمس). يوم ناقص قصاد يوم كامل كان هيطلّع «انخفاض» كاذب كل يوم قبل المسا، فالساعات نفسها في الاتنين
+    if (p.preset === 'today' || (p.preset === 'thisMonth' && p.since === today)) {
+      return { since: today, until: today, unit: null, cmp: null, partial: { hour: hourNowInTz(tz) } };
+    }
     return { since: since, until: until, unit: unit, cmp: cmp };
+  }
+  // الساعة دلوقتي (٠–٢٣) بتوقيت الحساب = عدد الساعات المكتملة النهارده
+  function hourNowInTz(tz) {
+    var opts = { hour: 'numeric', hourCycle: 'h23' };
+    try { return Number(new Intl.DateTimeFormat('en-US', Object.assign({ timeZone: tz || undefined }, opts)).format(new Date())) % 24; }
+    catch (e) { return new Date().getHours(); }
   }
   // تغيير المقارنة لوحدها بيعيد ملخص المتجر بس (مش أرقام الإعلانات): كل منصة بتسجّل هنا طريقة إعادة ملخصها وقت ما بتتحمّل
   var dxReloaders = {};
   // جزء مفتاح الملخص اللي بيتغيّر مع المقارنة (تغييرها = تحميل جديد)
-  function dxCompareKey(p) { return p && p.cmp ? p.cmp.since + ':' + p.cmp.until : (p && p.unit) || 'prev'; }
+  function dxCompareKey(p) { return p && p.partial ? 'h' + p.partial.hour : (p && p.cmp ? p.cmp.since + ':' + p.cmp.until : (p && p.unit) || 'prev'); }
 
   // ---------- التحميل: نسخة محفوظة + حالة واضحة ----------
   // آخر تحميل لكل حساب بيتحفظ في الذاكرة، فلما ترجع لحساب فتحته قبل كده بيظهر فوراً

@@ -1160,6 +1160,7 @@
   // (= الفترة السابقة مباشرةً) وده بقى نفس المعنى الافتراضي من ٣ نوفمبر ٢٠٢٦
   function metaDiagnosisInput(accountId, since, until, opts) {
     var o = opts && typeof opts === 'object' ? opts : {};
+    if (o.partial) return metaPartialInput(accountId, since, until, o.partial);
     var ws = DX.windows(since, until, { unit: o.unit, cmp: o.cmp });
     var range = function (w) { return JSON.stringify({ since: w.since, until: w.until }); };
     var dailyP = fbPagesPromise('/' + accountId + '/insights', {
@@ -1203,6 +1204,29 @@
         daily: daily.data.map(function (row) { var b = dxBundle(row); b.date = row.date_start; return b; }),
         dims: dims
       };
+    });
+  }
+  // «اليوم» لحد آخر ساعة مكتملة (٣ نوفمبر ٢٠٢٦): كل يوم من الـ٧ لحد نفس الساعة — من أرقام الحساب بالساعة بتوقيته
+  // (hourly_stats_aggregated_by_advertiser_time_zone مع time_increment=1 = صف لكل ساعة في كل يوم). Meta مبتسمحش بالساعة مع
+  // تقسيمات البلد والعمر والجهاز والمواضع، فالملخص من غير تقسيمات (الشرح بالإنفاق وتكلفة الطلب وقيمته بيشتغل من غيرها)
+  function metaPartialInput(accountId, since, until, partial) {
+    var ws = DX.windows(since, until, { partial: partial }), cut = partial.hour;
+    return fbPagesPromise('/' + accountId + '/insights', {
+      time_range: JSON.stringify({ since: ws[ws.length - 1].since, until: until }), time_increment: 1,
+      breakdowns: 'hourly_stats_aggregated_by_advertiser_time_zone', fields: 'date_start,' + DX_FIELDS, limit: 500
+    }, FULL_SCAN_CAP).then(function (res) {
+      if (res.err) throw res.err;
+      var byDate = {};
+      res.data.forEach(function (row) {
+        // «14:00:00 - 14:59:59» = الساعة ١٤ — الساعات قبل الحد بس
+        var h = parseInt(String(row.hourly_stats_aggregated_by_advertiser_time_zone || '').slice(0, 2), 10);
+        if (!(h >= 0) || h >= cut || !row.date_start) return;
+        // رقم المنصة بالنوافذ (ppur/prev) مش بيتجمع بالساعة — من غيره
+        var b = dxBundle(row), d = byDate[row.date_start] || (byDate[row.date_start] = { date: row.date_start, spend: 0, imp: 0, clicks: 0, atc: 0, ic: 0, pur: 0, rev: 0, ppur: null, prev: null });
+        ['spend', 'imp', 'clicks', 'atc', 'ic', 'pur', 'rev'].forEach(function (k) { d[k] += b[k] || 0; });
+      });
+      return { since: since, until: until, unit: null, cmp: null, partial: partial,
+        daily: Object.keys(byDate).sort().map(function (k) { return byDate[k]; }), dims: [] };
     });
   }
   // ---------- سجل التعديلات وأرقام العناصر المعدَّلة (الملخص التلقائي بالبريد: DX.actionGroups / DX.evalActions) ----------

@@ -163,9 +163,10 @@ var DX = (function () {
     }
     return { since: shiftKey(w.since, -w.days), until: shiftKey(w.since, -1), days: w.days };
   }
+  // partial = { hour }: «اليوم» لحد آخر ساعة مكتملة — كل الفترات أيام لحد نفس الساعة، و٧ بس (حد Snapchat للأرقام بالساعة)
   function windowsFor(since, until, opts) {
     var o = opts && typeof opts === 'object' ? opts : {};
-    var len = dayCount(since, until), n = windowCount(len), out = [{ since: since, until: until, days: len }];
+    var len = dayCount(since, until), n = o.partial ? 7 : windowCount(len), out = [{ since: since, until: until, days: len }];
     var unit = o.unit === 'month' || o.unit === 'mtd' ? o.unit : null, dayN = Number(until.slice(8, 10));
     // فترة المقارنة المختارة لازم تخلص قبل الفترة الحالية (الواجهة بتضمن ده) — غير كده «الفترة السابقة»
     var cmp = validRange(o.cmp) && o.cmp.until < since ? { since: o.cmp.since, until: o.cmp.until, days: dayCount(o.cmp.since, o.cmp.until) } : null;
@@ -934,7 +935,7 @@ var DX = (function () {
     });
   }
   function combine(sources) {
-    var first = sources[0].input, ws = windowsFor(first.since, first.until, { unit: first.unit, cmp: first.cmp }).slice(0, 3);
+    var first = sources[0].input, ws = windowsFor(first.since, first.until, { unit: first.unit, cmp: first.cmp, partial: first.partial }).slice(0, 3);
     var norm = function (list) { return (list || []).filter(function (d) { return d && d.date; }).map(function (d) { var b = bundle(d); b.date = d.date; return b; }); };
     var byDate = {};
     sources.forEach(function (s) {
@@ -981,7 +982,7 @@ var DX = (function () {
       });
       dims.push({ id: 'country', scope: otherW && clean ? 'judged' : 'all', segs: Object.keys(byKey).map(function (k) { return byKey[k]; }) });
     }
-    var out = { since: first.since, until: first.until, currency: first.currency, timezone: first.timezone, unit: first.unit || null, cmp: first.cmp || null,
+    var out = { since: first.since, until: first.until, currency: first.currency, timezone: first.timezone, unit: first.unit || null, cmp: first.cmp || null, partial: first.partial || null,
       daily: Object.keys(byDate).sort().map(function (k) { return byDate[k]; }), dims: dims };
     if (otherW) out.other = { w: otherW, goals: otherGoals };
     return out;
@@ -1007,15 +1008,26 @@ var DX = (function () {
   //          daily: [{ date, spend, imp, clicks, atc, ic, pur, rev }] بتغطي كل الفترات (DX.windows)،
   //          dims: [{ id, segs: [{ key, name, w: [الحالية، السابقة، اللي قبلها] }] }] }
   function analyze(input) {
-    var ws = windowsFor(input.since, input.until, { unit: input.unit, cmp: input.cmp });
+    var ws = windowsFor(input.since, input.until, { unit: input.unit, cmp: input.cmp, partial: input.partial });
     var daily = (input.daily || []).filter(function (d) { return d && /^\d{4}-\d{2}-\d{2}$/.test(d.date); })
       .map(function (d) { var b = bundle(d); b.date = d.date; return b; });
     var W = ws.map(function (w) { return sumDays(daily, w); });
+    // فترة مقارنة مختارة بطول مختلف كتير (٧ أيام قصاد ٣٠): المجاميع مش بتتقارن — الملخص كان هيكتب «الإنفاق أقل» لمجرد إن
+    // فترة المقارنة أطول. أرقامها بمتوسطها اليومي على أيام الفترة الحالية، والملخص بيقول كده. الشهر بالشهر (٣١ قصاد ٣٠) بيفضل
+    // بمجاميعه الحقيقية زي ما صاحب المنتج طلب، واختبار الطلبات بيحسب كل فترة بطولها (headline)
+    var cmpScaled = null;
+    if (input.cmp && W[1].len && Math.abs(W[1].len - W[0].len) > 0.1 * W[0].len) {
+      var k = W[0].len / W[1].len, sc = bundle();
+      FIELDS.forEach(function (f2) { sc[f2] = W[1][f2] * k; });
+      sc.since = W[1].since; sc.until = W[1].until; sc.len = W[0].len;
+      cmpScaled = { days: W[1].len, to: W[0].len };
+      W[1] = sc;
+    }
     var cur = W[0], prev = W[1];
     var total = W.reduce(function (t, w) { return addTo(t, w); }, bundle());
     var tr = trackingOf(total);
     var report = {
-      since: cur.since, until: cur.until, prevSince: prev.since, prevUntil: prev.until, len: cur.len,
+      since: cur.since, until: cur.until, prevSince: prev.since, prevUntil: prev.until, len: cur.len, partial: input.partial || null, cmpScaled: cmpScaled,
       currency: input.currency || null, cur: cur, prev: prev, windows: W, tracked: tr
     };
     if (!tr.pur) { report.status = 'noPurchases'; return report; }
@@ -1394,6 +1406,11 @@ var DX = (function () {
     var last = arr[arr.length - 1], head = arr.slice(0, -1);
     if (isAr()) return head.join('، و') + (arr.length > 2 ? '، و' : t('join.and')) + last;
     return head.join(', ') + t('join.and') + last;
+  }
+  // «٢:٠٠ م» — الساعة بس (الحد اللي الأرقام اتقصّت عنده)
+  function hourText(h) {
+    try { return new Date(Date.UTC(2000, 0, 1, h, 0)).toLocaleTimeString(isAr() ? 'ar-EG' : 'en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }); }
+    catch (e) { return String(h) + ':00'; }
   }
   function periodsText(n, len) {
     if (len === 7) return fmtNum(n) + ' ' + noun(n, 'n.week');
@@ -2002,7 +2019,11 @@ var DX = (function () {
     var M = function (v) { return money(v, r.currency); };
     SEEN = (r.owner && r.owner.seen) || {};
     var o = { status: r.status, blocks: [], kpis: [], notes: [],
-      period: t('dx.compare', { cur: fmtRange(r.since, r.until), prev: fmtRange(r.prevSince, r.prevUntil) }) };
+      period: r.partial ? t('dx.compareHour', { cur: fmtKey(r.since), prev: fmtKey(r.prevSince), time: hourText(r.partial.hour) })
+        : t('dx.compare', { cur: fmtRange(r.since, r.until), prev: fmtRange(r.prevSince, r.prevUntil) }) };
+    // اليوم: الأرقام للساعات المكتملة بس، وتفاصيل الحملات والجمهور مبتتقسمش بالساعة عند المنصات
+    if (r.partial) o.notes.push(t(r.partial.hour ? 'dx.partialNote' : 'dx.partialEarly'));
+    if (r.cmpScaled) o.notes.push(t('dx.cmpScaled', { days: fmtNum(r.cmpScaled.days) + ' ' + noun(r.cmpScaled.days, 'n.day'), to: fmtNum(r.cmpScaled.to) + ' ' + noun(r.cmpScaled.to, 'n.day') }));
     if (r.status === 'noPurchases') {
       o.tone = 'neutral'; o.title = t('dx.head.noPurchases');
       o.blocks.push({ kind: 'note', title: t('dx.head.noPurchases'), lines: [t('dx.noPurchases')] });
@@ -2293,6 +2314,7 @@ var DX = (function () {
     REASONS: Object.keys(REASON_CAUSES).concat(['other']),
     windows: windowsFor,
     compareWindow: compareWindow,
+    hourText: hourText,
     // التعديلات على الإعلانات ونتيجتها (الملخص التلقائي بالبريد — supabase/functions/sync/runner.ts)
     actionGroups: actionGroups,
     actionsFrom: actionsFrom,

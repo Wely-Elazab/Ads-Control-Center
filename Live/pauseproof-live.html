@@ -1244,7 +1244,8 @@
                   <label class="period-date"><span data-i18n="period.to">إلى</span>
                     <input type="date" id="cmpTo" class="date-input" aria-label="نهاية فترة المقارنة" data-i18n-aria="period.cmpTo.aria"></label>
                 </div>
-                <p class="period-hint" data-i18n="period.cmpHint">المقارنة تظهر في ملخص المتجر، وتنتهي فترتها قبل بداية الفترة المختارة.</p>
+                <p class="period-hint" id="periodCmpToday" hidden data-i18n="period.todayCmp">يُقارن اليوم بأمس حتى الساعة نفسها.</p>
+                <p class="period-hint" data-i18n="period.cmpHint">تظهر المقارنة في ملخص المتجر، ويجب أن تنتهي فترتها قبل بداية الفترة المختارة.</p>
               </fieldset>
               <p class="period-error" id="periodError" role="alert" hidden></p>
               <div class="period-actions">

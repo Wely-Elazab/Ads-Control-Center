@@ -85,8 +85,13 @@ export default async function handler(req, res) {
     return store ? gaql(opts, convQuery(select, from, r, true)).then(function (rows) { return rows.filter(storeRow); }) : gaql(opts, convQuery(select, from, r, false));
   };
 
+  // «اليوم» لحد آخر ساعة مكتملة (٣ نوفمبر ٢٠٢٦): الحساب يوم بيوم لحد نفس الساعة (segments.hour بتوقيت الحساب)، من غير تقسيمات —
+  // زي Meta وSnapchat. لم يُختبر على حساب Google حقيقي بعد
+  const cut = body.partial && Number.isInteger(body.partial.hour) && body.partial.hour >= 0 && body.partial.hour <= 23 ? body.partial.hour : null;
+  // GAQL: أي تقسيم في WHERE (غير التاريخ) لازم يبقى في SELECT كمان — فالساعة بتتطلب، وصفوفها بتتجمع لكل يوم (dxDaily)
+  const hourCut = cut != null ? ' AND segments.hour < ' + cut : '', hourSel = cut != null ? 'segments.hour' : '';
   try {
-    const costDaily = gaql(opts, costQuery('', 'customer', ranges.daily));
+    const costDaily = gaql(opts, costQuery(hourSel, 'customer', ranges.daily) + hourCut);
     costDaily.catch(function () {});   // الخطأ بيتعامل معاه تحت (await) — ده بس عشان ميتسجّلش «رفض من غير معالجة» وإحنا مستنيين التحويلات
     const runDims = function (store) {
       return DIMS.map(function (d) {
@@ -94,9 +99,15 @@ export default async function handler(req, res) {
           .catch(function (e) { return { error: String(e && e.message ? e.message : e) }; });
       });
     };
-    let store = true, dimPs = runDims(true);
-    let convDaily = await conv('', 'customer', ranges.daily, true).catch(function () { store = false; return null; });
-    if (!store) { dimPs = runDims(false); convDaily = await conv('', 'customer', ranges.daily, false); }
+    // اليوم بالساعة: التقسيمات متتطلبش أصلاً (قبل كده كانت بتبدأ وبعدين بتتجاهل — طلبات على الفاضي)
+    let store = true, dimPs = cut != null ? [] : runDims(true);
+    // اليوم بالساعة: الحساب بس، والتقسيمات مش بتتطلب خالص
+    const convHour = function (store) {
+      const q = convQuery(hourSel, 'customer', ranges.daily, store) + hourCut;
+      return store ? gaql(opts, q).then(function (rows) { return rows.filter(storeRow); }) : gaql(opts, q);
+    };
+    let convDaily = await (cut != null ? convHour(true) : conv('', 'customer', ranges.daily, true)).catch(function () { store = false; return null; });
+    if (!store) { dimPs = cut != null ? [] : runDims(false); convDaily = await (cut != null ? convHour(false) : conv('', 'customer', ranges.daily, false)); }
     const dailyRes = [await costDaily, convDaily];
     const dimRes = await Promise.all(dimPs);
 
@@ -127,6 +138,7 @@ export default async function handler(req, res) {
     };
     const dims = [];
     DIMS.forEach(function (d, i) {
+      if (cut != null) return;
       const r = dimRes[i];
       if (!Array.isArray(r)) return;
       dims.push({ id: d.id, segs: dxSegments(toRows(r[0], r[1], d.key, d.name, d.goal), ranges.windows) });
@@ -139,7 +151,8 @@ export default async function handler(req, res) {
       dims: dims,
       purchases: usePrimary ? 'primary' : (all > 0 ? 'all' : 'none'),
       numbers: store ? 'store' : 'platform',
-      dimErrors: DIMS.map(function (d, i) { return Array.isArray(dimRes[i]) ? null : { id: d.id, error: dimRes[i].error }; }).filter(Boolean)
+      partial: cut != null ? { hour: cut } : null,
+      dimErrors: cut != null ? [] : DIMS.map(function (d, i) { return Array.isArray(dimRes[i]) ? null : { id: d.id, error: dimRes[i].error }; }).filter(Boolean)
     });
   } catch (err) {
     res.status(err && err.status ? err.status : 500).json({ error: String(err && err.message ? err.message : err), code: (err && err.code) || null });
