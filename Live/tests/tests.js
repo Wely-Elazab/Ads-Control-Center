@@ -5820,27 +5820,18 @@
       // الترتيب: المختصر بتاع Meta الأول لما يكون موجود
       eq(creativeText({ body: 'المختصر', asset_feed_spec: { bodies: [{ text: 'النسخة' }] } }).text, 'المختصر');
     });
-    // ٢٥ أكتوبر («لازال مقاس عرض الفيديوهات في ميتا لم يتعالج»): الفيديو بيبدأ بالريلز بمقاس ٣٢٠×٦٤٠ (الفيديو بطوله من غير فراغ)
-    test('Meta: معاينة الفيديو والكتالوج بأزرار صيغ — الفيديو بالريلز الأول، والكتالوج بإنستغرام الأول، وفيسبوك الأول لو مالوش حساب إنستغرام', function () {
-      var hadFB = 'FB' in window, prevFB = window.FB, asked = [], sizes = [];
-      window.FB = { api: function (p, params, cb) { asked.push(params.ad_format || params.fields); sizes.push(params.width ? params.width + 'x' + params.height : '-'); cb({ data: [{ body: '<iframe src="https://business.facebook.com/ads/api/preview_iframe.php?d=1" width="320" height="560"></iframe>' }] }); } };
+    // الكتالوج بأزرار صيغ: إنستغرام الأول لو ليه حساب إنستغرام، وفيسبوك الأول لو مالوش. والصورة العادية من غير معاينة
+    test('Meta: الكتالوج بأزرار صيغ (إنستغرام الأول لو ليه حساب إنستغرام)، والصورة العادية بالملف الأصلي', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, asked = [];
+      window.FB = { api: function (p, params, cb) { asked.push(params.ad_format || params.fields); cb({ data: [{ body: '<iframe src="https://business.facebook.com/ads/api/preview_iframe.php?d=1" width="320" height="560"></iframe>' }] }); } };
       try {
         withLang('ar', function () {
           var el = document.getElementById('expandPreview');
-          showMedia({ id: 'PV1', platform: 'Meta', format: 'video', videoId: 'v1', igPreview: true, themeClass: 'pv-t0' });
-          eq(asked[0], 'INSTAGRAM_REELS');
-          eq(sizes[0], '320x640', 'reels asked at the size that fits the video');
-          // «الفيديو بالصوت» تبويب زيادة للفيديو بس (٢ نوفمبر ٢٠٢٦): معاينات Meta إطار من نطاق تاني والمتصفح بيمنع الصوت جوّاه
-          eq([].map.call(el.querySelectorAll('[data-pv]'), function (b) { return b.getAttribute('data-pv'); }), ['reels', 'ig', 'fb', 'video']);
-          ok(el.querySelector('.pv-body iframe'), 'preview frame');
-          el.querySelector('[data-pv="fb"]').click();
-          eq(asked[1], 'MOBILE_FEED_STANDARD');
-          eq(sizes[1], '-', 'Meta\'s own size for the other formats');
-          ok(el.querySelector('[data-pv="fb"]').classList.contains('on'), 'fb tab on');
           showMedia({ id: 'PV2', platform: 'Meta', format: 'image', catalog: true, igPreview: false, themeClass: 'pv-t0' });
-          eq(asked[2], 'MOBILE_FEED_STANDARD');
+          eq(asked[0], 'MOBILE_FEED_STANDARD');
           showMedia({ id: 'PV4', platform: 'Meta', format: 'image', catalog: true, igPreview: true, themeClass: 'pv-t0' });
-          eq(asked[3], 'INSTAGRAM_STANDARD', 'catalog: Instagram first');
+          eq(asked[1], 'INSTAGRAM_STANDARD', 'catalog: Instagram first');
+          eq([].map.call(el.querySelectorAll('[data-pv]'), function (b) { return b.getAttribute('data-pv'); }), ['ig', 'reels', 'fb'], 'أزرار الصيغ للكتالوج بس');
           ok(/الكتالوج/.test(el.textContent), 'catalog note');
           asked = [];
           showMedia({ id: 'PV3', platform: 'Meta', format: 'image', thumbUrl: 'https://x.fbcdn.net/i.jpg', themeClass: 'pv-t0' });
@@ -5848,25 +5839,86 @@
         });
       } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
     });
-    test('Meta: لو أول صيغة فشلت وقت فتح الإعلان بنجرّب اللي بعدها، ولو كلهم فشلوا بيانات الفيديو مباشرة', function () {
-      var hadFB = 'FB' in window, prevFB = window.FB, asked = [], okFormats = ['INSTAGRAM_STANDARD'];
-      window.FB = { api: function (p, params, cb) {
-        asked.push(params.ad_format || params.fields);
-        if (params.fields) { cb({ error: { message: 'no' } }); return; }
-        cb(okFormats.indexOf(params.ad_format) > -1 ? { data: [{ body: '<iframe src="https://business.facebook.com/ads/api/preview_iframe.php?d=1" width="320" height="525"></iframe>' }] } : { error: { message: 'no' } });
-      } };
+
+    // ٣ نوفمبر ٢٠٢٦ (طلب صاحب المنتج): فيديو Meta عرض واحد بالصوت يشتغل لوحده، من غير تبويبات. المصادر بالترتيب — فحص حي
+    // على ٣ حسابات (٣٠ فيديو): ملف الواجهة (٢ من ٣٠) ← مشغّل فيسبوك بواجهته (٢٧ من ٣٠) ← معاينة الإعلان (١ من ٣٠)
+    function fakeFbVideo(opts) {
+      var asked = [], subs = {}, parsed = [], player = { calls: [], unmute: function () { this.calls.push('unmute'); }, play: function () { this.calls.push('play'); } };
+      var fb = {
+        api: function (p, params, cb) {
+          asked.push(params.ad_format || ('/' + p.split('/').pop() + '?' + params.fields));
+          if (params.fields) { cb(opts.source ? { source: 'https://video.xx.fbcdn.net/v.mp4', picture: 'https://x.fbcdn.net/p.jpg' } : { error: { code: 10, message: 'Application does not have permission' } }); return; }
+          cb(opts.preview ? { data: [{ body: '<iframe src="https://business.facebook.com/ads/api/preview_iframe.php?d=1" width="320" height="640"></iframe>' }] } : { error: { message: 'no' } });
+        },
+        Event: { subscribe: function (name, fn) { (subs[name] = subs[name] || []).push(fn); } },
+        XFBML: { parse: function (el, done) {
+          var div = el.querySelector('.fb-video');
+          parsed.push({ id: div && div.id, href: div && div.getAttribute('data-href') });
+          if (done) done();
+          // المتاح بيطلّع ready، والمش متاح مبيطلّعهوش (اتقاس على الموقع)
+          if (opts.ready && div) (subs['xfbml.ready'] || []).forEach(function (fn) { fn({ type: 'video', id: div.id, instance: player }); });
+        } }
+      };
+      return { fb: fb, asked: asked, parsed: parsed, player: player };
+    }
+    testAsync('Meta: فيديو الصفحة بيتعرض بمشغّل فيسبوك بالصوت ولوحده (unmute ثم play)، من غير تبويبات', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, f = fakeFbVideo({ source: false, ready: true });
+      window.FB = f.fb;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
       try {
-        withLang('ar', function () {
-          var el = document.getElementById('expandPreview');
-          showMedia({ id: 'PF1', platform: 'Meta', format: 'video', videoId: 'v1', igPreview: true, themeClass: 'pv-t0' });
-          eq(asked, ['INSTAGRAM_REELS', 'INSTAGRAM_STANDARD']);
-          ok(el.querySelector('[data-pv="ig"].on') && el.querySelector('.pv-body iframe'), 'Instagram shown after reels failed');
-          okFormats = []; asked = [];
-          showMedia({ id: 'PF2', platform: 'Meta', format: 'video', videoId: 'v2', igPreview: true, themeClass: 'pv-t0' });
-          eq(asked.slice(0, 3), ['INSTAGRAM_REELS', 'INSTAGRAM_STANDARD', 'MOBILE_FEED_STANDARD']);
-          eq(asked.length, 4, 'then the video itself');
-          ok(/source/.test(asked[3]), asked[3]);
-        });
+        var el = document.getElementById('expandPreview');
+        showMedia({ id: 'MV1', platform: 'Meta', format: 'video', videoId: '1874225670131055', igPreview: true, themeClass: 'pv-t0' });
+        eq(f.asked, ['/1874225670131055?source,picture'], 'الملف من الواجهة الأول');
+        eq(f.parsed.length, 1, 'وبعده مشغّل فيسبوك');
+        eq(f.parsed[0].href, 'https://www.facebook.com/video.php?v=1874225670131055', 'برقم الفيديو بس');
+        eq(f.player.calls, ['unmute', 'play'], 'بالصوت ولوحده');
+        eq(el.querySelectorAll('[data-pv]').length, 0, 'من غير تبويبات');
+        restore();
+      } catch (e) { restore(); throw e; }
+      return Promise.resolve();
+    });
+    testAsync('Meta: فيديو مكتبة الحساب بيتعرض بملفه بمشغّل المتصفح، من غير مشغّل فيسبوك ولا تبويبات', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, f = fakeFbVideo({ source: true });
+      window.FB = f.fb;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      try {
+        var el = document.getElementById('expandPreview');
+        showMedia({ id: 'MV2', platform: 'Meta', format: 'video', videoId: '4093503967451220', igPreview: true, themeClass: 'pv-t0' });
+        var v = el.querySelector('video.real-video');
+        ok(v && v.hasAttribute('controls'), 'مشغّل المتصفح بأزراره');
+        eq(v.querySelector('source').getAttribute('src'), 'https://video.xx.fbcdn.net/v.mp4');
+        eq(f.parsed.length, 0, 'مفيش مشغّل فيسبوك');
+        eq(el.querySelectorAll('[data-pv]').length, 0, 'من غير تبويبات');
+        restore();
+      } catch (e) { restore(); throw e; }
+      return Promise.resolve();
+    });
+    testAsync('Meta: فيديو مش متاح في المصدرين — بعد المهلة معاينة الإعلان لوحدها مع السبب، من غير تبويبات', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, f = fakeFbVideo({ source: false, ready: false, preview: true });
+      var oldWait = { render: FB_VIDEO_WAIT.render, ready: FB_VIDEO_WAIT.ready };
+      window.FB = f.fb; FB_VIDEO_WAIT.render = 30; FB_VIDEO_WAIT.ready = 30;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; FB_VIDEO_WAIT.render = oldWait.render; FB_VIDEO_WAIT.ready = oldWait.ready; };
+      var el = document.getElementById('expandPreview');
+      withLang('ar', function () { showMedia({ id: 'MV3', platform: 'Meta', format: 'video', videoId: '9432564466762244', igPreview: true, themeClass: 'pv-t0' }); });
+      return new Promise(function (r) { setTimeout(r, 120); }).then(function () {
+        eq(f.parsed.length, 1, 'جرّب مشغّل فيسبوك الأول');
+        eq(f.asked.slice(-1)[0], 'INSTAGRAM_REELS', 'وبعد المهلة المعاينة (الريلز الأول للإنستغرام)');
+        ok(el.querySelector('.video-embed-wrap iframe'), 'المعاينة ظاهرة');
+        ok(/لا تتيح فيسبوك تشغيل هذا الفيديو مباشرةً/.test(el.textContent), 'ومعاها السبب');
+        eq(el.querySelectorAll('[data-pv]').length, 0, 'من غير تبويبات');
+        restore();
+      }, function (e) { restore(); throw e; });
+    });
+    test('Meta: رقم فيديو مش أرقام مبيدخلش الصفحة خالص — على طول معاينة الإعلان', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, f = fakeFbVideo({ source: true, preview: true });
+      window.FB = f.fb;
+      try {
+        var el = document.getElementById('expandPreview');
+        showMedia({ id: 'MV4', platform: 'Meta', format: 'video', videoId: '1"><img src=x onerror=e()>', igPreview: false, themeClass: 'pv-t0' });
+        eq(f.parsed.length, 0, 'مفيش مشغّل');
+        ok(f.asked.every(function (a) { return a.indexOf('onerror') < 0; }), 'ولا طلب بيه');
+        eq(el.querySelectorAll('img[src="x"]').length, 0, 'ولا عنصر اتحقن');
+        eq(f.asked[0], 'MOBILE_FEED_STANDARD', 'معاينة فيسبوك الأول (مالوش إنستغرام)');
       } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
     });
     // معاينة Meta بتقول «Preview Not Available» لإعلانات الكتالوج — بنعرض منتجات الكتالوج نفسه (حساب حقيقي ١٠ أكتوبر ٢٠٢٦)

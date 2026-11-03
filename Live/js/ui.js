@@ -3050,6 +3050,96 @@
       return '<button type="button" role="tab" class="pv-tab' + (k === cur ? ' on' : '') + '" aria-selected="' + (k === cur) + '" data-pv="' + k + '">' + esc(t('x.pv.' + k)) + '</button>';
     }).join('') + '</div>';
   }
+  // ---------- فيديو Meta: عرض واحد بالصوت يشتغل لوحده (طلب صاحب المنتج ٣ نوفمبر ٢٠٢٦) ----------
+  // «اذا كان تبويب الفيديو بصوت يعمل على كل انواع الفيديوهات ويعمل تلقائياً عند فتح الكارت، فالأفضل ان يكون هو الوحيد».
+  // تبويب الصوت القديم كان بيقرا ملف الفيديو من الواجهة بس، وده بيفشل في أغلب الفيديوهات. فحص حي على ٣ حسابات (٣٠ فيديو —
+  // مُنشأ في الإعلان ومنشورات موجودة، حملات وعي واستقطاب وتفاعل)، والمصادر دلوقتي بالترتيب:
+  //   ١) ملف الفيديو من الواجهة (/{video_id}?fields=source): متاح لفيديوهات مكتبة الحساب الإعلاني بس — ٢ من ٣٠. الباقي بيرجع
+  //      (#10) «Application does not have permission»: الفيديو ملك الصفحة، وقراءته محتاجة صلاحية عليها مش بنطلبها
+  //   ٢) مشغّل فيسبوك المضمَّن (fb-video من مكتبتهم المحمّلة أصلاً للدخول) برقم الفيديو بس: شغّال لفيديوهات الصفحة — ٢٧ من ٣٠،
+  //      من غير أي صلاحية. وواجهته (unmute ثم play) بتشغّله بالصوت لوحده — اتقاس على الموقع: isMuted=false وvolume=1 والتقدّم ماشي.
+  //      والمصدرين مكمّلين: الفيديو اللي الواجهة قرته كان «Video unavailable» في المشغّل، والعكس
+  //   ٣) ولا ده ولا ده (١ من ٣٠ — منشور مش عام): معاينة الإعلان كما يظهر على المنصة، وبنقول ليه
+  // الفيديو المش متاح في المشغّل بيترسم صندوق «Video unavailable» ومبيطلّعش حدث ready خالص (اتقاس) — فبعد مهلة من آخر الرسم
+  // بنروح للبديل لوحدنا، من غير ما العميل يشوف تبويبات أو يضغط حاجة
+  var VIDEO_ID = /^\d{5,25}$/;
+  var FB_VIDEO_WAIT = { render: 15000, ready: 5000 };   // الاختبارات بتصغّرهم
+  var fbVideoWaiters = {}, fbVideoSeq = 0, fbVideoHookedOn = null;
+  // مستمع واحد لكل نسخة من مكتبة فيسبوك (لو اتحمّلت تاني بيتسجّل تاني)، وبيوصّل كل مشغّل لصاحبه برقم العنصر
+  function hookFbVideo() {
+    if (fbVideoHookedOn === window.FB) return;
+    fbVideoHookedOn = window.FB;
+    FB.Event.subscribe('xfbml.ready', function (msg) {
+      if (!msg || msg.type !== 'video' || !fbVideoWaiters[msg.id]) return;
+      var cb = fbVideoWaiters[msg.id];
+      delete fbVideoWaiters[msg.id];
+      cb(msg.instance);
+    });
+  }
+  function metaVideoView(c, el, openSeq) {
+    var live = function () { return openSeq === expandSeq; };
+    var vid = String(c.videoId || '');
+    var fallback = function () { if (live()) metaPreviewOnly(c, el, openSeq); };
+    // رقم الفيديو بيدخل رابط وسمة: أرقام بس، وأي حاجة تانية تروح للبديل من غير ما تتحط في الصفحة
+    if (!VIDEO_ID.test(vid)) { fallback(); return; }
+    metaApi('/' + vid, { fields: 'source,picture' }, function (resp) {
+      if (!live()) return;
+      var src = resp && safeUrl(resp.source);
+      if (src) { playNative(el, src, resp && safeUrl(resp.picture)); return; }
+      fbVideoPlayer(el, vid, openSeq, fallback);
+    });
+  }
+  // ملف مباشر بمشغّل المتصفح: بالصوت لو المتصفح سمح (العميل لسه ضاغط على الكارت)، وإلا من غير صوت وزرار الصوت في المشغّل
+  function playNative(el, src, poster) {
+    el.innerHTML = '<video class="real-video" controls playsinline preload="auto"' + (poster ? ' poster="' + esc(poster) + '"' : '') +
+      '><source src="' + esc(src) + '" type="video/mp4"></video>';
+    var v = el.querySelector('video'), p = v.play && v.play();
+    if (p && p.catch) p.catch(function () { v.muted = true; var q = v.play(); if (q && q.catch) q.catch(function () { /* العميل يضغط تشغيل */ }); });
+  }
+  function fbVideoPlayer(el, vid, openSeq, fallback) {
+    if (typeof FB === 'undefined' || !FB.XFBML || !FB.Event) { fallback(); return; }
+    hookFbVideo();
+    var id = 'fbv' + (++fbVideoSeq), done = false, timer = null;
+    var giveUp = function () { if (done) return; done = true; delete fbVideoWaiters[id]; fallback(); };
+    // العرض بعرض النافذة، والمشغّل بيحسب الارتفاع من نسبة الفيديو نفسه (طولي أو عرضي)
+    var w = Math.round(Math.min(420, Math.max(240, el.clientWidth || 320)));
+    el.innerHTML = '<div class="fb-video-wrap"><div class="fb-video" id="' + id + '" data-href="' + esc('https://www.facebook.com/video.php?v=' + vid) +
+      '" data-width="' + w + '" data-allowfullscreen="true" data-show-text="false"></div></div>';
+    fbVideoWaiters[id] = function (player) {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      if (openSeq !== expandSeq) return;
+      // بالصوت لوحده: العميل لسه ضاغط على الكارت، والإطار واخد إذن التشغيل. لو المتصفح منع الصوت (iOS)، المشغّل بيفضل بأزراره
+      try { player.unmute(); player.play(); } catch (e) { /* أزرار المشغّل نفسه */ }
+    };
+    timer = setTimeout(giveUp, FB_VIDEO_WAIT.render);
+    FB.XFBML.parse(el, function () {
+      // الرسم خلص: المتاح بيطلّع ready في ثواني، والمش متاح مبيطلّعهوش خالص
+      if (done) return;
+      clearTimeout(timer);
+      timer = setTimeout(giveUp, FB_VIDEO_WAIT.ready);
+    });
+  }
+  // البديل الأخير: معاينة الإعلان كما يظهر على المنصة — أول صيغة بترجع، من غير تبويبات، ومعاها السبب
+  function metaPreviewOnly(c, el, openSeq) {
+    var order = c.igPreview ? ['reels', 'ig', 'fb'] : ['fb', 'ig', 'reels'];
+    var note = '<p class="pv-hint">' + esc(t('x.pv.noDirect')) + '</p>';
+    (function tryFormat(i) {
+      if (openSeq !== expandSeq) return;
+      if (i >= order.length) { el.innerHTML = previewMarkup(c) + '<p class="pv-hint">' + esc(t('x.videoFailed')) + '</p>'; return; }
+      var k = order[i], key = c.id + '|' + k;
+      var show = function (frame) { el.innerHTML = '<div class="video-embed-wrap">' + frame + '</div>' + note; fitEmbeds(el); };
+      if (previewCache[key]) { show(previewCache[key]); return; }
+      var params = { ad_format: PREVIEW_FORMATS[k] }, size = PREVIEW_REQUEST[k];
+      if (size) { params.width = size.width; params.height = size.height; }
+      metaApi('/' + c.id + '/previews', params, function (resp) {
+        if (openSeq !== expandSeq) return;
+        var frame = resp && resp.data && resp.data[0] && metaIframeHtml(resp.data[0].body, metaPreviewSize(resp.data[0].body, k));
+        if (frame) { previewCache[key] = frame; show(frame); } else tryFormat(i + 1);
+      });
+    })(0);
+  }
+
   function showMedia(c) {
     var openSeq = ++expandSeq;
     var el = document.getElementById('expandPreview');
@@ -3057,19 +3147,16 @@
     el.onclick = null;
     if (c.platform === 'Snapchat' && (c.videoSrc || c.snapCreativeId)) { snapMediaView(c, el, openSeq); return; }
     if (c.platform !== 'Meta' || !(c.videoId || c.catalog)) return;
-    // الفيديو بحساب إنستغرام: الريلز الأول (الفيديو بطوله من غير فراغ — PREVIEW_REQUEST)
-    var order = c.igPreview ? (c.videoId ? ['reels', 'ig', 'fb'] : ['ig', 'reels', 'fb']) : ['fb', 'ig', 'reels'], poster = el.innerHTML;
-    // تبويب «الفيديو بالصوت» (طلب صاحب المنتج ٢ نوفمبر ٢٠٢٦): معاينات Meta صفحات بتاعتها جوه إطار من نطاق تاني،
-    // والمتصفحات بتمنع أي فيديو بيشتغل لوحده جوه إطار إنه يطلّع صوت — ومقدرش نفك الكتم من برّه الإطار.
-    // فبنزوّد تبويب بالفيديو نفسه بمشغّل كامل (صوت وتقديم وملء شاشة). متاح للفيديو بس
-    if (c.videoId) order = order.concat(['video']);
-    var hint = '<p class="pv-hint">' + esc(t('x.pv.hint') + (c.videoId ? ' ' + t('x.pv.muted') : '') + (c.catalog ? ' ' + t('x.pv.catalog') : '')) + '</p>';
+    // فيديو Meta (مش كتالوج): عرض واحد بالصوت بيشتغل لوحده، من غير تبويبات (metaVideoView — ٣ نوفمبر ٢٠٢٦)
+    if (c.videoId && !c.catalog) { metaVideoView(c, el, openSeq); return; }
+    // الكتالوج: أزرار صيغ (إنستغرام الأول لو ليه حساب إنستغرام)
+    var order = c.igPreview ? ['ig', 'reels', 'fb'] : ['fb', 'ig', 'reels'], poster = el.innerHTML;
+    var hint = '<p class="pv-hint">' + esc(t('x.pv.hint') + (c.catalog ? ' ' + t('x.pv.catalog') : '')) + '</p>';
     var load = function (k, first) {
       var mine = ++previewSeq, key = c.id + '|' + k;
       el.innerHTML = previewTabsHtml(order, k) + '<div class="pv-body">' + poster + '</div>' + hint;
       var body = el.querySelector('.pv-body');
       var show = function (frame) { body.innerHTML = '<div class="video-embed-wrap">' + frame + '</div>'; fitEmbeds(body); };
-      if (k === 'video') { videoFallback(c, body, openSeq); return; }
       if (previewCache[key]) { show(previewCache[key]); return; }
       var params = { ad_format: PREVIEW_FORMATS[k] }, size = PREVIEW_REQUEST[k];
       if (size) { params.width = size.width; params.height = size.height; }
