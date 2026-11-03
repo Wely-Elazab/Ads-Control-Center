@@ -2385,7 +2385,9 @@
   // حملته (سجل تعديلات المنصة). السجل على السيرفر (supabase/functions/sync/episodes.ts) من غير أي مبالغ، والمبلغ من المنصة وقت العرض.
   // قبل أول تسجيل: ملاحظة واحدة على الجهاز (سياسة الخصوصية: «نوضّح التغيير قبل تفعيله»). Meta وSnapchat بس (سجل التعديلات)
   var VALUE_PLATFORMS = ['meta', 'snapchat'];
-  var VALUE_ACK_KEY = 'pauseproof.value.ack.v1', VALUE_MONEY_KEY = 'pauseproof.value.money.v1';
+  // v2 (٣ نوفمبر ٢٠٢٦): المبالغ بقت مقيسة قبل/بعد — مبالغ v1 كانت مضخّمة (الهدر اليومي كامل لأي تصرّف)، فبتتمسح ومبتتقريش
+  var VALUE_ACK_KEY = 'pauseproof.value.ack.v1', VALUE_MONEY_KEY = 'pauseproof.value.money.v2';
+  try { localStorage.removeItem('pauseproof.value.money.v1'); } catch (e) { /* التخزين مقفول */ }
   var VALUE_DAY = 86400000, VALUE_RESYNC = 10 * 60000;
   // وقت البحث عن الإعلانات العاجلة من غير تنبيه، في كل يوم فيه تنبيه جديد: دقيقة للحساب (فتحه وضبط الفترة والأعمدة) و١٠ ثواني لكل إعلان
   // شغّال (مقارنة إنفاقه ونتائجه بحدّك) — تقدير متحفظ اتفقنا عليه، وبيتقال في «كيف نحسبها؟»
@@ -2524,15 +2526,25 @@
     var day = DX._.keyInTz(ep.firstAt, tz);
     return day ? [shiftKey(day, -3), shiftKey(day, -2), shiftKey(day, -1)] : null;
   }
-  function valueRateFromCard(ep, c, tz) {
-    var days = valueDays(ep, tz);
-    if (!days || !c || !c.dailyDates) return null;
-    var idx = days.map(function (d) { return c.dailyDates.indexOf(d); });
-    if (idx.some(function (i) { return i < 0; })) return null;
-    var spend = idx.reduce(function (s, i) { return s + ((c.daily || [])[i] || 0); }, 0);
-    if (ep.kind !== 'loss') return spend / 3;
-    var sales = idx.reduce(function (s, i) { return s + ((c.dailySales || [])[i] || 0); }, 0);
-    return Math.max(0, spend - sales) / 3;
+  // أول يوم مكتمل بعد التصرّف (بتوقيت الحساب): التصرّف بالنهار بيأثر في نفس اليوم جزئياً بس، فاليوم اللي بعده هو أول يوم كامل بعده
+  function valueAfterDay(ep, tz) {
+    var day = ep.handledAt ? DX._.keyInTz(ep.handledAt, tz) : null;
+    return day ? shiftKey(day, 1) : null;
+  }
+  // الهدر المنَع فعلاً (مراجعة ٣ نوفمبر ٢٠٢٦ — قياس قبل/بعد): هدر اليوم قبل التنبيه ناقص هدره الفعلي في أول يوم مكتمل بعد التصرّف،
+  // ومبيقلش عن صفر. قبل كده كان بيتحسب الهدر اليومي كامل لأي تصرّف — والحقيقي من ٧ معالجات: إيقاف واحد بس، و٤ خفض ميزانية (بيقلّل
+  // جزء)، و٢ تعديل تصميم أو استهداف (مبيوقفش الصرف خالص). يعني ٦ من ٧ مبالغ كانت مضخّمة. من أرقام الكارت لو الأيام الأربعة جوه أسبوعه
+  function valueSavedFromCard(ep, c, tz) {
+    var days = valueDays(ep, tz), after = valueAfterDay(ep, tz);
+    if (!days || !after || !c || !c.dailyDates) return null;
+    var idx = days.map(function (d) { return c.dailyDates.indexOf(d); }), ai = c.dailyDates.indexOf(after);
+    if (ai < 0 || idx.some(function (i) { return i < 0; })) return null;
+    var spendOf = function (i) { return (c.daily || [])[i] || 0; }, salesOf = function (i) { return (c.dailySales || [])[i] || 0; };
+    var spend = idx.reduce(function (s, i) { return s + spendOf(i); }, 0);
+    // قبل التنبيه بنفس تعريف المحرّك (alerts.js withMoney): الإنفاق كله في «دون نتيجة»، والإنفاق ناقص المبيعات في الخسارة
+    var before = ep.kind === 'loss' ? Math.max(0, spend - idx.reduce(function (s, i) { return s + salesOf(i); }, 0)) / 3 : spend / 3;
+    var afterWaste = ep.kind === 'loss' ? Math.max(0, spendOf(ai) - salesOf(ai)) : spendOf(ai);
+    return Math.max(0, before - afterWaste);
   }
   function valueCurrency(source) {
     var c = candidates.filter(function (x) { return x.source === source && x.currency; })[0];
@@ -2540,22 +2552,26 @@
   }
   function valueLoadMoney(source) {
     var st = valueState[source] = valueState[source] || {}, tz = valueTz(source), cur = valueCurrency(source), need = [], changed = false;
+    var today = todayKeyInTz(tz);
     (valueEpisodes[source] || []).forEach(function (ep) {
       if (!ep.handledAt || valueMoney[ep.id]) return;
-      var r = valueRateFromCard(ep, valueAdOf(source, ep.ad), tz);
+      // اليوم اللي بعد التصرّف لسه مكملش: المبلغ بيتحسب بعدين («يُحسب بعد اكتمال اليوم التالي» في اللوحة)
+      var after = valueAfterDay(ep, tz);
+      if (!after || after >= today) return;
+      var r = valueSavedFromCard(ep, valueAdOf(source, ep.ad), tz);
       if (r != null) { valueMoney[ep.id] = { v: r, cur: cur }; changed = true; return; }
-      // الخسارة برّه أسبوع الكارت مبتتحسبش (المبيعات محتاجة نفس نسب الكارت) — العدد بيتحسب والمبلغ لأ: «لا يقل عن»
+      // الخسارة برّه أسبوع الكارت مبتتحسبش (المبيعات محتاجة نفس نسب الكارت) — العدد بيتحسب والمبلغ لأ
       if (ep.kind === 'waste' && valueDays(ep, tz)) need.push(ep);
     });
     if (changed) saveValueMoney();
     if (!need.length || st.moneyBusy) return;
-    // دفعات بنطاق ٣١ يوم بالكتير (حد طلب Snapchat اليومي)، ورا بعض — فترة ٩٣ يوم = ٣ طلبات بالكتير
+    // دفعات بنطاق ٣١ يوم بالكتير (حد طلب Snapchat اليومي)، ورا بعض — فترة ٩٣ يوم = ٣ طلبات بالكتير. النطاق لحد يوم ما بعد التصرّف
     need.sort(function (a, b) { return valueDays(a, tz)[0] < valueDays(b, tz)[0] ? -1 : 1; });
     var groups = [], g = null;
     need.forEach(function (ep) {
-      var ds = valueDays(ep, tz);
-      if (!g || keyDiffDays(g.since, ds[2]) > 30) { g = { since: ds[0], until: ds[2], eps: [] }; groups.push(g); }
-      if (ds[2] > g.until) g.until = ds[2];
+      var ds = valueDays(ep, tz), af = valueAfterDay(ep, tz);
+      if (!g || keyDiffDays(g.since, af) > 30) { g = { since: ds[0], until: af, eps: [] }; groups.push(g); }
+      if (af > g.until) g.until = af;
       g.eps.push(ep);
     });
     var account = source.slice(platformOfSource(source).length + 1), meta = platformOfSource(source) === 'meta';
@@ -2576,19 +2592,26 @@
         if (!byAd) return;
         grp.eps.forEach(function (ep) {
           var m = byAd[ep.ad] || {};
-          valueMoney[ep.id] = { v: valueDays(ep, tz).reduce(function (s, d) { return s + (m[d] || 0); }, 0) / 3, cur: cur };
+          // قبل التنبيه ناقص يوم ما بعد التصرّف — يوم مالوش صف عند المنصة = مصرفش (الإيقاف)
+          var before = valueDays(ep, tz).reduce(function (s, d) { return s + (m[d] || 0); }, 0) / 3;
+          valueMoney[ep.id] = { v: Math.max(0, before - (m[valueAfterDay(ep, tz)] || 0)), cur: cur };
         });
       });
     }, Promise.resolve()).then(done, done);
   }
-  // «نحو ٤ ساعات» — بالساعات بس (أقرب نص ساعة)، وأقل من ساعة كلمة
-  function valueHoursText(seconds) {
-    var h = (seconds || 0) / 3600;
-    if (h < 1) return t('val.h.less');
-    var halves = Math.round(h * 2) / 2, n = Math.floor(halves), half = halves > n;
-    if (!isAr()) return t('val.hours.v', { h: (half ? n + '.5' : String(n)) + ' ' + (n === 1 && !half ? 'hour' : 'hours') });
-    var base = n === 1 ? 'ساعة' : n === 2 ? 'ساعتين' : ar(n) + (n <= 10 ? ' ساعات' : ' ساعة');
-    return t('val.hours.v', { h: base + (half ? ' ونصف' : '') });
+  // «نحو ٢٤ دقيقة» / «نحو ساعة و١٠ دقائق» — بالدقائق (طلب صاحب المنتج ٣ نوفمبر ٢٠٢٦: الساعة كانت بتخلّي الشهر كله «أقل من ساعة»،
+  // فالعميل مبيحسّش بأي تقدّم). أقرب دقيقة، وأقل من دقيقة كلمة. العدد مع المعدود بالعربي: ١ و٢ لفظ، و٣–١٠ جمع، و١١+ مفرد
+  function arCount(n, one, two, few, many) { return n === 1 ? one : n === 2 ? two : ar(n) + ' ' + (n <= 10 ? few : many); }
+  function valueTimeText(seconds) {
+    var m = Math.round((seconds || 0) / 60);
+    if (m < 1) return t('val.h.less');
+    var h = Math.floor(m / 60), mm = m % 60;
+    if (!isAr()) {
+      var en = (h ? h + (h === 1 ? ' hour' : ' hours') : '') + (h && mm ? ' ' : '') + (mm ? mm + (mm === 1 ? ' minute' : ' minutes') : '');
+      return t('val.hours.v', { h: en });
+    }
+    var hs = h ? arCount(h, 'ساعة', 'ساعتين', 'ساعات', 'ساعة') : '', ms = mm ? arCount(mm, 'دقيقة', 'دقيقتين', 'دقائق', 'دقيقة') : '';
+    return t('val.hours.v', { h: hs + (hs && ms ? ' و' : '') + ms });
   }
   // أرقام اللوحة للمنصات المختارة وفترة البيانات المختارة (بأيام كل حساب بتوقيته — resolvePeriodFor زي باقي الأداة): المشكلات المسجّلة
   // فيها، واللي اتعالج منها ومبلغها، والوقت. النهارده لو برّه الفترة (الفترات المتحركة أيام مكتملة): اللي اتعالج فيه سطر لوحده زي «اليوم حتى
@@ -2601,7 +2624,7 @@
       x.d = Math.max(x.d, (a.money && a.money.daily) || 0);
     });
     Object.keys(byAd).forEach(function (id) { var x = byAd[id]; pending.n++; pending.daily[x.cur] = (pending.daily[x.cur] || 0) + x.d; });
-    var d = { pending: pending, acked: valueAcked(), sources: 0, recorded: 0, handled: 0, money: {}, seconds: 0, today: 0, any: 0, range: null };
+    var d = { pending: pending, acked: valueAcked(), sources: 0, recorded: 0, handled: 0, money: {}, wait: 0, seconds: 0, today: 0, any: 0, range: null };
     VALUE_PLATFORMS.forEach(function (p) {
       var source = sourceOf(p);
       if (!source || (pick && pick.indexOf(p) === -1)) return;
@@ -2621,11 +2644,25 @@
         d.handled++;
         var m = valueMoney[ep.id];
         if (m && m.v > 0) d.money[m.cur] = (d.money[m.cur] || 0) + m.v;
+        // اليوم اللي بعد التصرّف لسه مكملش: المبلغ بيتحسب بعدين، وبنقول كده بدل ما يبان إن المعالجة ملهاش أثر
+        else if (!m) { var af = valueAfterDay(ep, tz); if (af && af >= today) d.wait++; }
       });
-      var live = candidates.filter(function (c) { return c.source === source && c.active; }).length;
-      d.seconds += Object.keys(days).length * (VALUE_SECONDS.account + VALUE_SECONDS.ad * live);
+      // كل يوم بإعلاناته هو (اللي صرفت فيه) — قبل كده الإعلانات الشغّالة دلوقتي كانت بتتحسب لأيام فاتت
+      d.seconds += Object.keys(days).reduce(function (s, day) {
+        return s + VALUE_SECONDS.account + VALUE_SECONDS.ad * valueAdsOn(source, day, today);
+      }, 0);
     });
     return d;
+  }
+  // إعلانات صرفت في يوم معيّن من أرقام الكارت، ولليوم اللي قبل أسبوع الكارت: متوسط أيامه المكتملة
+  function valueAdsOn(source, day, today) {
+    var ads = candidates.filter(function (c) { return c.source === source && c.dailyDates && c.daily; });
+    var on = function (k) { return ads.filter(function (c) { var i = c.dailyDates.indexOf(k); return i > -1 && (c.daily[i] || 0) > 0; }).length; };
+    if (ads.some(function (c) { return c.dailyDates.indexOf(day) > -1; })) return on(day);
+    var keys = {};
+    ads.forEach(function (c) { c.dailyDates.forEach(function (k) { if (k < today) keys[k] = 1; }); });
+    var list = Object.keys(keys);
+    return list.length ? list.reduce(function (s, k) { return s + on(k); }, 0) / list.length : 0;
   }
   function valuePanelHtml(d) {
     if (!d.sources && !d.pending.n) return '';
@@ -2644,9 +2681,10 @@
       var tiles = '';
       if (d.handled) tiles += tile(t('val.handled.k'), ar(d.handled), t('val.handled.s'));
       if (Object.keys(d.money).length) tiles += tile(t('val.saved.k'), t('val.saved.v', { v: moneyByCur(d.money) }), t('val.saved.s'));
-      tiles += tile(t('val.hours.k'), valueHoursText(d.seconds), t('val.hours.s'));
+      tiles += tile(t('val.hours.k'), valueTimeText(d.seconds), t('val.hours.s'));
       if (!d.handled) html += '<p class="value-empty">' + esc(t('val.none', { n: ar(d.recorded) + ' ' + noun(d.recorded, 'n.problem') })) + '</p>';
       html += '<div class="value-tiles">' + tiles + '</div>';
+      if (d.wait) html += '<p class="value-empty">' + esc(t('val.saved.wait', { n: ar(d.wait) + ' ' + noun(d.wait, 'n.problem') })) + '</p>';
     }
     if (d.today) html += '<p class="value-empty value-today">' + esc(t('val.today', { n: ar(d.today) + ' ' + noun(d.today, 'n.problem') })) + '</p>';
     if (d.pending.n) {

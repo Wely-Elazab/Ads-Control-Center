@@ -5656,12 +5656,14 @@
       eq(valueDecision(ep, objs, acts([], { objects: { 'ad:11': 1, 'adsquad:22': 1 } }), first + 25 * H), null, 'the campaign log did not arrive');
       eq(valueDecision(ep, objs, acts([], { objects: { 'ad:11': 1, 'adsquad:22': 1, 'campaign:33': 1 } }), first + 25 * H), { handledAt: null, action: null });
     });
-    test('قيمة الأداة: الوقت بالساعات بس (أقرب نص ساعة)، وأقل من ساعة كلمة', function () {
+    // ٣ نوفمبر ٢٠٢٦ (طلب صاحب المنتج): بالدقائق — الساعة كانت بتخلّي الشهر كله «أقل من ساعة». العدد مع المعدود بالعربي
+    test('قيمة الأداة: الوقت بالدقائق، وفوق الساعة «ساعة و… دقائق»، والعدد مع المعدود صح', function () {
       withLang('ar', function () {
-        eq([0, 3000, 3600, 5400, 7200, 4 * 3600, 12 * 3600 + 600, 12 * 3600 + 1000].map(valueHoursText),
-          ['أقل من ساعة', 'أقل من ساعة', 'نحو ساعة', 'نحو ساعة ونصف', 'نحو ساعتين', 'نحو ٤ ساعات', 'نحو ١٢ ساعة', 'نحو ١٢ ساعة ونصف']);
+        eq([0, 20, 60, 120, 180, 600, 660, 1440, 3600, 3660, 4200, 7320, 4 * 3600 + 15 * 60].map(valueTimeText),
+          ['أقل من دقيقة', 'أقل من دقيقة', 'نحو دقيقة', 'نحو دقيقتين', 'نحو ٣ دقائق', 'نحو ١٠ دقائق', 'نحو ١١ دقيقة', 'نحو ٢٤ دقيقة',
+            'نحو ساعة', 'نحو ساعة ودقيقة', 'نحو ساعة و١٠ دقائق', 'نحو ساعتين ودقيقتين', 'نحو ٤ ساعات و١٥ دقيقة']);
       });
-      withLang('en', function () { eq([3600, 9000].map(valueHoursText), ['About 1 hour', 'About 2.5 hours']); });
+      withLang('en', function () { eq([60, 1440, 3600, 4200].map(valueTimeText), ['About 1 minute', 'About 24 minutes', 'About 1 hour', 'About 1 hour 10 minutes']); });
     });
     // من ٢٥ أكتوبر (قرار صاحب المنتج): اللوحة بتتبع فترة البيانات المختارة واختيار المنصات زي باقي الأداة
     test('قيمة الأداة: اللوحة بفترة البيانات المختارة — اللي اتعالج ومبلغه والوقت، والنهارده سطر لوحده، و«تنتظر نظرتك» من غير أي نسبة، والملاحظة قبل أول تسجيل', function () {
@@ -5674,7 +5676,10 @@
         localStorage.removeItem(VALUE_ACK_KEY); valueAckNow = false;
         activeSources.meta = 'act_7'; delete activeSources.snapchat;
         accountInfo[src] = { timeZone: 'UTC', currency: 'SAR' };
-        candidates = [{ id: 'a1', source: src, active: true }, { id: 'a2', source: src, active: true }, { id: 'a3', source: src, active: false }];
+        // أمس: a1 وa2 صرفوا وa3 لأ — إعلانات اليوم من أرقامه هو (٣ نوفمبر ٢٠٢٦)، مش الشغّالة دلوقتي
+        var dd = [shiftKey(today, -2), yesterday, today];
+        candidates = [{ id: 'a1', source: src, active: true, dailyDates: dd, daily: [10, 10, 10] }, { id: 'a2', source: src, active: true, dailyDates: dd, daily: [10, 10, 10] },
+          { id: 'a3', source: src, active: false, dailyDates: dd, daily: [10, 0, 0] }];
         valueEpisodes[src] = [];
         var risk = [{ level: 'critical', atRisk: true, amount: 300, adId: 'a1', currency: 'SAR', money: { daily: 100 } },
           { level: 'warning', atRisk: false, amount: 50, adId: 'a2', currency: 'SAR', money: { daily: 20 } }];
@@ -5694,16 +5699,22 @@
         h = html();
         ok(!/data-value-ack/.test(h), 'no notice once accepted');
         ok(/مشكلات عالجتها بعد تنبيهنا<\/span><b class="value-v">١<\/b>/.test(h), 'one fixed in the period (40 days ago and today left out): ' + h);
-        ok(/لا يقل عن ١٢٠ ر\.س/.test(h) && !/٩٩٩/.test(h) && !/٥٥٥/.test(h), 'its amount, the period only');
-        // يوم واحد فيه تنبيه جديد في الفترة: دقيقة + ١٠ ثواني × إعلانين شغّالين = ٨٠ ثانية
-        ok(/وقت وفّرناه عليك<\/span><b class="value-v">أقل من ساعة<\/b>/.test(h), h);
+        ok(/<b class="value-v">١٢٠ ر\.س<\/b>/.test(h) && !/٩٩٩/.test(h) && !/٥٥٥/.test(h) && !/لا يقل عن/.test(h), 'its measured amount, the period only');
+        // يوم واحد فيه تنبيه جديد في الفترة: دقيقة + ١٠ ثواني × الإعلانين اللي صرفوا يومها = ٨٠ ثانية → «نحو دقيقة»
+        ok(/وقت وفّرناه عليك<\/span><b class="value-v">نحو دقيقة<\/b>/.test(h), h);
         // النهارده برّه «آخر ٧ أيام» (أيام مكتملة): سطر لوحده زي «اليوم حتى الآن» في الملخص
         ok(/اليوم حتى الآن \(لا يدخل في أرقام الفترة\): عالجت ١ مشكلة بعد تنبيهنا/.test(h), h);
-        ok(/كيف نحسبها؟/.test(h) && /١٠ ثوانٍ لكل إعلان نشط/.test(h), 'how we count');
+        ok(/كيف نحسبها؟/.test(h) && /١٠ ثوانٍ لكل إعلان صرف في ذلك اليوم/.test(h) && /ناقص هدره الفعلي في أول يوم مكتمل بعد تصرّفك/.test(h), 'how we count');
         // «اليوم»: مشكلة النهارده جوه الفترة، وأمس برّه
         period = { preset: 'today' };
         h = html();
-        ok(/لا يقل عن ٥٥٥ ر\.س/.test(h) && !/١٢٠ ر\.س/.test(h) && !/اليوم حتى الآن/.test(h), 'period today: ' + h);
+        ok(/<b class="value-v">٥٥٥ ر\.س<\/b>/.test(h) && !/١٢٠ ر\.س/.test(h) && !/اليوم حتى الآن/.test(h), 'period today: ' + h);
+        period = { preset: 'last7' };
+        // اتعالجت أمس ومبلغها لسه متحسبش: اليوم اللي بعدها (النهارده) مكملش — سطر بيقول كده بدل ما تبان من غير أثر
+        valueEpisodes[src].push({ id: 106, ad: 'a2', kind: 'waste', firstAt: at(yesterday), decided: true, handledAt: at(yesterday), action: 'budget' });
+        h = html();
+        ok(/ويُحسب مبلغ ١ مشكلة بعد اكتمال اليوم التالي لتصرّفك/.test(h), 'waiting for the day after: ' + h);
+        valueEpisodes[src].pop();
         period = { preset: 'last7' };
         // ولا واحدة اتعالجت في الفترة: سطر محايد بعدد اللي نبّهنا لها، من غير خانة «٠»
         valueEpisodes[src] = valueEpisodes[src].slice(1, 2);
@@ -5727,16 +5738,19 @@
     });
     // من أول التسجيل للمبلغ: المشكلات بتتبعت للسيرفر (بعد الملاحظة بس)، والقرار من سجل التعديلات، والمبلغ من أرقام الكارت
     testAsync('قيمة الأداة: تسجيل المشكلات بعد الموافقة بس، والقرار من سجل التعديلات، والمبلغ من أيام الكارت قبل التنبيه', function () {
-      var src = 'meta:act_9', calls = [], H = 3600000, now = Date.now(), firstAt = new Date(now - 30 * H).toISOString();
+      // أوقات ثابتة على حدود الأيام (٣ نوفمبر ٢٠٢٦): المبلغ بقى محتاج اليوم اللي بعد التصرّف يكون مكتمل، و«now − ٢٨ ساعة» كانت
+      // بتخلّي النتيجة على حسب ساعة التشغيل. التنبيه من ٣ أيام الساعة ١٠، والإيقاف الساعة ١٢، واليوم اللي بعده مصرفش (اتوقف)
+      var src = 'meta:act_9', calls = [], H = 3600000, now = Date.now(), day0 = shiftKey(todayKeyInTz('UTC'), -3);
+      var firstAt = day0 + 'T10:00:00.000Z', pausedAt = day0 + 'T12:00:00.000Z', afterDay = shiftKey(day0, 1);
       var old = { act: activeSources.meta, cands: candidates, analysis: analysis, sync: window.syncCall, tok: window.platformTokenOf, ack: valueAckNow,
         stored: localStorage.getItem(VALUE_ACK_KEY), money: localStorage.getItem(VALUE_MONEY_KEY), load: loadingPlatforms.meta, pend: numbersPending.meta };
-      var dates = [], daily = [];
-      for (var i = 9; i >= 0; i--) { dates.push(shiftKey(todayKeyInTz('UTC'), -i)); daily.push(90); }
+      var dates = [], daily = [], dailyCut = [];
+      for (var i = 9; i >= 0; i--) { var k = shiftKey(todayKeyInTz('UTC'), -i); dates.push(k); daily.push(k >= afterDay ? 0 : 90); dailyCut.push(k >= afterDay ? 72 : 90); }
       var restore = function () {
         activeSources.meta = old.act; if (old.act === undefined) delete activeSources.meta;
         candidates = old.cands; analysis = old.analysis; window.syncCall = old.sync; window.platformTokenOf = old.tok; valueAckNow = old.ack;
         loadingPlatforms.meta = old.load; numbersPending.meta = old.pend;
-        delete accountInfo[src]; delete valueEpisodes[src]; delete valueActions[src]; delete valueState[src]; delete valueMoney[55];
+        delete accountInfo[src]; delete valueEpisodes[src]; delete valueActions[src]; delete valueState[src]; delete valueMoney[55]; delete valueMoney[56];
         if (old.stored == null) localStorage.removeItem(VALUE_ACK_KEY); else localStorage.setItem(VALUE_ACK_KEY, old.stored);
         if (old.money == null) localStorage.removeItem(VALUE_MONEY_KEY); else localStorage.setItem(VALUE_MONEY_KEY, old.money);
       };
@@ -5744,15 +5758,18 @@
         localStorage.removeItem(VALUE_ACK_KEY); valueAckNow = false;
         activeSources.meta = 'act_9'; accountInfo[src] = { timeZone: 'UTC', currency: 'SAR' };
         loadingPlatforms.meta = false; numbersPending.meta = false;
-        candidates = [{ id: '111', nativeId: '111', source: src, active: true, currency: 'SAR', adsetId: '222', campaignId: '333', dailyDates: dates, daily: daily }];
+        candidates = [{ id: '111', nativeId: '111', source: src, active: true, currency: 'SAR', adsetId: '222', campaignId: '333', dailyDates: dates, daily: daily },
+          { id: '112', nativeId: '112', source: src, active: true, currency: 'SAR', adsetId: '223', campaignId: '334', dailyDates: dates, daily: dailyCut }];
         analysis = { alerts: [{ level: 'critical', atRisk: true, amount: 300, adId: '111', code: 'waste-week', currency: 'SAR', money: { daily: 90 } }], byAd: {} };
         window.platformTokenOf = function () { return 'tok_abcdefghijklmnopqrstuvwxyz'; };
         window.syncCall = function (body) {
           calls.push(body);
-          if (body.action === 'episodes.sync') return Promise.resolve({ episodes: [{ id: 55, ad: '111', kind: 'waste', firstAt: firstAt, decided: false, handledAt: null, action: null }] });
+          if (body.action === 'episodes.sync') return Promise.resolve({ episodes: [{ id: 55, ad: '111', kind: 'waste', firstAt: firstAt, decided: false, handledAt: null, action: null },
+            { id: 56, ad: '112', kind: 'waste', firstAt: firstAt, decided: false, handledAt: null, action: null }] });
           return Promise.resolve({ ok: true, saved: 1 });
         };
-        valueActions[src] = { since: now - 8 * 24 * H, complete: true, list: [{ kind: 'pause', level: 'campaign', id: '333', time: new Date(now - 28 * H).toISOString() }] };
+        valueActions[src] = { since: now - 8 * 24 * H, complete: true, list: [{ kind: 'pause', level: 'campaign', id: '333', time: pausedAt },
+          { kind: 'budget', level: 'ad', id: '112', from: 100, to: 80, time: pausedAt }] };
         valueState[src] = {};
         valueTick();
       } catch (e) { restore(); throw e; }
@@ -5765,9 +5782,10 @@
         var syncs = calls.filter(function (c) { return c.action === 'episodes.sync'; }), dec = calls.filter(function (c) { return c.action === 'episodes.decide'; })[0];
         eq(syncs.length, 1, 'the same problems again: no second request');
         eq(syncs[0].open, [{ ad: '111', kind: 'waste' }]);
-        eq(dec && dec.decisions, [{ id: 55, handledAt: new Date(now - 28 * H).toISOString(), action: 'pause' }], 'the campaign was paused 2 hours after the alert');
-        eq(valueEpisodes[src][0].handledAt, new Date(now - 28 * H).toISOString());
-        eq(valueMoney[55], { v: 90, cur: 'SAR' }, 'what it spent a day in the 3 complete days before the alert');
+        eq(dec && dec.decisions, [{ id: 55, handledAt: pausedAt, action: 'pause' }, { id: 56, handledAt: pausedAt, action: 'budget' }], 'the campaign was paused 2 hours after the alert');
+        eq(valueEpisodes[src][0].handledAt, pausedAt);
+        eq(valueMoney[55], { v: 90, cur: 'SAR' }, 'إيقاف: ٩٠ يومياً قبل التنبيه وصفر في اليوم اللي بعد الإيقاف = ٩٠ كاملة');
+        eq(valueMoney[56], { v: 18, cur: 'SAR' }, 'خفض ميزانية: ٩٠ قبل التنبيه و٧٢ في اليوم اللي بعد الخفض = ١٨ هي المنَعة');
         restore();
       }, function (e) { restore(); throw e; });
     });
@@ -7642,9 +7660,9 @@
     });
     testAsync('«خروج» بيمسح الربط المحفوظ وآخر حساب من الجهاز', function () {
       return fetch('/js/auth.js?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (src) {
-        ok(/DEVICE_KEYS = \['acc\.renew\.v1', 'acc\.lastAccount\.v1', 'acc\.dx\.fb\.v1', 'pauseproof\.value\.money\.v1', 'pauseproof\.value\.ack\.v1'\]/.test(src) && /function signOut\(\) \{\s*try \{ DEVICE_KEYS\.forEach/.test(src), 'signOut clears device keys');
+        ok(/DEVICE_KEYS = \['acc\.renew\.v1', 'acc\.lastAccount\.v1', 'acc\.dx\.fb\.v1', 'pauseproof\.value\.money\.v1', 'pauseproof\.value\.money\.v2', 'pauseproof\.value\.ack\.v1'\]/.test(src) && /function signOut\(\) \{\s*try \{ DEVICE_KEYS\.forEach/.test(src), 'signOut clears device keys');
         // من ٣١ أكتوبر (كل حاجة لكل مستخدم): إجابات التشخيص ومبالغ لوحة القيمة وموافقتها على الجهاز بتتمسح كمان — نفس أسماء ui.js
-        eq([DX_FB_KEY, VALUE_MONEY_KEY, VALUE_ACK_KEY], ['acc.dx.fb.v1', 'pauseproof.value.money.v1', 'pauseproof.value.ack.v1'], 'same keys as ui.js');
+        eq([DX_FB_KEY, VALUE_MONEY_KEY, VALUE_ACK_KEY], ['acc.dx.fb.v1', 'pauseproof.value.money.v2', 'pauseproof.value.ack.v1'], 'same keys as ui.js');
         eq([RENEW_KEY, LAST_ACCOUNT_KEY], ['acc.renew.v1', 'acc.lastAccount.v1'], 'same keys as core.js');
       });
     });

@@ -140,7 +140,8 @@
   // بتاعتك مربوطة. الملخص التلقائي بالبريد مبيتأثرش (ده «فصل» Meta بس اللي بيوقفه).
   // ومن ٣١ أكتوبر (كل حاجة لكل مستخدم): نسخة الجهاز من إجاباتك على «هل كان التشخيص صحيحاً؟»، والمبالغ المحسوبة للوحة «ما حققته مع
   // الأداة»، وموافقتك على ملاحظتها — كانت بتبان للي يدخل بعدك
-  var DEVICE_KEYS = ['acc.renew.v1', 'acc.lastAccount.v1', 'acc.dx.fb.v1', 'pauseproof.value.money.v1', 'pauseproof.value.ack.v1'];
+  // value.money.v2 من ٣ نوفمبر ٢٠٢٦ (المبالغ المقيسة)، وv1 بتفضل عشان أجهزة لسه عليها النسخة القديمة
+  var DEVICE_KEYS = ['acc.renew.v1', 'acc.lastAccount.v1', 'acc.dx.fb.v1', 'pauseproof.value.money.v1', 'pauseproof.value.money.v2', 'pauseproof.value.ack.v1'];
   function signOut() {
     try { DEVICE_KEYS.forEach(function (k) { localStorage.removeItem(k); }); sessionStorage.clear(); } catch (e) { /* التخزين مقفول */ }
     var done = function () { goLogin('/login'); };
