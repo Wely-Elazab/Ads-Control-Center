@@ -8915,8 +8915,9 @@
         panel.querySelector('[data-preset="today"]').click();
         ok(d.getElementById('cmpCustom').disabled && !d.getElementById('periodCmpToday').hidden, 'custom comparison off for today');
         d.getElementById('periodApply').click();
-        var today = w.todayKeyInTz(w.BROWSER_TZ), h = w.hourNowInTz(w.BROWSER_TZ);
-        eq(d.getElementById('periodBtnCmp').textContent, w.t('period.vs', { range: w.t('period.dayHour', { day: w.fmtKey(w.shiftKey(today, -1)), time: w.DX.hourText(h) }) }));
+        // من غير رقم ساعة: كل حساب بيتقص بتوقيته (القاهرة والرياض بينهم ساعة)
+        eq(d.getElementById('periodBtnCmp').textContent, w.t('period.vsSameHour'));
+        eq(d.getElementById('cmpPrevRange').textContent, '(' + w.t('period.sameHour') + ')');
         d.getElementById('periodBtn').click();
         panel.querySelector('[data-preset="last14"]').click();
         ok(!d.getElementById('cmpCustom').disabled && d.getElementById('periodCmpToday').hidden, 'back on for other periods');

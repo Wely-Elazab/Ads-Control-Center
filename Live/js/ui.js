@@ -2195,9 +2195,10 @@
     var w = DX.compareWindow(d.since, d.until, { unit: d.unit, cmp: d.cmp, partial: d.partial });
     return Object.assign(w, { partial: d.partial || null });
   }
-  // «٢٠–٢٦ أكتوبر»، واليوم «٢ نوفمبر حتى ٢:٠٠ م»
+  // «٢٠–٢٦ أكتوبر»، واليوم «أمس حتى الساعة نفسها» من غير رقم الساعة: كل حساب بيتقص بتوقيته هو (فحص حقيقي ٣ نوفمبر: الزرار
+  // كان بيقول ١٠ م بتوقيت المتصفح في القاهرة والملخص ١١ م بتوقيت الحساب في الرياض). الساعة نفسها في رأس الملخص من البيانات
   function compareRangeText(w) {
-    return t('period.vs', { range: w.partial ? t('period.dayHour', { day: fmtKey(w.since), time: DX.hourText(w.partial.hour) }) : fmtRange(w.since, w.until) });
+    return w.partial ? t('period.vsSameHour') : t('period.vs', { range: fmtRange(w.since, w.until) });
   }
   function syncPeriodUi() {
     var r = resolvePeriodFor(BROWSER_TZ), w = compareRangeFor();
@@ -2217,7 +2218,7 @@
       b.tabIndex = on ? 0 : -1;
     });
     var w = compareRangeFor(pendingPeriodValue(), { mode: 'prev' });
-    document.getElementById('cmpPrevRange').textContent = w ? '(' + (w.partial ? t('period.dayHour', { day: fmtKey(w.since), time: DX.hourText(w.partial.hour) }) : fmtRange(w.since, w.until)) + ')' : '';
+    document.getElementById('cmpPrevRange').textContent = w ? '(' + (w.partial ? t('period.sameHour') : fmtRange(w.since, w.until)) + ')' : '';
     // اليوم بيتقارن بأمس لحد نفس الساعة بس: يوم ناقص قصاد أيام كاملة كان هيبان «انخفاض» كاذب
     var today = !!(w && w.partial);
     cmpCustom.disabled = today;
