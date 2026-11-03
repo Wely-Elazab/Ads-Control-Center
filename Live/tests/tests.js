@@ -5728,6 +5728,15 @@
         h = html();
         ok(/ويُحسب مبلغ ١ مشكلة بعد اكتمال اليوم التالي لتصرّفك/.test(h), 'waiting for the day after: ' + h);
         valueEpisodes[src].pop();
+        // نفس الإعلان ونفس يوم التصرّف مرتين (السيرفر بيقفل المشكلة لما تختفي وبيفتحها لما ترجع — حساب حقيقي ٣٠ أكتوبر):
+        // مشكلة واحدة ومبلغ واحد، وأكبر مبلغ في المجموعة مش مجموعهم
+        valueEpisodes[src].push({ id: 107, ad: 'a1', kind: 'waste', firstAt: at(yesterday), decided: true,
+          handledAt: new Date(Date.parse(at(yesterday)) + 2 * H).toISOString(), action: 'bid' });
+        valueMoney[107] = { v: 90, cur: 'SAR' };
+        h = html();
+        ok(/مشكلات عالجتها بعد تنبيهنا<\/span><b class="value-v">١<\/b>/.test(h) && /<b class="value-v">١٢٠ ر\.س<\/b>/.test(h) && !/٢١٠/.test(h),
+          'the same ad fixed on the same day counts once, with the bigger amount: ' + h);
+        valueEpisodes[src].pop(); delete valueMoney[107];
         period = { preset: 'last7' };
         // ولا واحدة اتعالجت في الفترة: سطر محايد بعدد اللي نبّهنا لها، من غير خانة «٠»
         valueEpisodes[src] = valueEpisodes[src].slice(1, 2);
@@ -8667,6 +8676,24 @@
         eq(d.documentElement.scrollWidth - d.documentElement.clientWidth, 0, 'no sideways scroll');
         f.remove();
       }).then(restore, function (e) { restore(); throw e; });
+    });
+    // قياس على شاشة الهاتف (فحص حقيقي ٣ نوفمبر: الزرار طلع ١٨px — مستحيل تضغطه بإصبعك)
+    ['ar', 'en'].forEach(function (lang) {
+      testAsync('الهاتف ' + lang + ': زرار المجموعات جوه كارت الحملة هدف لمس ٤٤px وداخل الكارت', function () {
+        var restore = keepLang(lang);
+        return sized(375, 812, '&view=ads&list=campaigns').then(function (f) {
+          var w = f.contentWindow, d = f.contentDocument;
+          w.candidates = [withSet('q1', 's1', 'Set A', 10), withSet('q2', 's2', 'Set B', 30)];
+          w.render();
+          var btn = d.querySelector('[data-campaign-sets]');
+          ok(btn, 'the button is on the campaign card');
+          var bb = box(btn), cb = box(btn.closest('.campaign-card'));
+          ok(bb.h >= 44, 'touch target at least 44px (Apple HIG): ' + bb.h);
+          ok(bb.l >= cb.l - 1 && bb.r <= cb.r + 1, 'inside the card: ' + JSON.stringify(bb) + ' in ' + JSON.stringify(cb));
+          eq(d.documentElement.scrollWidth - d.documentElement.clientWidth, 0, 'no sideways scroll');
+          f.remove();
+        }).then(restore, function (e) { restore(); throw e; });
+      });
     });
     // التبويبات التلاتة على شاشة الهاتف وباللغتين (القاعدة الثابتة): الصف بيلفّ، ومفيش تمرير جانبي، والتلاتة بيتضغطوا
     ['ar', 'en'].forEach(function (lang) {

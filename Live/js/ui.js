@@ -2708,21 +2708,36 @@
       d.sources++;
       var tz = valueTz(source), r = resolvePeriodFor(tz), today = todayKeyInTz(tz), days = {};
       if (!d.range) d.range = r;
+      // المشكلة الواحدة مرة واحدة (فحص حساب حقيقي ٣ نوفمبر ٢٠٢٦): السيرفر بيقفل المشكلة لما تختفي من قايمة الحساب وبيفتح
+      // واحدة جديدة لما ترجع — وإعلان واحد في ٣٠ أكتوبر كان عليه مشكلتين بفارق ساعة ونص، والاتنين اتعالجوا بنفس التعديل،
+      // فظهر «٢ مشكلة» و٢٦ $ والحقيقي مشكلة واحدة و١٣ $. التجميع بالإعلان + يوم التصرّف (أو يوم المشكلة لو لسه ما اتعالجتش)،
+      // والمبلغ أكبر واحد في المجموعة مش مجموعهم — نفس قاعدة «الإعلان مرة واحدة بأكبر مبلغ عليه» المعتمدة في الهدر
+      var byProblem = {}, keys = [];
       (valueEpisodes[source] || []).forEach(function (ep) {
         var day = DX._.keyInTz(ep.firstAt, tz);
         if (!day) return;
+        var k = ep.ad + '|' + (ep.handledAt ? 'h:' + DX._.keyInTz(ep.handledAt, tz) : 'd:' + day);
+        var g = byProblem[k];
+        if (!g) { g = byProblem[k] = { day: day, handledAt: null, money: null, wait: false }; keys.push(k); }
+        if (day < g.day) g.day = day;
+        if (ep.handledAt) g.handledAt = ep.handledAt;
+        var m = valueMoney[ep.id];
+        if (m && m.v > 0) { if (!g.money || m.v > g.money.v) g.money = m; }
+        // اليوم اللي بعد التصرّف لسه مكملش: المبلغ بيتحسب بعدين، وبنقول كده بدل ما يبان إن المعالجة ملهاش أثر
+        else if (!m && ep.handledAt) { var af = valueAfterDay(ep, tz); if (af && af >= today) g.wait = true; }
+      });
+      keys.forEach(function (k) {
+        var g = byProblem[k];
         d.any++;
-        if (day < r.since || day > r.until) {
-          if (day === today && ep.handledAt) d.today++;
+        if (g.day < r.since || g.day > r.until) {
+          if (g.day === today && g.handledAt) d.today++;
           return;
         }
-        d.recorded++; days[day] = 1;
-        if (!ep.handledAt) return;
+        d.recorded++; days[g.day] = 1;
+        if (!g.handledAt) return;
         d.handled++;
-        var m = valueMoney[ep.id];
-        if (m && m.v > 0) d.money[m.cur] = (d.money[m.cur] || 0) + m.v;
-        // اليوم اللي بعد التصرّف لسه مكملش: المبلغ بيتحسب بعدين، وبنقول كده بدل ما يبان إن المعالجة ملهاش أثر
-        else if (!m) { var af = valueAfterDay(ep, tz); if (af && af >= today) d.wait++; }
+        if (g.money) d.money[g.money.cur] = (d.money[g.money.cur] || 0) + g.money.v;
+        else if (g.wait) d.wait++;
       });
       // كل يوم بإعلاناته هو (اللي صرفت فيه) — قبل كده الإعلانات الشغّالة دلوقتي كانت بتتحسب لأيام فاتت
       d.seconds += Object.keys(days).reduce(function (s, day) {
