@@ -5319,7 +5319,8 @@
     testAsync('وعلى الديسكتوب الخط زي ما هو (الإصلاح للموبايل بس)', function () {
       return toolFrame(1200, 800).then(function (f) {
         var w = f.contentWindow, d = f.contentDocument;
-        eq(w.getComputedStyle(d.getElementById('periodSelect')).fontSize, '13px', 'قائمة الفترة على الديسكتوب');
+        // من ٣ نوفمبر ٢٠٢٦ الفترة زرار ولوحة (زي Google Ads وMeta) — حقول التاريخ جوّاها ١٤px على الديسكتوب
+        eq(w.getComputedStyle(d.getElementById('dateFrom')).fontSize, '14px', 'حقل التاريخ على الديسكتوب');
         f.remove();
       });
     });
@@ -6126,15 +6127,31 @@
       // «إضافة للسلة» أقل من الشراء نفسه = الحدث مش متركّب صح
       eq(X.trackingOf({ pur: 50, atc: 20, ic: 60, imp: 1, clicks: 1 }).atc, false);
     });
-    test('الفترات: أسبوع ← الأسبوع اللي قبله، ويوم ← نفس اليوم من الأسبوع اللي فات', function () {
+    // من ٣ نوفمبر ٢٠٢٦ «الفترة السابقة» زي المنصات (طلب صاحب المنتج): يوم باليوم اللي قبله — مش نفس اليوم من الأسبوع اللي فات —
+    // وشهر بالشهر اللي قبله حتى لو أيامه مختلفة، وهذا الشهر بنفس أيامه من الشهر اللي قبله (Shopify)
+    test('الفترات: يوم باليوم اللي قبله، وأسبوع بالأسبوع اللي قبله، وشهر بالشهر اللي قبله، وفترة مقارنة مختارة', function () {
       var w = DX.windows('2026-09-21', '2026-09-27');
       eq([w[1].since, w[1].until], ['2026-09-14', '2026-09-20']);
-      eq(DX.windows('2026-09-27', '2026-09-27')[1].since, '2026-09-20');
+      var d = DX.windows('2026-09-27', '2026-09-27');
+      eq([d[1].since, d[1].until, d[2].since], ['2026-09-26', '2026-09-26', '2026-09-25'], 'yesterday vs the day before');
+      // الشهر الماضي (٣١ يوم) ↔ سبتمبر (٣٠) ↔ أغسطس (٣١)
+      var m = DX.windows('2026-10-01', '2026-10-31', { unit: 'month' });
+      eq(m.slice(0, 3).map(function (x) { return x.since + '..' + x.until + ':' + x.days; }), ['2026-10-01..2026-10-31:31', '2026-09-01..2026-09-30:30', '2026-08-01..2026-08-31:31']);
+      // هذا الشهر لحد أمس ↔ نفس الأيام من الشهر اللي قبله، ولو أقصر بنقف عند آخره
+      var t2 = DX.windows('2026-11-01', '2026-11-02', { unit: 'mtd' });
+      eq([t2[1].since, t2[1].until, t2[2].since, t2[2].until], ['2026-10-01', '2026-10-02', '2026-09-01', '2026-09-02']);
+      eq(DX.windows('2026-03-01', '2026-03-30', { unit: 'mtd' })[1].until, '2026-02-28', 'February is shorter');
+      // فترة مقارنة مختارة: هي بالظبط، واللي قبلها بطولها هي
+      var c = DX.windows('2026-10-27', '2026-11-02', { cmp: { since: '2026-10-01', until: '2026-10-05' } });
+      eq([c[1].since, c[1].until, c[1].days, c[2].since, c[2].until], ['2026-10-01', '2026-10-05', 5, '2026-09-26', '2026-09-30']);
+      eq(DX.compareWindow('2026-10-27', '2026-11-02', { cmp: { since: '2026-10-01', until: '2026-10-05' } }), { since: '2026-10-01', until: '2026-10-05' });
+      // مقارنة بتتداخل مع الفترة نفسها مش مقبولة: الفترة السابقة
+      eq(DX.windows('2026-10-27', '2026-11-02', { cmp: { since: '2026-10-30', until: '2026-11-05' } })[1].since, '2026-10-20', 'overlap falls back');
     });
-    test('الملخص بالبريد: الفترة السابقة مباشرةً حتى لو أقل من أسبوع (الأداة لسه بنفس أيام الأسبوع)', function () {
+    test('الملخص بالبريد: الفترة السابقة مباشرةً — والمعامل القديم (المُشغّل) بنفس المعنى', function () {
       var w = DX.windows('2026-09-27', '2026-09-29', true);
       eq([w[1].since, w[1].until], ['2026-09-24', '2026-09-26']);
-      eq(DX.windows('2026-09-27', '2026-09-29')[1].since, '2026-09-20');
+      eq(DX.windows('2026-09-27', '2026-09-29')[1].since, '2026-09-24');
       var days = [];
       for (var k = '2026-08-20'; k <= '2026-09-29'; k = shiftKey(k, 1)) days.push({ date: k, spend: 100, imp: 5000, clicks: 100, atc: 20, ic: 10, pur: 5, rev: 500 });
       var r = DX.analyze({ since: '2026-09-27', until: '2026-09-29', consecutive: true, daily: days, dims: [] });
@@ -8483,14 +8500,18 @@
       var r = parseRoute('?meta=act_123&google=1234567890&snapchat=0a1b2c3d-0000-4000-8000-1234567890ab&tiktok=7012345678901234567' +
         '&view=alerts&list=campaigns&campaign=c9&adset=a7&ad=120210&period=last30', '2026-10-11');
       eq(r, { accounts: { meta: 'act_123', google: '1234567890', snapchat: '0a1b2c3d-0000-4000-8000-1234567890ab', tiktok: '7012345678901234567' },
-        view: 'alerts', list: 'campaigns', campaign: 'c9', adset: 'a7', ad: '120210', period: { preset: 'last30' } });
+        view: 'alerts', list: 'campaigns', campaign: 'c9', adset: 'a7', ad: '120210', period: { preset: 'last30' }, compare: null });
       eq(parseRoute('?meta=123&google=12-34&snapchat=x&tiktok=abc&view=x&list=x&ad=%3Cscript%3E&period=forever', '2026-10-11'),
-        { accounts: {}, view: 'summary', list: null, campaign: null, adset: null, ad: null, period: null });
+        { accounts: {}, view: 'summary', list: null, campaign: null, adset: null, ad: null, period: null, compare: null });
       eq(['ads', 'alerts', 'settings', 'summary'].map(function (v) { return parseRoute('?view=' + v, '2026-10-11').view; }), ['ads', 'alerts', 'settings', 'summary'], 'the four pages');
       eq(parseRoute('?campaign=' + new Array(302).join('x'), '2026-10-11').campaign, null, 'very long campaign value');
       // المستوى الأوسط (٣ نوفمبر ٢٠٢٦): list=adsets مقبول، وأي قيمة تانية بتتشال
       eq(['ads', 'adsets', 'campaigns', 'sets'].map(function (v) { return parseRoute('?list=' + v, '2026-10-11').list; }), ['ads', 'adsets', 'campaigns', null], 'the three levels');
       eq(parseRoute('?adset=' + new Array(302).join('x'), '2026-10-11').adset, null, 'very long ad set value');
+      // فترة المقارنة (٣ نوفمبر ٢٠٢٦): مخصصة بس في الرابط، بنفس قواعد الفترة المخصصة، و«الفترة السابقة» من غير معامل
+      eq(parseRoute('?cmp=custom&csince=2026-10-05&cuntil=2026-10-01', '2026-10-11').compare, { mode: 'custom', since: '2026-10-01', until: '2026-10-05' }, 'swapped');
+      eq(parseRoute('?cmp=custom&csince=2026-10-05', '2026-10-11').compare, null, 'missing end');
+      eq(routeSearch({ accounts: {}, view: 'summary', list: null, compare: '2026-10-01:2026-10-05', period: 'last7' }, ''), '?period=last7&cmp=custom&csince=2026-10-01&cuntil=2026-10-05');
     });
     test('الفترة المخصصة في الرابط: مترتبة، مش في المستقبل، وأقصاها ٩٣ يوم — زي زرار «تطبيق»', function () {
       eq(parseRoute('?period=custom&since=2026-10-09&until=2026-10-01', '2026-10-11').period, { preset: 'custom', since: '2026-10-01', until: '2026-10-09' }, 'reversed');
@@ -8677,6 +8698,118 @@
         f.remove();
       }).then(restore, function (e) { restore(); throw e; });
     });
+    // ---------- منتقي الفترة (٣ نوفمبر ٢٠٢٦ — زي Google Ads وMeta) ----------
+    var keepKeys = function (keys) {
+      var saved = {};
+      keys.forEach(function (k) { saved[k] = localStorage.getItem(k); });
+      return function () { keys.forEach(function (k) { if (saved[k] == null) localStorage.removeItem(k); else localStorage.setItem(k, saved[k]); }); };
+    };
+    // ملاحظة صاحب المنتج: «بعد تحديد فترة مخصصة وتطبيقها يظل يظهر مربع فترة التاريخ وزر التطبيق كأنها لم تطبق»
+    testAsync('المنتقي: فترة مخصصة بتتطبّق واللوحة بتتقفل، والزرار بيقول الأيام والمقارنة', function () {
+      var restore = keepKeys(['acc.period.v1', 'acc.compare.v1']);
+      return sized(1200, 800, '&view=ads').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, panel = d.getElementById('periodPanel');
+        w.candidates = [ad('pk1', { daily: steady(10), res: steady(1) })];
+        w.render();
+        var today = w.todayKeyInTz(w.BROWSER_TZ), a = w.shiftKey(today, -12), z = w.shiftKey(today, -3);
+        d.getElementById('periodBtn').click();
+        ok(!panel.classList.contains('hidden') && d.getElementById('periodBtn').getAttribute('aria-expanded') === 'true', 'opens');
+        var from = d.getElementById('dateFrom'), to = d.getElementById('dateTo');
+        from.value = a; from.dispatchEvent(new w.Event('input', { bubbles: true }));
+        to.value = z; to.dispatchEvent(new w.Event('input', { bubbles: true }));
+        eq(panel.querySelector('[aria-checked="true"]').getAttribute('data-preset'), 'custom', 'typing a date = custom');
+        d.getElementById('periodApply').click();
+        eq([w.period.preset, w.period.since, w.period.until], ['custom', a, z]);
+        ok(panel.classList.contains('hidden') && panel.offsetHeight === 0, 'the panel closes — no date boxes left on screen');
+        eq(d.getElementById('periodBtnMain').textContent, w.fmtRange(a, z), 'the button says the applied days');
+        // الفترة السابقة = نفس الطول قبلها مباشرةً (١٠ أيام)
+        var len = w.keyDiffDays(a, z) + 1;
+        eq(d.getElementById('periodBtnCmp').textContent, w.t('period.vs', { range: w.fmtRange(w.shiftKey(a, -len), w.shiftKey(a, -1)) }));
+        f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+    testAsync('المنتقي: الفترة الجاهزة بتملا «من/إلى» بأيامها، و«إلغاء» وEsc والضغط برّه من غير تغيير', function () {
+      var restore = keepKeys(['acc.period.v1', 'acc.compare.v1']);
+      return sized(1200, 800, '&view=ads&period=last7').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, panel = d.getElementById('periodPanel');
+        w.candidates = [ad('pk2', { daily: steady(10), res: steady(1) })];
+        w.render();
+        d.getElementById('periodBtn').click();
+        panel.querySelector('[data-preset="last30"]').click();
+        var r = w.resolvePeriodFor(w.BROWSER_TZ, { preset: 'last30' });
+        eq([d.getElementById('dateFrom').value, d.getElementById('dateTo').value], [r.since, r.until], 'the preset fills the dates');
+        d.getElementById('periodCancel').click();
+        eq([w.period.preset, panel.classList.contains('hidden')], ['last7', true], 'cancel = nothing changed');
+        d.getElementById('periodBtn').click();
+        panel.querySelector('[data-preset="yesterday"]').click();
+        d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        eq([w.period.preset, panel.classList.contains('hidden')], ['last7', true], 'Esc = nothing changed');
+        d.getElementById('periodBtn').click();
+        panel.querySelector('[data-preset="lastMonth"]').click();
+        d.getElementById('periodApply').click();
+        eq(w.period, { preset: 'lastMonth' }, 'a preset applies as a preset');
+        // الشهر الماضي بيتقارن بالشهر اللي قبله كامل
+        var lm = w.resolvePeriodFor(w.BROWSER_TZ), pm = w.shiftKey(lm.since, -1);
+        eq(d.getElementById('periodBtnCmp').textContent, w.t('period.vs', { range: w.fmtRange(pm.slice(0, 8) + '01', pm) }), 'the month before');
+        f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+    testAsync('المنتقي: فترة مقارنة أختارها — لازم تخلص قبل الفترة، وتغييرها لوحده بيعيد ملخص المتجر بس', function () {
+      var restore = keepKeys(['acc.period.v1', 'acc.compare.v1']);
+      return sized(1200, 800, '&view=ads&period=last7').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, panel = d.getElementById('periodPanel');
+        w.candidates = [ad('pk3', { daily: steady(10), res: steady(1) })];
+        w.render();
+        var calls = { dx: 0, ads: 0 }, prevLoad = w.loadSource;
+        w.dxReloaders.meta = function () { calls.dx++; };
+        w.activeSources.meta = 'act_1';
+        w.loadSource = function () { calls.ads++; };
+        try {
+          var since = w.resolvePeriodFor(w.BROWSER_TZ).since;
+          d.getElementById('periodBtn').click();
+          d.getElementById('cmpCustom').click();
+          ok(!d.getElementById('cmpDates').hidden, 'the comparison dates show');
+          var cf = d.getElementById('cmpFrom'), ct = d.getElementById('cmpTo');
+          // بتتداخل مع الفترة: رسالة واللوحة مفتوحة
+          cf.value = w.shiftKey(since, -3); ct.value = since;
+          d.getElementById('periodApply').click();
+          ok(!d.getElementById('periodError').hidden && !panel.classList.contains('hidden'), 'overlap: an error, panel stays open');
+          eq(d.getElementById('periodError').textContent, w.t('period.cmpBefore', { date: w.fmtKey(since) }));
+          ct.value = w.shiftKey(since, -1);
+          d.getElementById('periodApply').click();
+          eq(w.compare, { mode: 'custom', since: w.shiftKey(since, -3), until: w.shiftKey(since, -1) });
+          eq([calls.dx, calls.ads], [1, 0], 'only the store summary is fetched again');
+          eq(d.getElementById('periodBtnCmp').textContent, w.t('period.vs', { range: w.fmtRange(w.shiftKey(since, -3), w.shiftKey(since, -1)) }));
+          // والملخص بيطلبها: نفس فترة المقارنة في نوافذ الملخص
+          var p = w.dxPeriodFor(w.BROWSER_TZ);
+          eq(w.DX.windows(p.since, p.until, { unit: p.unit, cmp: p.cmp })[1].since, w.shiftKey(since, -3));
+        } finally { w.loadSource = prevLoad; delete w.activeSources.meta; }
+        f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+    // القاعدة الثابتة: الهاتف والديسكتوب واللغتين
+    ['ar', 'en'].forEach(function (lang) {
+      testAsync('الهاتف ' + lang + ': لوحة الفترة داخل الشاشة، وكل زرار فيها هدف لمس ٤٤px', function () {
+        var restore = keepLang(lang);
+        return sized(375, 812, '&view=ads').then(function (f) {
+          var w = f.contentWindow, d = f.contentDocument, panel = d.getElementById('periodPanel');
+          w.candidates = [ad('pk4', { daily: steady(10), res: steady(1) })];
+          w.render();
+          d.getElementById('periodBtn').click();
+          d.getElementById('cmpCustom').click();
+          // الجزء الظاهر: شريط التمرير في كروم الكمبيوتر بياخد ١٥px على الشمال في الصفحة العربية (الهاتف مفيهوش)
+          var pb = box(panel), vw = d.documentElement.clientWidth, rtl = d.documentElement.dir === 'rtl';
+          var minL = rtl ? w.innerWidth - vw : 0, maxR = rtl ? w.innerWidth : vw;
+          ok(pb.l >= minL && pb.r <= maxR && pb.h > 0, 'inside the screen: ' + JSON.stringify(pb) + ' / ' + minL + '..' + maxR);
+          var small = [].slice.call(panel.querySelectorAll('[data-preset], #periodApply, #periodCancel')).filter(function (el) { return box(el).h < 44; })
+            .map(function (el) { return (el.id || el.getAttribute('data-preset')) + '=' + box(el).h; });
+          eq(small, [], 'touch targets');
+          ok(box(d.getElementById('periodBtn')).h >= 44, 'the period button itself');
+          eq(d.documentElement.scrollWidth - d.documentElement.clientWidth, 0, 'no sideways scroll');
+          f.remove();
+        }).then(restore, function (e) { restore(); throw e; });
+      });
+    });
     // قياس على شاشة الهاتف (فحص حقيقي ٣ نوفمبر: الزرار طلع ١٨px — مستحيل تضغطه بإصبعك)
     ['ar', 'en'].forEach(function (lang) {
       testAsync('الهاتف ' + lang + ': زرار المجموعات جوه كارت الحملة هدف لمس ٤٤px وداخل الكارت', function () {
@@ -8779,7 +8912,7 @@
       return frame('&view=alerts&list=campaigns&period=last30&digest=1').then(function (f) {
         var w = f.contentWindow, d = f.contentDocument;
         eq([d.getElementById('viewAlerts').classList.contains('hidden'), d.getElementById('viewAds').classList.contains('hidden')], [false, true], 'alerts tab');
-        eq([w.viewMode, d.getElementById('periodSelect').value], ['campaigns', 'last30']);
+        eq([w.viewMode, w.period.preset, d.getElementById('periodBtnMain').textContent.indexOf(w.t('period.last30')) === 0], ['campaigns', 'last30', true]);
         eq([localStorage.getItem('acc.period.v1'), localStorage.getItem('acc.view.v1')], saved, 'saved choices untouched');
         eq([param(w, 'view'), param(w, 'list'), param(w, 'period'), param(w, 'digest')], ['alerts', 'campaigns', 'last30', '1'], 'the address keeps them (refresh = same page)');
         f.remove();

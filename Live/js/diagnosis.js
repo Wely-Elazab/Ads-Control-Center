@@ -137,20 +137,44 @@ var DX = (function () {
   }
 
   // ---------- الفترات ----------
-  // الفترة الحالية والفترات اللي قبلها بنفس الطول. أقل من أسبوع: بنقارن بنفس أيام الأسبوع اللي قبله
-  // (أمس الجمعة بالجمعة اللي قبلها) — لأن يوم الأسبوع نفسه بيفرق في المبيعات.
-  // عدد الفترات: كفاية لقياس تذبذب الحساب (٤ مقارنات على الأقل للفترات القصيرة) من غير ما نسحب سنين
-  // consecutive = الفترة اللي قبلها مباشرةً بنفس الطول حتى لو أقل من أسبوع — ده اللي بيستخدمه الملخص التلقائي بالبريد
-  // (قرار صاحب المنتج: الملخص بيتقارن بالفترة اللي قبله مباشرةً بس). الأداة نفسها بتقارن الفترات القصيرة بنفس أيام الأسبوع
-  function windowCount(len, consecutive) {
-    var step = len < 7 && !consecutive ? 7 : len;
-    return Math.max(5, Math.min(9, Math.floor(210 / step) + 1));
+  // الفترة الحالية، وفترة المقارنة، وفترات قبلها لقياس تذبذب الحساب. من ٣ نوفمبر ٢٠٢٦ «الفترة السابقة» زي المنصات (طلب صاحب
+  // المنتج — قبلها الفترة الأقل من أسبوع كانت بتتقارن بنفس أيام الأسبوع اللي قبله، فـ«أمس» كان بيتقارن بنفس اليوم من الأسبوع
+  // اللي فات). المرجع: Google Ads وMeta («الفترة السابقة» = نفس الطول قبلها مباشرةً) وShopify (وحدة التقويم: الشهر بالشهر):
+  //   - افتراضياً: نفس عدد الأيام قبلها مباشرةً (أمس ↔ اللي قبله، آخر ٧ ↔ الـ٧ اللي قبلها)
+  //   - unit 'month' (الشهر الماضي): الشهر اللي قبله كامل حتى لو أيامه مختلفة (أكتوبر ٣١ ↔ سبتمبر ٣٠)
+  //   - unit 'mtd' (هذا الشهر لحد أمس): نفس الأيام من الشهر اللي قبله (١–٣ نوفمبر ↔ ١–٣ أكتوبر)، ولو أقصر بنقف عند آخره
+  //   - cmp (فترة مقارنة يختارها المستخدم): هي نفسها بالظبط، والفترات اللي قبلها بطولها هي
+  // فرق يوم الأسبوع (الجمعة غير الخميس) بقى جزء من تذبذب المقارنة، فاختبار «حقيقي ولا صدفة» بيحسبه ومبيصرّخش عليه.
+  // المعامل التالت القديم (true/false = consecutive) لسه مقبول عشان المُشغّل المثبّت على إيداع قديم — المعنيين بقوا واحد
+  function windowCount(len) {
+    return Math.max(5, Math.min(9, Math.floor(210 / Math.max(1, len)) + 1));
   }
-  function windowsFor(since, until, consecutive) {
-    var len = keyDiffDays(since, until) + 1, step = len < 7 && !consecutive ? 7 : len, n = windowCount(len, consecutive), out = [];
-    for (var i = 0; i < n; i++) out.push({ since: shiftKey(since, -step * i), until: shiftKey(until, -step * i), days: len });
+  function dayCount(since, until) { return keyDiffDays(since, until) + 1; }
+  function validRange(r) {
+    return !!r && /^\d{4}-\d{2}-\d{2}$/.test(r.since || '') && /^\d{4}-\d{2}-\d{2}$/.test(r.until || '') && r.since <= r.until;
+  }
+  // الفترة اللي قبل w بنفس الوحدة
+  function prevWindow(w, unit, dayN) {
+    if (unit === 'month' || unit === 'mtd') {
+      var end = shiftKey(w.since, -1), first = end.slice(0, 8) + '01';
+      var last = unit === 'mtd' ? Math.min(dayN, Number(end.slice(8, 10))) : Number(end.slice(8, 10));
+      var until = first.slice(0, 8) + (last < 10 ? '0' : '') + last;
+      return { since: first, until: until, days: dayCount(first, until) };
+    }
+    return { since: shiftKey(w.since, -w.days), until: shiftKey(w.since, -1), days: w.days };
+  }
+  function windowsFor(since, until, opts) {
+    var o = opts && typeof opts === 'object' ? opts : {};
+    var len = dayCount(since, until), n = windowCount(len), out = [{ since: since, until: until, days: len }];
+    var unit = o.unit === 'month' || o.unit === 'mtd' ? o.unit : null, dayN = Number(until.slice(8, 10));
+    // فترة المقارنة المختارة لازم تخلص قبل الفترة الحالية (الواجهة بتضمن ده) — غير كده «الفترة السابقة»
+    var cmp = validRange(o.cmp) && o.cmp.until < since ? { since: o.cmp.since, until: o.cmp.until, days: dayCount(o.cmp.since, o.cmp.until) } : null;
+    out.push(cmp || prevWindow(out[0], unit, dayN));
+    while (out.length < n) out.push(prevWindow(out[out.length - 1], cmp ? null : unit, dayN));
     return out;
   }
+  // فترة المقارنة لوحدها (المنتقي في الواجهة بيعرضها جنب الفترة)
+  function compareWindow(since, until, opts) { var w = windowsFor(since, until, opts)[1]; return { since: w.since, until: w.until }; }
 
   // ---------- الأرقام ----------
   var FIELDS = ['spend', 'imp', 'clicks', 'atc', 'ic', 'pur', 'rev'];
@@ -234,7 +258,8 @@ var DX = (function () {
   // ---------- العنوان: إيه اللي حصل للطلبات وتكلفتها ----------
   // phiD = تذبذب الحساب اليومي (الاختبار الأساسي «التغيّر حقيقي؟»)، phiH = تذبذبه بين الفترات («غير معتاد؟»)
   function headline(a, b, len, phiD, phiH, W) {
-    var orders = rateTest(a.pur, len, b.pur, len, phiD);
+    // كل فترة بطولها هي: الشهر الماضي ٣١ يوم والشهر اللي قبله ٣٠ (المقارنة بالشهر من ٣ نوفمبر ٢٠٢٦)
+    var orders = rateTest(a.pur, a.len || len, b.pur, b.len || len, phiD);
     var eff = rateTest(a.pur, a.spend, b.pur, b.spend, phiD);   // موجب = طلبات أكتر لكل ريال
     // الفترة السابقة لوحدها فيها عشوائية زي الحالية بالظبط، فالمقارنة بيها ضعيفة في الحسابات الصغيرة.
     // متوسط آخر ٤ فترات أثبت بكتير: لو التغيّر حقيقي مقارنةً بيه وفي نفس اتجاه الفرق عن الفترة السابقة،
@@ -242,7 +267,7 @@ var DX = (function () {
     var base = bundle(), baseDays = 0;
     W.slice(1, 5).forEach(function (w) { addTo(base, w); baseDays += w.len; });
     var effBase = rateTest(base.pur, base.spend, b.pur, b.spend, phiD);
-    var ordBase = rateTest(base.pur, baseDays, b.pur, len, phiD);
+    var ordBase = rateTest(base.pur, baseDays, b.pur, b.len || len, phiD);
     if (Math.abs(effBase.z) >= Z_REAL && sign(effBase.z) === sign(eff.z) && Math.abs(effBase.z) > Math.abs(eff.z)) eff = { ratio: eff.ratio, z: sign(eff.z) * Z_REAL, viaBase: true };
     if (Math.abs(ordBase.z) >= Z_REAL && sign(ordBase.z) === sign(orders.z) && Math.abs(ordBase.z) > Math.abs(orders.z)) orders = { ratio: orders.ratio, z: sign(orders.z) * Z_REAL, viaBase: true };
     var spendPct = a.spend > 0 ? b.spend / a.spend - 1 : null;
@@ -909,7 +934,7 @@ var DX = (function () {
     });
   }
   function combine(sources) {
-    var first = sources[0].input, ws = windowsFor(first.since, first.until, !!first.consecutive).slice(0, 3);
+    var first = sources[0].input, ws = windowsFor(first.since, first.until, { unit: first.unit, cmp: first.cmp }).slice(0, 3);
     var norm = function (list) { return (list || []).filter(function (d) { return d && d.date; }).map(function (d) { var b = bundle(d); b.date = d.date; return b; }); };
     var byDate = {};
     sources.forEach(function (s) {
@@ -956,7 +981,7 @@ var DX = (function () {
       });
       dims.push({ id: 'country', scope: otherW && clean ? 'judged' : 'all', segs: Object.keys(byKey).map(function (k) { return byKey[k]; }) });
     }
-    var out = { since: first.since, until: first.until, currency: first.currency, timezone: first.timezone, consecutive: !!first.consecutive,
+    var out = { since: first.since, until: first.until, currency: first.currency, timezone: first.timezone, unit: first.unit || null, cmp: first.cmp || null,
       daily: Object.keys(byDate).sort().map(function (k) { return byDate[k]; }), dims: dims };
     if (otherW) out.other = { w: otherW, goals: otherGoals };
     return out;
@@ -982,7 +1007,7 @@ var DX = (function () {
   //          daily: [{ date, spend, imp, clicks, atc, ic, pur, rev }] بتغطي كل الفترات (DX.windows)،
   //          dims: [{ id, segs: [{ key, name, w: [الحالية، السابقة، اللي قبلها] }] }] }
   function analyze(input) {
-    var ws = windowsFor(input.since, input.until, !!input.consecutive);
+    var ws = windowsFor(input.since, input.until, { unit: input.unit, cmp: input.cmp });
     var daily = (input.daily || []).filter(function (d) { return d && /^\d{4}-\d{2}-\d{2}$/.test(d.date); })
       .map(function (d) { var b = bundle(d); b.date = d.date; return b; });
     var W = ws.map(function (w) { return sumDays(daily, w); });
@@ -2267,6 +2292,7 @@ var DX = (function () {
     // اختيارات «ما الذي حدث فعلاً؟» في زر التقييم (بنفس ترتيب ظهورها)
     REASONS: Object.keys(REASON_CAUSES).concat(['other']),
     windows: windowsFor,
+    compareWindow: compareWindow,
     // التعديلات على الإعلانات ونتيجتها (الملخص التلقائي بالبريد — supabase/functions/sync/runner.ts)
     actionGroups: actionGroups,
     actionsFrom: actionsFrom,

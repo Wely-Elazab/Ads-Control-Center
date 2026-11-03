@@ -406,6 +406,17 @@
     return { preset: 'last7' };
   })();
   function savePeriod() { try { localStorage.setItem(PERIOD_KEY, JSON.stringify(period)); } catch (e) { /* مش مهم */ } }
+  // فترة المقارنة (٣ نوفمبر ٢٠٢٦ — زي Google Ads وMeta): «الفترة السابقة» افتراضياً، أو فترة يختارها المستخدم ({ mode: 'custom',
+  // since, until }). ملخص المتجر بيقارن بيها (dxPeriodFor ← diagnosis.js windowsFor)
+  var COMPARE_KEY = 'acc.compare.v1';
+  var compare = (function () {
+    try {
+      var c = JSON.parse(localStorage.getItem(COMPARE_KEY) || 'null');
+      if (c && c.mode === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(c.since || '') && /^\d{4}-\d{2}-\d{2}$/.test(c.until || '') && c.since <= c.until) return c;
+    } catch (e) { /* تخزين مقفول */ }
+    return { mode: 'prev' };
+  })();
+  function saveCompare() { try { localStorage.setItem(COMPARE_KEY, JSON.stringify(compare)); } catch (e) { /* مش مهم */ } }
   function shiftKey(key, d) {
     var p = key.split('-').map(Number);
     return new Date(Date.UTC(p[0], p[1] - 1, p[2] + d)).toISOString().slice(0, 10);
@@ -414,11 +425,13 @@
     var pa = a.split('-').map(Number), pb = b.split('-').map(Number);
     return Math.round((Date.UTC(pb[0], pb[1] - 1, pb[2]) - Date.UTC(pa[0], pa[1] - 1, pa[2])) / 86400000);
   }
-  function resolvePeriodFor(tz) {
+  // pp = فترة غير المطبّقة (المنتقي بيعرض مدى أي اختيار قبل «تطبيق») — من غيرها الفترة الحالية
+  function resolvePeriodFor(tz, pp) {
+    var per = pp || period;
     // الفترات المتحركة = أيام مكتملة بس، والنهارده منفصل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦، المرة التانية: «آخر ٧ أيام
     // يعني الـ٧ أيام اللي فاتت بس، واليوم منفصل مش مجموع معاهم»). النهارده بيظهر لوحده (سطر «اليوم حتى الآن» وعمود اليوم).
     // isDefault دايماً false: أرقام الفترة بتتجاب لوحدها من المنصة (النافذة اليومية نفسها فيها النهارده)
-    var today = todayKeyInTz(tz), yesterday = shiftKey(today, -1), since = shiftKey(today, -7), until = yesterday, preset = period.preset;
+    var today = todayKeyInTz(tz), yesterday = shiftKey(today, -1), since = shiftKey(today, -7), until = yesterday, preset = per.preset;
     if (preset === 'today') since = until = today;
     else if (preset === 'yesterday') since = until = yesterday;
     else if (preset === 'last14') since = shiftKey(today, -14);
@@ -426,8 +439,8 @@
     // أول يوم في الشهر مفيش أيام مكتملة فيه — بنعرض النهارده
     else if (preset === 'thisMonth') { since = today.slice(0, 8) + '01'; if (since > until) until = today; }
     else if (preset === 'lastMonth') { until = shiftKey(today.slice(0, 8) + '01', -1); since = until.slice(0, 8) + '01'; }
-    else if (preset === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(period.since || '') && /^\d{4}-\d{2}-\d{2}$/.test(period.until || '')) {
-      since = period.since; until = period.until;
+    else if (preset === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(per.since || '') && /^\d{4}-\d{2}-\d{2}$/.test(per.until || '')) {
+      since = per.since; until = per.until;
       if (since > until) { var tmp = since; since = until; until = tmp; }
       if (until > today) until = today;
       if (since > until) since = until;
@@ -516,12 +529,20 @@
   }
   // فترة التشخيص = الفترة المختارة بس أيام مكتملة (أرقام النهارده لسه بتتحسب ومينفعش تتقارن بيوم كامل):
   // بتقف عند أمس. «آخر ٧ أيام» = ٧ أيام مكتملة + النهارده، فالتشخيص = الـ٧ المكتملة بالظبط، و«اليوم» = أمس
-  function dxPeriodFor(tz) {
-    var p = resolvePeriodFor(tz), today = todayKeyInTz(tz), since = p.since, until = p.until;
+  // unit = وحدة «الفترة السابقة» (الشهر الماضي ↔ الشهر اللي قبله كامل، وهذا الشهر ↔ نفس أيامه من الشهر اللي قبله)، وcmp = فترة
+  // المقارنة المختارة — لازم تخلص قبل الفترة (غير كده الفترة السابقة)
+  function dxPeriodFor(tz, pp, cc) {
+    var p = resolvePeriodFor(tz, pp), today = todayKeyInTz(tz), since = p.since, until = p.until, cm = cc || compare;
     if (until >= today) until = shiftKey(today, -1);
     if (since > until) since = until;
-    return { since: since, until: until };
+    var unit = p.preset === 'lastMonth' ? 'month' : (p.preset === 'thisMonth' && since.slice(8) === '01' ? 'mtd' : null);
+    var cmp = cm.mode === 'custom' && cm.until < since ? { since: cm.since, until: cm.until } : null;
+    return { since: since, until: until, unit: unit, cmp: cmp };
   }
+  // تغيير المقارنة لوحدها بيعيد ملخص المتجر بس (مش أرقام الإعلانات): كل منصة بتسجّل هنا طريقة إعادة ملخصها وقت ما بتتحمّل
+  var dxReloaders = {};
+  // جزء مفتاح الملخص اللي بيتغيّر مع المقارنة (تغييرها = تحميل جديد)
+  function dxCompareKey(p) { return p && p.cmp ? p.cmp.since + ':' + p.cmp.until : (p && p.unit) || 'prev'; }
 
   // ---------- التحميل: نسخة محفوظة + حالة واضحة ----------
   // آخر تحميل لكل حساب بيتحفظ في الذاكرة، فلما ترجع لحساب فتحته قبل كده بيظهر فوراً

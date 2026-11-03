@@ -2175,17 +2175,131 @@
   }
 
 
-  // ---------- اختيار فترة البيانات ----------
-  var periodSelect = document.getElementById('periodSelect');
-  var periodCustom = document.getElementById('periodCustom');
+  // ---------- اختيار فترة البيانات (زي منتقي التاريخ في Google Ads وMeta — ٣ نوفمبر ٢٠٢٦) ----------
+  // زرار واحد بيقول الفترة المطبّقة والمقارنة، وبيفتح لوحة: الفترات الجاهزة، و«من/إلى» (الفترة الجاهزة بتملاهم بأيامها زي Google)،
+  // و«قارن مع» (الفترة السابقة أو فترة أخرى). «تطبيق» بيقفل اللوحة والزرار بيقول اللي اتطبّق — قبل كده الفترة المخصصة كانت
+  // بتسيب صندوق التاريخ وزرار «تطبيق» ظاهرين كأنها متطبّقتش (ملاحظة صاحب المنتج). «إلغاء» أو Esc أو الضغط برّه = من غير تغيير
+  var periodBtn = document.getElementById('periodBtn'), periodPanel = document.getElementById('periodPanel');
+  var periodPresets = document.getElementById('periodPresets'), periodError = document.getElementById('periodError');
+  var cmpPrev = document.getElementById('cmpPrev'), cmpCustom = document.getElementById('cmpCustom');
+  var cmpFrom = document.getElementById('cmpFrom'), cmpTo = document.getElementById('cmpTo');
+  var pendingPreset = period.preset;   // الفترة الجاهزة المختارة في اللوحة قبل «تطبيق»
+  // اسم الفترة على الزرار: الجاهزة باسمها وأيامها، والمخصصة بأيامها بس
+  function periodBtnText(r) {
+    return r.preset === 'custom' ? fmtRange(r.since, r.until) : PERIOD_LABELS[r.preset] + ' · ' + fmtRange(r.since, r.until);
+  }
+  // فترة المقارنة اللي ملخص المتجر بيقارن بيها (diagnosis.js windowsFor) — للفترة pp والمقارنة cc (أو المطبّقتين)
+  function compareRangeFor(pp, cc) {
+    if (!window.DX || !DX.compareWindow) return null;
+    var d = dxPeriodFor(BROWSER_TZ, pp, cc);
+    return DX.compareWindow(d.since, d.until, { unit: d.unit, cmp: d.cmp });
+  }
   function syncPeriodUi() {
-    periodSelect.value = period.preset;
-    periodCustom.classList.toggle('hidden', period.preset !== 'custom');
+    var r = resolvePeriodFor(BROWSER_TZ), w = compareRangeFor();
+    document.getElementById('periodBtnMain').textContent = periodBtnText(r);
+    document.getElementById('periodBtnCmp').textContent = w ? t('period.vs', { range: fmtRange(w.since, w.until) }) : '';
     var today = todayKeyInTz(BROWSER_TZ);
-    dateFrom.max = today; dateTo.max = today;
-    if (period.preset === 'custom') { dateFrom.value = period.since || ''; dateTo.value = period.until || ''; }
+    [dateFrom, dateTo, cmpFrom, cmpTo].forEach(function (el) { el.max = today; });
+  }
+  // اللوحة بتتملا بالمطبّق وقت ما بتتفتح، وأي تغيير جوّاها مؤقت لحد «تطبيق»
+  function pendingPeriodValue() {
+    return pendingPreset === 'custom' ? { preset: 'custom', since: dateFrom.value, until: dateTo.value } : { preset: pendingPreset };
+  }
+  function renderPeriodPanel() {
+    periodPresets.querySelectorAll('[data-preset]').forEach(function (b) {
+      var on = b.getAttribute('data-preset') === pendingPreset;
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+    });
+    var w = compareRangeFor(pendingPeriodValue(), { mode: 'prev' });
+    document.getElementById('cmpPrevRange').textContent = w ? '(' + fmtRange(w.since, w.until) + ')' : '';
+    document.getElementById('cmpDates').hidden = !cmpCustom.checked;
+  }
+  function pickPreset(preset) {
+    pendingPreset = preset;
+    if (preset !== 'custom') { var r = resolvePeriodFor(BROWSER_TZ, { preset: preset }); dateFrom.value = r.since; dateTo.value = r.until; }
+    periodError.hidden = true;
+    renderPeriodPanel();
+  }
+  function openPeriodPanel() {
     var r = resolvePeriodFor(BROWSER_TZ);
-    document.getElementById('periodRangeText').textContent = fmtRange(r.since, r.until);
+    pendingPreset = r.preset;
+    dateFrom.value = r.since; dateTo.value = r.until;
+    var custom = compare.mode === 'custom';
+    cmpCustom.checked = custom; cmpPrev.checked = !custom;
+    cmpFrom.value = custom ? compare.since : ''; cmpTo.value = custom ? compare.until : '';
+    periodError.hidden = true;
+    renderPeriodPanel();
+    periodPanel.classList.remove('hidden');
+    periodBtn.setAttribute('aria-expanded', 'true');
+    var sel = periodPresets.querySelector('[aria-checked="true"]');
+    if (sel) sel.focus();
+  }
+  function closePeriodPanel(focusBtn) {
+    if (periodPanel.classList.contains('hidden')) return;
+    periodPanel.classList.add('hidden');
+    periodBtn.setAttribute('aria-expanded', 'false');
+    if (focusBtn) periodBtn.focus();
+  }
+  periodBtn.addEventListener('click', function () {
+    if (periodPanel.classList.contains('hidden')) openPeriodPanel(); else closePeriodPanel(false);
+  });
+  periodPresets.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-preset]');
+    if (b) pickPreset(b.getAttribute('data-preset'));
+  });
+  // الأسهم بين الفترات الجاهزة (مجموعة اختيار واحد — WAI-ARIA radiogroup)
+  periodPresets.addEventListener('keydown', function (e) {
+    var keys = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+    if (!keys[e.key]) return;
+    e.preventDefault();
+    var list = Array.prototype.slice.call(periodPresets.querySelectorAll('[data-preset]'));
+    var i = list.findIndex(function (b) { return b.getAttribute('data-preset') === pendingPreset; });
+    var step = keys[e.key] * (document.documentElement.dir === 'rtl' && (e.key === 'ArrowRight' || e.key === 'ArrowLeft') ? -1 : 1);
+    var next = list[(i + step + list.length) % list.length];
+    pickPreset(next.getAttribute('data-preset'));
+    next.focus();
+  });
+  // تعديل التاريخ بإيدك = فترة مخصصة (زي Google Ads)
+  [dateFrom, dateTo].forEach(function (el) {
+    el.addEventListener('input', function () { pendingPreset = 'custom'; periodError.hidden = true; renderPeriodPanel(); });
+  });
+  [cmpPrev, cmpCustom].forEach(function (el) { el.addEventListener('change', function () { periodError.hidden = true; renderPeriodPanel(); }); });
+  [cmpFrom, cmpTo].forEach(function (el) { el.addEventListener('input', function () { cmpCustom.checked = true; cmpPrev.checked = false; periodError.hidden = true; renderPeriodPanel(); }); });
+  document.getElementById('periodCancel').addEventListener('click', function () { closePeriodPanel(true); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePeriodPanel(true); });
+  // الضغط برّه اللوحة بيقفلها (composedPath زي قايمة الحسابات: العنصر ممكن يتشال من الصفحة قبل ما الضغطة توصل هنا)
+  document.addEventListener('click', function (e) {
+    if (periodPanel.classList.contains('hidden')) return;
+    var path = e.composedPath ? e.composedPath() : [];
+    if (path.indexOf(periodPanel) > -1 || path.indexOf(periodBtn) > -1) return;
+    closePeriodPanel(false);
+  });
+  function showPeriodError(m) { periodError.textContent = m; periodError.hidden = false; }
+  // فترة مخصصة: مترتبة، مش في المستقبل، وأقصاها ٩٣ يوم — عشان اسم الفترة على الأرقام يطابق البيانات. وMeta مبتديش أرقام أقدم
+  // من ٣٧ شهراً (ردها نفسه: «(#3018) The start date of the time range cannot be beyond 37 months from the current date») وملخص المتجر
+  // بيجيب فترات قبلها للمقارنة (DX.windows) — فبنقدّم البداية لحد ما الفترة واللي قبلها يدخلوا (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦)
+  function customPeriodOf(since, until) {
+    var today = todayKeyInTz(BROWSER_TZ), out = { trimmed: false, tooOld: false };
+    if (since > until) { var tmp = since; since = until; until = tmp; }
+    if (until > today) until = today;
+    if (since > until) since = until;
+    out.trimmed = keyDiffDays(since, until) > PERIOD_MAX_DAYS - 1;
+    if (out.trimmed) since = shiftKey(until, -(PERIOD_MAX_DAYS - 1));
+    if (activeSources.meta && window.DX && DX.windows) {
+      var lim = new Date(today + 'T00:00:00Z');
+      lim.setUTCMonth(lim.getUTCMonth() - 37);
+      var oldest = shiftKey(lim.toISOString().slice(0, 10), 1);
+      var ws = DX.windows(since, until), first = ws[ws.length - 1].since;
+      if (first < oldest) {
+        var len = keyDiffDays(since, until);
+        since = shiftKey(since, keyDiffDays(first, oldest)); until = shiftKey(since, len);
+        if (until > today) until = today;
+        out.tooOld = true;
+      }
+    }
+    out.period = { preset: 'custom', since: since, until: until };
+    return out;
   }
   // تغيير الفترة بيعيد تحميل كل الحسابات المتصلة بالأرقام الجديدة (ولو فيه نسخة محفوظة للفترة دي بتظهر فوراً)
   function applyPeriod(next) {
@@ -2195,46 +2309,39 @@
     Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); });
     render();
   }
-  periodSelect.addEventListener('change', function () {
-    if (periodSelect.value === 'custom') {
-      // الفترة المخصصة بتستنى زرار "تطبيق" — عشان متعملش تحميل مع كل تاريخ بتغيّره
-      periodCustom.classList.remove('hidden');
-      var r = resolvePeriodFor(BROWSER_TZ);
-      if (!dateFrom.value) dateFrom.value = r.since;
-      if (!dateTo.value) dateTo.value = r.until;
-      return;
-    }
-    applyPeriod({ preset: periodSelect.value });
-  });
+  // المقارنة لوحدها: ملخص المتجر بس بيتجاب تاني (أرقام الإعلانات زي ما هي)
+  function applyCompare(next) {
+    compare = next;
+    saveCompare();
+    syncPeriodUi();
+    Object.keys(dxReloaders).forEach(function (p) { if (activeSources[p]) dxReloaders[p](); });
+    render();
+  }
   document.getElementById('periodApply').addEventListener('click', function () {
-    if (!dateFrom.value || !dateTo.value) { setStatus(msg('period.pickDates')); return; }
-    // بنحفظها مترتبة ومقصوصة (مش في المستقبل، وأقصاها ٩٣ يوم) — عشان اسم الفترة على الأرقام يطابق البيانات.
-    // قبل كده «من ٢٠ لـ ١» كانت بتظهر «٢٠–١ سبتمبر» وتاريخ في المستقبل كان بيظهر كأن فيه بيانات ليه
-    var since = dateFrom.value, until = dateTo.value, today = todayKeyInTz(BROWSER_TZ);
-    if (since > until) { var tmp = since; since = until; until = tmp; }
-    if (until > today) until = today;
-    if (since > until) since = until;
-    var trimmed = keyDiffDays(since, until) > PERIOD_MAX_DAYS - 1;
-    if (trimmed) since = shiftKey(until, -(PERIOD_MAX_DAYS - 1));
-    // Meta مبتديش أرقام أقدم من ٣٧ شهراً (ردها نفسه: «(#3018) The start date of the time range cannot be beyond 37 months from
-    // the current date»)، وملخص المتجر بيجيب فترات قبلها بنفس الطول للمقارنة (DX.windows — من ٥ لـ ٩). فترة قريبة من الحد كانت بتفشل
-    // كلها («تعذّر…») من غير ما تقول ليه — فبنقدّم البداية لحد ما الفترة واللي قبلها يدخلوا (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦)
-    var tooOld = false;
-    if (activeSources.meta && window.DX && DX.windows) {
-      var lim = new Date(today + 'T00:00:00Z');
-      lim.setUTCMonth(lim.getUTCMonth() - 37);
-      var oldest = shiftKey(lim.toISOString().slice(0, 10), 1);
-      var ws = DX.windows(since, until, false), first = ws[ws.length - 1].since;
-      if (first < oldest) {
-        var len = keyDiffDays(since, until);
-        since = shiftKey(since, keyDiffDays(first, oldest)); until = shiftKey(since, len);
-        if (until > today) until = today;
-        tooOld = true;
-      }
+    if (!dateFrom.value || !dateTo.value) { showPeriodError(t('period.pickDates')); return; }
+    // الفترة الجاهزة لو أيامها هي اللي في «من/إلى»، وإلا مخصصة (التاريخ اتعدّل بإيده)
+    var pr = pendingPreset !== 'custom' ? resolvePeriodFor(BROWSER_TZ, { preset: pendingPreset }) : null;
+    var custom = !pr || dateFrom.value !== pr.since || dateTo.value !== pr.until ? customPeriodOf(dateFrom.value, dateTo.value) : null;
+    var nextPeriod = custom ? custom.period : { preset: pendingPreset };
+    var nextCompare = { mode: 'prev' };
+    if (cmpCustom.checked) {
+      if (!cmpFrom.value || !cmpTo.value) { showPeriodError(t('period.cmpPickDates')); return; }
+      var cs = cmpFrom.value, cu = cmpTo.value, today = todayKeyInTz(BROWSER_TZ);
+      if (cs > cu) { var tmp = cs; cs = cu; cu = tmp; }
+      if (cu > today) cu = today;
+      if (keyDiffDays(cs, cu) > PERIOD_MAX_DAYS - 1) cs = shiftKey(cu, -(PERIOD_MAX_DAYS - 1));
+      // المقارنة لازم تخلص قبل أول يوم في فترة الملخص (diagnosis.js windowsFor بيرفضها غير كده)
+      var first = dxPeriodFor(BROWSER_TZ, nextPeriod, { mode: 'prev' }).since;
+      if (cu >= first) { showPeriodError(t('period.cmpBefore', { date: fmtKey(first) })); return; }
+      nextCompare = { mode: 'custom', since: cs, until: cu };
     }
-    applyPeriod({ preset: 'custom', since: since, until: until });
-    if (tooOld) setStatus(msg('period.tooOld', { date: function () { return fmtKey(since); } }));
-    else if (trimmed) setStatus(msg('period.trimmed', { n: PERIOD_MAX_DAYS, date: function () { return fmtKey(since); } }));
+    var periodChanged = JSON.stringify(nextPeriod) !== JSON.stringify(period.preset === 'custom' ? period : { preset: period.preset });
+    var compareChanged = JSON.stringify(nextCompare) !== JSON.stringify(compare);
+    closePeriodPanel(true);
+    if (periodChanged) { compare = nextCompare; saveCompare(); applyPeriod(nextPeriod); }
+    else if (compareChanged) applyCompare(nextCompare);
+    if (custom && custom.tooOld) setStatus(msg('period.tooOld', { date: function () { return fmtKey(nextPeriod.since); } }));
+    else if (custom && custom.trimmed) setStatus(msg('period.trimmed', { n: PERIOD_MAX_DAYS, date: function () { return fmtKey(nextPeriod.since); } }));
   });
   syncPeriodUi();
 

@@ -560,6 +560,7 @@
       if (typeof digestAutoRefresh === 'function') digestAutoRefresh(accountId);
       // ملخص المتجر بيبدأ بعد ما الأرقام تظهر (مش قبلها) — عشان طلباته متأخرش الكروت
       loadMetaDiagnosis(accountId, info, live);
+      dxReloaders.meta = function () { if (live()) loadMetaDiagnosis(accountId, info, live); };
       loadLifeFrequency(accountId, source, live);
       loadAdEdits(accountId, source, info.timeZone || BROWSER_TZ, live);
       if (showStopped) stage3();
@@ -1155,9 +1156,11 @@
     for (var i = 0; i < types.length; i++) { var v = valueForType(arr, types[i], true); if (v != null) return v; }
     return 0;
   }
-  // consecutive: الفترة السابقة مباشرةً (الملخص التلقائي بالبريد) بدل نفس أيام الأسبوع اللي قبله
-  function metaDiagnosisInput(accountId, since, until, consecutive) {
-    var ws = DX.windows(since, until, !!consecutive);
+  // opts = { unit, cmp } (وحدة المقارنة وفترة المقارنة المختارة — diagnosis.js windowsFor). المُشغّل القديم بيبعت true
+  // (= الفترة السابقة مباشرةً) وده بقى نفس المعنى الافتراضي من ٣ نوفمبر ٢٠٢٦
+  function metaDiagnosisInput(accountId, since, until, opts) {
+    var o = opts && typeof opts === 'object' ? opts : {};
+    var ws = DX.windows(since, until, { unit: o.unit, cmp: o.cmp });
     var range = function (w) { return JSON.stringify({ since: w.since, until: w.until }); };
     var dailyP = fbPagesPromise('/' + accountId + '/insights', {
       time_range: JSON.stringify({ since: ws[ws.length - 1].since, until: until }), time_increment: 1,
@@ -1196,7 +1199,7 @@
         if (!broken) dims.push({ id: d.id, scope: d.goal ? undefined : 'judged', segs: Object.keys(segs).map(function (k) { return segs[k]; }) });
       });
       return {
-        since: since, until: until, consecutive: !!consecutive,
+        since: since, until: until, unit: o.unit || null, cmp: o.cmp || null,
         daily: daily.data.map(function (row) { var b = dxBundle(row); b.date = row.date_start; return b; }),
         dims: dims
       };
@@ -1260,9 +1263,10 @@
   function loadMetaDiagnosis(accountId, info, live) {
     if (!DX_ON || !window.DX) return;
     var tz = info.timeZone || BROWSER_TZ, p = dxPeriodFor(tz);
-    var key = accountId + '|' + p.since + '|' + p.until;
+    // المفتاح فيه فترة المقارنة كمان: تغييرها بيجيب الملخص من جديد
+    var key = accountId + '|' + p.since + '|' + p.until + '|' + dxCompareKey(p);
     if (!dxBegin('meta', key, info.name || null, 'meta:' + accountId)) return;
-    metaDiagnosisInput(accountId, p.since, p.until).then(function (input) {
+    metaDiagnosisInput(accountId, p.since, p.until, p).then(function (input) {
       if (!live()) return;
       input.currency = info.currency || null;
       input.timezone = tz;

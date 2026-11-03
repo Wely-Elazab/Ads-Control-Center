@@ -14,7 +14,8 @@
 // الفلاتر اللي جوه الدرج والترتيب برّه الرابط لحد المرحلة ٧ (قرار مكتوب في الوثيقة).
 // بيتحمّل بعد ui.js وقبل main.js: الحساب اللي في الرابط لازم يتحط قبل ما main.js يسترجع الجلسة.
 
-  var ROUTE_KEYS = ['meta', 'google', 'snapchat', 'tiktok', 'view', 'list', 'campaign', 'adset', 'ad', 'period', 'since', 'until'];
+  // cmp/csince/cuntil = فترة المقارنة المختارة (٣ نوفمبر ٢٠٢٦) — «الفترة السابقة» الافتراضية من غير معامل
+  var ROUTE_KEYS = ['meta', 'google', 'snapchat', 'tiktok', 'view', 'list', 'campaign', 'adset', 'ad', 'period', 'since', 'until', 'cmp', 'csince', 'cuntil'];
   // شكل رقم الحساب في كل منصة — أي قيمة تانية في الرابط بتتجاهل
   var ROUTE_ACCOUNT_RE = {
     meta: /^act_\d{1,20}$/,
@@ -31,7 +32,7 @@
   function parseRoute(search, today) {
     var q = new URLSearchParams(search || '');
     // الصفحة: الملخص افتراضياً (من غير ?view=) — والروابط القديمة (?view=alerts من رسايل البريد) بتفضل شغّالة
-    var r = { accounts: {}, view: 'summary', list: null, campaign: null, adset: null, ad: null, period: null };
+    var r = { accounts: {}, view: 'summary', list: null, campaign: null, adset: null, ad: null, period: null, compare: null };
     PLATFORMS.forEach(function (p) { var v = q.get(p); if (v && ROUTE_ACCOUNT_RE[p].test(v)) r.accounts[p] = v; });
     var view = q.get('view');
     if (view === 'ads' || view === 'alerts' || view === 'settings') r.view = view;
@@ -46,6 +47,11 @@
     var pr = q.get('period');
     if (pr && pr !== 'custom' && Object.prototype.hasOwnProperty.call(PERIOD_LABELS, pr)) r.period = { preset: pr };
     else if (pr === 'custom') r.period = routeCustomPeriod(q.get('since'), q.get('until'), today || todayKeyInTz(BROWSER_TZ));
+    // فترة مقارنة مخصصة: نفس قواعد الفترة المخصصة (مترتبة، مش في المستقبل، وأقصاها ٩٣ يوم)
+    if (q.get('cmp') === 'custom') {
+      var cp = routeCustomPeriod(q.get('csince'), q.get('cuntil'), today || todayKeyInTz(BROWSER_TZ));
+      if (cp) r.compare = { mode: 'custom', since: cp.since, until: cp.until };
+    }
     return r;
   }
   // نفس قواعد زرار «تطبيق» في الفترة المخصصة (ui.js): مترتبة، مش في المستقبل، وأقصاها PERIOD_MAX_DAYS
@@ -81,6 +87,10 @@
       q.set('period', bits[0]);
       if (bits[0] === 'custom') { q.set('since', bits[1]); q.set('until', bits[2]); }
     }
+    if (parts.compare) {
+      var cb = parts.compare.split(':');
+      q.set('cmp', 'custom'); q.set('csince', cb[0]); q.set('cuntil', cb[1]);
+    }
     var s = q.toString();
     return s ? '?' + s : '';
   }
@@ -114,7 +124,7 @@
     return removed;
   }
   function routeSameExcept(a, b, skip) {
-    return ['accounts', 'view', 'list', 'campaign', 'adset', 'ad', 'period', 'overlay'].every(function (k) {
+    return ['accounts', 'view', 'list', 'campaign', 'adset', 'ad', 'period', 'compare', 'overlay'].every(function (k) {
       return skip.indexOf(k) !== -1 || JSON.stringify(a[k] || null) === JSON.stringify(b[k] || null);
     });
   }
@@ -140,7 +150,8 @@
     return candidates.filter(function (x) { return adsetKey(x) === v || (x.adsetId != null && String(x.adsetId) === v); })[0];
   }
   function routeParts() {
-    var parts = { accounts: {}, view: currentView, list: viewMode === 'ads' ? null : viewMode, campaign: null, adset: null, ad: null, period: routePeriodText(period), overlay: null };
+    var parts = { accounts: {}, view: currentView, list: viewMode === 'ads' ? null : viewMode, campaign: null, adset: null, ad: null, period: routePeriodText(period),
+      compare: compare.mode === 'custom' ? compare.since + ':' + compare.until : null, overlay: null };
     PLATFORMS.forEach(function (p) { var id = routePending.accounts[p] || activeSources[p]; if (id) parts.accounts[p] = id; });
     parts.campaign = filters.campaign ? routeCampaignParam(filters.campaign) : routePending.campaign;
     parts.adset = filters.adset ? routeAdsetParam(filters.adset) : routePending.adset;
@@ -274,6 +285,9 @@
       else routePending.accounts[p] = id;
     });
     if (r.period && routePeriodText(r.period) !== routePeriodText(period)) applyPeriod(r.period);
+    // المقارنة اللي في الرابط (ومن غيرها «الفترة السابقة»)
+    var rc = r.compare || { mode: 'prev' };
+    if (JSON.stringify(rc) !== JSON.stringify(compare)) applyCompare(rc);
     // الحملة أو المجموعة في الرابط = إعلاناتها (إلا لما الرابط نفسه بيقول list=adsets: مجموعات الحملة دي)
     viewMode = routeListMode(r);
     filters.campaign = null; filters.campaignName = null; routePending.campaign = r.campaign;
@@ -304,6 +318,8 @@
       });
       // الفترة من الرابط من غير حفظ: فتح رابط مش اختيار — الفترة المحفوظة بتتغير بس لما المستخدم يختار بنفسه
       if (r.period) { period = r.period; syncPeriodUi(); }
+      // المقارنة من الرابط من غير حفظ (زي الفترة)
+      if (r.compare) { compare = r.compare; syncPeriodUi(); }
       viewMode = routeListMode(r);
       routePending.campaign = r.campaign;
       routePending.adset = r.adset;

@@ -126,6 +126,7 @@
       // الحساب في ملخص المستخدم بالبريد؟ نسخته المحفوظة على الخادم بتتجدد (٦٠ يوم من النهارده) — ui.js digestAutoRefresh
       if (typeof digestAutoRefresh === 'function') digestAutoRefresh(adAccountId, 'snapchat');
       loadSnapchatDiagnosis(adAccountId, payload.account || {}, token);
+      dxReloaders.snapchat = function () { if (isCurrentLoad('snapchat', token)) loadSnapchatDiagnosis(adAccountId, payload.account || {}, token); };
       // صور الفيديوهات الأول (بتبان على الكروت)، وبعدها سجل التعديلات — ورا بعض عشان حد سرعة Snapchat (١٠ في الثانية للمفتاح)
       loadSnapchatThumbs(adAccountId, token).then(function () { return loadSnapchatCatalog(adAccountId, token); }).then(function () {
         loadSnapchatEdits(adAccountId, (payload.account && payload.account.timezone) || BROWSER_TZ, token);
@@ -140,8 +141,8 @@
   // السيرفر (action=diagnosis في api/snapchat-ads-fetch.js) بيرجّع أرقام محرك التشخيص. لم يُختبر على حساب حقيقي بعد
   function loadSnapchatDiagnosis(adAccountId, account, token) {
     if (!DX_ON || !window.DX) return;
-    var tz = account.timezone || BROWSER_TZ, p = dxPeriodFor(tz), ws = DX.windows(p.since, p.until);
-    var key = adAccountId + '|' + p.since + '|' + p.until;
+    var tz = account.timezone || BROWSER_TZ, p = dxPeriodFor(tz), ws = DX.windows(p.since, p.until, { unit: p.unit, cmp: p.cmp });
+    var key = adAccountId + '|' + p.since + '|' + p.until + '|' + dxCompareKey(p);
     var opt = (platformOptions.snapchat || []).filter(function (o) { return o.value === adAccountId; })[0];
     var name = opt ? String(opt.label).replace(/^Snapchat — /, '') : adAccountId;
     if (!dxBegin('snapchat', key, name, 'snapchat:' + adAccountId)) return;
@@ -153,7 +154,7 @@
       if (!isCurrentLoad('snapchat', token)) return;
       if (isAuthFailure(res)) { markExpired('snapchat'); dxFail('snapchat', key, null); return; }
       if (!res.ok || !res.data || res.data.error) { dxFail('snapchat', key, res.data); return; }
-      dxDone('snapchat', key, { since: p.since, until: p.until, currency: account.currency || null, timezone: tz,
+      dxDone('snapchat', key, { since: p.since, until: p.until, unit: p.unit, cmp: p.cmp, currency: account.currency || null, timezone: tz,
         daily: res.data.daily || [], dims: res.data.dims || [] });
     }).catch(function (err) { dxFail('snapchat', key, err); });
   }
