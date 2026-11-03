@@ -7272,6 +7272,60 @@
       eq(e.days, null, 'the card period');
     });
 
+    // ---------- تغيّر آخر الأيام (طلب صاحب المنتج ٣ نوفمبر ٢٠٢٦) ----------
+    // إعلانات مبيعات متشابهة عشان يبقى في متوسط ومقارنة — من غير ما تطلّع تنبيه تكلفة على الإعلان اللي بنختبره
+    var salesPeer = function (id, v) { return a8(id, { daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [2, 2, 2, 2, 2, 2, 2, 1], sales: [v, v, v, v, v, v, v, v / 2] }); };
+    test('تراجع آخر ٣ أيام: الحكم يبقى «جيد» على الأسبوع كله، ومعاه وسم وجملة بالأرقام وتنبيه المبيعات المتأخرة', function () {
+      var X = a8('tr1', { daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [2, 2, 2, 2, 2, 2, 2, 1], sales: [500, 500, 500, 500, 300, 300, 300, 150] });
+      var r = withLang('ar', function () { return engine([X, salesPeer('trp1', 450)]); });
+      var a = r.byAd.tr1;
+      eq(a.health, 'good', 'العائد ×٤ للأسبوع والمستهدف ×٣ — الحكم ما اتغيّرش');
+      eq(a.trendTag && [a.trendTag.dir, a.trendTag.days], ['down', 3]);
+      ok(/وعائده في آخر ٣ أيام ×٣ مقابل ×٥ في أيام الأسبوع السابقة لها\./.test(a.basis), a.basis);
+      ok(/وبعض المبيعات تُسجَّل متأخرة/.test(a.basis) && a.trendTag.note.indexOf('وعائده') === 0, a.trendTag.note);
+    });
+    test('تحسّن آخر ٣ أيام: وسم تحسّن من غير جملة المبيعات المتأخرة (التأخير بيأثر في التراجع بس)', function () {
+      var X = a8('tr2', { daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [2, 2, 2, 2, 2, 2, 2, 1], sales: [300, 300, 300, 300, 500, 500, 500, 250] });
+      var r = withLang('ar', function () { return engine([X, salesPeer('trp2', 450)]); });
+      var a = r.byAd.tr2;
+      eq(a.trendTag && a.trendTag.dir, 'up');
+      ok(/وعائده في آخر ٣ أيام ×٥ مقابل ×٣ في أيام الأسبوع السابقة لها\./.test(a.basis), a.basis);
+      ok(!/تُسجَّل متأخرة/.test(a.basis), a.basis);
+    });
+    test('أقل من ٢٠٪ فرق: مفيش وسم — الحد نفسه اللي الأداة بتنتبه بيه (قرار ١٠ أكتوبر)', function () {
+      var X = a8('tr3', { daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [2, 2, 2, 2, 2, 2, 2, 1], sales: [500, 500, 500, 500, 450, 450, 450, 225] });
+      var r = withLang('ar', function () { return engine([X, salesPeer('trp3', 450)]); });
+      eq(r.byAd.tr3.trendTag, null, 'العائد ×٤٫٥ مقابل ×٥ = ١٠٪');
+    });
+    test('إعلان عُدّل جوه آخر ٤ أيام: سطر «بعده مقابل قبله» بس من غير وسم — الاتنين على نفس الأيام', function () {
+      var X = a8('tr4', { daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [2, 2, 2, 2, 2, 2, 2, 1], sales: [500, 500, 500, 500, 300, 300, 300, 150],
+        edits: [{ date: K8[3], level: 'ad', kind: 'budget', from: 20000, to: 10000 }] });
+      var r = withLang('ar', function () { return engine([X, salesPeer('trp4', 450)]); });
+      eq(r.byAd.tr4.trendTag, null, 'التعديل بيكسب');
+      ok(/العائد بعده/.test(r.byAd.tr4.basis), r.byAd.tr4.basis);
+    });
+    test('إعلان مش مبيعات: المقياس تكلفة النتيجة، وغلاها آخر ٣ أيام = تراجع', function () {
+      var peers = [a8('trp5a', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [4, 4, 4, 4, 4, 4, 4, 2] }),
+        a8('trp5b', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [4, 4, 4, 4, 4, 4, 4, 2] })];
+      var X = a8('tr5', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [4, 4, 4, 4, 2, 2, 2, 1] });
+      var r = withLang('ar', function () { return engine(peers.concat([X])); });
+      var a = r.byAd.tr5;
+      eq(a.trendTag && a.trendTag.dir, 'down');
+      ok(/وتكلفة كل عميل محتمل في آخر ٣ أيام ٥٠ ر\.س مقابل ٢٥ ر\.س في أيام الأسبوع السابقة لها\./.test(a.basis), a.basis);
+      ok(/وبعض النتائج تُسجَّل متأخرة/.test(a.basis), a.basis);
+    });
+    test('جانب صرف أقل من تكلفة نتيجة واحدة، أو إعلان في التعلّم: مفيش وسم', function () {
+      var peers = [a8('trp6a', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [4, 4, 4, 4, 4, 4, 4, 2] }),
+        a8('trp6b', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [4, 4, 4, 4, 4, 4, 4, 2] })];
+      // تكلفة النتيجة عند الباقي ٢٥، وآخر ٣ أيام صرفوا ٦ — أقل من نتيجة واحدة، فالفرق فلوسه مش مؤثرة
+      var small = a8('tr6', { key: 'lead', daily: [100, 100, 100, 100, 2, 2, 2, 1], res: [4, 4, 4, 4, 1, 1, 1, 0] });
+      eq(withLang('ar', function () { return engine(peers.concat([small])); }).byAd.tr6.trendTag, null, 'إنفاق أقل من تكلفة نتيجة');
+      // a8 مبيمرّرش العمر، فبنحطه على الإعلان نفسه
+      var young = a8('tr7', { key: 'lead', daily: [100, 100, 100, 100, 100, 100, 100, 50], res: [4, 4, 4, 4, 2, 2, 2, 1] });
+      young.daysAgo = 2;
+      eq(withLang('ar', function () { return engine(peers.concat([young])); }).byAd.tr7.trendTag, null, 'في التعلّم');
+    });
+
     test('تركيز الميزانية: «أقل أداءً» = حكم الإعلان نفسه — أفضل إعلان مبيعات (×٤، «جيد») مبيطلعش عليه', function () {
       var X = a8('X', { daily: [86, 86, 86, 86, 86, 86, 84, 40], res: [2, 1, 2, 1, 2, 1, 1, 0], sales: [343, 343, 343, 343, 343, 343, 342, 0] });
       var Y = a8('Y', { daily: [57, 57, 57, 57, 57, 57, 58, 20], res: [2, 2, 2, 2, 2, 1, 1, 0], sales: [143, 143, 143, 143, 143, 143, 142, 0] });
@@ -8586,6 +8640,27 @@
         f.remove();
       }).then(restore, function (e) { restore(); throw e; });
     });
+    // وسم تغيّر الأيام على شاشة الهاتف وباللغتين (القاعدة الثابتة: كل تفصيلة على الموبايل والديسكتوب وباللغتين). ووسم التعديل
+    // ووسم التغيّر مبيظهروش مع بعض أبداً: وسم التعديل لأقل من ٣ أيام مكتملة بعده، والتغيّر بيسكت في نفس الأيام دي
+    ['ar', 'en'].forEach(function (lang) {
+      testAsync('الهاتف ' + lang + ': وسم تغيّر الأيام جوه الكارت من غير تمرير جانبي', function () {
+        var restore = keepLang(lang);
+        return sized(375, 812, '&view=ads').then(function (f) {
+          var w = f.contentWindow, d = f.contentDocument;
+          w.candidates = [ad('tm1', { key: 'lead', daily: steady(100), res: [4, 4, 4, 2, 2, 2, 0] }),
+            ad('tmp1', { key: 'lead', daily: steady(100), res: steady(4) }),
+            ad('tmp2', { key: 'lead', daily: steady(100), res: steady(4) })];
+          w.render();
+          var card = d.getElementById('card-tm1'), chip = card && card.querySelector('.trend-tag.trend-down');
+          ok(chip, 'the tag is on the card');
+          var cb = box(card), tb = box(chip);
+          ok(tb.l >= cb.l - 1 && tb.r <= cb.r + 1 && tb.h > 0, 'inside the card: ' + JSON.stringify(tb) + ' in ' + JSON.stringify(cb));
+          eq(d.documentElement.scrollWidth - d.documentElement.clientWidth, 0, 'no sideways scroll');
+          ok(!card.querySelector('.edit-tag'), 'the two tags never show together');
+          f.remove();
+        }).then(restore, function (e) { restore(); throw e; });
+      });
+    });
     testAsync('كل قسم صفحة لوحدها: الضغط في القائمة بيعرض صفحته بس، والإعدادات فيها الربط والتنبيهات والمظهر واللغة والخروج', function () {
       return sized(1200, 800).then(function (f) {
         var w = f.contentWindow, d = f.contentDocument;
@@ -8803,6 +8878,24 @@
         ok(tag && ov.innerText.indexOf(basis) > -1 && ov.innerText.indexOf(tag.what) > -1, basis + ' | ' + ov.innerText.slice(0, 200));
         // والكارت وراها عليه الوسم
         ok(d.querySelector('#card-d1 .edit-tag'), 'tag on the card');
+        f.remove();
+      });
+    });
+    // وسم تغيّر آخر الأيام (٣ نوفمبر ٢٠٢٦): على الكارت بتلميحه، وجنب الحكم في التفاصيل، والجملة جوه أساس الحكم
+    testAsync('تراجع آخر ٣ أيام: وسم على الكارت وجنب الحكم، والجملة بالأرقام في التفاصيل', function () {
+      return frame('&ad=tu1').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, ov = d.getElementById('expandOverlay');
+        // تكلفة العميل المحتمل عند الباقي ٢٥، وعند ده ٢٥ في أول ٣ أيام و٥٠ في آخر ٣ = تراجع ٥٠٪
+        w.candidates = [ad('tu1', { key: 'lead', daily: steady(100), res: [4, 4, 4, 2, 2, 2, 0] }),
+          ad('tup1', { key: 'lead', daily: steady(100), res: steady(4) }),
+          ad('tup2', { key: 'lead', daily: steady(100), res: steady(4) })];
+        w.render();
+        var tt = w.adAnalysis(w.candidates[0]).trendTag;
+        eq(tt && tt.dir, 'down');
+        var chip = d.querySelector('#card-tu1 .trend-tag.trend-down');
+        ok(chip && chip.title === tt.note, chip ? chip.title : 'no chip on the card');
+        ok(d.querySelector('#expandHealth .trend-tag.trend-down'), 'tag next to the verdict');
+        ok(!ov.classList.contains('hidden') && ov.innerText.indexOf(tt.note) > -1, ov.innerText.slice(0, 300));
         f.remove();
       });
     });

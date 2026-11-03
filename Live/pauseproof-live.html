@@ -155,6 +155,10 @@
   .card-stat.mv-opportunity { background: var(--verified-bg); border-color: var(--verified); } .card-stat.mv-opportunity .card-stat-v { color: var(--verified); }
   .days-badge { font-size: 11px; color: var(--ink-faint); font-weight: 500; }
   .edit-tag { font-size: 11px; font-weight: 600; color: var(--ink-soft); background: var(--paper); border: 1px dashed var(--ink-faint); padding: 2px 8px; border-radius: 999px; overflow-wrap: anywhere; }
+  /* وسم تغيّر آخر الأيام: أخضر للتحسّن، وكهرماني للتراجع — مش أحمر، عشان ميبانش زي «يحتاج مراجعة» وهو ملاحظة مش حكم */
+  .trend-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+  .trend-tag.trend-up { color: var(--verified); background: var(--verified-bg); border-color: color-mix(in srgb, var(--verified) 45%, var(--line)); }
+  .trend-tag.trend-down { color: var(--pending); background: var(--pending-bg); border-color: color-mix(in srgb, var(--pending) 45%, var(--line)); }
   .ghost-btn { background: transparent; border: 1px solid var(--line); color: var(--ink); border-radius: 9px; padding: 11px 16px; font-size: 13.5px; font-weight: 500; font-family: inherit; cursor: pointer; }
   .ghost-btn:hover { border-color: var(--ink-faint); background: var(--paper); }
 

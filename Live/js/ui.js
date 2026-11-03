@@ -693,6 +693,14 @@
   // نفس الاسم بس مظبوط على العدد: "١ عملية شراء" / "٥ مشتريات" / "١٥ تحويلاً" / "1 purchase"
   function resultNounOf(c, n) { return I18N.resultNoun(n, c.resultKey); }
 
+  // وسم تغيّر آخر الأيام (alerts.js trendTag): ▲/▼ مش سهم مايل — السهم المايل بيتقلب مع اتجاه الكتابة، والمثلث لأ
+  function trendTagHtml(a, inX) {
+    var tt = a.trendTag;
+    if (!tt) return '';
+    var label = t('tag.trend.' + tt.dir, { n: ar(tt.days) + ' ' + noun(tt.days, 'n.day') });
+    return (inX ? ' ' : '') + '<span class="trend-tag trend-' + tt.dir + '"' + (inX ? '' : ' title="' + esc(tt.note) + '"') + '>' +
+      (tt.dir === 'up' ? '▲' : '▼') + ' ' + esc(label) + '</span>';
+  }
   function cardChips(c) {
     // الأرقام للفترة المختارة. تلوين المشكلة (اللي جاي من تنبيهات آخر ٧ أيام) بيظهر بس لما الفترة
     // هي نفسها آخر ٧ أيام — عشان رقم ٣٠ يوم ميتلوّنش أحمر بسبب حاجة حصلت أمس بس
@@ -760,6 +768,8 @@
             '<span class="days-badge">' + sinceLabel(c.daysAgo) + '</span>' +
             // وسم التعديل الحديث (٣ أيام كاملة بعده) أيّاً كان الحكم — قرار صاحب المنتج ٢٥ أكتوبر. اللي اتعدّل في التلميح وفي التفاصيل
             (a.editTag ? '<span class="edit-tag" title="' + esc(a.editTag.what) + '">' + esc(t('tag.edited', { when: a.editTag.when })) + '</span>' : '') +
+            // تحسّن أو تراجع آخر ٣ أيام مكتملة أيّاً كان حكم الأسبوع (طلب صاحب المنتج ٣ نوفمبر) — الجملة في التفاصيل وفي التلميح
+            trendTagHtml(a) +
             '<span class="status-text' + (c.active ? ' on' : '') + '">' + statusLabelOf(c) + '</span>' +
           '</div>' +
         '</div>' +
@@ -2940,7 +2950,9 @@
     // الحكم + أساسه («عائده ×٤ والمستهدف ×٣…» أو سبب «لم يُحكم بعد») + الفترة اللي اتبنى عليها
     document.getElementById('expandHealth').innerHTML = '<span class="health-badge ' + h.cls + '"><span class="health-dot-inline"></span>' + h.label + '</span>' +
       (a.editTag ? ' <span class="edit-tag">' + esc(t('x.editTag', { when: a.editTag.when, what: a.editTag.what })) + '</span>' : '') +
-      (a.basis ? '<p class="health-basis">' + esc(a.basis) + '</p>' : '') +
+      trendTagHtml(a, true) +
+      // جملة المقارنة جوه أساس الحكم (alerts.js basis)، ولو مفيش أساس حكم تبان لوحدها عشان متضيعش
+      (a.basis ? '<p class="health-basis">' + esc(a.basis) + '</p>' : (a.trendTag ? '<p class="health-basis">' + esc(a.trendTag.note) + '</p>' : '')) +
       // الإعلان المتعدَّل بيتحكم عليه بالأيام اللي بعد التعديل بس (alerts.js days) — كان مكتوب «آخر ٧ أيام» تحت سطر بيقول «آخر ٣ أيام»
       (c.active ? '<p class="health-period">' + esc(a.days ? t('x.basisPeriodEdit', { n: ar(a.days) + ' ' + noun(a.days, 'n.day') }) : t('x.basisPeriod')) + '</p>' : '');
     // سطر "حالة الظهور": التقييم بتاعنا + سبب المنصة نفسه لو موجود + الحالة الخام —

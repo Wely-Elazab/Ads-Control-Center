@@ -1134,6 +1134,40 @@
       basis += t(c.setLearns ? 'basis.relearn' : 'basis.relearnShare',
         { when: newSib === 0 ? t('edit.when.0') : (newSib === 1 ? t('edit.when.1') : t('edit.when.n', { days: daysText(newSib, fmt) })) });
     }
+    // تغيّر آخر الأيام (طلب صاحب المنتج ٣ نوفمبر ٢٠٢٦: «إعلان أداؤه جيد لفترة ثم انخفض بفرق كبير آخر يومين يظل الحكم على الفترة
+    // كاملة أنه جيد»): الحكم على الأسبوع كله زي ما هو، ومعاه وسم على الكارت وجملة في أساس الحكم. ٣ أيام مكتملة مش يومين — نفس
+    // نافذة «آخر ٣ أيام» اللي المحرّك بيحكم بيها أصلاً (waste3 وroas-drop وloss3 وفرصة التوسيع) فمفيش وسم بيناقض تنبيه، ويومين =
+    // ٢٩٪ من بيانات الأسبوع مقابل ٤٣٪، والنتائج بتتسجّل متأخرة فالتراجع الكاذب أكتر. المقياس: العائد لإعلان المبيعات (الربح أولاً)
+    // وتكلفة النتيجة لغيره، وكل جانب لازم يكون صرف تكلفة نتيجة واحدة (R) على الأقل — أقل من كده الفرق فلوسه مش مؤثرة
+    var trendTag = null;
+    // إعلان عُدّل في آخر ٤ أيام عنده «بعده مقابل قبله» على نفس الأيام تقريباً، والاتنين مع بعض بيتناقضوا فالتعديل بيكسب. وإعلان في
+    // التعلّم أو مجموعته رجعت للتعلّم أرقام أيامه غير مستقرة أصلاً (الجملتين فوق)
+    if (c.active && !learning && !reLearn && R > 0 && !(edit && edit.idx >= RECENT3 - 1)) {
+      var nS = sum(daily, RECENT3, YESTERDAY), pS = sum(daily, 0, RECENT3 - 1);
+      var nR = sum(results, RECENT3, YESTERDAY), pR = sum(results, 0, RECENT3 - 1);
+      var nV = sum(sales, RECENT3, YESTERDAY), pV = sum(sales, 0, RECENT3 - 1);
+      var trDays = YESTERDAY - RECENT3 + 1, trRatio = null, trTxt = '';
+      if (nS >= R && pS >= R) {
+        if (profitAd && pV > 0 && nR + pR >= 2) {
+          var nRoas = nV / nS, pRoas = pV / pS;
+          trRatio = nRoas / pRoas;
+          trTxt = t('basis.trend.roas', { n: daysText(trDays, fmt), after: fmt.num(nRoas), before: fmt.num(pRoas) });
+        } else if (!profitAd && nR > 0 && pR > 0) {
+          // صفر نتائج في آخر ٣ أيام عليه تنبيهه الخاص أصلاً («دون أي نتيجة») — الوسم للمقارنة اللي الجانبين فيها نتائج
+          // وغلا التكلفة = تراجع، فالنسبة مقلوبة عشان «أكبر من ١» تبقى تحسّن في الحالتين
+          var nCpr = nS / nR, pCpr = pS / pR;
+          trRatio = pCpr / nCpr;
+          trTxt = t('basis.trend.cpr', { one: one, n: daysText(trDays, fmt), after: money(nCpr), before: money(pCpr) });
+        }
+      }
+      if (trRatio != null && (trRatio >= 1.2 || trRatio <= 0.8)) {
+        var trDir = trRatio >= 1.2 ? 'up' : 'down';
+        // التراجع: النتائج المتأخرة بتخلّي أحدث الأيام تبان أقل من حقيقتها، فبنقول كده مع التراجع بس
+        var trLate = trDir === 'down' ? t(profitAd ? 'basis.trend.lateSales' : 'basis.trend.lateRes') : '';
+        trendTag = { dir: trDir, days: trDays, note: (trTxt + trLate).replace(/^\s+/, '') };
+        if (basis) basis += trTxt + trLate;
+      }
+    }
     // ألوان أرقام الكارت (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «كل النص رمادي وأسود»): أخضر/أحمر خفيف على العائد مقارنةً
     // بالمستهدف وحد الخسارة لإعلان المبيعات (الربح أولاً)، وعلى تكلفة النتيجة مقارنةً بمتوسط الحساب لغيره (±١٥٪) —
     // بس للإعلان اللي اتحكم عليه فعلاً (مش «لم يُحكم بعد» ولا متوقف)
@@ -1164,6 +1198,8 @@
     out.days = weekStart ? YESTERDAY - weekStart + 1 : null;
     // وسم «عُدّل أمس» على الكارت وفي التفاصيل (ui.js) — { when, what }، أو null
     out.editTag = editTag;
+    // وسم «تراجع آخر ٣ أيام» أو «تحسّن» على الكارت وفي التفاصيل (ui.js) — { dir, days, note }، أو null
+    out.trendTag = trendTag;
     return out;
   }
 
