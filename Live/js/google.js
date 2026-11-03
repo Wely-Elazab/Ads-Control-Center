@@ -460,7 +460,8 @@
         campaignLevel: true,
         reviewStatus: null, frequency: null,
         placement: 'Performance Max',
-        campaignId: String(campId), campaignName: camp.name || null, adsetName: null, adGroupId: null,
+        // Performance Max مفيهاش مجموعات إعلانية — كارت واحد على مستوى الحملة (عرض المجموعات بيوضّحه كذلك)
+        campaignId: String(campId), campaignName: camp.name || null, adsetName: null, adGroupId: null, adsetId: null,
         nativeId: String(campId),
         format: 'pmax', thumbUrl: null,
         headline: name, desc: '', offer: name, caption: '',
@@ -543,7 +544,10 @@
         campaignId: ggPick(row, 'campaign.id') || null,
         campaignName: ggPick(row, 'campaign.name') || null,
         adsetName: ggPick(row, 'adGroup.name') || null,
+        // Google بيسمّيها adGroup — بتتوحّد على adsetId زي باقي المنصات (التجميع بالمجموعات، ودمج تنبيهات المجموعة
+        // في المحرّك). adGroupId بيفضل زي ما هو: رابط Google Ads نفسه بيستعمله
         adGroupId: ggPick(row, 'adGroup.id') || null,
+        adsetId: ggPick(row, 'adGroup.id') || null,
         nativeId: ad.id || null,
         format: (ad.type && /VIDEO/i.test(ad.type)) ? 'video' : ((ad.type && /IMAGE/i.test(ad.type)) ? 'image' : 'text'),
         thumbUrl: ggPick(ad, 'imageAd.imageUrl') || null,

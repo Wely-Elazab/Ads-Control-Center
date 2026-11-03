@@ -598,6 +598,16 @@
     });
   });
 
+  // TikTok: نفس التوحيد (٣ نوفمبر ٢٠٢٦) — adgroup_id مطلوب أصلاً في حقول الطلب (api/tiktok-ads-fetch.js adFields)
+  describe('TikTok — المجموعة الإعلانية', function () {
+    test('رقم المجموعة واسمها بيتوحّدوا على adsetId وadsetName', function () {
+      var rows = [{ ad_id: '9', ad_name: 'T', campaign_id: '3', campaign_name: 'C', adgroup_id: '77', adgroup_name: 'AG',
+        operation_status: 'ENABLE', ad_format: 'SINGLE_VIDEO' }];
+      var c = transformTikTokAds(rows, [], DAYS_X, 'SAR', null)[0];
+      eq([c.adsetId, c.adsetName, c.campaignId], ['77', 'AG', '3']);
+    });
+  });
+
   // «الأقرب للمتجر» في Google (قرار ٦ أكتوبر ٢٠٢٦): التحويلات بعد نقرة على الإعلان وخلال ٧ أيام منها، جنب رقم المنصة
   describe('أرقام Google — الأقرب للمتجر', function () {
     var M = 1000000;
@@ -610,6 +620,9 @@
 
     test('الأرقام الأساسية = «الأقرب للمتجر»، ورقم المنصة جنبها', function () {
       var c = transformGoogleRows(adRows, plat, DAYS_X, 'SAR', null, store, null)[0];
+      // توحيد المستوى الأوسط (٣ نوفمبر ٢٠٢٦): Google تسمّيها adGroup — بتتوحّد على adsetId زي Meta وSnapchat،
+      // وadGroupId بيفضل زي ما هو لأن رابط Google Ads نفسه بيستعمله
+      eq([c.adsetId, c.adGroupId, c.adsetName], ['7', '7', 'AG'], 'the ad group is adsetId too');
       eq([c.results, c.dailySales[5] + c.dailySales[6], c.spend, c.resultKey], [9, 900, 150, 'conversion']);
       eq(c.plat, { results: 14, sales: 1400 });
       var pp = platOf(c);
@@ -8447,13 +8460,16 @@
   describe('الروابط وزرار الرجوع', function () {
     test('قراءة الرابط: أرقام الحسابات بشكلها الصحيح بس، والقيم الغريبة بتتشال', function () {
       var r = parseRoute('?meta=act_123&google=1234567890&snapchat=0a1b2c3d-0000-4000-8000-1234567890ab&tiktok=7012345678901234567' +
-        '&view=alerts&list=campaigns&campaign=c9&ad=120210&period=last30', '2026-10-11');
+        '&view=alerts&list=campaigns&campaign=c9&adset=a7&ad=120210&period=last30', '2026-10-11');
       eq(r, { accounts: { meta: 'act_123', google: '1234567890', snapchat: '0a1b2c3d-0000-4000-8000-1234567890ab', tiktok: '7012345678901234567' },
-        view: 'alerts', list: 'campaigns', campaign: 'c9', ad: '120210', period: { preset: 'last30' } });
+        view: 'alerts', list: 'campaigns', campaign: 'c9', adset: 'a7', ad: '120210', period: { preset: 'last30' } });
       eq(parseRoute('?meta=123&google=12-34&snapchat=x&tiktok=abc&view=x&list=x&ad=%3Cscript%3E&period=forever', '2026-10-11'),
-        { accounts: {}, view: 'summary', list: null, campaign: null, ad: null, period: null });
+        { accounts: {}, view: 'summary', list: null, campaign: null, adset: null, ad: null, period: null });
       eq(['ads', 'alerts', 'settings', 'summary'].map(function (v) { return parseRoute('?view=' + v, '2026-10-11').view; }), ['ads', 'alerts', 'settings', 'summary'], 'the four pages');
       eq(parseRoute('?campaign=' + new Array(302).join('x'), '2026-10-11').campaign, null, 'very long campaign value');
+      // المستوى الأوسط (٣ نوفمبر ٢٠٢٦): list=adsets مقبول، وأي قيمة تانية بتتشال
+      eq(['ads', 'adsets', 'campaigns', 'sets'].map(function (v) { return parseRoute('?list=' + v, '2026-10-11').list; }), ['ads', 'adsets', 'campaigns', null], 'the three levels');
+      eq(parseRoute('?adset=' + new Array(302).join('x'), '2026-10-11').adset, null, 'very long ad set value');
     });
     test('الفترة المخصصة في الرابط: مترتبة، مش في المستقبل، وأقصاها ٩٣ يوم — زي زرار «تطبيق»', function () {
       eq(parseRoute('?period=custom&since=2026-10-09&until=2026-10-01', '2026-10-11').period, { preset: 'custom', since: '2026-10-01', until: '2026-10-09' }, 'reversed');
@@ -8640,6 +8656,29 @@
         f.remove();
       }).then(restore, function (e) { restore(); throw e; });
     });
+    // التبويبات التلاتة على شاشة الهاتف وباللغتين (القاعدة الثابتة): الصف بيلفّ، ومفيش تمرير جانبي، والتلاتة بيتضغطوا
+    ['ar', 'en'].forEach(function (lang) {
+      testAsync('الهاتف ' + lang + ': تبويبات الإعلانات والمجموعات والحملات التلاتة داخل الشاشة', function () {
+        var restore = keepLang(lang);
+        return sized(375, 812, '&view=ads').then(function (f) {
+          var w = f.contentWindow, d = f.contentDocument;
+          w.candidates = [ad('t1', { daily: steady(10), res: steady(1) })];
+          w.render();
+          var btns = [].slice.call(d.querySelectorAll('#viewSwitch [data-mode]'));
+          eq(btns.map(function (b) { return b.dataset.mode; }), ['ads', 'adsets', 'campaigns'], 'the hierarchy in order');
+          btns.forEach(function (b) {
+            var r = box(b);
+            ok(r.w >= 44 && r.h >= 28 && r.l >= 0 && r.r <= d.documentElement.clientWidth, b.dataset.mode + ': ' + JSON.stringify(r));
+          });
+          eq(d.documentElement.scrollWidth - d.documentElement.clientWidth, 0, 'no sideways scroll');
+          btns[1].click();
+          return sleep(30).then(function () {
+            eq([w.viewMode, btns[1].getAttribute('aria-pressed')], ['adsets', 'true'], 'the middle tab switches the view');
+            f.remove();
+          });
+        }).then(restore, function (e) { restore(); throw e; });
+      });
+    });
     // وسم تغيّر الأيام على شاشة الهاتف وباللغتين (القاعدة الثابتة: كل تفصيلة على الموبايل والديسكتوب وباللغتين). ووسم التعديل
     // ووسم التغيّر مبيظهروش مع بعض أبداً: وسم التعديل لأقل من ٣ أيام مكتملة بعده، والتغيّر بيسكت في نفس الأيام دي
     ['ar', 'en'].forEach(function (lang) {
@@ -8810,6 +8849,91 @@
         kept.click();
         return sleep(30).then(function () {
           eq(w.visibleCandidates().map(function (c) { return c.id; }).sort(), ['gone', 'live'], 'a campaign opens on all its ads');
+          f.remove();
+        });
+      });
+    });
+    // ---------- المجموعات الإعلانية (٣ نوفمبر ٢٠٢٦): المستوى الأوسط زي المنصات ----------
+    var withSet = function (id, sid, sname, spend, o) {
+      var c = ad(id, Object.assign({ daily: steady(spend), res: steady(1), cid: 'c7', camp: 'Autumn' }, o || {}));
+      c.adsetId = sid; c.adsetName = sname;
+      return c;
+    };
+    var sumSpend = function (list) { return list.reduce(function (n, g) { return n + g.spend; }, 0); };
+    testAsync('عرض المجموعات: كارت لكل مجموعة باسم حملتها، ومجموعها = مجموع الحملات، واللي بلا مجموعة تحت حملتها', function () {
+      return frame('&view=ads&list=adsets').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        var pmax = ad('pm', { daily: steady(5), res: steady(1), cid: 'c9', camp: 'PMax' });
+        // ad() بيحط adsetName لكل إعلان — وPerformance Max مفيهاش مجموعات خالص
+        pmax.campaignLevel = true; pmax.adsetId = null; pmax.adsetName = null;
+        w.candidates = [withSet('a1', 's1', 'Set A', 10), withSet('a2', 's1', 'Set A', 20), withSet('a3', 's2', 'Set B', 30), pmax];
+        w.render();
+        var cards = [].slice.call(d.querySelectorAll('.campaign-card'));
+        eq(cards.length, 3, 'Set A + Set B + the campaign with no ad sets');
+        var byText = function (txt) { return cards.filter(function (el) { return el.textContent.indexOf(txt) > -1; })[0]; };
+        var a = byText('Set A');
+        ok(a && a.textContent.indexOf(w.money(210, 'SAR')) > -1, a ? a.textContent : 'no Set A card');
+        ok(a.textContent.indexOf('Autumn') > -1, 'the parent campaign is on the card');
+        var pmCard = byText('PMax');
+        ok(pmCard && pmCard.textContent.indexOf(w.t('adset.none')) > -1, pmCard ? pmCard.textContent : 'no PMax card');
+        // كل إعلان في مجموعة واحدة بالظبط: مجموع عرض المجموعات = مجموع عرض الحملات (Kimball)
+        var ads = w.visibleCandidates(true);
+        eq(sumSpend(w.groupAdsets(ads)), sumSpend(w.groupCampaigns(ads)), 'the totals match the campaigns view');
+        f.remove();
+      });
+    });
+    // مفتاح المجموعة: الرقم أولاً، وبعده الاسم جوه حملته (TikTok مبيرجّعش رقم المجموعة) — وإلا الحملة نفسها
+    testAsync('مجموعتان بنفس الاسم في نفس الحملة: الرقم هو اللي بيفرّق، ومن غير رقم الاسم', function () {
+      return frame('&view=ads&list=adsets').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        w.candidates = [withSet('d1', 's1', 'Same', 10), withSet('d2', 's2', 'Same', 20)];
+        w.render();
+        eq(d.querySelectorAll('.adset-card').length, 2, 'two ids, two cards');
+        // من غير رقم (TikTok): الاسم جوه الحملة
+        var x = withSet('e1', null, 'Left', 10), y = withSet('e2', null, 'Right', 20);
+        w.candidates = [x, y];
+        w.render();
+        eq(d.querySelectorAll('.adset-card').length, 2, 'no ids: told apart by name');
+        y.adsetName = 'Left';
+        w.render();
+        eq(d.querySelectorAll('.adset-card').length, 1, 'no ids and the same name: one card');
+        f.remove();
+      });
+    });
+    testAsync('فتح مجموعة خطوة: إعلاناتها بس، ورقمها في الرابط، والرجوع بيرجّع قايمة المجموعات', function () {
+      return frame('&view=ads&list=adsets').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        w.candidates = [withSet('a1', 's1', 'Set A', 10), withSet('a2', 's2', 'Set B', 30)];
+        w.render();
+        var cards = [].slice.call(d.querySelectorAll('.adset-card'));
+        eq(cards.length, 2, 'two ad set cards');
+        cards.filter(function (el) { return el.textContent.indexOf('Set A') > -1; })[0].click();
+        return sleep(30).then(function () {
+          eq([w.viewMode, param(w, 'adset'), param(w, 'list'), param(w, 'view')], ['ads', 's1', null, 'ads']);
+          eq(w.visibleCandidates().map(function (c) { return c.id; }), ['a1'], 'only its ads');
+          ok(d.getElementById('activeFilters').textContent.indexOf('Set A') > -1, 'a removable chip names the ad set');
+          return go(w, 'back');
+        }).then(function () {
+          eq([w.viewMode, w.filters.adset, param(w, 'list')], ['adsets', null, 'adsets']);
+          f.remove();
+        });
+      });
+    });
+    testAsync('كارت الحملة: زرار المجموعات بيفتح مجموعاتها بس، ومبيظهرش لحملة فيها مجموعة واحدة', function () {
+      return frame('&view=ads&list=campaigns').then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        var one = withSet('b1', 's9', 'Only', 10, { cid: 'c8', camp: 'Single' });
+        w.candidates = [withSet('a1', 's1', 'Set A', 10), withSet('a3', 's2', 'Set B', 30), one];
+        w.render();
+        var cards = [].slice.call(d.querySelectorAll('.campaign-card'));
+        var byText = function (txt) { return cards.filter(function (el) { return el.textContent.indexOf(txt) > -1; })[0]; };
+        ok(!byText('Single').querySelector('[data-campaign-sets]'), 'one ad set: no extra step');
+        var btn = byText('Autumn').querySelector('[data-campaign-sets]');
+        ok(btn, 'the button is on the campaign with two ad sets');
+        btn.click();
+        return sleep(30).then(function () {
+          eq([w.viewMode, param(w, 'list'), param(w, 'campaign')], ['adsets', 'adsets', 'c7'], 'its ad sets only');
+          eq(d.querySelectorAll('.adset-card').length, 2, 'the other campaign is not in the list');
           f.remove();
         });
       });

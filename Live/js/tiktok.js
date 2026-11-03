@@ -163,6 +163,7 @@
         campaignId: ad.campaign_id || null,
         campaignName: ad.campaign_name || null,
         adsetName: ad.adgroup_name || null,
+        adsetId: ad.adgroup_id || null,
         nativeId: ad.ad_id,
         reviewStatus: null, frequency: null,
         format: ad.ad_format && /VIDEO|SINGLE_VIDEO/i.test(ad.ad_format) ? 'video' : 'image',

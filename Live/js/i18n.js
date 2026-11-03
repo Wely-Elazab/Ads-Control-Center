@@ -361,6 +361,17 @@
       'camp.mixedResults': 'نتائج متنوعة',
       'camp.showAds': 'عرض الإعلانات ←',
       'filters.campaignChip': 'الحملة: {name}',
+      // المجموعات الإعلانية (٣ نوفمبر ٢٠٢٦): المستوى الأوسط زي المنصات — Google تسمّيها «المجموعة الإعلانية» (ad group)
+      // وSnapchat «مجموعة الإعلانات» (ad squad)، والاسم الموحّد في الأداة واحد
+      'view.adsets': 'المجموعات',
+      'n.adset.one': 'مجموعة إعلانية', 'n.adset.many': 'مجموعات إعلانية', 'n.adset.acc': 'مجموعة إعلانية',
+      'gallery.countAdsets': '{n} {sets} — تضم {m} {ads}',
+      'adset.noName': 'مجموعة بدون اسم',
+      'adset.none': 'لا تحتوي على مجموعات إعلانية',
+      'adset.inCamp': 'في حملة {name}',
+      'camp.showSets': 'المجموعات الإعلانية ←',
+      'filters.adsetChip': 'المجموعة الإعلانية: {name}',
+      'route.noAdset': 'لم نجد المجموعة الإعلانية المذكورة في الرابط ضمن مجموعات هذا الحساب المعروضة للفترة المختارة.',
 
       // الفوتر
       'footer.readOnly': 'يقرأ Ads Center بيانات إعلاناتك فقط، ولا يغيّر أي شيء في حساباتك الإعلانية.',
@@ -1878,6 +1889,15 @@
       'camp.mixedResults': 'Mixed results',
       'camp.showAds': 'Show ads →',
       'filters.campaignChip': 'Campaign: {name}',
+      'view.adsets': 'Ad sets',
+      'n.adset.one': 'ad set', 'n.adset.many': 'ad sets',
+      'gallery.countAdsets': '{n} {sets} — {m} {ads}',
+      'adset.noName': 'Unnamed ad set',
+      'adset.none': 'No ad sets in this campaign',
+      'adset.inCamp': 'In {name}',
+      'camp.showSets': 'Ad sets →',
+      'filters.adsetChip': 'Ad set: {name}',
+      'route.noAdset': 'We couldn\'t find the ad set in this link among this account\'s ad sets shown for the selected period.',
 
       'footer.readOnly': 'Ads Center only reads your ad data — it never changes anything in your ad accounts.',
       'footer.privacy': 'Privacy policy',

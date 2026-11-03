@@ -159,6 +159,9 @@
   .trend-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
   .trend-tag.trend-up { color: var(--verified); background: var(--verified-bg); border-color: color-mix(in srgb, var(--verified) 45%, var(--line)); }
   .trend-tag.trend-down { color: var(--pending); background: var(--pending-bg); border-color: color-mix(in srgb, var(--pending) 45%, var(--line)); }
+  /* كارت المجموعة الإعلانية = كارت الحملة نفسه، ومعاه سطر حملتها الأم. وزرار «المجموعات الإعلانية» جوه كارت الحملة */
+  .camp-parent { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .camp-sets { background: transparent; border: 0; padding: 0; margin-inline-start: 12px; font: inherit; color: inherit; cursor: pointer; text-decoration: underline; }
   .ghost-btn { background: transparent; border: 1px solid var(--line); color: var(--ink); border-radius: 9px; padding: 11px 16px; font-size: 13.5px; font-weight: 500; font-family: inherit; cursor: pointer; }
   .ghost-btn:hover { border-color: var(--ink-faint); background: var(--paper); }
 
@@ -306,7 +309,7 @@
   .open-platform-note { font-size: 12px; color: var(--ink-faint); margin-top: 6px; overflow-wrap: anywhere; }
 
   /* ---------- العرض بالحملات ---------- */
-  .view-switch { display: inline-flex; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; }
+  .view-switch { display: inline-flex; flex-wrap: wrap; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; }
   .view-switch-btn { border: none; background: none; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--ink-soft); padding: 6px 12px; border-radius: 8px; cursor: pointer; }
   .view-switch-btn.active { background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
   .view-switch-btn:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
@@ -1237,6 +1240,7 @@
       <div class="toolbar">
         <div class="view-switch" id="viewSwitch" role="group" aria-label="طريقة العرض" data-i18n-aria="view.aria">
           <button type="button" class="view-switch-btn active" data-mode="ads" aria-pressed="true" data-i18n="view.ads">الإعلانات</button>
+          <button type="button" class="view-switch-btn" data-mode="adsets" aria-pressed="false" data-i18n="view.adsets">المجموعات</button>
           <button type="button" class="view-switch-btn" data-mode="campaigns" aria-pressed="false" data-i18n="view.campaigns">الحملات</button>
         </div>
         <button type="button" class="filters-btn" id="filterToggle">

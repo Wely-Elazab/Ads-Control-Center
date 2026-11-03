@@ -14,7 +14,7 @@
 // الفلاتر اللي جوه الدرج والترتيب برّه الرابط لحد المرحلة ٧ (قرار مكتوب في الوثيقة).
 // بيتحمّل بعد ui.js وقبل main.js: الحساب اللي في الرابط لازم يتحط قبل ما main.js يسترجع الجلسة.
 
-  var ROUTE_KEYS = ['meta', 'google', 'snapchat', 'tiktok', 'view', 'list', 'campaign', 'ad', 'period', 'since', 'until'];
+  var ROUTE_KEYS = ['meta', 'google', 'snapchat', 'tiktok', 'view', 'list', 'campaign', 'adset', 'ad', 'period', 'since', 'until'];
   // شكل رقم الحساب في كل منصة — أي قيمة تانية في الرابط بتتجاهل
   var ROUTE_ACCOUNT_RE = {
     meta: /^act_\d{1,20}$/,
@@ -31,14 +31,16 @@
   function parseRoute(search, today) {
     var q = new URLSearchParams(search || '');
     // الصفحة: الملخص افتراضياً (من غير ?view=) — والروابط القديمة (?view=alerts من رسايل البريد) بتفضل شغّالة
-    var r = { accounts: {}, view: 'summary', list: null, campaign: null, ad: null, period: null };
+    var r = { accounts: {}, view: 'summary', list: null, campaign: null, adset: null, ad: null, period: null };
     PLATFORMS.forEach(function (p) { var v = q.get(p); if (v && ROUTE_ACCOUNT_RE[p].test(v)) r.accounts[p] = v; });
     var view = q.get('view');
     if (view === 'ads' || view === 'alerts' || view === 'settings') r.view = view;
     var list = q.get('list');
-    if (list === 'campaigns' || list === 'ads') r.list = list;
+    if (list === 'campaigns' || list === 'adsets' || list === 'ads') r.list = list;
     var camp = q.get('campaign');
     if (camp && camp.length <= 300) r.campaign = camp;
+    var aset = q.get('adset');
+    if (aset && aset.length <= 300) r.adset = aset;
     var ad = q.get('ad');
     if (ad && ROUTE_AD_RE.test(ad)) r.ad = ad;
     var pr = q.get('period');
@@ -55,6 +57,13 @@
     if (keyDiffDays(since, until) > PERIOD_MAX_DAYS - 1) since = shiftKey(until, -(PERIOD_MAX_DAYS - 1));
     return { preset: 'custom', since: since, until: until };
   }
+  // العرض اللي الرابط بيطلبه: إعلان أو مجموعة في الرابط = قائمة الإعلانات، وlist=adsets مع حملة = مجموعات الحملة
+  function routeListMode(r) {
+    if (r.ad || r.adset) return 'ads';
+    if (r.list === 'adsets') return 'adsets';
+    if (r.campaign) return 'ads';
+    return r.list === 'campaigns' ? 'campaigns' : 'ads';
+  }
   function routePeriodText(p) { return !p ? '' : p.preset === 'custom' ? 'custom:' + p.since + ':' + p.until : p.preset; }
 
   // الحالة → معاملات الرابط. المعاملات التانية (dx وdigest وغيرهم) بتفضل زي ما هي
@@ -63,8 +72,9 @@
     ROUTE_KEYS.forEach(function (k) { q.delete(k); });
     PLATFORMS.forEach(function (p) { if (parts.accounts[p]) q.set(p, parts.accounts[p]); });
     if (parts.view && parts.view !== 'summary') q.set('view', parts.view);
-    if (parts.list === 'campaigns') q.set('list', 'campaigns');
+    if (parts.list === 'campaigns' || parts.list === 'adsets') q.set('list', parts.list);
     if (parts.campaign) q.set('campaign', parts.campaign);
+    if (parts.adset) q.set('adset', parts.adset);
     if (parts.ad) q.set('ad', parts.ad);
     if (parts.period) {
       var bits = parts.period.split(':');
@@ -91,7 +101,8 @@
     if (routeSameExcept(prev, parts, ['accounts']) && !routeSwitched(prev.accounts || {}, parts.accounts)) return 'replace';
     return 'push';
   }
-  var ROUTE_LAYERS = ['overlay', 'ad', 'campaign'];
+  // طبقات «القفل» من الأعمق للأعلى: قفل أي واحدة بيرجّع خطوة بدل ما يضيف واحدة
+  var ROUTE_LAYERS = ['overlay', 'ad', 'adset', 'campaign'];
   function routeClosing(prev, next) {
     if (!routeSameExcept(prev, next, ROUTE_LAYERS)) return false;
     var removed = false;
@@ -103,7 +114,7 @@
     return removed;
   }
   function routeSameExcept(a, b, skip) {
-    return ['accounts', 'view', 'list', 'campaign', 'ad', 'period', 'overlay'].every(function (k) {
+    return ['accounts', 'view', 'list', 'campaign', 'adset', 'ad', 'period', 'overlay'].every(function (k) {
       return skip.indexOf(k) !== -1 || JSON.stringify(a[k] || null) === JSON.stringify(b[k] || null);
     });
   }
@@ -111,7 +122,7 @@
 
   // ---------- الحالة الحالية للأداة ----------
   // اللي لسه مستني (حساب أو حملة أو إعلان من الرابط ومتحمّلش) بيفضل في الرابط — تحديث الصفحة أثناء التحميل ميضيّعوش
-  var routePending = { accounts: {}, campaign: null, ad: null };
+  var routePending = { accounts: {}, campaign: null, adset: null, ad: null };
   // الحملة في الرابط برقمها بس (الحساب في الرابط أصلاً) — ولو ملهاش رقم بمفتاحها الكامل
   function routeCampaignParam(key) {
     var c = candidates.filter(function (x) { return campaignKey(x) === key; })[0];
@@ -120,10 +131,19 @@
   function routeFindCampaign(v) {
     return candidates.filter(function (x) { return campaignKey(x) === v || (x.campaignId != null && String(x.campaignId) === v); })[0];
   }
+  // المجموعة الإعلانية برقمها بس، وإلا بمفتاحها الكامل (نفس منطق الحملة)
+  function routeAdsetParam(key) {
+    var c = candidates.filter(function (x) { return adsetKey(x) === key; })[0];
+    return c && c.adsetId ? String(c.adsetId) : key;
+  }
+  function routeFindAdset(v) {
+    return candidates.filter(function (x) { return adsetKey(x) === v || (x.adsetId != null && String(x.adsetId) === v); })[0];
+  }
   function routeParts() {
-    var parts = { accounts: {}, view: currentView, list: viewMode === 'campaigns' ? 'campaigns' : null, campaign: null, ad: null, period: routePeriodText(period), overlay: null };
+    var parts = { accounts: {}, view: currentView, list: viewMode === 'ads' ? null : viewMode, campaign: null, adset: null, ad: null, period: routePeriodText(period), overlay: null };
     PLATFORMS.forEach(function (p) { var id = routePending.accounts[p] || activeSources[p]; if (id) parts.accounts[p] = id; });
     parts.campaign = filters.campaign ? routeCampaignParam(filters.campaign) : routePending.campaign;
+    parts.adset = filters.adset ? routeAdsetParam(filters.adset) : routePending.adset;
     var adOpen = !expandOverlay.classList.contains('hidden') && expandOverlay.dataset.adId;
     parts.ad = adOpen || routePending.ad;
     ROUTE_OVERLAYS.forEach(function (id) {
@@ -186,12 +206,22 @@
   // ---------- تطبيق الرابط على الأداة ----------
   // بيتنادى من render — الحملة اللي في الرابط بتتطبّق أول ما إعلاناتها توصل (قبل الرسم، عشان render ميشيلهاش)
   function routeBeforeRender() {
-    if (!routePending.campaign) return;
-    var c = routeFindCampaign(routePending.campaign);
-    if (!c) return;
-    filters.campaign = campaignKey(c);
-    filters.campaignName = c.campaignName || null;
-    routePending.campaign = null;
+    if (routePending.campaign) {
+      var c = routeFindCampaign(routePending.campaign);
+      if (c) {
+        filters.campaign = campaignKey(c);
+        filters.campaignName = c.campaignName || null;
+        routePending.campaign = null;
+      }
+    }
+    if (routePending.adset) {
+      var a = routeFindAdset(routePending.adset);
+      if (a) {
+        filters.adset = adsetKey(a);
+        filters.adsetName = a.adsetName || a.campaignName || null;
+        routePending.adset = null;
+      }
+    }
   }
   // رسايل «اللي في الرابط مش موجود» بتستنى لحد ما التحميل يخلص: لو اتكتبت بدري، رسايل التحميل اللي بعدها كانت بتغطيها
   // في نفس اللحظة (اتجرّب على الموقع ١١ أكتوبر ٢٠٢٦ — الرسالة ظهرت واختفت قبل ما تتقري)
@@ -220,6 +250,7 @@
       else if (!a && settled && candidates.length) { routePending.ad = null; routeNotices.push(msg('route.noAd')); }
     }
     if (routePending.campaign && settled && candidates.length) { routePending.campaign = null; routeNotices.push(msg('route.noCampaign')); }
+    if (routePending.adset && settled && candidates.length) { routePending.adset = null; routeNotices.push(msg('route.noAdset')); }
     if (settled && routeNotices.length) {
       var notes = routeNotices;
       routeNotices = [];
@@ -243,11 +274,13 @@
       else routePending.accounts[p] = id;
     });
     if (r.period && routePeriodText(r.period) !== routePeriodText(period)) applyPeriod(r.period);
-    viewMode = r.list === 'campaigns' && !r.campaign ? 'campaigns' : 'ads';
+    // الحملة أو المجموعة في الرابط = إعلاناتها (إلا لما الرابط نفسه بيقول list=adsets: مجموعات الحملة دي)
+    viewMode = routeListMode(r);
     filters.campaign = null; filters.campaignName = null; routePending.campaign = r.campaign;
+    filters.adset = null; filters.adsetName = null; routePending.adset = r.adset;
     routeBeforeRender();
-    // الحملة بتتعرض في صفحة «الإعلانات»
-    showView(r.campaign && r.view === 'summary' ? 'ads' : r.view);
+    // الحملة والمجموعة بيتعرضوا في صفحة «الإعلانات»
+    showView((r.campaign || r.adset) && r.view === 'summary' ? 'ads' : r.view);
     routeCloseOverlays();
     routePending.ad = null;
     if (r.ad) {
@@ -271,11 +304,12 @@
       });
       // الفترة من الرابط من غير حفظ: فتح رابط مش اختيار — الفترة المحفوظة بتتغير بس لما المستخدم يختار بنفسه
       if (r.period) { period = r.period; syncPeriodUi(); }
-      if (r.campaign || r.ad) viewMode = 'ads'; else if (r.list) viewMode = r.list;
+      viewMode = routeListMode(r);
       routePending.campaign = r.campaign;
+      routePending.adset = r.adset;
       routePending.ad = r.ad;
       // الحملة بتتعرض في صفحة «الإعلانات»
-      var view = r.campaign && r.view === 'summary' ? 'ads' : r.view;
+      var view = (r.campaign || r.adset) && r.view === 'summary' ? 'ads' : r.view;
       if (view !== 'summary') showView(view);
     })();
     ['click', 'change', 'keydown'].forEach(function (type) { document.addEventListener(type, routeMark, true); });

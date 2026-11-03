@@ -782,7 +782,8 @@
   // أو يختار فلتر حالة، أو الحساب كله مفيهوش ولا إعلان شغّال
   // إعلانات حملة واحدة (filters.campaign) بتظهر كلها بالمتوقفة: كارت الحملة بقى مجموع كل إعلاناتها، فاللي تحته لازم يطابقه
   function hidesStopped() {
-    return !showStopped && filters.health === 'all' && !filters.text && !filters.campaign && candidates.some(function (c) { return c.active; });
+    return !showStopped && filters.health === 'all' && !filters.text && !filters.campaign && !filters.adset &&
+      candidates.some(function (c) { return c.active; });
   }
   // allStopped = من غير إخفاء المتوقفة الافتراضي (عرض الحملات: الحملة مجموع كل إعلاناتها اللي ليها أرقام في الفترة)
   function visibleCandidates(allStopped) {
@@ -795,6 +796,7 @@
       if (filters.health === 'stopped') { if (c.active) return false; }
       else if (filters.health !== 'all' && adAnalysis(c).health !== filters.health) return false;
       if (filters.campaign && campaignKey(c) !== filters.campaign) return false;
+      if (filters.adset && adsetKey(c) !== filters.adset) return false;
       if (filters.text) {
         var hay = (c.platform + ' ' + c.placement + ' ' + (c.adsetName || '') + ' ' + c.offer + ' ' + (c.headline || '') + ' ' + (c.desc || '') + ' ' + (c.caption || '')).toLowerCase();
         if (hay.indexOf(filters.text.toLowerCase()) === -1) return false;
@@ -807,24 +809,40 @@
   // الافتراضي "الإعلانات" (قرار صاحب المنتج)، والاختيار بيتحفظ — اللي بيفضّل الحملات بتفتح له على طول.
   // الحملة بتتجمع من الإعلانات الظاهرة بعد الفلاتر، فأرقامها بتطابق الفلتر الحالي
   var VIEW_KEY = 'acc.view.v1';
-  var viewMode = (function () { try { return localStorage.getItem(VIEW_KEY) === 'campaigns' ? 'campaigns' : 'ads'; } catch (e) { return 'ads'; } })();
+  var VIEW_MODES = { ads: 1, adsets: 1, campaigns: 1 };
+  var viewMode = (function () { try { var v = localStorage.getItem(VIEW_KEY); return VIEW_MODES[v] ? v : 'ads'; } catch (e) { return 'ads'; } })();
   function campaignKey(c) { return (c.source || c.platform) + '|' + (c.campaignId || c.campaignName || '-'); }
-  function groupCampaigns(ads) {
+  // المجموعة الإعلانية: المستوى الأوسط زي كل المنصات (Meta وSnapchat وGoogle ثلاثة مستويات). Google بيسمّيها adGroup
+  // وSnapchat ad squad — بيتوحّدوا على adsetId في ملفات المنصات. الإعلان اللي مالوش مجموعة (Performance Max) بيتجمع
+  // تحت حملته: كده مجموع عرض المجموعات = مجموع عرض الحملات بالظبط (Kimball — المجموع = مجموع اللي تحته)
+  function adsetKey(c) {
+    var src = c.source || c.platform;
+    if (c.adsetId) return src + '|s:' + c.adsetId;
+    if (c.adsetName) return src + '|n:' + (c.campaignId || c.campaignName || '-') + '|' + c.adsetName;
+    return src + '|c:' + (c.campaignId || c.campaignName || '-');
+  }
+  function groupCampaigns(ads) { return groupLevel(ads, 'campaign'); }
+  function groupAdsets(ads) { return groupLevel(ads, 'adset'); }
+  function groupLevel(ads, kind) {
+    var keyOf = kind === 'adset' ? adsetKey : campaignKey;
     var map = {}, list = [];
     // عدد إعلانات كل حملة (من غير فلاتر) وتنبيهات كل إعلان — بيتحسبوا مرة واحدة هنا.
     // قبل كده كل حملة كانت بتلف على كل الإعلانات وكل التنبيهات، فالحساب الكبير كان بيتقل مع كل ضغطة
     var totals = {}, alertsByAd = {};
-    candidates.forEach(function (x) { var k = campaignKey(x); totals[k] = (totals[k] || 0) + 1; });
+    candidates.forEach(function (x) { var k = keyOf(x); totals[k] = (totals[k] || 0) + 1; });
     analysis.alerts.forEach(function (al) {
       if (!al.adId) return;
       var e = alertsByAd[al.adId] || (alertsByAd[al.adId] = { urgent: 0, important: 0 });
       if (al.level === 'critical') e.urgent++; else if (al.level === 'warning') e.important++;
     });
     ads.forEach(function (c) {
-      var key = campaignKey(c);
+      var key = keyOf(c);
       var g = map[key];
       if (!g) {
-        g = map[key] = { key: key, name: c.campaignName, platform: c.platform, currency: c.currency, ads: [], total: totals[key] || 0 };
+        var isSet = kind === 'adset';
+        g = map[key] = { key: key, kind: kind, name: isSet ? (c.adsetName || c.campaignName) : c.campaignName,
+          campName: isSet ? c.campaignName : null, noSet: isSet && !c.adsetId && !c.adsetName,
+          platform: c.platform, currency: c.currency, ads: [], total: totals[key] || 0 };
         list.push(g);
       }
       g.ads.push(c);
@@ -864,6 +882,11 @@
       // كل إعلاناتها الشغّالة «لم يُحكم بعد» = الحملة نفسها لسه مفيش حكم عليها
       else if (!g.health.good && !g.health.improve && !g.health.review && g.health.pending) g.status = 'pending';
       else g.status = 'good';
+      if (kind === 'campaign') {
+        var setKeys = {};
+        g.ads.forEach(function (c) { setKeys[adsetKey(c)] = 1; });
+        g.sets = Object.keys(setKeys).length;
+      }
       g.newest = Math.min.apply(null, g.ads.map(function (c) { return c.daysAgo == null ? Number.MAX_SAFE_INTEGER : c.daysAgo; }));
       g.updated = Math.min.apply(null, g.ads.map(function (c) { return c.updatedDaysAgo == null ? Number.MAX_SAFE_INTEGER : c.updatedDaysAgo; }));
     });
@@ -877,12 +900,14 @@
     else arr.sort(function (a, b) { return (HEALTH[a.status].order - HEALTH[b.status].order) || (b.urgent - a.urgent) || (b.spend - a.spend); });
     return arr;
   }
+  // مكوّن واحد للحملة والمجموعة الإعلانية (اتساق — مبدأ نيلسن الرابع): نفس الأرقام ونفس الألوان ونفس حالة الصحة
   function campaignMarkup(g) {
     var h = HEALTH[g.status];
-    var name = g.name || t('camp.noName');
+    var isSet = g.kind === 'adset';
+    var name = g.name || t(isSet ? 'adset.noName' : 'camp.noName');
     // حملة Performance Max كارت واحد على مستوى الحملة — «١ إعلان» كانت هتبقى غلط
     var pmaxOnly = g.ads.every(function (c) { return c.campaignLevel; });
-    var count = pmaxOnly ? t('camp.pmax')
+    var count = isSet && g.noSet ? t('adset.none') : pmaxOnly ? t('camp.pmax')
       : g.ads.length < g.total
         ? t('camp.adsOf', { n: ar(g.ads.length), total: ar(g.total), ads: noun(g.total, 'n.ad') })
         : ar(g.total) + ' ' + noun(g.total, 'n.ad');
@@ -896,32 +921,63 @@
     if (g.important) issues.push('<span class="camp-badge lv-warning">' + t('camp.important', { n: ar(g.important) }) + '</span>');
     if (!issues.length) issues.push('<span class="camp-badge-none">' + t('camp.noIssues') + '</span>');
     var ek = esc(g.key);
-    return '<article class="campaign-card ' + h.cls + '" data-campaign="' + ek + '" tabindex="0" role="button" aria-label="' + esc(name) + ' — ' + h.label + '">' +
+    return '<article class="campaign-card' + (isSet ? ' adset-card' : '') + ' ' + h.cls + '" ' + (isSet ? 'data-adset' : 'data-campaign') + '="' + ek + '"' +
+        ' tabindex="0" role="button" aria-label="' + esc(name) + ' — ' + h.label + '">' +
         '<div class="camp-top"><span class="health-dot-inline"></span><span class="camp-platform">' + esc(g.platform) + '</span>' +
           '<span class="camp-active">' + t('camp.activeOf', { a: ar(g.active), n: ar(g.ads.length) }) + '</span></div>' +
         '<div class="camp-name" dir="auto" title="' + esc(name) + '">' + esc(name) + '</div>' +
+        // المجموعة تحتها حملتها الأم — عشان تلاقيها في المنصة زي ما هي
+        (isSet && g.campName ? '<div class="camp-parent" dir="auto" title="' + esc(g.campName) + '">' + esc(t('adset.inCamp', { name: g.campName })) + '</div>' : '') +
         '<div class="camp-count">' + count + '</div>' +
         '<div class="card-metrics">' + chips + '</div>' +
         '<div class="camp-issues">' + issues.join('') + '</div>' +
-        '<div class="camp-open">' + t('camp.showAds') + '</div>' +
+        // التنقّل زي المنصة: الحملة ← مجموعاتها. الضغطة الأساسية بتفضل على إعلاناتها («اعرض الحملة» في الملخص وفي
+        // أسباب الحكم بيعتمدوا عليها)، والزرار بيظهر بس لما الحملة فيها أكتر من مجموعة — غير كده مفيش فايدة من خطوة زيادة
+        '<div class="camp-open">' + t('camp.showAds') +
+          (!isSet && g.sets > 1 ? '<button type="button" class="camp-sets" data-campaign-sets="' + ek + '">' + t('camp.showSets') + '</button>' : '') +
+        '</div>' +
       '</article>';
   }
   function setViewMode(mode) {
-    viewMode = mode === 'campaigns' ? 'campaigns' : 'ads';
+    viewMode = VIEW_MODES[mode] ? mode : 'ads';
     try { localStorage.setItem(VIEW_KEY, viewMode); } catch (e) { /* مش مهم */ }
-    // الرجوع لعرض الحملات بيلغي "إعلانات حملة معيّنة" — عشان تشوف كل الحملات تاني
-    if (viewMode === 'campaigns') filters.campaign = null;
+    // الرجوع لمستوى أعلى بيلغي ترشيح اللي تحته: الحملات بتلغي الحملة والمجموعة، والمجموعات بتلغي المجموعة بس
+    if (viewMode === 'campaigns') { filters.campaign = null; filters.campaignName = null; }
+    if (viewMode !== 'ads') { filters.adset = null; filters.adsetName = null; }
     render();
   }
   document.getElementById('viewSwitch').addEventListener('click', function (e) {
     var b = e.target.closest('[data-mode]'); if (!b) return;
     setViewMode(b.dataset.mode);
   });
+  // كارت المجموعة ← إعلاناتها
+  function openAdset(el) {
+    var key = el.getAttribute('data-adset');
+    var c = candidates.filter(function (x) { return adsetKey(x) === key; })[0];
+    filters.adset = key;
+    filters.adsetName = (c && (c.adsetName || c.campaignName)) || null;
+    viewMode = 'ads';
+    showView('ads');
+    render();
+    window.scrollTo({ top: 0 });
+  }
+  // كارت الحملة ← مجموعاتها (زرار جوه الكارت)
+  function openCampaignSets(el) {
+    var key = el.getAttribute('data-campaign-sets');
+    var c = candidates.filter(function (x) { return campaignKey(x) === key; })[0];
+    filters.campaign = key;
+    filters.campaignName = (c && c.campaignName) || null;
+    setViewMode('adsets');
+    showView('ads');
+    window.scrollTo({ top: 0 });
+  }
   function openCampaign(el) {
     var key = el.getAttribute('data-campaign');
     var g = candidates.filter(function (c) { return campaignKey(c) === key; })[0];
     filters.campaign = key;
     filters.campaignName = (g && g.campaignName) || null;
+    // إعلانات الحملة كلها: ترشيح مجموعة قديم (من حملة تانية) لازم يتشال
+    filters.adset = null; filters.adsetName = null;
     // بنعرض إعلانات الحملة من غير ما نغيّر الاختيار المحفوظ — لو كان "الحملات" هيفضل هو اللي يفتح المرة الجاية
     viewMode = 'ads';
     // من «يحتاج انتباهك الآن» في الملخص كمان: إعلانات الحملة في صفحة «الإعلانات» من أولها
@@ -994,6 +1050,7 @@
     if (typeof routeBeforeRender === 'function') routeBeforeRender();
     // لو الحملة اللي كنت فاتحها مش موجودة تاني (بدّلت الحساب مثلاً) الفلتر بيتشال لوحده
     if (filters.campaign && !candidates.some(function (c) { return campaignKey(c) === filters.campaign; })) filters.campaign = null;
+    if (filters.adset && !candidates.some(function (c) { return adsetKey(c) === filters.adset; })) { filters.adset = null; filters.adsetName = null; }
     var visible = sortCandidates(visibleCandidates(), filters.sort);
     var signature = JSON.stringify([filters, platSel, viewMode, periodKey()]);
     // العميل غيّر الفلتر أو الترتيب أو طريقة العرض أو الفترة (مش أول رسم ولا مجرد تحميل منصة) — animateCards
@@ -1010,6 +1067,14 @@
     if (!candidates.length) {
       if (!anyLoading()) cardGrid.innerHTML = '';
       galleryCount.textContent = anyLoading() ? t('gallery.loading') : t('gallery.login');
+    } else if (viewMode === 'adsets') {
+      // زي الحملات بالظبط: المجموعة = مجموع كل إعلاناتها اللي ليها أرقام في الفترة بالمتوقفة
+      var setAds = sortCandidates(visibleCandidates(true), filters.sort);
+      var sets = sortCampaigns(groupAdsets(setAds), filters.sort);
+      cardGrid.innerHTML = sets.length
+        ? sets.slice(0, renderLimit).map(campaignMarkup).join('') + moreButton(renderLimit, sets.length, true)
+        : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
+      galleryCount.textContent = t('gallery.countAdsets', { n: ar(sets.length), sets: noun(sets.length, 'n.adset'), m: ar(setAds.length), ads: noun(setAds.length, 'n.ad') });
     } else if (viewMode === 'campaigns') {
       // الحملة = مجموع كل إعلاناتها اللي ليها أرقام في الفترة، بالمتوقفة (الفلاتر اللي العميل اختارها بس هي اللي بتقلّلها).
       // مراجعة المرحلة ٤ (١٨ أكتوبر ٢٠٢٦، حساب حقيقي): كانت من الإعلانات الظاهرة بعد إخفاء المتوقفة — ٥ حملات من ١٣، وحملة
@@ -2202,6 +2267,7 @@
     if (platSel) out.push({ key: 'platform', label: platSel.map(function (p) { return PLATFORM_NAMES[p] || p; }).join(' + ') });
     if (filters.text) out.push({ key: 'text', label: t('filters.searchChip', { q: filters.text }) });
     if (filters.campaign) out.push({ key: 'campaign', label: t('filters.campaignChip', { name: filters.campaignName || t('camp.noName') }) });
+    if (filters.adset) out.push({ key: 'adset', label: t('filters.adsetChip', { name: filters.adsetName || t('adset.noName') }) });
     return out;
   }
   function renderFilterState() {
@@ -2222,7 +2288,8 @@
     var btn = e.target.closest('.active-filter'); if (!btn) return;
     var key = btn.dataset.filterKey;
     if (key === 'text') { filters.text = ''; textFilter.value = ''; }
-    else if (key === 'campaign') { filters.campaign = null; }
+    else if (key === 'campaign') { filters.campaign = null; filters.campaignName = null; }
+    else if (key === 'adset') { filters.adset = null; filters.adsetName = null; }
     else if (key === 'platform') { platSel = null; dxBuild(); }
     else {
       var group = document.querySelector('.filter-group[data-filter="' + key + '"]');
@@ -3415,6 +3482,11 @@
   function activateCard(e) {
     if (e.target.closest('[data-show-more]')) { renderLimit += RENDER_STEP; render(); return true; }
     if (e.target.closest('[data-show-stopped]')) { requestStoppedAds(); return true; }
+    // الترتيب مهم: الزرار جوه كارت الحملة، وكارت المجموعة شايل كلاس campaign-card نفسه (نفس الشكل)
+    var sets = e.target.closest('[data-campaign-sets]');
+    if (sets) { openCampaignSets(sets); return true; }
+    var aset = e.target.closest('[data-adset]');
+    if (aset) { openAdset(aset); return true; }
     var camp = e.target.closest('.campaign-card');
     if (camp) { openCampaign(camp); return true; }
     var card = e.target.closest('.candidate-card');
