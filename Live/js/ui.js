@@ -117,7 +117,10 @@
       opts.forEach(function (o) {
         var on = o.value === activeSources[p];
         // مربع اختيار: الضغط في أي مكان على الصف بيختار أو بيلغي الاختيار (role=checkbox — الصف كله هو المربع)
+        // الاسم الصريح للمربع: قارئ الشاشة كان بيقول «مربع اختيار، غير محدد» من غير اسم الحساب (شجرة الإتاحة على
+        // الموقع ٣ نوفمبر ٢٠٢٦). والمنصة جوه الاسم عشان حساب بنفس الاسم على منصتين (Coda مثلاً) ميتلخبطش
         html += '<button type="button" class="acct-opt plat-' + esc(p) + (on ? ' on' : '') + '" role="checkbox" aria-checked="' + on + '"' +
+          ' aria-label="' + esc(PLATFORM_NAMES[p] + ' — ' + acctName(o.label)) + '"' +
           ' data-acct-plat="' + esc(p) + '" data-acct-id="' + esc(o.value) + '">' +
           '<span class="acct-box" aria-hidden="true">' + (on ? '✓' : '') + '</span>' +
           platLogo(p) +

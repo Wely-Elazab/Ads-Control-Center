@@ -6837,6 +6837,9 @@
           eq(list.querySelectorAll('.acct-opt .plat-logo').length, 3, 'شعار المنصة جنب كل حساب');
           ok(list.querySelector('.acct-group.plat-meta') && list.querySelector('.acct-group.plat-snapchat'), 'كل مجموعة بلون منصتها');
           ok(list.querySelector('.acct-opt.plat-snapchat'), 'والصف كمان');
+          // لكل مربع اسم صريح فيه المنصة (قارئ الشاشة كان بيقول «مربع اختيار» من غير اسم — ٣ نوفمبر ٢٠٢٦)
+          eq(Array.prototype.map.call(list.querySelectorAll('.acct-opt'), function (b) { return b.getAttribute('aria-label'); }),
+            ['Meta — Level Up', 'Meta — Second Store', 'Snapchat — levelupkwt Self Service'], 'اسم كل مربع');
           var search = document.getElementById('acctSearch');
           search.value = 'second'; search.dispatchEvent(new Event('input'));
           eq(Array.prototype.map.call(list.querySelectorAll('[data-acct-id]'), function (b) { return b.getAttribute('data-acct-id'); }), ['act_2'], 'search by name');
