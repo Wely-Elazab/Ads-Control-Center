@@ -115,6 +115,7 @@
     userSetBase = null; userSetGen = 0; userSetInFlight = 0; userSetRefreshing = false; userSetFails = 0;
     welcomeDone = false; welcomeOpen = false; welcomeOverlay.classList.add('hidden');
     period = { preset: 'last7' };
+    clearMetaBase();
     // حالة المنصات والحسابات والجلسات — كل اختبار يبدأ من غير أي منصة متصلة
     [activeSources, platformState, sessionTokens, lastAccounts].forEach(function (o) { Object.keys(o).forEach(function (k) { delete o[k]; }); });
     Object.keys(platformOptions).forEach(function (p) { if ((platformOptions[p] || []).length) setPlatformOptions(p, []); });
@@ -9724,6 +9725,59 @@
       expandOverlay.classList.add('hidden');
     });
 
+    test('كارت الحملة والمجموعة: لونه من إنفاق أيام الحكم — إعلان سيئ صرف في الشهر الماضي ومصرفش الأسبوع ده بيتحسب', function () {
+      useSettings({ maxCost: { lead: 20 } });
+      period = { preset: 'lastMonth' };
+      var r = resolvePeriodFor(BROWSER_TZ);
+      var mk = function (id, weekSp, weekRes, sp, n) { return withPd(w8(id, { daily: [weekSp, weekSp, weekSp, weekSp, weekSp, weekSp, weekSp, 0], res: week(weekRes), cid: 'k' }), r.since, r.until, flat(sp, n)); };
+      // «bad» غالي جداً طول الشهر ومصرفش الأسبوع ده، و«ok» بيشتغل كويس الاتنين
+      var mine = [mk('ok1', 100, 5, 20, 5), mk('ok2', 100, 5, 20, 5), mk('bad', 0, 0, 500, 0)];
+      candidates = mine.concat([mk('other', 100, 5, 100, 5)]);
+      candidates[3].campaignId = 'z';
+      render();
+      ok(analysis.byAd.bad.health === 'review', 'the month verdict: ' + analysis.byAd.bad.health);
+      var g = groupCampaigns(candidates).filter(function (x) { return x.ads.some(function (c) { return c.id === 'bad'; }); })[0];
+      eq(g.status, 'review', 'the campaign colour follows the days the verdict is on');
+    });
+
+    test('التفاصيل: تنبيه «الآن» بيظهر بعنوانه لو مش في حكم الفترة، ومن غير تكرار، ومش في «آخر ٧ أيام»', function () {
+      period = { preset: 'lastMonth' };
+      var r = resolvePeriodFor(BROWSER_TZ);
+      var good = function (id) { return withPd(w8(id, { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: week(5) }), r.since, r.until, flat(100, 5)); };
+      // «x» كويس الشهر اللي فات، والأسبوع ده صرف من غير نتائج (زي اللي بيفتح تنبيه عاجل من صفحة التنبيهات)
+      var x = withPd(w8('x', { daily: [100, 100, 100, 100, 100, 100, 100, 40] }), r.since, r.until, flat(100, 5));
+      candidates = [good('a'), good('b'), x];
+      render();
+      openExpand(x);
+      var box = document.getElementById('expandIssues');
+      var want = analysisNow.byAd.x.issues.filter(function (i) { return i.level === 'critical' || i.level === 'warning'; });
+      ok(want.length && box.querySelector('.issues-now') && box.textContent.indexOf(want[0].title) > -1, box.textContent.slice(0, 200));
+      eq(box.querySelector('.issues-now').textContent, t('x.nowIssues'));
+      ok(!box.querySelector('.issue-none'), 'no «no notes» above an alert');
+      // إعلان سليم في الاتنين: مفيش عنوان
+      openExpand(candidates[0]);
+      ok(!box.querySelector('.issues-now'), 'nothing extra on a healthy ad');
+      // نفس التنبيه في الحكم والآن (نفس النص): مرة واحدة
+      eq(nowOnlyIssues(x, { issues: want }).length, 0, 'not shown twice');
+      // «آخر ٧ أيام»: التحليلين واحد
+      period = { preset: 'last7' };
+      render();
+      openExpand(x);
+      ok(!box.querySelector('.issues-now'), 'one analysis, one list');
+      expandOverlay.classList.add('hidden');
+    });
+
+    test('شارة «تحتاج إلى مراجعة» في قسم «الآن» بتقول الفترة لو غير الأسبوع', function () {
+      useSettings({ maxCost: { lead: 20 } });
+      period = { preset: 'lastMonth' };
+      var r = resolvePeriodFor(BROWSER_TZ);
+      var mk = function (id, n) { return withPd(w8(id, { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: week(5) }), r.since, r.until, flat(100, n)); };
+      candidates = [mk('a', 5), mk('b', 5), mk('z', 0)];
+      render();
+      var chip = document.querySelector('[data-kpi="review"]');
+      ok(analysis.byAd.z.health === 'review' && chip && chip.textContent === t('attn.reviewP', { n: ar(1), period: periodLabel() }), chip ? chip.textContent : 'no chip');
+    });
+
     test('Meta: أيام الفترة من صفوفها اليومية والمجموع = مجموع الأيام؛ والمجموع لوحده (الأيام اتقطعت) = من غير أيام', function () {
       var base = { id: '1', name: 'A', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000',
         adset: { id: 's', name: 'S', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c', name: 'C' }, creative: {} };
@@ -9802,11 +9856,15 @@
     // حساب Meta وهمي: طلبات الأيام (time_increment خارج نافذة الأسبوع) بتتمسك لحد ما الاختبار يردّ عليها
     var metaFake = function (id, o) {
       o = o || {};
-      var hadFB = 'FB' in window, prevFB = window.FB, held = [], f = { held: held, totals: 0, weeks: 0, ranges: [], camps: [], filters: [] };
+      var hadFB = 'FB' in window, prevFB = window.FB, held = [], f = { held: held, totals: 0, weeks: 0, ranges: [], camps: [], filters: [], adsCalls: 0, adsets: 0, acts: 0, reach: 0 };
       var buy = function (d, sp) { return { ad_id: 'm1', date_start: d, spend: String(sp), actions: [{ action_type: 'omni_purchase', value: '1' }], action_values: [{ action_type: 'omni_purchase', value: '100' }] }; };
       var week = last7Days(todayKeyInTz('UTC')).map(function (d) { return d.key; });
       window.FB = { api: function (path, params, cb) {
         var p = typeof params === 'object' ? params : {}, reply = { data: [] };
+        if (/\/ads$/.test(path)) f.adsCalls++;
+        if (/\/adsets$/.test(path)) { f.adsets++; if (o.adsetsDown) { setTimeout(function () { cb({ error: { code: 17, error_subcode: 2446079, message: 'User request limit reached' } }); }, 0); return; } reply = { data: [{ id: 's', effective_status: 'ACTIVE', campaign: { effective_status: 'ACTIVE' } }] }; }
+        if (/\/activities$/.test(path)) f.acts++;
+        if (/insights$/.test(path) && /frequency/.test(p.fields || '') && p.time_range) f.reach++;
         if (/\/ads$/.test(path) && o.holdStopped && /PAUSED/.test(p.effective_status || '')) { f.stopped = function () { cb({ data: [] }); return sleep(60); }; return; }
         if (/\/ads$/.test(path)) reply = { data: [{ id: 'm1', name: 'M', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000', adset: { id: 's', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c', name: 'C' }, creative: {} }] };
         if (/insights$/.test(path) && p.level === 'campaign' && /^campaign_id/.test(p.fields || '')) {
@@ -9823,6 +9881,7 @@
           else if (r.until === week[week.length - 1] && r.since === week[0]) {
             f.weeks++;
             reply = o.weekNoWindows && p.action_attribution_windows ? { error: { code: 100, message: 'bad windows' } } : { data: week.map(function (d) { return buy(d, 10); }) };
+            if (o.missing && reply.data) reply.data.push(Object.assign(buy(week[0], 5), { ad_id: 'gone' }));
           }
           else {
             f.ranges.push(r);
@@ -9910,6 +9969,7 @@
         return get({ data: [] });
       }).then(function (ids) { eq(ids, null, 'empty: no filter, so nothing is hidden');
         eq(scopeToCampaigns({ level: 'ad' }, null), { level: 'ad' }, 'no list = the request as it was');
+        eq(JSON.parse(scopeToCampaigns({ filtering: JSON.stringify([{ field: 'x' }]) }, ['1']).filtering).map(function (r) { return r.field; }), ['x', 'campaign.id', 'ad.effective_status'], 'a filter already there stays');
         window.fbPagesPromise = real;
       }, function (e) { window.fbPagesPromise = real; throw e; });
     });
@@ -9958,17 +10018,39 @@
         setTimeout(function () { cb(reply); }, 0);
       } };
       accountInfo['meta:act_49'] = { timeZone: 'UTC', currency: 'SAR' };
+      // سجل التعديلات بعد التكملة: بيتربط بالكروت الموجودة ساعتها
+      var realEdits = window.loadAdEdits, editsSaw = null;
+      window.loadAdEdits = function () { editsSaw = candidates.map(function (c) { return c.id; }).sort(); return Promise.resolve(); };
+      var restore0 = restore; restore = function () { restore0(); window.loadAdEdits = realEdits; };
       loadAdsForAccount('act_49');
       return sleep(80).then(function () {
         ok(release, 'the filling request is on its way');
+        eq(editsSaw, null, 'the edit log waits for the filling');
         eq([candidates.map(function (c) { return c.id; }), numbersPending.meta, loadingPlatforms.meta], [['L1'], false, true], 'numbers are out, the page is not locked');
         ok(statusText().indexOf(t('s.metaDaysLoading')) > -1, statusText());
         release();
         return sleep(80);
       }).then(function () {
         eq([candidates.map(function (c) { return c.id; }).sort(), loadingPlatforms.meta], [['G1', 'L1'], false], 'the stopped ad joined');
+        eq(editsSaw, ['G1', 'L1'], 'the edit log sees every ad');
         restore();
       }, function (e) { restore(); throw e; });
+    });
+
+    testAsync('Meta: خطأ غير متوقع في تكملة الإعلانات أو أيام الفترة ميعلّقش التحميل', function () {
+      // الأرقام ظاهرة والحالة «جارٍ الاستكمال» — لو الخطوة دي وقعت الحالة كانت هتفضل كده على طول، وسجل المشكلات مستنيها
+      period = { preset: 'last14' };
+      var realFetch = window.fetchMetaAdsByIds, realChunks = window.metaPeriodChunks;
+      window.fetchMetaAdsByIds = function () { throw new Error('boom'); };
+      window.metaPeriodChunks = function () { return Promise.reject(new Error('boom')); };
+      var f = metaFake('act_51', { missing: true });
+      var done = function () { window.fetchMetaAdsByIds = realFetch; window.metaPeriodChunks = realChunks; f.restore(); };
+      loadAdsForAccount('act_51');
+      return sleep(120).then(function () {
+        ok(!loadingPlatforms.meta, 'loading ended: ' + statusText());
+        ok(statusText().indexOf(t('note.periodDaily')) > -1, statusText());
+        eq([f.ad().pd, f.ad().period.spend], [null, 900], 'the numbers stay');
+      }).then(done, function (e) { done(); throw e; });
     });
 
     testAsync('Meta: زيارة الفترة تاني — أيام النسخة المحفوظة بتفضل لحد ما الجديدة توصل، فالحكم مبيقلبش', function () {
@@ -10030,6 +10112,132 @@
       }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
     });
 
+    testAsync('Meta: تبديل الفترة مبيعيدش اللي مالوش علاقة بيها — حد Meta للطلبات وصل من كتر التبديل', function () {
+      // فحص حقيقي ٧ نوفمبر: كود ١٧ / ٢٤٤٦٠٧٩ «Ad Account Has Too Many API Calls» وطلب المجموعات بدأ يفشل
+      period = { preset: 'last14' };
+      var f = metaFake('act_52');
+      loadAdsForAccount('act_52');
+      var snap = function () { return [f.adsCalls, f.adsets, f.weeks, f.reach, f.acts, f.camps.length]; };
+      var first = null;
+      return sleep(80).then(function () { return f.pump(); }).then(function () {
+        first = snap();
+        ok(first[0] >= 1 && first[1] === 1 && first[2] === 1 && first[3] === 1 && first[4] === 1 && first[5] === 1, 'first load: ' + first);
+        period = { preset: 'yesterday' };
+        loadAdsForAccount('act_52');
+        return sleep(80);
+      }).then(function () {
+        eq(snap(), first, 'a narrower period: nothing but its total');
+        eq(f.totals, 2, 'its own total');
+        period = { preset: 'last30' };
+        loadAdsForAccount('act_52');
+        return sleep(80).then(function () { return f.pump(); });
+      }).then(function () {
+        var s = snap();
+        eq(s.slice(0, 5), first.slice(0, 5), 'a wider period: the same base');
+        eq(s[5], 2, 'a wider campaign list');
+        eq(f.ad().pd.dates.length, 30, 'and its days');
+        // زرار التحديث بيجيب كل حاجة من جديد
+        refreshAll();
+        return sleep(80).then(function () { return f.pump(); });
+      }).then(function () {
+        eq(snap().slice(1, 5), [2, 2, 2, 2], 'refresh: everything again');
+        // والنسخة بتخلص بعد ١٠ دقايق
+        var realNow = Date.now, base = Date.now();
+        Date.now = function () { return base + 11 * 60 * 1000; };
+        loadAdsForAccount('act_52');
+        Date.now = realNow;
+        return sleep(80).then(function () { return f.pump(); });
+      }).then(function () {
+        eq(snap().slice(1, 4), [3, 3, 3], 'after 10 minutes: fresh');
+        // وفصل Meta بيمسحه
+        disconnectPlatform('meta', true);
+        loadAdsForAccount('act_52');
+        return sleep(80).then(function () { return f.pump(); });
+      }).then(function () {
+        eq(snap()[1], 4, 'disconnecting clears it');
+      }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
+    test('Meta: صورة الإعلان بتتطلب مرة واحدة حتى لو الإعلان اتحمّل تاني في فترة تانية', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, calls = 0;
+      window.FB = { api: function (path, params, cb) { if (/adimages$/.test(path)) calls++; cb({ data: [] }); } };
+      var ad1 = { id: 'i1', creative: { image_hash: 'h1' } }, done = 0;
+      try {
+        resolveMetaImages('act_1', [ad1], function () { done++; });
+        resolveMetaImages('act_1', [ad1], function () { done++; });
+      } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
+      eq([calls, done], [1, 2], 'asked once, both callers told');
+    });
+
+    testAsync('Meta: فترة فيها النهارده بتجيب أرقام الأسبوع من جديد — «اليوم» لازم يكون آخر ما وصل', function () {
+      period = { preset: 'last7' };
+      var f = metaFake('act_53');
+      loadAdsForAccount('act_53');
+      return sleep(80).then(function () {
+        eq(f.weeks, 1);
+        period = { preset: 'today' };
+        loadAdsForAccount('act_53');
+        return sleep(80);
+      }).then(function () {
+        eq([f.weeks, f.adsets], [2, 1], 'the week again, the rest kept');
+      }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: طلب أساسي فشل مبيتحفظش — التبديل اللي بعده بيجرّب تاني', function () {
+      period = { preset: 'last14' };
+      var f = metaFake('act_54', { weekNoWindows: true });
+      loadAdsForAccount('act_54');
+      return sleep(1800).then(function () { return f.pump(); }).then(function () {
+        var before = f.weeks;
+        period = { preset: 'yesterday' };
+        loadAdsForAccount('act_54');
+        return sleep(1800).then(function () { ok(f.weeks > before, 'tried again: ' + before + ' -> ' + f.weeks); });
+      }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: طلب المجموعات فشل بحد الطلبات = آخر حالة ناجحة، ومبيتحفظش الفشل', function () {
+      period = { preset: 'last7' };
+      var f = metaFake('act_55');
+      loadAdsForAccount('act_55');
+      return sleep(80).then(function () {
+        eq([f.ad().statusPartial, f.adsets], [false, 1], 'the ad set status is known');
+        f.restore();
+        clearMetaBase();
+        var g = metaFake('act_55', { adsetsDown: true });
+        loadAdsForAccount('act_55');
+        return sleep(80).then(function () {
+          eq([g.adsets, g.ad().statusPartial], [2, false], 'both tries failed: the last known status, not «unreadable» on every ad');
+        }).then(function () { g.restore(); }, function (e) { g.restore(); throw e; });
+      }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: إعلان ليه مبيعات في الفترة من غير إنفاق بيتكمّل — مجموع الكروت = الملخص، ومبيتطلبش تاني في الفترة اللي بعدها', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, batches = 0;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      var live = { id: 'L2', name: 'L', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000', adset: { id: 's', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c', name: 'C' }, creative: {} };
+      var late = Object.assign({}, live, { id: 'S2', effective_status: 'PAUSED' });
+      var day = shiftKey(todayKeyInTz('UTC'), -1);
+      window.FB = { api: function (path, a, b, c) {
+        var p = typeof a === 'object' ? a : (typeof b === 'object' ? b : {}), cb = [a, b, c].filter(function (x) { return typeof x === 'function'; })[0], reply = { data: [] };
+        if (/\/ads$/.test(path)) reply = { data: [live] };
+        if (/insights$/.test(path) && /actions/.test(p.fields || '') && p.level !== 'campaign') reply = { data: [{ ad_id: 'L2', date_start: day, spend: '50' }, { ad_id: 'S2', date_start: day, spend: '0', action_values: [{ action_type: 'omni_purchase', value: '700' }] }] };
+        if (p.batch) { batches++; reply = [{ code: 200, body: JSON.stringify(late) }]; }
+        setTimeout(function () { cb(reply); }, 0);
+      } };
+      accountInfo['meta:act_56'] = { timeZone: 'UTC', currency: 'SAR' };
+      period = { preset: 'lastMonth' };
+      loadAdsForAccount('act_56');
+      return sleep(120).then(function () {
+        eq([candidates.map(function (c) { return c.id; }).sort(), batches], [['L2', 'S2'], 1], 'the late-sale ad has a card');
+        period = { preset: 'last14' };
+        loadAdsForAccount('act_56');
+        return sleep(120);
+      }).then(function () {
+        eq([candidates.map(function (c) { return c.id; }).sort(), batches], [['L2', 'S2'], 1], 'kept from the earlier period, not fetched again');
+        restore();
+      }, function (e) { restore(); throw e; });
+    });
+
     testAsync('Meta: «آخر ٧ أيام» من غير طلب أيام، و«أمس» و«اليوم» من طلب الأسبوع نفسه من غير أي طلب زيادة', function () {
       period = { preset: 'last7' };
       var f = metaFake('act_44');
@@ -10047,7 +10255,7 @@
         return sleep(80);
       }).then(function () {
         var d = f.ad();
-        eq([f.ranges.length, d.pd.dates, d.period.spend], [0, [todayKeyInTz('UTC')], 10], 'today: from the week');
+        eq([f.ranges.length, d.pd.dates, d.period.spend], [0, [todayKeyInTz('UTC')], 10], 'today: from the week, no extra days');
       }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
     });
 

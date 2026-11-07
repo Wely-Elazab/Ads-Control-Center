@@ -183,6 +183,7 @@
     });
   }
 
+  var adsetsGood = {};
   function loadAdsetStatusMap(accountId, onDone) {
     // استعلام مستقل ومباشر لحالة المجموعات الإعلانية وحملاتها — أوثق من محاولة سحبها
     // متداخلة جوه استعلام الإعلانات نفسه على 3 مستويات دفعة واحدة
@@ -209,9 +210,10 @@
       fields: 'id,effective_status,start_time,end_time,lifetime_budget,budget_remaining,campaign{effective_status,start_time,stop_time}',
       limit: 200
     }, FULL_SCAN_CAP, function (err, data) {
-      if (!err) { onDone(build(data)); return; }
+      if (!err) { adsetsGood[accountId] = build(data); onDone(adsetsGood[accountId]); return; }
       fetchAllPages('/' + accountId + '/adsets', { fields: 'id,effective_status,campaign{effective_status}', limit: 200 }, FULL_SCAN_CAP, function (err2, data2) {
-        onDone(build(data2));
+        // الطلبين فشلوا (حد Meta للطلبات مثلاً): آخر حالة نجحت أصدق من خريطة فاضية بتخلّي كل الإعلانات «حالتها غير مقروءة»
+        onDone(err2 && adsetsGood[accountId] ? adsetsGood[accountId] : build(data2));
       });
     });
   }
@@ -231,10 +233,13 @@
   // (alerts.js) بيستنى ٣ أيام كاملة بعد التعديل، وبعدها بيحكم على الأيام اللي بعده بس. فشل الطلب = التقييم زي ما كان
   var adEditsById = {};
   var EDIT_KINDS = { budget: 1, targeting: 1, creative: 1, resume: 1 };
-  function loadAdEdits(accountId, source, tz, live) {
+  function loadAdEdits(accountId, source, tz, live, base) {
     if (!window.DX || !DX._ || typeof DX._.actionOf !== 'function') return Promise.resolve();
     var sinceKey = shiftKey(todayKeyInTz(tz), -8);
-    return metaActivities(accountId, sinceKey).then(function (res) {
+    // السجل نفسه مرة واحدة لكل نسخة (metaBaseFor)، والربط بالكروت كل تحميل: كروت الفترة التانية غير كروت الأولى
+    var logP = base ? (base.activitiesP = base.activitiesP || metaActivities(accountId, sinceKey)) : metaActivities(accountId, sinceKey);
+    return logP.then(function (res) {
+      if (base && (!res || res.err)) base.activitiesP = null;
       if (!live() || !res || res.err) return;
       var byObj = {}, all = [];
       res.data.forEach(function (ev) {
@@ -325,6 +330,17 @@
       return res.err ? fbPagesPromise('/' + accountId + '/insights', params, FULL_SCAN_CAP) : res;
     });
   }
+  // اللي مالوش علاقة بالفترة: قائمة الإعلانات، وحالة المجموعات، وأرقام الأسبوع، والتكرار، وسجل التعديلات، والصور. تبديل الفترة كان بيعيد
+  // ده كله: فحص حقيقي ٧ نوفمبر — الحساب وصل لحد Meta للطلبات في الساعة (كود ١٧ / ٢٤٤٦٠٧٩ «Ad Account Has Too Many API Calls») وطلب
+  // المجموعات بدأ يفشل. فبيتحفظ ١٠ دقايق لكل حساب، وتبديل الفترة بيجيب مجموعها وأيامها بس. زرار التحديث بيمسحه (ui.js refreshAll)،
+  // واليوم الجديد نسخة جديدة، وأي طلب أساسي فشل مبيتحفظش
+  var META_BASE_MS = 10 * 60 * 1000, metaBases = {};
+  function metaBaseFor(accountId, today) {
+    var b = metaBases[accountId];
+    if (b && b.today === today && Date.now() - b.at < META_BASE_MS) return b;
+    return (metaBases[accountId] = { at: Date.now(), today: today, known: {} });
+  }
+  function clearMetaBase() { metaBases = {}; }
   // الحملات اللي ليها أرقام في المدى ده، وتصفية طلبات مستوى الإعلان بيها (٧ نوفمبر ٢٠٢٦ — أكبر سبب في بطء التحميل). طلب مستوى الإعلان
   // غير المصفّى بيمسح كل حملات الحساب حتى اللي مالهاش أرقام: حساب حقيقي ٩٤ صف كانوا ١١٫٦ ثانية، وبتصفية الـ٨ حملات اللي اشتغلت فعلاً
   // من ٣٧ بقوا ٢٫٢ ثانية بنفس الصفوف والأرقام (اتقارنوا صف بصف على حسابين و٨ نوافذ؛ الفرق صفوف فاضية بس). والقائمة نفسها ١٫٦ ثانية حتى
@@ -344,7 +360,7 @@
     if (!ids) return params;
     var out = {};
     for (var k in params) out[k] = params[k];
-    out.filtering = JSON.stringify([{ field: 'campaign.id', operator: 'IN', value: ids }, { field: 'ad.effective_status', operator: 'IN', value: AD_ALL_STATUSES }]);
+    out.filtering = JSON.stringify((params.filtering ? JSON.parse(params.filtering) : []).concat([{ field: 'campaign.id', operator: 'IN', value: ids }, { field: 'ad.effective_status', operator: 'IN', value: AD_ALL_STATUSES }]));
     return out;
   }
   // أيام الفترة المختارة لكل إعلان (تقييم الإعلان على الفترة — ٣ نوفمبر ٢٠٢٦). Meta بترجّع HTTP 400 لطلب اليوم بيوم الكبير (حساب حقيقي ٧ نوفمبر:
@@ -425,31 +441,36 @@
     // (قبل كده كانت بتتبدّل بكروت أرقامها صفر لحد ما الأرقام توصل)
     var cachedShown = showCachedWhileLoading(source, 'Meta');
     setLoading('meta', true, msg('s.loadingAds', { platform: 'Meta' }));
+    var base = metaBaseFor(accountId, days[days.length - 1].key);
+    var dropBase = function () { if (metaBases[accountId] === base) delete metaBases[accountId]; };
 
     // الإعلانات على دفعتين مستقلتين: الشغّالة (أو اللي عليها ملاحظة) بتظهر أول ما توصل، والمتوقفة في الخلفية.
     // قياس على حساب حقيقي (٢٥ شغّال و٦١٨ متوقف): الشغّالة ~٢ ثانية والأرقام ~٨، والمتوقفة ~٦٦ ثانية
     // (بيانات التصميم عند Meta تقيلة) — قبل كده الشاشة كلها كانت بتستنى المتوقفة دقيقة كاملة.
     // الإعلانات المتوقفة اللي صرفت في الفترة مش بتستنى الدفعة دي: fillMissing بتجيبها بالرقم مع الأرقام.
     // ودفعة المتوقفة نفسها مبتبدأش غير لما العميل يطلبها (requestStoppedAds) أو لو الحساب مفيهوش ولا إعلان شغّال
-    var liveAdsP = adsPromise(accountId, { effective_status: JSON.stringify(LIVE_STATUSES) }, LIVE_ADS_CAP);
-    var stoppedPromise = null;
+    var liveAdsP = base.liveAdsP = base.liveAdsP || adsPromise(accountId, { effective_status: JSON.stringify(LIVE_STATUSES) }, LIVE_ADS_CAP);
     var stoppedP = function () {
-      if (!stoppedPromise) {
-        stoppedPromise = adsPromise(accountId, { effective_status: JSON.stringify(STOPPED_STATUSES) }, PAGE_SAFETY_CAP)
+      if (!base.stoppedP) {
+        base.stoppedP = adsPromise(accountId, { effective_status: JSON.stringify(STOPPED_STATUSES) }, PAGE_SAFETY_CAP)
           .catch(function (e) { return { err: e || { message: 'failed' }, data: [] }; });
       }
-      return stoppedPromise;
+      return base.stoppedP;
     };
     stoppedLoaders.meta = null;
     // لو Meta رفضت فلتر الحالة: طلب واحد لكل الإعلانات (زي الأول)، والمتوقفة جوّاه
-    var adsP = liveAdsP.then(function (res) {
+    var adsP = base.adsP = base.adsP || liveAdsP.then(function (res) {
       if (!res.err) return res;
       return adsPromise(accountId, {}, PAGE_SAFETY_CAP).then(function (all) { all.all = true; return all; });
     });
-    var adsetsP = new Promise(function (resolve) { loadAdsetStatusMap(accountId, resolve); });
+    var adsetsP = base.adsetsP = base.adsetsP || new Promise(function (resolve) { loadAdsetStatusMap(accountId, resolve); });
     var pr = resolvePeriodFor(info.timeZone || BROWSER_TZ);
     // حملات الأسبوع والفترة في طلب واحد خفيف، وكل طلبات مستوى الإعلان متصفّية بيها (metaCampaignIds)
-    var campsP = metaCampaignIds(accountId, pr.since < days[0].key ? pr.since : days[0].key, days[days.length - 1].key);
+    var scopeSince = pr.since < days[0].key ? pr.since : days[0].key;
+    // قائمة مدى أوسع بتنفع لأي مدى جوّاها (التصفية للسرعة بس: حملات زيادة مبتغيّرش رقم). وفشلها مبيتحفظش
+    if (!base.campsP || scopeSince < base.campsSince) { base.campsSince = scopeSince; base.campsP = metaCampaignIds(accountId, scopeSince, days[days.length - 1].key); }
+    var campsP = base.campsP;
+    campsP.then(function (ids) { if (!ids && base.campsP === campsP) base.campsP = null; });
     var scopedInsights = function (params) {
       return campsP.then(function (ids) {
         return insightsPromise(accountId, scopeToCampaigns(params, ids)).then(function (res) {
@@ -457,14 +478,16 @@
         });
       });
     };
-    var dailyP = scopedInsights({
+    // فترة فيها النهارده: أرقامه لازم تكون آخر ما وصل، فالأسبوع بيتجاب تاني (ثانيتين بعد التصفية)
+    if (pr.until === days[days.length - 1].key) base.dailyP = null;
+    var dailyP = base.dailyP = base.dailyP || scopedInsights({
       level: 'ad', time_increment: 1, time_range: timeRange,
       fields: 'ad_id,date_start,spend,actions,action_values', limit: 500
     });
     // تكرار الظهور لازم يتحسب على الأسبوع كله مرة واحدة — مينفعش نجمعه من أرقام يومية،
     // لأن نفس الشخص ممكن يتكرر في أكتر من يوم. فشل الطلب ده مش بيوقف التحميل.
     // الأيام المكتملة بس (آخر ٧ أيام زي اسمه في التفاصيل ونص التنبيه): كان شامل النهارده = ٨ أيام (مراجعة المرحلة ٤)
-    var reachP = fbPagesPromise('/' + accountId + '/insights', {
+    var reachP = base.reachP = base.reachP || fbPagesPromise('/' + accountId + '/insights', {
       level: 'ad', time_range: JSON.stringify({ since: days[0].key, until: days[days.length - 2].key }), fields: 'ad_id,frequency,reach,impressions', limit: 500
     }, FULL_SCAN_CAP);
     // أرقام الفترة المختارة: المجموع (صف لكل إعلان، ثانية أو اتنين) هو اللي الكروت بتستناه. أيام الفترة للحكم عليها (metaPeriodChunks)
@@ -476,7 +499,10 @@
     });
     var daysP = pr.preset === 'last7' ? null : metaPeriodChunks(accountId, pr, days, campsP);
     var daysPending = !!daysP, daysPart = null, onDays = null, fillPending = false;
-    if (daysP) daysP.then(function (part) { daysPart = part; if (onDays) onDays(); });
+    if (daysP) {
+      var daysDone = function (part) { daysPart = part; if (onDays) onDays(); };
+      daysP.then(daysDone, function (e) { daysDone({ err: e || { message: 'failed' } }); });
+    }
 
     var order = [], adsById = {}, adsTruncated = false, adFields = null;
     var allInOne = false, stoppedUsed = false, stoppedFailed = false;
@@ -509,7 +535,9 @@
     var stage1 = Promise.all([adsP, adsetsP]).then(function (r) {
       if (!live()) return null;
       var ads = r[0], adsetStatusMap = r[1];
+      if (!Object.keys(adsetStatusMap).length) base.adsetsP = null;
       if (ads.err) {
+        dropBase();
         if (isMetaAuthError(ads.err)) markExpired('meta');
         else fail(msg('s.adsFailed', { platform: 'Meta', msg: metaErrorText(ads.err) }));
         return null;
@@ -549,13 +577,15 @@
       var spent = {};
       [daily, periodRes].forEach(function (res) {
         if (!res || res.err) return;
-        res.data.forEach(function (row) { if (num(row.spend) > 0) spent[row.ad_id] = true; });
+        // ومبيعات من غير إنفاق في الفترة كمان (طلب متأخر لإعلان اتوقف): من غيره مجموع الكروت أقل من الملخص — فحص حقيقي ٧١٣ ر.س في شهر
+        res.data.forEach(function (row) { if (num(row.spend) > 0 || (row.action_values && row.action_values.length)) spent[row.ad_id] = true; });
       });
-      var missing = Object.keys(spent).filter(function (id) { return !adsById[id]; });
+      // اللي اتجاب في فترة قبلها مبيتطلبش تاني (metaBaseFor)
+      var missing = Object.keys(spent).filter(function (id) { return !adsById[id] && !(base.known[id] && add(base.known[id])); });
       if (!missing.length || !adFields) return Promise.resolve();
       return new Promise(function (resolve) {
         fetchMetaAdsByIds(missing, adFields, function (extra) {
-          extra.forEach(add);
+          extra.forEach(function (ad) { if (ad && ad.id) base.known[ad.id] = ad; add(ad); });
           resolveMetaImages(accountId, extra, resolve);
         });
       });
@@ -606,6 +636,8 @@
     // المرحلة التانية: أرقام الإنفاق والنتائج والتكرار (من غير ما تستنى الإعلانات المتوقفة)
     Promise.all([stage1, dailyP, reachP, periodP]).then(function (r) {
       var adsetStatusMap = r[0], daily = r[1], reach = r[2], periodRes = r[3];
+      if (daily.err || daily.truncated || daily.noWindows) base.dailyP = null;
+      if (reach.err) base.reachP = null;
       if (!live() || !adsetStatusMap) return null;
       maps = {
         insights: byAdId(daily.data, true), reach: byAdId(reach.data), adsets: adsetStatusMap,
@@ -642,7 +674,14 @@
       // الإعلانات اللي صرفت ومش في الدفعة (متوقفة أو محذوفة) بتتكمّل بعد ما الأرقام تظهر: الكروت كانت بتستناها ٣–٤ ثواني زيادة في كل تحميل
       fillPending = true;
       publish(true);
-      fillMissing(daily, periodRes).then(function () { fillPending = false; if (live()) publish(!stoppedBusy); });
+      // سجل التعديلات بعد التكملة: بيتربط بالكروت الموجودة ساعتها، فالإعلانات اللي لسه هتتكمّل كانت هتفضل من غيره
+      var filled = function () {
+        fillPending = false;
+        if (!live()) return;
+        publish(!stoppedBusy);
+        loadAdEdits(accountId, source, info.timeZone || BROWSER_TZ, live, base);
+      };
+      fillMissing(daily, periodRes).then(filled, filled);
       // سجل عملاء التجربة (js/ui.js → Supabase): الحساب ده فتح الأداة — مرة في الجلسة، ولو فشل مفيش أي أثر
       if (typeof syncSeen === 'function') syncSeen(accountId);
       // لو الملخص التلقائي مفعّل للحساب ده: تجديد المفتاح المحفوظ على السيرفر (مرة في الجلسة)
@@ -651,7 +690,6 @@
       loadMetaDiagnosis(accountId, info, live);
       dxReloaders.meta = function () { if (live()) loadMetaDiagnosis(accountId, info, live); };
       loadLifeFrequency(accountId, source, live);
-      loadAdEdits(accountId, source, info.timeZone || BROWSER_TZ, live);
       if (showStopped) stage3();
     }).catch(function (err) {
       // أي خطأ مش متوقع (بيانات بشكل غريب من Meta مثلاً) — قبل كده مؤشر التحميل كان بيفضل يلف على طول
@@ -909,6 +947,8 @@
   // بتجيب روابط الصور الأصلية لكل الإعلانات دفعة واحدة، وبتحطها في ad._fullImage.
   // أي فشل هنا مش بيوقف التحميل — الإعلان بيرجع للصورة الاحتياطية
   function resolveMetaImages(accountId, ads, onDone) {
+    // نفس الإعلان في تحميل تاني (تبديل الفترة): صورته اتطلبت خلاص
+    ads = ads.filter(function (ad) { var seen = ad._imgAsked; ad._imgAsked = true; return !seen; });
     var byHash = {}, byStory = {};
     ads.forEach(function (ad) {
       var creative = ad.creative || {};
@@ -1298,8 +1338,9 @@
         });
       }).then(function (res) { results[job.d.id + ':' + job.i] = res; }).then(worker);
     };
+    // ٣٣ طلب: ٦ مع بعض كانوا بياخدوا ١٦ ثانية والملخص هو أول صفحة. قياس حقيقي ٧ نوفمبر: ١٢ طلب مع بعض خلصوا في ٥ ثواني من غير أي خطأ
     var pool = [];
-    for (var n = 0; n < 6; n++) pool.push(worker());
+    for (var n = 0; n < 12; n++) pool.push(worker());
     return Promise.all([dailyP, Promise.all(pool)]).then(function (r) {
       var daily = r[0];
       if (daily.err) throw daily.err;

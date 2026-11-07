@@ -255,6 +255,7 @@
       if (platform === 'google') apiPost('/api/google-token', { sealed: sealed, revoke: true });
     }
     beginLoad(platform); // أي رد لسه جاي من المنصة دي بيتجاهل
+    if (platform === 'meta') clearMetaBase();   // بيانات الحساب المحفوظة بين الفترات متفضلش بعد الفصل
     loadingPlatforms[platform] = false;
     numbersPending[platform] = false;
     document.body.classList.toggle('is-loading', anyLoading());
@@ -920,7 +921,7 @@
       g.ads.push(c);
     });
     list.forEach(function (g) {
-      var spend = 0, sales = 0, results = 0, keys = {}, spend7 = 0, reviewSpend = 0, improveSpend = 0;
+      var spend = 0, sales = 0, results = 0, keys = {}, judgedSpend = 0, reviewSpend = 0, improveSpend = 0;
       g.active = 0; g.urgent = 0; g.important = 0; g.health = {};
       g.ads.forEach(function (c) {
         var p = periodOf(c), a = adAnalysis(c);
@@ -928,12 +929,15 @@
         if (p.results != null) { results += p.results; keys[c.resultKey || 'generic'] = true; }
         if (c.active) g.active++;
         g.health[a.health] = (g.health[a.health] || 0) + 1;
-        spend7 += c.spend || 0;
-        if (a.health === 'review') reviewSpend += c.spend || 0;
-        if (a.health === 'improve') improveSpend += c.spend || 0;
+        // بأرقام الحكم نفسها: الفترة لو الحكم عليها (كان إنفاق الأسبوع دايماً — إعلان سيئ صرف كتير الشهر اللي فات ومصرفش الأسبوع ده
+        // مكانش بيدخل في لون حملته في «الشهر الماضي»)
+        var sp = (judgedOnPeriod(c) ? p.spend : c.spend) || 0;
+        judgedSpend += sp;
+        if (a.health === 'review') reviewSpend += sp;
+        if (a.health === 'improve') improveSpend += sp;
       });
-      // عدد التنبيهات من نفس قائمة صفحة التنبيهات (فيها كمان تنبيهات الحساب المربوطة بإعلان، زي تركيز الميزانية) —
-      // عشان الرقم على كارت الحملة يطابق اللي هتلاقيه في التنبيهات
+      // عدد التنبيهات من نفس حكم كروت الإعلانات اللي جوّاها (فيها كمان تنبيهات الحساب المربوطة بإعلان، زي تركيز الميزانية). في «آخر ٧ أيام»
+      // ده نفس رقم صفحة التنبيهات، وفي غيرها رقم الفترة زي باقي الكارت (صفحة التنبيهات على «الآن» — runAnalysis)
       g.ads.forEach(function (c) {
         var e = alertsByAd[c.id];
         if (e) { g.urgent += e.urgent; g.important += e.important; }
@@ -946,11 +950,11 @@
       g.cpr = (g.results && spend > 0) ? spend / g.results : null;
       g.roas = (sales > 0 && spend > 0) ? sales / spend : null;
       // لون الحملة بالفلوس مش بالعدد: لو الإعلانات اللي محتاجة مراجعة واخدة ٣٠٪ أو أكتر من صرفها
-      // (آخر ٧ أيام — نفس فترة التقييم) تبقى حمرا. إعلان صغير عليه مشكلة ميلوّنش الحملة كلها
-      var share = function (x) { return spend7 > 0 ? x / spend7 : 0; };
+      // (نفس أيام التقييم) تبقى حمرا. إعلان صغير عليه مشكلة ميلوّنش الحملة كلها
+      var share = function (x) { return judgedSpend > 0 ? x / judgedSpend : 0; };
       if (!g.active && !g.health.review) g.status = 'inactive';
-      else if (spend7 > 0 ? share(reviewSpend) >= 0.3 : g.health.review) g.status = 'review';
-      else if (spend7 > 0 ? share(reviewSpend + improveSpend) >= 0.3 : g.health.improve) g.status = 'improve';
+      else if (judgedSpend > 0 ? share(reviewSpend) >= 0.3 : g.health.review) g.status = 'review';
+      else if (judgedSpend > 0 ? share(reviewSpend + improveSpend) >= 0.3 : g.health.improve) g.status = 'improve';
       // كل إعلاناتها الشغّالة «لم يُحكم بعد» = الحملة نفسها لسه مفيش حكم عليها
       else if (!g.health.good && !g.health.improve && !g.health.review && g.health.pending) g.status = 'pending';
       else g.status = 'good';
@@ -2627,7 +2631,9 @@
       var a = analysis.byAd[c.id];
       return a && a.health === 'review' && onPlatforms(c, pick);
     }).length;
-    var chips = review ? '<button type="button" class="attn-chip" data-kpi="review">' + esc(t('attn.review', { n: ar(review) })) + '</button>' : '';
+    // الشارة بتفتح الإعلانات بحكم الفترة، فبتقول الفترة لو غير الأسبوع — القسم نفسه عن «الآن» فالعدد من غيرها كان بيتقرا عن دلوقتي
+    var reviewText = period.preset === 'last7' ? t('attn.review', { n: ar(review) }) : t('attn.reviewP', { n: ar(review), period: periodLabel() });
+    var chips = review ? '<button type="button" class="attn-chip" data-kpi="review">' + esc(reviewText) + '</button>' : '';
     var head = '<div class="top-alerts-head"><h3 class="top-alerts-title">' + esc(t('sec.attn')) + '</h3>' + (chips ? '<span class="attn-chips">' + chips + '</span>' : '') + '</div>';
     if (!items.length) {
       // لسه بيتحمّل (القفل اتشال بعد ٣٠ ثانية): منقولش «لا شيء عاجل» قبل ما الأرقام تيجي
@@ -3236,9 +3242,11 @@
     if (c.platformStatus) statusBits.push(t('x.platformStatus', { s: c.platformStatus }));
     document.getElementById('expandStatus').innerHTML =
       '<span class="status-line-label">' + t('x.delivery') + '</span><span class="status-line-value">' + esc(statusBits.join(' — ')) + '</span>';
-    document.getElementById('expandIssues').innerHTML = a.issues.length
+    var nowIssues = nowOnlyIssues(c, a);
+    document.getElementById('expandIssues').innerHTML = (a.issues.length
       ? a.issues.map(issueMarkup).join('')
-      : (c.active ? '<div class="issue-none">' + t('x.noIssues') + '</div>' : '');
+      : (c.active && !nowIssues.length ? '<div class="issue-none">' + t('x.noIssues') + '</div>' : '')) +
+      (nowIssues.length ? '<div class="chart-section-label issues-now">' + esc(t('x.nowIssues')) + '</div>' + nowIssues.map(issueMarkup).join('') : '');
     // النص: لو مفيش، بنقول السبب بدل «(بدون نص)» الصامتة — الإعلان المبني على منشور موجود نصه جوه المنشور
     // وقراءته محتاجة صلاحية على الصفحة (حساب حقيقي ٢ نوفمبر ٢٠٢٦)
     var capEl = document.getElementById('expandCaption');
@@ -3324,6 +3332,15 @@
     showMedia(c);
   }
 
+  // تنبيهات «الآن» على الإعلان اللي مش في حكم الفترة (عاجل ومهم). اللي جاي من صفحة التنبيهات لازم يلاقي تنبيهه: فحص حقيقي — تنبيه عاجل
+  // «عائد أقل من حد الخسارة» بيتفتح على «الشهر الماضي» على «إعلان نشط لم يُنفق شيئاً»، الجملتين صح كل واحدة على أيامها، ومن غير عنوان
+  // بيتقروا تناقض. في «آخر ٧ أيام» التحليلين واحد فمفيش
+  function nowOnlyIssues(c, a) {
+    var now = analysis.period && judgedOnPeriod(c) ? analysisNow.byAd[c.id] : null;
+    return ((now && now.issues) || []).filter(function (i) {
+      return (i.level === 'critical' || i.level === 'warning') && !a.issues.some(function (x) { return x.title === i.title && x.detail === i.detail; });
+    });
+  }
   // أيام جدول التفاصيل: أيام الفترة (c.pd) لو الحكم عليها، والنهارده عمود لوحده — فترة بتخلص أمس بتاخده من النافذة اليومية، وفترة
   // فيها النهارده («اليوم» أو مخصصة لحد النهارده) آخر يوم فيها هو النهارده. وإلا النافذة اليومية زي الأول (آخر ٧ أيام والنهارده)
   function dailyTableData(c) {
@@ -4356,7 +4373,7 @@
 
   // إعادة تحميل كل الحسابات المحمّلة من كل المنصات (مش Meta بس)
   // «تحديث البيانات» بيجيب ملخص المتجر من جديد هو كمان (من غيرها كان بيفضل على نسخته القديمة لنفس الفترة)
-  function refreshAll() { dxReset(); Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); }); }
+  function refreshAll() { dxReset(); clearMetaBase(); Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); }); }
   resetAllBtn.addEventListener('click', refreshAll);
 
   // ---------- آخر تحديث ----------

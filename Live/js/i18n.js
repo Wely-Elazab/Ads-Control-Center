@@ -271,6 +271,7 @@
       'x.delivery': 'الظهور',
       'x.platformStatus': 'حالة المنصة: {s}',
       'x.noIssues': 'لا توجد ملاحظات على هذا الإعلان حالياً.',
+      'x.nowIssues': 'تنبيهات الوضع الحالي — على آخر ٧ أيام',
       'x.suggest': 'اقتراح للمراجعة:',
       // من ٣ نوفمبر ٢٠٢٦ الحكم على الفترة المختارة نفسها (كان على آخر ٧ أيام مهما كانت الفترة) — ui.js basisLineOf
       'x.basisPeriod': 'الحكم على أرقام الفترة المختارة ({period})، ولا يُحتسب اليوم الجاري لأنه لم يكتمل.',
@@ -424,6 +425,7 @@
       'lock.title': 'جارٍ تحميل إعلانات الحساب وتحليلها…',
       'attn.noneBad': 'لا توجد حملة أو إعلان بعينه وراء هذا الحكم؛ التفاصيل أدناه.',
       'attn.review': 'إعلانات تحتاج إلى مراجعة: {n}',
+      'attn.reviewP': 'إعلانات تحتاج إلى مراجعة ({period}): {n}',
       // لوحة «قيمة الأداة» (ui.js renderWastePanel — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦، بدل لوحة الهدر)
       'val.title': 'ما حققته مع الأداة',
       'val.notice': 'لنحسب ما تحققه مع الأداة، نسجّل على خادمنا من الآن وقت كل تنبيه عاجل ورقم الإعلان الذي يخصه، ونوع التعديل الذي تجريه بعده ووقته، دون أي أرقام إنفاق أو مبيعات، ولمدة ٩٠ يوماً.',
@@ -1863,6 +1865,7 @@
       'x.delivery': 'Delivery',
       'x.platformStatus': 'Platform status: {s}',
       'x.noIssues': 'No notes on this ad right now.',
+      'x.nowIssues': 'Alerts about right now — based on the last 7 days',
       'x.suggest': 'Suggestion to review:',
       'x.basisPeriod': 'The verdict is on the selected period\'s figures ({period}); today isn\'t counted because it isn\'t over yet.',
       'x.basisPeriodPast': 'The verdict is on the selected period\'s figures ({period}).',
@@ -1990,6 +1993,7 @@
       'lock.title': 'Loading and analysing the account\'s ads…',
       'attn.noneBad': 'No single campaign or ad is behind this verdict; details below.',
       'attn.review': 'Ads needing review: {n}',
+      'attn.reviewP': 'Ads needing review ({period}): {n}',
       'val.title': 'What you achieved with the tool',
       'val.notice': 'To measure what you achieve with the tool, from now on we record on our server the time of each urgent alert and the ad it concerns, and the kind and time of the change you make after it. No spend or sales figures, kept for 90 days.',
       'val.notice.link': 'Privacy policy',
