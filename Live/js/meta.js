@@ -206,12 +206,15 @@
       });
       return map;
     };
+    // الشغّالة بس: الخريطة بتتقرا لإعلان حالته شغّال، والموقوف حالته عند Meta بتكفي (metaDelivery). كل مجموعات الحساب من أول ما اتعمل
+    // كانوا ٥ صفحات لحساب فيه ١٠٠٠ مجموعة، وتحميل واحد كان بيوصّل الحساب لحد Meta للطلبات (فحص حقيقي ٧ نوفمبر ٢٠٢٦)
+    var live = JSON.stringify(['ACTIVE', 'IN_PROCESS', 'WITH_ISSUES']);
     fetchAllPages('/' + accountId + '/adsets', {
       fields: 'id,effective_status,start_time,end_time,lifetime_budget,budget_remaining,campaign{effective_status,start_time,stop_time}',
-      limit: 200
+      effective_status: live, limit: 200
     }, FULL_SCAN_CAP, function (err, data) {
       if (!err) { adsetsGood[accountId] = build(data); onDone(adsetsGood[accountId]); return; }
-      fetchAllPages('/' + accountId + '/adsets', { fields: 'id,effective_status,campaign{effective_status}', limit: 200 }, FULL_SCAN_CAP, function (err2, data2) {
+      fetchAllPages('/' + accountId + '/adsets', { fields: 'id,effective_status,campaign{effective_status}', effective_status: live, limit: 200 }, FULL_SCAN_CAP, function (err2, data2) {
         // الطلبين فشلوا (حد Meta للطلبات مثلاً): آخر حالة نجحت أصدق من خريطة فاضية بتخلّي كل الإعلانات «حالتها غير مقروءة»
         onDone(err2 && adsetsGood[accountId] ? adsetsGood[accountId] : build(data2));
       });
@@ -344,7 +347,8 @@
   // الحملات اللي ليها أرقام في المدى ده، وتصفية طلبات مستوى الإعلان بيها (٧ نوفمبر ٢٠٢٦ — أكبر سبب في بطء التحميل). طلب مستوى الإعلان
   // غير المصفّى بيمسح كل حملات الحساب حتى اللي مالهاش أرقام: حساب حقيقي ٩٤ صف كانوا ١١٫٦ ثانية، وبتصفية الـ٨ حملات اللي اشتغلت فعلاً
   // من ٣٧ بقوا ٢٫٢ ثانية بنفس الصفوف والأرقام (اتقارنوا صف بصف على حسابين و٨ نوافذ؛ الفرق صفوف فاضية بس). والقائمة نفسها ١٫٦ ثانية حتى
-  // لـ٩٣ يوم. actions في طلبها عشان حملة نتايجها جت متأخرة من غير إنفاق في المدى متتشالش. فشلها أو حملات كتير = زي الأول من غير تصفية.
+  // لـ٩٣ يوم. actions في طلبها عشان حملة نتايجها جت متأخرة من غير إنفاق في المدى متتشالش. فشلها أو حملات كتير = null = زي الأول من غير
+  // تصفية، وقائمة فاضية = الحساب مفيهوش أرقام في المدى فمفيش طلبات (noCampaigns): حساب واقف كان بياخد ١١ ثانية عشان يرجع صفر.
   // الحالات لازم تتكتب: أي طلب فيه filtering بيرجّع الإعلانات غير المؤرشفة بس من غير ما يقول (Meta، Insights: Deleted and Archived
   // Objects) — فحص حقيقي: إعلان مؤرشف صرف ٦٦٫٧٥ جوه حملة نشطة كان بيختفي من النتيجة، وبالحالات رجع بنفس السرعة
   var SCOPE_MAX_CAMPAIGNS = 100;
@@ -352,10 +356,12 @@
   function metaCampaignIds(accountId, since, until) {
     return fbPagesPromise('/' + accountId + '/insights', { level: 'campaign', time_range: JSON.stringify({ since: since, until: until }), fields: 'campaign_id,spend,actions', limit: 500 }, FULL_SCAN_CAP)
       .then(function (res) {
-        var ids = res.err || res.truncated ? [] : res.data.map(function (r) { return r.campaign_id; }).filter(Boolean);
-        return ids.length && ids.length <= SCOPE_MAX_CAMPAIGNS ? ids : null;
+        if (res.err || res.truncated) return null;
+        var ids = res.data.map(function (r) { return r.campaign_id; }).filter(Boolean);
+        return ids.length <= SCOPE_MAX_CAMPAIGNS ? ids : null;
       }, function () { return null; });
   }
+  function noCampaigns(ids) { return !!ids && !ids.length; }
   function scopeToCampaigns(params, ids) {
     if (!ids) return params;
     var out = {};
@@ -384,7 +390,7 @@
       });
     };
     var round = function (i, ids) {
-      if (i >= parts.length) return Promise.resolve({ data: rows });
+      if (i >= parts.length || noCampaigns(ids)) return Promise.resolve({ data: rows });
       return Promise.all(parts.slice(i, i + PERIOD_CHUNK_PARALLEL).map(function (w) { return one(w, ids); })).then(function (list) {
         var bad = list.filter(function (x) { return x.err || x.truncated; })[0];
         if (bad) return { err: bad.err || { message: 'truncated' } };
@@ -463,7 +469,11 @@
       if (!res.err) return res;
       return adsPromise(accountId, {}, PAGE_SAFETY_CAP).then(function (all) { all.all = true; return all; });
     });
-    var adsetsP = base.adsetsP = base.adsetsP || new Promise(function (resolve) { loadAdsetStatusMap(accountId, resolve); });
+    // طلب الإعلانات نفسه فيه حالة المجموعة ومواعيدها وميزانيتها، فالخريطة احتياط بس لو الحقول دي مرجعتش (META_AD_FIELDS_BASIC)
+    var adsetsP = base.adsetsP = base.adsetsP || adsP.then(function (res) {
+      var nested = res.data.every(function (ad) { return ad.adset && ad.adset.effective_status; });
+      return nested ? {} : new Promise(function (resolve) { loadAdsetStatusMap(accountId, resolve); });
+    });
     var pr = resolvePeriodFor(info.timeZone || BROWSER_TZ);
     // حملات الأسبوع والفترة في طلب واحد خفيف، وكل طلبات مستوى الإعلان متصفّية بيها (metaCampaignIds)
     var scopeSince = pr.since < days[0].key ? pr.since : days[0].key;
@@ -473,6 +483,7 @@
     campsP.then(function (ids) { if (!ids && base.campsP === campsP) base.campsP = null; });
     var scopedInsights = function (params) {
       return campsP.then(function (ids) {
+        if (noCampaigns(ids)) return { data: [] };
         return insightsPromise(accountId, scopeToCampaigns(params, ids)).then(function (res) {
           return res.err && ids && !isMetaAuthError(res.err) ? insightsPromise(accountId, params) : res;   // Meta رفضت الفلتر = زي الأول
         });
@@ -535,7 +546,6 @@
     var stage1 = Promise.all([adsP, adsetsP]).then(function (r) {
       if (!live()) return null;
       var ads = r[0], adsetStatusMap = r[1];
-      if (!Object.keys(adsetStatusMap).length) base.adsetsP = null;
       if (ads.err) {
         dropBase();
         if (isMetaAuthError(ads.err)) markExpired('meta');
@@ -1333,6 +1343,7 @@
       for (var k in job.d.p) params[k] = job.d.p[k];
       if (!job.d.goal) params.filtering = DX_JUDGED_FILTER;
       return (job.d.id === 'ad' ? campsP : Promise.resolve(null)).then(function (ids) {
+        if (noCampaigns(ids)) return { data: [] };
         return fbPagesPromise('/' + accountId + '/insights', scopeToCampaigns(params, ids), FULL_SCAN_CAP).then(function (res) {
           return res.err && ids ? fbPagesPromise('/' + accountId + '/insights', params, FULL_SCAN_CAP) : res;
         });

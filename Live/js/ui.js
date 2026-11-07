@@ -714,7 +714,7 @@
     if (r.until === today) return r.since === today ? t('x.basisToday') : t('x.basisPeriodToday', pl);
     // قواعد «الآن» (أمس وآخر ٣ أيام) مقفولة في حكم الفترة اللي مبتخلصش أمس أو أقل من ٧ أيام (periodEngineOpts) — بنقول فين تلاقيها
     return t(r.until === shiftKey(today, -1) ? 'x.basisPeriod' : 'x.basisPeriodPast', pl) +
-      (period.preset === 'last7' || periodEngineOpts().recent ? '' : ' ' + t('x.basisPeriodNow'));
+      (period.preset === 'last7' || periodEngineOpts().recent || nowOnlyIssues(c, a).length ? '' : ' ' + t('x.basisPeriodNow'));
   }
   // عبارة الفترة في نصوص التقييم ({wd}) وقواعد «الآن»: شغّالة بس لو الفترة بتخلص أمس وفيها ٧ أيام مكتملة على الأقل
   function periodEngineOpts() {

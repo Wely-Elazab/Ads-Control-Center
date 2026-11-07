@@ -9862,14 +9862,14 @@
       window.FB = { api: function (path, params, cb) {
         var p = typeof params === 'object' ? params : {}, reply = { data: [] };
         if (/\/ads$/.test(path)) f.adsCalls++;
-        if (/\/adsets$/.test(path)) { f.adsets++; if (o.adsetsDown) { setTimeout(function () { cb({ error: { code: 17, error_subcode: 2446079, message: 'User request limit reached' } }); }, 0); return; } reply = { data: [{ id: 's', effective_status: 'ACTIVE', campaign: { effective_status: 'ACTIVE' } }] }; }
+        if (/\/adsets$/.test(path)) { f.adsets++; f.adsetsParams = p; if (o.adsetsDown) { setTimeout(function () { cb({ error: { code: 17, error_subcode: 2446079, message: 'User request limit reached' } }); }, 0); return; } reply = { data: [{ id: 's', effective_status: 'ACTIVE', campaign: { effective_status: 'ACTIVE' } }] }; }
         if (/\/activities$/.test(path)) f.acts++;
         if (/insights$/.test(path) && /frequency/.test(p.fields || '') && p.time_range) f.reach++;
         if (/\/ads$/.test(path) && o.holdStopped && /PAUSED/.test(p.effective_status || '')) { f.stopped = function () { cb({ data: [] }); return sleep(60); }; return; }
-        if (/\/ads$/.test(path)) reply = { data: [{ id: 'm1', name: 'M', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000', adset: { id: 's', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c', name: 'C' }, creative: {} }] };
+        if (/\/ads$/.test(path)) reply = { data: [{ id: 'm1', name: 'M', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000', adset: Object.assign({ id: 's', optimization_goal: 'OFFSITE_CONVERSIONS' }, o.nestedStatus ? { effective_status: 'ACTIVE' } : {}), campaign: { id: 'c', name: 'C' }, creative: {} }] };
         if (/insights$/.test(path) && p.level === 'campaign' && /^campaign_id/.test(p.fields || '')) {
           f.camps.push(JSON.parse(p.time_range));
-          reply = o.noCamps ? { error: { code: 1, message: 'no list' } } : { data: [{ campaign_id: 'c' }, { campaign_id: 'd' }] };
+          reply = o.noCamps ? { error: { code: 1, message: 'no list' } } : (o.emptyCamps ? { data: [] } : { data: [{ campaign_id: 'c' }, { campaign_id: 'd' }] });
           setTimeout(function () { cb(reply); }, 0);
           return;
         }
@@ -9967,7 +9967,7 @@
         return get({ err: { code: 1 }, data: [] });
       }).then(function (ids) { eq(ids, null, 'failed');
         return get({ data: [] });
-      }).then(function (ids) { eq(ids, null, 'empty: no filter, so nothing is hidden');
+      }).then(function (ids) { eq([ids, noCampaigns(ids), noCampaigns(null)], [[], true, false], 'empty: nothing in the range');
         eq(scopeToCampaigns({ level: 'ad' }, null), { level: 'ad' }, 'no list = the request as it was');
         eq(JSON.parse(scopeToCampaigns({ filtering: JSON.stringify([{ field: 'x' }]) }, ['1']).filtering).map(function (r) { return r.field; }), ['x', 'campaign.id', 'ad.effective_status'], 'a filter already there stays');
         window.fbPagesPromise = real;
@@ -9991,6 +9991,44 @@
       }, function (e) { window.fbPagesPromise = real; throw e; });
     });
 
+    testAsync('Meta: حساب مفيهوش أرقام في المدى ميطلبش الأرقام الثقيلة — كان ١١ ثانية عشان يرجع صفر', function () {
+      period = { preset: 'last30' };
+      var f = metaFake('act_57', { emptyCamps: true });
+      loadAdsForAccount('act_57');
+      return sleep(80).then(function () {
+        eq([f.camps.length, f.weeks, f.totals, f.ranges.length], [1, 0, 0, 0], 'only the campaign list');
+        eq([f.ad().spend, f.ad().period.spend, f.ad().pd.dates.length, loadingPlatforms.meta], [0, 0, 30, false], 'zero numbers, not «no numbers»');
+      }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: حالة المجموعة جت مع الإعلانات = من غير طلب المجموعات؛ والطلب الاحتياطي للمجموعات الشغّالة بس', function () {
+      // فحص حقيقي ٧ نوفمبر: حساب فيه ١٠٠٠ مجموعة، ٥ صفحات في كل تحميل، وتحميل واحد وصّله لحد Meta للطلبات
+      period = { preset: 'last7' };
+      var f = metaFake('act_58', { nestedStatus: true });
+      loadAdsForAccount('act_58');
+      return sleep(80).then(function () {
+        eq([f.adsets, f.ad().statusPartial, f.ad().active], [0, false, true], 'no ad set request');
+        f.restore();
+        clearMetaBase();
+        var g = metaFake('act_59');
+        loadAdsForAccount('act_59');
+        return sleep(80).then(function () {
+          eq([g.adsets, JSON.parse(g.adsetsParams.effective_status).indexOf('ACTIVE') > -1, JSON.parse(g.adsetsParams.effective_status).indexOf('PAUSED')], [1, true, -1], 'the fallback asks for live ad sets only');
+        }).then(function () { g.restore(); }, function (e) { g.restore(); throw e; });
+      }, function (e) { f.restore(); throw e; });
+    });
+
+    test('التفاصيل: سطر الأساس مبيقولش «في صفحة التنبيهات» والتنبيه ظاهر تحته', function () {
+      period = { preset: 'lastMonth' };
+      var r = resolvePeriodFor(BROWSER_TZ);
+      var good = function (id) { return withPd(w8(id, { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: week(5) }), r.since, r.until, flat(100, 5)); };
+      var x = withPd(w8('x', { daily: [100, 100, 100, 100, 100, 100, 100, 40] }), r.since, r.until, flat(100, 5));
+      candidates = [good('a'), good('b'), x];
+      render();
+      eq(basisLineOf(x, adAnalysis(x)), t('x.basisPeriodPast', { period: periodLabel() }), 'the alert is right below');
+      eq(basisLineOf(candidates[0], adAnalysis(candidates[0])), t('x.basisPeriodPast', { period: periodLabel() }) + ' ' + t('x.basisPeriodNow'), 'no alert here: the pointer stays');
+    });
+
     testAsync('Meta: لو Meta رفضت الفلتر نفسه الأرقام بتيجي زي الأول من غير تصفية — التحسين ميضيّعش رقم', function () {
       period = { preset: 'last14' };
       var f = metaFake('act_50', { rejectFilter: true });
@@ -10012,6 +10050,7 @@
       window.FB = { api: function (path, a, b, c) {
         var p = typeof a === 'object' ? a : (typeof b === 'object' ? b : {}), cb = [a, b, c].filter(function (x) { return typeof x === 'function'; })[0], reply = { data: [] };
         if (/\/ads$/.test(path)) reply = { data: [live] };
+        if (/insights$/.test(path) && p.level === 'campaign') reply = { data: [{ campaign_id: 'c' }] };
         if (/insights$/.test(path) && /actions/.test(p.fields || '') && p.level !== 'campaign') reply = { data: [row('L1'), row('G1')] };
         // تكملة الإعلانات بالأرقام (Batch): الرد ممسوك لحد ما الاختبار يسيبه
         if (p.batch) { release = function () { cb([{ code: 200, body: JSON.stringify(gone) }]); }; return; }
@@ -10220,6 +10259,7 @@
       window.FB = { api: function (path, a, b, c) {
         var p = typeof a === 'object' ? a : (typeof b === 'object' ? b : {}), cb = [a, b, c].filter(function (x) { return typeof x === 'function'; })[0], reply = { data: [] };
         if (/\/ads$/.test(path)) reply = { data: [live] };
+        if (/insights$/.test(path) && p.level === 'campaign') reply = { data: [{ campaign_id: 'c' }] };
         if (/insights$/.test(path) && /actions/.test(p.fields || '') && p.level !== 'campaign') reply = { data: [{ ad_id: 'L2', date_start: day, spend: '50' }, { ad_id: 'S2', date_start: day, spend: '0', action_values: [{ action_type: 'omni_purchase', value: '700' }] }] };
         if (p.batch) { batches++; reply = [{ code: 200, body: JSON.stringify(late) }]; }
         setTimeout(function () { cb(reply); }, 0);
