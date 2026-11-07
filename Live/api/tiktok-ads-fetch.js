@@ -1,6 +1,6 @@
 // المسار: https://adscenter.online/api/tiktok-ads-fetch (بيشتغل جوه cloudflare/worker.js)
 
-import { last7DaysRange, resolvePeriod } from './_dates.js';
+import { last7DaysRange, resolvePeriod, shiftDateKey } from './_dates.js';
 import { guardRequest } from './_cors.js';
 import { text, shaped, periodOf, TOKEN_MAX, badRequest } from './_input.js';
 
@@ -94,6 +94,23 @@ export default async function handler(req, res) {
         '&start_date=' + periodRange.since + '&end_date=' + periodRange.until, headers);
     } catch (err) { periodReport = null; }
   }
+  // الفترة يوم بيوم لكل إعلان (٣ نوفمبر ٢٠٢٦ — تقييم الإعلان على أيام الفترة، js/tiktok.js pd). TikTok بيحدد التقرير اليومي بـ٣٠
+  // يوم في الطلب، فدفعات ورا بعض. أي دفعة تفشل = من غير أيام (المجموع فوق بيفضل للكروت). لم يُختبر على حساب TikTok حقيقي بعد
+  let periodDaily = null;
+  if (!periodRange.isDefault && periodReport) {
+    try {
+      periodDaily = [];
+      for (let s = periodRange.since; s <= periodRange.until; s = shiftDateKey(s, 30)) {
+        const u = shiftDateKey(s, 29) < periodRange.until ? shiftDateKey(s, 29) : periodRange.until;
+        const rows = await ttGetAllPages(TT_API + '/report/integrated/get/?advertiser_id=' + adv +
+          '&report_type=BASIC&data_level=AUCTION_AD&service_type=AUCTION' +
+          '&dimensions=' + encodeURIComponent(JSON.stringify(['ad_id', 'stat_time_day'])) +
+          '&metrics=' + encodeURIComponent(JSON.stringify(['spend', 'conversion'])) +
+          '&start_date=' + s + '&end_date=' + u, headers);
+        periodDaily = periodDaily.concat(rows || []);
+      }
+    } catch (err) { periodDaily = null; }
+  }
 
-  res.status(200).json({ ads: ads, report: report, reportError: reportError, periodReport: periodReport, period: periodRange, range: range, advertiser: advertiser });
+  res.status(200).json({ ads: ads, report: report, reportError: reportError, periodReport: periodReport, periodDaily: periodDaily, period: periodRange, range: range, advertiser: advertiser });
 }

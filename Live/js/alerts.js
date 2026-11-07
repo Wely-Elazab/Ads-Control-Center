@@ -58,15 +58,30 @@
   // {wd} = عدد الأيام المكتملة في نافذة الحكم («آخر ٧ أيام») — من النافذة نفسها مش رقم ثابت في النص
   // (النصوص فضلت تقول «آخر ٦ أيام» بعد ما النافذة بقت ٧ أيام مكتملة في ١٠ أكتوبر ٢٠٢٦)
   var WEEK_TXT = null, WEEK_AD = null;   // WEEK_AD = أيام الإعلان ده بعد آخر تعديل (evaluateAd)
+  // من ٣ نوفمبر ٢٠٢٦ {wd} عبارة كاملة («خلال آخر ٧ أيام»، «أمس»، «خلال الشهر الماضي») — التقييم بقى على الفترة المختارة في الأداة
+  // (analyze opts.phrase)، والافتراضي «خلال آخر N» بالظبط زي النصوص القديمة فالبريد ميتغيّرش
+  function wdPhrase(n, fmt) {
+    var num = fmt && fmt.int ? fmt.int(n) : String(n);
+    return global.I18N ? global.I18N.t('wd.last', { n: num + ' ' + global.I18N.noun(n, 'n.day') }) : num;
+  }
+  // قواعد «الآن» (أمس، آخر ٣ أيام، الارتفاع المفاجئ، فرصة الزيادة، وسم التغيّر): بتشتغل بس لما النافذة بتوصل لأمس وفيها ٧ أيام
+  // مكتملة على الأقل (analyze opts.recent). فترة خلصت قبل كده («الشهر الماضي») كانت هتقول «أمس» وهي تقصد ٣١ أكتوبر، وفترة
+  // أقصر من كده مفيهاش أيام قبلها تتقارن بيها. التنبيهات نفسها (صفحة التنبيهات والبريد) بتفضل على «الآن» دايماً
+  var RECENT_ON = true;
+  // حكم فترة غير الأسبوع (opts.phrase): العناوين اللي بتقول «الأسبوع» بالاسم بتاخد نسختها P بعبارة الفترة («إنفاق دون نتائج خلال الشهر
+  // الماضي» مش «طوال الأسبوع»)، ومن غير opts النص زي ما هو حرفياً فالبريد مبيتغيرش. SHORT_ON = الفترة أقل من ٧ أيام (opts.short)
+  var PERIOD_ON = false, SHORT_ON = false;
+  var PERIOD_TEXT = { 'al.wasteWeek.t': 1, 'al.wasteView.t': 1, 'al.wasteViewStore.t': 1, 'al.wasteWeekEarly.t': 1, 'lv.why.cap.weekStrong': 1, 'basis.trend.roas': 1, 'basis.trend.cpr': 1 };
   // {rest} = المرجع اللي الإعلان بيتقارن بيه («باقي إعلانات حملته» أو «باقي إعلاناتك»)، و{avgOf} = متوسط مين («حملته» أو «حسابك») —
   // REF_CAMP بيتحدد في evaluateAd لكل إعلان (التدقيق العميق ٢٤ أكتوبر ٢٠٢٦: المقارنة جوه الحملة نفسها)
   var REF_CAMP = false;
   var t = function (k, v) {
     // من غير متغيرات كمان: {rest} في نصيحة «فرصة الزيادة» كان بيطلع زي ما هو (حساب حقيقي ٢٤ أكتوبر)
     v = v || {};
-    if (v.wd == null) v.wd = WEEK_AD || WEEK_TXT || String(YESTERDAY + 1);
+    if (v.wd == null) v.wd = WEEK_AD || WEEK_TXT || wdPhrase(YESTERDAY + 1);
     if (v.rest == null && global.I18N) v.rest = global.I18N.t(REF_CAMP ? 'ref.rest.camp' : 'ref.rest.acc');
     if (v.avgOf == null && global.I18N) v.avgOf = global.I18N.t(REF_CAMP ? 'ref.avgOf.camp' : 'ref.avgOf.acc');
+    if (PERIOD_ON && PERIOD_TEXT[k]) k += 'P';
     return global.I18N ? global.I18N.t(k, v) : k;
   };
 
@@ -482,7 +497,7 @@
     // الحكم على أرقام الكارت دايماً (قرار صاحب المنتج ٢٥ أكتوبر — كان ١٠ أكتوبر على الأيام اللي بعد آخر تعديل بس): إعلان على كارته
     // ٥١ $ اتحكم عليه بـ٣٥ $ بعد التعديل، فطلع «مهم» وكارته بيقول إنه عدّى الحد. التعديل الأقدم من ٣ أيام جملة في أساس الحكم بس
     var weekStart = 0;
-    WEEK_AD = weekStart ? (fmt && fmt.int ? fmt.int(YESTERDAY - weekStart + 1) : String(YESTERDAY - weekStart + 1)) : null;
+    WEEK_AD = weekStart ? wdPhrase(YESTERDAY - weekStart + 1, fmt) : null;
     // إعلانات الحساب من نفس نوع النتيجة على نفس أيام الحكم (كل الأسبوع، أو اللي بعد آخر تعديل) — المقارنة «في الفترة نفسها»
     // لازم تبقى فعلاً على نفس الأيام (مراجعة المرحلة ٤، ١٧ أكتوبر ٢٠٢٦: إعلان اتحكم عليه بـ٣ أيام بعد تعديله تكلفته فيهم ٥٠ وطلع
     // عليه «تكلفة مرتفعة ١٤٤» من الأسبوع كله، وسبب الحكم تحته بيقول إن الحكم على الأيام اللي بعد التعديل بس)
@@ -701,8 +716,9 @@
     //    في آخر ٣ أيام ووقف لسبب مش من المعلن (رفض، مشكلة من المنصة، ميزانية خلصت) — ده وقوف مفاجئ
     if (!c.active) {
       var stopLevel = UNINTENDED_STOP[c.pausedLevel] || (c.reviewStatus === 'disapproved' ? 'critical' : null);
+      // «أنفق كذا خلال آخر ٣ أيام واليوم» حقيقة عن دلوقتي: في فترة مبتوصلش لأمس آخر خانات النافذة مش هي الأيام دي
       var spent3 = recentSpend(c);
-      if (stopLevel && spent3 > 0) {
+      if (RECENT_ON && stopLevel && spent3 > 0) {
         if (c.pausedLevel === 'rejected' || c.reviewStatus === 'disapproved') {
           issues.push(makeIssue('critical', ['status'], t('al.rejected.t'),
             t('al.rejected.d', { name: name, spend: money(spent3) }), t('al.rejected.a'), spent3, 'stopped'));
@@ -744,10 +760,10 @@
     // المجموعة (مدة أو ميزانية خلصت) مش الإعلان، فبنقول كده في التنبيه بدل ما يفهم إن العيب في الإعلان
     var partialNote = c.statusPartial ? t('al.statusPartial') : '';
     if ((age == null || age >= 2) && !tinyAd) {
-      if (spendY === 0 && prevSpendAvg > 0) {
+      if (RECENT_ON && spendY === 0 && prevSpendAvg > 0) {
         issues.push(spendShifted(c, acc, prevSpendAvg) ? shiftNote() : (accShrank ? acctNote() : makeIssue('warning', ['delivery', 'spend'], t('al.noSpendY.t'),
           t('al.noSpendY.d', { name: name, avg: money(prevSpendAvg) }) + partialNote, t('al.noSpendY.a'), 0, 'no-spend-y')));
-      } else if (spendY > 0 && prevSpendAvg > 0 && spendY < prevSpendAvg * s.lowDeliveryRatio) {
+      } else if (RECENT_ON && spendY > 0 && prevSpendAvg > 0 && spendY < prevSpendAvg * s.lowDeliveryRatio) {
         issues.push(spendShifted(c, acc, prevSpendAvg) ? shiftNote() : (accShrank ? acctNote() : makeIssue('warning', ['delivery', 'spend'], t('al.weak.t'),
           t('al.weak.d', { name: name, spend: money(spendY), avg: money(prevSpendAvg) }) + partialNote, t('al.weak.a'), 0, 'weak-delivery')));
       } else if (!any(daily) && prevSpendAvg === 0) {
@@ -759,7 +775,8 @@
 
     // إعلان جديد (فترة التعلّم) صرف ٣ أضعاف التكلفة المسموحة لنتيجة (R) من غير ولا نتيجة: «مهم» حتى قبل ما يكمّل التعلّم —
     // ومبيوصلش «عاجل»: Meta نفسها بتقول نتائج فترة التعلّم «مش بالضرورة مؤشر على الأداء الجاي»
-    if (learning && c.results === 0 && R && c.spend >= 3 * R) {
+    // (الجملة «منذ بدايته حتى أمس»، فمش في حكم فترة مبتوصلش لأمس أو أقصر من أسبوع — RECENT_ON)
+    if (RECENT_ON && learning && c.results === 0 && R && c.spend >= 3 * R) {
       issues.push(ev(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteNew.t'),
         t('al.wasteNew.d', { name: name, spend: money(c.spend), label: label, refSpent: refSpent(c.spend) }),
         t('al.wasteNew.a'), c.spend, 'waste-new'), 'waste', spend3 / 3), { cap: 'learning' }));
@@ -789,13 +806,13 @@
       }
       // 4ب) آخر ٣ أيام مكتملة من غير ولا نتيجة — للإعلان اللي جاب نتائج قبلها (قاعدة صاحب المنتج: «مر عليها ٣ أيام بدون أي
       //     مشتريات»): «مهم» من R و«عاجل» من ضعف أقصى تكلفة حددتها. ويومين بس بإنفاق ضعف R: «مهم» (اليوم التالت هو اللي بيخلّيه عاجل)
-      if (!weekDry && R && res3 === 0 && spend3 >= R) {
+      if (RECENT_ON && !weekDry && R && res3 === 0 && spend3 >= R) {
         wasteRaised = true;
         var d3Lv = redLv(spend3), d3Hot = d3Lv === 'critical';
         issues.push(ev(withMoney(makeIssue(d3Lv, ['spend', 'results'], t(d3Hot ? 'al.waste3.t' : 'al.waste3Early.t'),
           t('al.waste3.d', { name: name, spend: money(spend3), label: label, refSpent: refSpent(spend3) }),
           t(d3Hot ? 'al.waste.a' : 'al.wasteEarly.a'), spend3, d3Hot ? 'waste' : 'waste-early', d3Hot), 'waste', spend3 / 3), redWhy('zero', spend3, {})));
-      } else if (!weekDry && R && res3 > 0 && res2 === 0 && spend2 >= 2 * R) {
+      } else if (RECENT_ON && !weekDry && R && res3 > 0 && res2 === 0 && spend2 >= 2 * R) {
         wasteRaised = true;
         issues.push(ev(withMoney(makeIssue('warning', ['spend', 'results'], t('al.wasteEarly.t'),
           t('al.waste.d', { name: name, spend: money(spend2), label: label, refSpent: refSpent(spend2) }),
@@ -847,7 +864,7 @@
         // آخر ٣ أيام تحت حد الخسارة بطلبات (الصفر قاعدته فوق — 4ب) والأسبوع نفسه فوقه:
         //  - الأسبوع تحت المستهدف = الإعلان بيخسر دلوقتي وأسبوعه مش مغطّيه: خسارة على الـ٣ أيام («مهم» من R و«عاجل» من ضعفه)
         //  - الأسبوع فوق المستهدف = تراجع يتابَع («مهم») — ممكن مبيعات اتأخر تسجيلها
-        if (resW > 0 && roasW >= s.roasBreakEven && res3 > 0 && spend3 >= R && roas3 < s.roasBreakEven) {
+        if (RECENT_ON && resW > 0 && roasW >= s.roasBreakEven && res3 > 0 && spend3 >= R && roas3 < s.roasBreakEven) {
           if (roasW < s.roasTarget) {
             var loss3 = makeIssue(redLv(spend3), ['roas', 'spend'], t('al.loss' + lossK + '.t'),
               t('al.loss' + lossK + (sales3 > 0 ? '' : 'Zero') + '.d', { name: name, spend: money(spend3), sales: money(sales3), roasText: roasLabel(roas3), be: wkVars.be }) +
@@ -907,7 +924,7 @@
       }
       var unlikely = prevSpend4 > 0 && countBelowP(resY, prevResAvg * spendY / prevSpend4, 1) < P_LIKELY;   // بالتشتت (ق١)
       // ق٦: مع إعلان جديد في المجموعة، نزول النتائج متوقّع — المنصة بتعيد توزيع الإنفاق والجمهور بين إعلانات المجموعة
-      if (!wasteRaised && !reLearn && prevResAvg >= 2 && prevSpend4 > 0 && spendY >= prevSpend4 * 0.7 && resY <= prevResAvg * DROP_RATIO && newLow && unlikely) {
+      if (RECENT_ON && !wasteRaised && !reLearn && prevResAvg >= 2 && prevSpend4 > 0 && spendY >= prevSpend4 * 0.7 && resY <= prevResAvg * DROP_RATIO && newLow && unlikely) {
         issues.push(ev(makeIssue('warning', ['results'], t('al.drop.t'),
           // صفر نتائج: «لم يحقق أي مشتريات» بدل «حقق ٠ مشتريات فقط»
           resY === 0
@@ -923,7 +940,7 @@
     // إعلان صرفه نط من ٥ لـ١٢ كان بيطلع «صرف أعلى من المعتاد». من غير متوسط في الحساب مفيش أساس نقيس عليه، فمفيش تنبيه
     var priorSpendDays = daily.slice(weekStart, YESTERDAY).filter(function (v) { return v > 0; }).length;
     var spikeFloor = refCpr || accountCpr;
-    if (!learning && !wasteRaised && priorSpendDays >= 3 && prevSpendAvg > 0 && spendY >= prevSpendAvg * s.spikeMultiple &&
+    if (RECENT_ON && !learning && !wasteRaised && priorSpendDays >= 3 && prevSpendAvg > 0 && spendY >= prevSpendAvg * s.spikeMultiple &&
       spikeFloor && spendY - prevSpendAvg >= spikeFloor) {
       var yCpr = resY > 0 ? spendY / resY : null;
       // والنتائج القليلة دي صعب تكون صدفة (المراجعة الثانية للمرحلة ٥ — معيار الدليل الواحد م٢): نتائج أمس أقل من المتوقع بمعدّل
@@ -940,8 +957,9 @@
       }
     }
 
-    // 9) تكرار الظهور لنفس الشخص (زهق الجمهور)
-    if (c.frequency != null) {
+    // 9) تكرار الظهور لنفس الشخص (زهق الجمهور). الرقم نفسه لآخر ٧ أيام مهما كانت الفترة (Meta بتحسبه على الأسبوع)، فمالوش مكان في
+    // حكم فترة مبتوصلش لأمس — رقم الأسبوع ده ميتقالش بيه «الجمهور زهق» عن الشهر اللي فات
+    if (RECENT_ON && c.frequency != null) {
       var isOld = age != null && age >= OLD_AD_DAYS;
       if (c.frequency >= s.frequencyHigh) {
         // الربح الأول: إعلان مبيعات عائده فوق المستهدف مش «بيضره» التكرار مهما كانت تكلفته مقارنةً بالحساب
@@ -970,7 +988,7 @@
 
     // 10) فرصة لزيادة الاستثمار — على آخر ٣ أيام زي العائد: يوم واحد حلو مش سبب كفاية لزيادة الميزانية.
     //     وإعلان المبيعات لازم كمان يكون عائده على الأسبوع فوق المستهدف (رخيص عن الحساب وخسران = مش فرصة)
-    if (!learning && !upperFunnel && avgCpr && res3 >= SCALE_MIN && spend3 > 0 && (!profitAd || (hasGoal && weekEvidence && roasW >= s.roasTarget))) {
+    if (RECENT_ON && !learning && !upperFunnel && avgCpr && res3 >= SCALE_MIN && spend3 > 0 && (!profitAd || (hasGoal && weekEvidence && roasW >= s.roasTarget))) {
       var cpr3 = spend3 / res3;
       var hasProblem = issues.some(function (i) { return i.level === 'critical' || i.level === 'warning'; });
       // والرخص نفسه صعب يكون صدفة (ق١): نتائج آخر ٣ أيام أكتر من باقي الحساب بنفس الإنفاق باحتمال صدفة أقل من ٥٪ — «زوّد
@@ -1044,7 +1062,8 @@
     // نفس الوقت، فده مش عيب في الإعلان نفسه — حساب حقيقي: ١٤ من ١٥ إعلان أصفر كانوا بالقاعدة دي لوحدها، ومفيش ولا إعلان «جيد»
     // وبس لو مفيش خط اتخطّى (الحكم بحدودك): إعلان صرف ٣٥ $ والحد ٢٠ $ للطلب وعائده تحت حد الخسارة مش «يأخذ إنفاقاً قليلاً»
     var lineCrossed = issues.some(function (i) { return (i.level === 'critical' || i.level === 'warning') && !i.quiet; });
-    var underspend = c.active && !learning && age != null && age > s.learningDays && c.results != null && !!avgCpr && spendW > 0 && spendW < avgCpr && !lineCrossed;
+    // وفي فترة أقصر من أسبوع مفيش حكم بكده: يوم واحد (وأول النهار بالذات) إنفاقه أقل من تكلفة نتيجة من غير ما المنصة تكون حرمته
+    var underspend = !SHORT_ON && c.active && !learning && age != null && age > s.learningDays && c.results != null && !!avgCpr && spendW > 0 && spendW < avgCpr && !lineCrossed;
     // إعلان مبيعات بيكسب على القليل اللي بياخده (طلبين أو أكتر وعائده عند المستهدف): «فرصة» وقراءة مبدئية، مش «يحتاج إلى تحسين» —
     // حساب Snapchat حقيقي ١١ أكتوبر: طلبين بـ١٧$ (×٩٫٣) كان عليه «لا يأخذ إنفاقاً كافياً» بالأصفر كأن المشكلة فيه. ومش «جيد»: الإنفاق
     // أقل من تكلفة نتيجة واحدة، فالدليل لسه مبدئي. لغير إعلان المبيعات «التكلفة أقل من المتوسط» مضمونة تلقائياً لأي إعلان صرف أقل من
@@ -1144,7 +1163,7 @@
     // (فحص حساب حقيقي ٣ نوفمبر: أول نسخة كانت بتسكت لأي تعديل جوه آخر ٤ أيام — وفي حساب بيتعدّل كل يوم على مستوى الحملة
     //  ده سكّت ٢٣ إعلان من ٢٧، يعني الوسم مكانش هيبان خالص)
     var trendTag = null;
-    if (c.active && !learning && !reLearn && R > 0 && !editFresh) {
+    if (RECENT_ON && c.active && !learning && !reLearn && R > 0 && !editFresh) {
       // يوم التعديل يوم مختلط (نصه قبل التغيير ونصه بعده): لو هو آخر يوم في الجانب السابق بيتشال منه — نفس اللي بيعمله
       // سطر «بعده مقابل قبله»، فالصندوق الواحد ميقولش رقمين مختلفين لنفس الحاجة
       var pTo = edit && edit.idx === RECENT3 - 1 && RECENT3 >= 2 ? RECENT3 - 2 : RECENT3 - 1;
@@ -1393,7 +1412,8 @@
     var totalValue = ads.reduce(function (s0, c) { return s0 + valueOf(c); }, 0);
     // الحساب كله واقف (مفيش ولا إعلان شغّال) = صاحبه وقّف كل حاجة بنفسه، والوقوف غير المقصود للحساب كله
     // (دفع، حد إنفاق، حالة الحساب) ليه تنبيهاته فوق
-    if (totalValue > 0 && acc.activeCount > 0) {
+    // «وقف قريب» سؤاله عن النهارده، فمالوش مكان في حكم فترة مبتوصلش لأمس (كان هيعدّ آخر يومين في «الشهر الماضي» على إنهم «لحد امبارح»)
+    if (RECENT_ON && totalValue > 0 && acc.activeCount > 0) {
       var justStopped = function (c) { return !c.active && sum(c.daily || [], DAY_BEFORE, TODAY) > 0; };
       var topText = function (name, value, share, status) {
         return t(acc.hasSales ? 'al.topStopped.d' : (acc.mixedTypes ? 'al.topStopped.dResMix' : 'al.topStopped.dRes'), { name: name, pct: fmt.int(share * 100), value: money(value), status: status });
@@ -1505,13 +1525,16 @@
   // fmt: { money(n, cur), currencyLabel(cur), num(n), int(n) }
   // customSettings = إعدادات واحدة لكل الحسابات (المُشغّل — حساب واحد)، أو { bySource: { 'meta:act_1': {...}, ... } } = إعدادات كل حساب
   // إعلاني لوحده (مراجعة الإعدادات ٢٤ أكتوبر — الإعدادات على مستوى الحساب: متجرين بهامشين مختلفين ليهم حدّين خسارة مختلفين)
-  function analyze(candidates, accountsMeta, customSettings, fmt) {
+  // opts (الأداة بس — ui.js runAnalysis): { phrase: عبارة الفترة لـ {wd}، recent: false = من غير قواعد «الآن» }. من غيره زي الأول بالظبط
+  function analyze(candidates, accountsMeta, customSettings, fmt, opts) {
     var perSource = customSettings && customSettings.bySource && typeof customSettings.bySource === 'object' ? customSettings.bySource : null;
     var base = mergeSettings(perSource ? {} : customSettings);
     var settingsOf = function (source) { return perSource ? mergeSettings(perSource[source] || {}) : base; };
     // طول النافذة من البيانات نفسها (٨ خانات في الأداة، و٧ في بيانات قديمة أو اختبارات قديمة)
     setWindow(candidates.reduce(function (m, c) { return Math.max(m, (c.daily || []).length); }, 0));
-    WEEK_TXT = fmt && fmt.int ? fmt.int(YESTERDAY + 1) : null;
+    WEEK_TXT = (opts && opts.phrase) || wdPhrase(YESTERDAY + 1, fmt);
+    RECENT_ON = !(opts && opts.recent === false);
+    PERIOD_ON = !!(opts && opts.phrase); SHORT_ON = !!(opts && opts.short);
     var bySource = {};
     candidates.forEach(function (c) { (bySource[c.source] = bySource[c.source] || []).push(c); });
 

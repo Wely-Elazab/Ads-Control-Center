@@ -627,6 +627,12 @@
 
   var ALERT_FMT = { money: money, currencyLabel: currencyLabel, num: numAr, num2: numAr2, int: function (n) { return ar(Math.round(n || 0)); } };
   var analysis = PauseProofAlerts.analyze([], {}, {}, ALERT_FMT);
+  // تحليلين (٣ نوفمبر ٢٠٢٦ — طلب صاحب المنتج: تقييم كل إعلان على فترة البيانات المختارة مش آخر ٧ أيام بس):
+  //  - analysis = على الفترة المختارة: الكروت والتفاصيل والمجموعات والحملات وعدّاد الحالات
+  //  - analysisNow = على «الآن» (٧ أيام مكتملة + النهارده زي ما كان): صفحة التنبيهات و«يحتاج انتباهك الآن» وسجل المشكلات
+  //    (valueSync) — التنبيه عن «أعمل إيه دلوقتي»، والبريد بيتحسب على نفس النافذة على السيرفر، وسجل المشكلات لو تبع الفترة كان
+  //    هيقفل مشكلات قايمة كل ما حد يعرض «الشهر الماضي». في «آخر ٧ أيام» الاتنين واحد
+  var analysisNow = analysis;
 
   // اسم كل حساب وعملته وحالته — عشان تنبيهات مستوى الحساب
   function accountsMeta() {
@@ -652,7 +658,73 @@
     pullUserSettings();
     var bySource = {};
     candidates.forEach(function (c) { if (!bySource[c.source]) bySource[c.source] = settingsFor(c.source); });
-    analysis = PauseProofAlerts.analyze(candidates, accountsMeta(), { bySource: bySource }, ALERT_FMT);
+    analysisNow = analysis = PauseProofAlerts.analyze(candidates, accountsMeta(), { bySource: bySource }, ALERT_FMT);
+    if (period.preset === 'last7') return;
+    // الإعلانات اللي أيام فترتها وصلت (c.pd) بيتحكم عليها بالفترة، والباقي (طلب الفترة فشل) بحكم «الآن» زي ما كان والحالة بتقول كده
+    var withPd = candidates.filter(function (c) { return c.pd && c.pd.dates && c.pd.dates.length; });
+    if (!withPd.length) return;
+    // نوافذ بطول واحد للكل (المحرّك بياخد طول أطولها — setWindow وبيقرا الأيام من الآخر): حساب بتوقيت تاني ممكن فترته تبقى يوم أقصر
+    var len = withPd.reduce(function (m, c) { return Math.max(m, c.pd.dates.length + 1); }, 0);
+    var pa = PauseProofAlerts.analyze(withPd.map(function (c) { return periodViewOf(c, len); }), accountsMeta(), { bySource: bySource }, ALERT_FMT, periodEngineOpts());
+    var has = {}, byAd = {}, alerts = [];
+    withPd.forEach(function (c) { has[c.id] = true; });
+    // وسم «عُدّل» حالة دلوقتي مش رقم فترة (زي عمود الحالة في Meta وGoogle Ads: الحالة الحالية أيّاً كان مدى التاريخ) — من «الآن»
+    candidates.forEach(function (c) {
+      var now = analysisNow.byAd[c.id];
+      byAd[c.id] = has[c.id] && pa.byAd[c.id] ? Object.assign({}, pa.byAd[c.id], { editTag: now ? now.editTag || null : null }) : now;
+    });
+    pa.alerts.forEach(function (a) { if (!a.adId || has[a.adId]) alerts.push(a); });
+    analysisNow.alerts.forEach(function (a) { if (a.adId && !has[a.adId] && byAd[a.adId]) alerts.push(a); });
+    var health = { review: 0, improve: 0, good: 0, pending: 0, inactive: 0 };
+    Object.keys(byAd).forEach(function (id) { if (byAd[id]) health[byAd[id].health]++; });
+    analysis = { byAd: byAd, alerts: alerts, summary: { health: health, levels: pa.summary.levels, atRisk: pa.summary.atRisk },
+      settings: pa.settings, settingsBySource: Object.assign({}, analysisNow.settingsBySource, pa.settingsBySource), period: true };
+  }
+  // نافذة الفترة للمحرّك: أيام الفترة (c.pd) بنفس شكل النافذة اليومية. آخر خانة عند المحرّك «النهارده» (مبتدخلش الحكم):
+  // فترة بتخلص أمس بتاخد النهارده الحقيقي بعدها (قواعد «الآن» بتشوفه زي الأسبوع)، و«اليوم» أو فترة خلصت قبل كده بتاخد خانة فاضية
+  // (فيوم «اليوم» نفسه بيتحكم عليه). وكل النوافذ بطول len (أطول فترة + خانة النهارده، و٨ على الأقل — طول الأسبوع اللي المحرّك اتبنى
+  // عليه)، والأقصر بيتكمّل بأيام صفر قبلها
+  function periodViewOf(c, len) {
+    var pd = c.pd, dates = pd.dates.slice(), spend = pd.spend.slice(), res = pd.results.slice(), sales = pd.sales.slice();
+    var dd = c.dailyDates || [], n = dd.length, todayKey = n ? dd[n - 1] : null, last = dates[dates.length - 1];
+    var endsYesterday = !!todayKey && last === shiftKey(todayKey, -1);
+    if (endsYesterday) {
+      dates.push(todayKey); spend.push((c.daily || [])[n - 1] || 0); res.push((c.dailyResults || [])[n - 1] || 0); sales.push((c.dailySales || [])[n - 1] || 0);
+    } else { dates.push(shiftKey(last, 1)); spend.push(0); res.push(0); sales.push(0); }
+    while (dates.length < Math.max(8, len || 0)) { dates.unshift(shiftKey(dates[0], -1)); spend.unshift(0); res.unshift(0); sales.unshift(0); }
+    var v = Object.create(c), p = c.period;
+    v.daily = spend; v.dailyResults = res; v.dailySales = sales; v.dailyDates = dates;
+    // «عُدّل من كام يوم» بيتحسب من آخر خانة (النهارده) — صح بس لو الفترة بتخلص أمس. غير كده جملة التعديل في أساس الحكم كانت هتقول
+    // «قبل يومين» لتعديل من ٤ أيام في «الشهر الماضي»، فبتتشال من حكم الفترة (والوسم نفسه من «الآن» — runAnalysis)
+    if (!endsYesterday) v.edits = [];
+    if (p) { v.spend = p.spend; v.results = p.results; v.sales = p.sales; v.cpr = p.cpr; v.roas = p.roas; v.plat = p.plat || null; }
+    return v;
+  }
+  // الحكم على أرقام الكارت نفسها؟ «آخر ٧ أيام» دايماً، وغيرها لو أيام الفترة وصلت (runAnalysis) — غير كده الحكم على «الآن»
+  function judgedOnPeriod(c) { return period.preset === 'last7' || !!(analysis.period && c.pd && c.pd.dates && c.pd.dates.length); }
+  // عدد أيام بالعربي السليم: «يوم واحد» و«يومين» من غير رقم، والباقي بالرقم («٧ أيام»، «٣٠ يوماً»)
+  function dayCountText(n) { return n === 1 ? t('dx.act.d1') : (n === 2 ? t('dx.act.d2') : ar(n) + ' ' + noun(n, 'n.day')); }
+  // سطر أساس الحكم (تحت الحالة في التفاصيل وفي تلميح نقطة الكارت): على أنهي أيام اتحكم على الإعلان. قبل ٣ نوفمبر ٢٠٢٦ كان
+  // «آخر ٧ أيام مكتملة» مهما كانت الفترة
+  function basisLineOf(c, a) {
+    if (a.days) return t('x.basisPeriodEdit', { n: ar(a.days) + ' ' + noun(a.days, 'n.day') });
+    if (!judgedOnPeriod(c)) return t('x.basisNow');
+    var r = resolvePeriodFor(BROWSER_TZ), today = todayKeyInTz(BROWSER_TZ), pl = { period: periodLabel() };
+    if (r.until === today) return r.since === today ? t('x.basisToday') : t('x.basisPeriodToday', pl);
+    // قواعد «الآن» (أمس وآخر ٣ أيام) مقفولة في حكم الفترة اللي مبتخلصش أمس أو أقل من ٧ أيام (periodEngineOpts) — بنقول فين تلاقيها
+    return t(r.until === shiftKey(today, -1) ? 'x.basisPeriod' : 'x.basisPeriodPast', pl) +
+      (period.preset === 'last7' || periodEngineOpts().recent ? '' : ' ' + t('x.basisPeriodNow'));
+  }
+  // عبارة الفترة في نصوص التقييم ({wd}) وقواعد «الآن»: شغّالة بس لو الفترة بتخلص أمس وفيها ٧ أيام مكتملة على الأقل
+  function periodEngineOpts() {
+    var r = resolvePeriodFor(BROWSER_TZ), today = todayKeyInTz(BROWSER_TZ), days = keyDiffDays(r.since, r.until) + 1, phrase;
+    if (r.preset === 'today' || (r.preset === 'thisMonth' && r.since === today)) phrase = t('wd.today');
+    else if (r.preset === 'yesterday') phrase = t('wd.yesterday');
+    else if (r.preset === 'last14' || r.preset === 'last30') phrase = t('wd.last', { n: ar(days) + ' ' + noun(days, 'n.day') });
+    else if (r.preset === 'thisMonth') phrase = t('wd.thisMonth');
+    else if (r.preset === 'lastMonth') phrase = t('wd.lastMonth');
+    else phrase = t('wd.range', { range: fmtRange(r.since, r.until) });
+    return { phrase: phrase, recent: r.until === shiftKey(today, -1) && days >= 7, short: days < 7 };
   }
   function adAnalysis(c) { return analysis.byAd[c.id] || { health: c.active ? 'pending' : 'inactive', issues: [], metricLevels: {}, pending: null, basis: null }; }
   // كلاس اللون لمقياس معيّن لو عليه ملاحظة (أحمر/أصفر/أخضر)
@@ -702,13 +774,13 @@
       (tt.dir === 'up' ? '▲' : '▼') + ' ' + esc(label) + '</span>';
   }
   function cardChips(c) {
-    // الأرقام للفترة المختارة. تلوين المشكلة (اللي جاي من تنبيهات آخر ٧ أيام) بيظهر بس لما الفترة
-    // هي نفسها آخر ٧ أيام — عشان رقم ٣٠ يوم ميتلوّنش أحمر بسبب حاجة حصلت أمس بس
+    // الأرقام للفترة المختارة، وتلوينها من الحكم لو الحكم على نفس الأرقام (judgedOnPeriod — من ٣ نوفمبر ٢٠٢٦ الحكم بيتبع الفترة).
+    // لو الحكم على «الآن» (أيام الفترة موصلتش) مفيش تلوين — عشان رقم ٣٠ يوم ميتلوّنش أحمر بسبب حاجة حصلت أمس بس
     var p = periodOf(c);
-    var hl = function (metric) { return period.preset === 'last7' ? mv(c, metric) : ''; };
+    var hl = function (metric) { return judgedOnPeriod(c) ? mv(c, metric) : ''; };
     // لون خفيف (أخضر/أحمر) على تكلفة النتيجة أو العائد من التقييم (tones في alerts.js) — لو مفيش ملاحظة ملوّنة عليه أصلاً
     var tn = function (metric) {
-      var v = period.preset === 'last7' && !mv(c, metric) ? (adAnalysis(c).tones || {})[metric] : 0;
+      var v = judgedOnPeriod(c) && !mv(c, metric) ? (adAnalysis(c).tones || {})[metric] : 0;
       return v > 0 ? ' tone-good' : (v < 0 ? ' tone-bad' : '');
     };
     // اللون على التكلفة بالنسبة لأقصى التكلفة المقبولة لو محددة (tones.cprMax — مراجعة الإعدادات)، وإلا بالنسبة لباقي حملته لو بياناتها
@@ -744,8 +816,8 @@
     var eid = esc(c.id);
     var a = adAnalysis(c);
     var h = HEALTH[a.health];
-    // التقييم دايماً على آخر ٧ أيام — لو الكارت بيعرض فترة تانية بنقول ده في التلميح
-    var dotTitle = h.label + (period.preset !== 'last7' ? ' — ' + t('x.basisPeriod') : '');
+    // أساس الحكم (على أنهي أيام) في التلميح — نفس سطر التفاصيل
+    var dotTitle = h.label + (c.active ? ' — ' + basisLineOf(c, a) : '');
     var dot = '<span class="health-dot ' + h.cls + '" title="' + esc(dotTitle) + '"><span class="sr-only">' + h.label + '</span></span>';
     // ملاحظات "للعلم" (إعلان صغير بالنسبة لحسابه) مبتظهرش على الكارت — بتظهر في التفاصيل بس
     var shown = a.issues.filter(function (i) { return i.level !== 'info'; });
@@ -2511,7 +2583,7 @@
   // «تكلفة مرتفعة» و«فرصة زيادة» على اسم واحد كانوا بيتقروا تناقض (حساب حقيقي ٢٥ أكتوبر: إعلانين بنفس الاسم في مجموعتين)
   function alertAdName(a) {
     var name = a.adName || '';
-    var dup = analysis.alerts.some(function (o) { return o !== a && o.adId && o.adId !== a.adId && o.adName === name; });
+    var dup = analysisNow.alerts.some(function (o) { return o !== a && o.adId && o.adId !== a.adId && o.adName === name; });
     var c = dup && a.adId ? findCandidate(a.adId) : null, set = c && (c.adsetName || c.campaignName);
     return set ? t('alert.adInSet', { name: name, set: set }) : name;
   }
@@ -2544,7 +2616,8 @@
     if (!candidates.length && !o) { el.innerHTML = ''; renderWastePanel(null, []); return shown; }
     // المنصات المختارة (platSel) — null = كل المنصات
     var pick = dxViewPlatforms();
-    var alerts = analysis.alerts.filter(function (a) { return onPlatforms(a, pick); });
+    // «يحتاج انتباهك الآن» على «الآن» دايماً (analysisNow) — أيّاً كانت الفترة المختارة
+    var alerts = analysisNow.alerts.filter(function (a) { return onPlatforms(a, pick); });
     var items = DX.attention(o ? o.blocks : [], alerts, candidates);
     renderWastePanel(pick, alerts);
     // «تحتاج مراجعة»: شارة بتفلتر الإعلانات دي («معرّض للهدر» و«دون طلبات منذ…» بقوا لوحة الهدر فوق — renderWastePanel)
@@ -2566,7 +2639,7 @@
     }
     var list = items.slice(0, ATTN_MAX);
     list.forEach(function (it) { if (it.type === 'block') shown[it.index] = true; });
-    var all = analysis.alerts.filter(function (a) { return a.level === 'critical' || a.level === 'warning'; }).length;
+    var all = analysisNow.alerts.filter(function (a) { return a.level === 'critical' || a.level === 'warning'; }).length;
     el.innerHTML = head + list.map(function (it) { return it.type === 'block' ? attnBlockHtml(it) : attnAlertHtml(it.alert); }).join('') +
       (all ? '<button type="button" class="top-alerts-all" data-go-alerts>' + t('top.all', { n: ar(all) }) + '</button>' : '');
     return shown;
@@ -2646,7 +2719,8 @@
     if (st.busy) return;
     // من أول يوم في فترة البيانات المختارة بتوقيت الحساب (اللوحة بتتبع الفترة — قرار صاحب المنتج ٢٥ أكتوبر): تغيير الفترة = طلب جديد
     var since = resolvePeriodFor(valueTz(source)).since;
-    var open = valueAcked() ? valueProblems(analysis.alerts, source) : null, key = JSON.stringify([open, since]);
+    // المشكلات المفتوحة «الآن» (analysisNow) — لو من تحليل الفترة، عرض «الشهر الماضي» كان هيقفل مشكلات قايمة ويفتح قديمة
+    var open = valueAcked() ? valueProblems(analysisNow.alerts, source) : null, key = JSON.stringify([open, since]);
     if (st.key === key && Date.now() - st.at < VALUE_RESYNC) return;
     st.busy = true; st.key = key; st.at = Date.now();
     accountCall('episodes.sync', source, { open: open, since: since }).then(function (res) {
@@ -3154,7 +3228,7 @@
       // جملة المقارنة جوه أساس الحكم (alerts.js basis)، ولو مفيش أساس حكم تبان لوحدها عشان متضيعش
       (a.basis ? '<p class="health-basis">' + esc(a.basis) + '</p>' : (a.trendTag ? '<p class="health-basis">' + esc(a.trendTag.note) + '</p>' : '')) +
       // الإعلان المتعدَّل بيتحكم عليه بالأيام اللي بعد التعديل بس (alerts.js days) — كان مكتوب «آخر ٧ أيام» تحت سطر بيقول «آخر ٣ أيام»
-      (c.active ? '<p class="health-period">' + esc(a.days ? t('x.basisPeriodEdit', { n: ar(a.days) + ' ' + noun(a.days, 'n.day') }) : t('x.basisPeriod')) + '</p>' : '');
+      (c.active ? '<p class="health-period">' + esc(basisLineOf(c, a)) + '</p>' : '');
     // سطر "حالة الظهور": التقييم بتاعنا + سبب المنصة نفسه لو موجود + الحالة الخام —
     // ده اللي بيخلّيك تقارن بسطر واحد مع عمود Delivery في لوحة المنصة
     var statusBits = [statusLabelOf(c)];
@@ -3186,10 +3260,9 @@
     document.getElementById('expandLanding').innerHTML = '<div class="expand-landing"><span class="expand-landing-label">' + destLabel + '</span>' + landingInner + '</div>';
 
     var cur = c.currency;
-    var hasSales = c.dailySales.some(function (v) { return v > 0; });
-    // مربعات الأرقام للفترة المختارة. التلوين بيظهر بس لو الفترة آخر ٧ أيام (نفس فترة التنبيهات)
+    // مربعات الأرقام للفترة المختارة، وتلوينها من الحكم لو الحكم على نفس الأرقام (judgedOnPeriod)
     var p = periodOf(c);
-    var hl = function (metric) { return period.preset === 'last7' ? mv(c, metric) : ''; };
+    var hl = function (metric) { return judgedOnPeriod(c) ? mv(c, metric) : ''; };
     var pl = ' (' + periodLabel() + ')';
     var resultsLabelTxt = p.results != null ? (t('x.results') + ' — ' + esc(resultLabelOf(c)) + pl) : t('x.results') + pl;
     var pp = platOf(c);
@@ -3209,28 +3282,36 @@
     }
     document.getElementById('expandMetrics').innerHTML = boxes;
 
-    // السلسلة الثانية: مبيعات فعلية لو موجودة، وإلا عدد النتائج (حسب هدف الإعلان نفسه) كبديل مفيد
-    var secondSeries = hasSales ? c.dailySales : c.dailyResults;
+    // جدول الأيام: أيام الفترة المختارة نفسها لو الحكم عليها (dailyTableData — ٣ نوفمبر ٢٠٢٦؛ كان آخر ٧ أيام دايماً تحت أرقام
+    // «آخر ٣٠ يوماً»)، والعنوان بيقول أنهي أيام
+    var tb = dailyTableData(c), days = tb.dates, n = days.length, yKey = shiftKey(c.dailyDates[c.dailyDates.length - 1], -1);
+    document.getElementById('expandDailyTitle').textContent = tb.title;
+    var withToday = function (arr, v) { return tb.hasToday ? arr.concat([v]) : arr; };
+    var tSpend = withToday(tb.spend, tb.today.spend), tRes = withToday(tb.results, tb.today.results), tSales = withToday(tb.sales, tb.today.sales);
+    // السلسلة الثانية: مبيعات فعلية لو موجودة في أيام الجدول، وإلا عدد النتائج (حسب هدف الإعلان نفسه) كبديل مفيد
+    var hasSales = tSales.some(function (v) { return v > 0; });
+    var secondSeries = hasSales ? tSales : tRes;
     var secondRowLabel = hasSales ? (currencyLabel(cur) ? t('x.salesRow', { cur: currencyLabel(cur) }) : t('x.sales')) : (t('x.results') + (c.resultKey ? ' — ' + esc(resultLabelOf(c)) : ''));
-    // عمود "أمس" متعلّم — أغلب التنبيهات مبنية عليه، وعمود النهارده يوم لسه مخلصش
-    // آخر عمود = النهارده واللي قبله = أمس (النافذة ٨ أيام من ١٠ أكتوبر ٢٠٢٦ — مش أرقام ثابتة)
-    var lastCol = c.dailyDates.length - 1;
-    var colCls = function (i) { return i === lastCol - 1 ? ' class="col-yesterday"' : (i === lastCol ? ' class="col-today"' : ''); };
+    // عمود "أمس" متعلّم — أغلب التنبيهات مبنية عليه، وعمود النهارده (لو في الجدول) يوم لسه مخلصش. بالتاريخ مش بالمكان: فترة خلصت
+    // قبل أمس مفيهاش عمود أمس
+    var colCls = function (i) { return i === n ? ' class="col-today"' : (days[i] === yKey ? ' class="col-yesterday"' : ''); };
     // الأيام المكتملة، وبعدها «الإجمالي» (bold)، وبعده النهارده منفصل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: اليوم مش مجموع
     // مع الأيام، والإجمالي في آخر الجدول)
-    var days = c.dailyDates.slice(0, lastCol);
-    var sumOf = function (arr) { return arr.slice(0, lastCol).reduce(function (a, b) { return a + (b || 0); }, 0); };
-    var headerCells = days.map(function (dt, i) { return '<th' + colCls(i) + '>' + (i === lastCol - 1 ? t('x.yesterday') : fmtKey(dt)) + '</th>'; }).join('') +
-      '<th class="col-total">' + t('x.totalDays', { n: ar(days.length) }) + '</th><th class="col-today">' + t('x.today') + '</th>';
+    // يوم واحد مكتمل (أمس) من غير عمود إجمالي — كان هيبقى نفس الرقم مرتين
+    var withTotal = n > 1;
+    var sumOf = function (arr) { return arr.slice(0, n).reduce(function (a, b) { return a + (b || 0); }, 0); };
+    var headerCells = days.map(function (dt, i) { return '<th' + colCls(i) + '>' + (dt === yKey ? t('x.yesterday') : fmtKey(dt)) + '</th>'; }).join('') +
+      (withTotal ? '<th class="col-total">' + t('x.totalDays', { n: dayCountText(n) }) + '</th>' : '') +
+      (tb.hasToday ? '<th class="col-today">' + t('x.today') + '</th>' : '');
     // الجدول: فاصل الآلاف (١٢٬٥٠٠)، والصرف والمبيعات الصغيرة بخانة عشرية (٠٫٤ مش ٠)
     var rowCells = function (arr, small) {
-      return arr.slice(0, lastCol).map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + fmtNum(v, small) + '</span></td>'; }).join('') +
-        '<td class="col-total"><span class="mono">' + fmtNum(sumOf(arr), small) + '</span></td>' +
-        '<td class="col-today"><span class="mono">' + fmtNum(arr[lastCol] || 0, small) + '</span></td>';
+      return arr.slice(0, n).map(function (v, i) { return '<td' + colCls(i) + '><span class="mono">' + fmtNum(v, small) + '</span></td>'; }).join('') +
+        (withTotal ? '<td class="col-total"><span class="mono">' + fmtNum(sumOf(arr), small) + '</span></td>' : '') +
+        (tb.hasToday ? '<td class="col-today"><span class="mono">' + fmtNum(arr[n] || 0, small) + '</span></td>' : '');
     };
     document.getElementById('expandChart').innerHTML =
       '<div class="daily-table-wrap"><table class="daily-table"><thead><tr><th></th>' + headerCells + '</tr></thead>' +
-      '<tbody><tr><td>' + (currencyLabel(cur) ? t('x.spendRow', { cur: currencyLabel(cur) }) : t('x.spend')) + '</td>' + rowCells(c.daily, true) + '</tr>' +
+      '<tbody><tr><td>' + (currencyLabel(cur) ? t('x.spendRow', { cur: currencyLabel(cur) }) : t('x.spend')) + '</td>' + rowCells(tSpend, true) + '</tr>' +
       '<tr><td>' + secondRowLabel + '</td>' + rowCells(secondSeries, hasSales) + '</tr></tbody></table></div>';
 
     expandOverlay.classList.remove('hidden');
@@ -3243,6 +3324,26 @@
     showMedia(c);
   }
 
+  // أيام جدول التفاصيل: أيام الفترة (c.pd) لو الحكم عليها، والنهارده عمود لوحده — فترة بتخلص أمس بتاخده من النافذة اليومية، وفترة
+  // فيها النهارده («اليوم» أو مخصصة لحد النهارده) آخر يوم فيها هو النهارده. وإلا النافذة اليومية زي الأول (آخر ٧ أيام والنهارده)
+  function dailyTableData(c) {
+    var dd = c.dailyDates, last = dd.length - 1, today = dd[last];
+    var at = function (arr, i) { return (arr || [])[i] || 0; };
+    var nowToday = { spend: at(c.daily, last), results: at(c.dailyResults, last), sales: at(c.dailySales, last) };
+    if (period.preset === 'last7' || !judgedOnPeriod(c)) {
+      return { dates: dd.slice(0, last), spend: c.daily.slice(0, last), results: c.dailyResults.slice(0, last), sales: c.dailySales.slice(0, last),
+        hasToday: true, today: nowToday, title: t('x.dailyTitle') };
+    }
+    var pd = c.pd, k = pd.dates.length, tail = pd.dates[k - 1], pl = { period: periodLabel() };
+    if (tail === today) {
+      return { dates: pd.dates.slice(0, k - 1), spend: pd.spend.slice(0, k - 1), results: pd.results.slice(0, k - 1), sales: pd.sales.slice(0, k - 1),
+        hasToday: true, today: { spend: at(pd.spend, k - 1), results: at(pd.results, k - 1), sales: at(pd.sales, k - 1) },
+        title: t(k > 1 ? 'x.dailyTitleP' : 'x.dailyTitlePOnly', pl) };
+    }
+    var endsY = tail === shiftKey(today, -1);
+    return { dates: pd.dates, spend: pd.spend, results: pd.results, sales: pd.sales, hasToday: endsY, today: nowToday,
+      title: t(endsY ? 'x.dailyTitleP' : 'x.dailyTitlePOnly', pl) };
+  }
   // الوسائط: إعلانات الصور بتتعرض بالملف الأصلي للصورة (اللي بيتسحب من مكتبة صور الحساب).
   // إعلانات الفيديو بتحاول تشغّل الفيديو نفسه عن طريق معاينة Meta، وتفضل على الغلاف لو فشلت.
   // كل فتح بياخد رقم — عشان رد متأخر من Meta لإعلان قديم ميكتبش فوق الإعلان المفتوح دلوقتي
@@ -3704,8 +3805,9 @@
     '</article>';
   }
 
+  // صفحة التنبيهات على «الآن» دايماً (analysisNow) — زي البريد
   function renderAlerts() {
-    var s = analysis.summary;
+    var s = analysisNow.summary;
     // الرقم على التبويب = العاجل بس — الحاجة اللي محتاجة تدخّل النهارده
     alertsTabCount.textContent = s.levels.critical ? ar(s.levels.critical) : '';
     alertsTabCount.classList.toggle('has-critical', s.levels.critical > 0);
@@ -3741,7 +3843,7 @@
         box('opportunity', 'lv-opportunity', s.levels.opportunity, t('alerts.boxOpp')) +
       '</div>';
 
-    var list = analysis.alerts.filter(function (a) {
+    var list = analysisNow.alerts.filter(function (a) {
       if (alertsLevelFilter === 'urgent') return a.level === 'critical' || a.level === 'warning';
       if (alertsLevelFilter === 'risk') return a.atRisk && a.amount > 0;
       return a.level === alertsLevelFilter;

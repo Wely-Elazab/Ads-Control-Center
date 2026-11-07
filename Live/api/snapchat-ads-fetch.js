@@ -344,15 +344,40 @@ export default async function handler(req, res) {
       };
       const storeP = storeOf('DAY', startTime, endTime);
 
-      // مجاميع الفترة المختارة (TOTAL = رقم واحد لكل إعلان). آخر ٧ أيام مش محتاجة طلب إضافي
+      // أرقام الفترة المختارة يوم بيوم لكل إعلان (٣ نوفمبر ٢٠٢٦ — تقييم الإعلان بقى على الفترة نفسها): الأداة بتجمعها للمجموع
+      // وبتحكم على أيامها (js/snapchat.js pd). Snapchat بيحدد مدى طلب اليوم الواحد، فدفعات ٢٨ يوم ورا بعض (حد الطلبات في الثانية)،
+      // وكل الدفعات بتتجمع في رد واحد بنفس شكل timeseries_stats. أي دفعة تفشل = الفترة كلها null (الأداة بتقول «تعذّر تحميل الفترة»)
       const periodRange = resolvePeriod(period, tz);
       let periodP = Promise.resolve(null), periodStoreP = Promise.resolve(null);
       if (!periodRange.isDefault) {
-        const pEnd = shiftDateKey(periodRange.until, 1);
-        const pFrom = periodRange.since + 'T00:00:00.000' + tzOffsetString(periodRange.since, tz);
-        const pTo = pEnd + 'T00:00:00.000' + tzOffsetString(pEnd, tz);
-        periodP = statsSafe('TOTAL', pFrom, pTo).then(function (p) { return p.error ? null : p.data; }).catch(function () { return null; });
-        periodStoreP = storeOf('TOTAL', pFrom, pTo);
+        const batches = [];
+        for (let s = periodRange.since; s <= periodRange.until; s = shiftDateKey(s, 28)) {
+          const u = shiftDateKey(s, 27) < periodRange.until ? shiftDateKey(s, 27) : periodRange.until, e = shiftDateKey(u, 1);
+          batches.push({ from: s + 'T00:00:00.000' + tzOffsetString(s, tz), to: e + 'T00:00:00.000' + tzOffsetString(e, tz) });
+        }
+        const merge = function (parts) {
+          const byAd = {};
+          parts.forEach(function (d) {
+            ((d && d.timeseries_stats) || []).forEach(function (entry) {
+              const ts = entry.timeseries_stat || entry;
+              ((ts.breakdown_stats && ts.breakdown_stats.ad) || []).forEach(function (b) {
+                if (b && b.id) Array.prototype.push.apply(byAd[b.id] = byAd[b.id] || [], b.timeseries || []);
+              });
+            });
+          });
+          // نوافذ «الأقرب للمتجر» من أول دفعة (الأداة بتتأكد منها زي الأسبوع)
+          const first = parts[0] && parts[0].timeseries_stats && parts[0].timeseries_stats[0];
+          const fts = first ? (first.timeseries_stat || first) : {};
+          return { timeseries_stats: [{ timeseries_stat: { swipe_up_attribution_window: fts.swipe_up_attribution_window, view_attribution_window: fts.view_attribution_window,
+            breakdown_stats: { ad: Object.keys(byAd).map(function (id) { return { id: id, timeseries: byAd[id] }; }) } } }] };
+        };
+        const inTurn = function (one) {
+          return batches.reduce(function (acc, b) { return acc.then(function (list) { return list && one(b).then(function (d) { return d ? list.concat([d]) : null; }); }); }, Promise.resolve([]));
+        };
+        periodP = inTurn(function (b) { return statsSafe('DAY', b.from, b.to).then(function (p) { return p.error ? null : p.data; }); })
+          .then(function (parts) { return parts ? merge(parts) : null; }).catch(function () { return null; });
+        periodStoreP = inTurn(function (b) { return storeOf('DAY', b.from, b.to); })
+          .then(function (parts) { return parts ? merge(parts) : null; }).catch(function () { return null; });
       }
       const results = await Promise.all([adsP, squadsP, campaignsP, statsP, periodP, storeP, periodStoreP, creativesP, mediaP]);
       const adsResult = results[0], squadList = results[1], campaignList = results[2], stats = results[3];

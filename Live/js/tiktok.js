@@ -87,11 +87,18 @@
           if (o.dataset.platform === 'tiktok' && o.value === String(advertiserId)) o.textContent = 'TikTok Ads — ' + payload.advertiser.name;
         });
       }
-      var tiktokCandidates = transformTikTokAds(adsList, payload.report || [], daysFromRange(payload.range), payload.advertiser && payload.advertiser.currency, payload.periodReport);
+      var tiktokCandidates = transformTikTokAds(adsList, payload.report || [], daysFromRange(payload.range), payload.advertiser && payload.advertiser.currency, payload.periodReport,
+        payload.periodDaily, payload.period);
       mergeCandidates(tiktokCandidates, 'tiktok:' + advertiserId);
       cacheSource('tiktok:' + advertiserId, tiktokCandidates);
       setPlatformState('tiktok', null);
-      setLoading('tiktok', false, connectedText(payload.reportError ? [msg('note.spendFailed', { msg: payload.reportError })] : []));
+      var ttNotes = payload.reportError ? [msg('note.spendFailed', { msg: payload.reportError })] : [];
+      // الفترة المختارة زي باقي المنصات: المجموع فشل = الكروت بآخر ٧ أيام، والأيام بس فشلت = التقييم على آخر ٧ أيام (٣ نوفمبر ٢٠٢٦)
+      if (!payload.reportError) {
+        if (!Array.isArray(payload.periodReport)) ttNotes.push(msg('note.periodFailed'));
+        else if (!Array.isArray(payload.periodDaily)) ttNotes.push(msg('note.periodDaily'));
+      }
+      setLoading('tiktok', false, connectedText(ttNotes));
       render();
     }).catch(function (err) {
       if (!isCurrentLoad('tiktok', token)) return;
@@ -123,7 +130,18 @@
     return off('not-eligible');
   }
 
-  function transformTikTokAds(adsList, reportList, days, currency, periodReport) {
+  function ttSum(a) { return a.reduce(function (x, y) { return x + y; }, 0); }
+  // periodDaily = تقرير الفترة يوم بيوم وpRange = مداها (٣ نوفمبر ٢٠٢٦ — أيام الفترة pd لتقييمها في ui.js)
+  function transformTikTokAds(adsList, reportList, days, currency, periodReport, periodDaily, pRange) {
+    var pDayByAd = null;
+    if (Array.isArray(periodDaily) && pRange && pRange.since) {
+      pDayByAd = {};
+      periodDaily.forEach(function (row) {
+        var dims = row.dimensions || {};
+        if (!dims.ad_id) return;
+        (pDayByAd[dims.ad_id] = pDayByAd[dims.ad_id] || {})[(dims.stat_time_day || '').slice(0, 10)] = row.metrics || {};
+      });
+    }
     var statsByAd = {};
     reportList.forEach(function (row) {
       var dims = row.dimensions || {};
@@ -146,6 +164,16 @@
       var id = 't-' + ad.ad_id;
       var delivery = tiktokDelivery(ad);
       var pRow = periodByAd && (periodByAd[ad.ad_id] || { spend: 0, results: 0, sales: 0 });
+      var pd = null;
+      if (pDayByAd) {
+        var pm = pDayByAd[ad.ad_id] || {};
+        pd = { dates: [], spend: [], results: [], sales: [] };
+        for (var pk = pRange.since; pk <= pRange.until; pk = shiftKey(pk, 1)) {
+          var mm = pm[pk];
+          pd.dates.push(pk); pd.spend.push(mm ? r2(parseFloat(mm.spend || 0)) : 0);
+          pd.results.push(mm ? Math.round(parseFloat(mm.conversion || 0)) : 0); pd.sales.push(0);
+        }
+      }
       var byDay = statsByAd[ad.ad_id] || {};
       var daily = [], dailyResults = [], rawResults = 0;
       days.forEach(function (day, di) {
@@ -179,7 +207,9 @@
         themeClass: 'pv-t' + (hashCode(id) % 4),
         active: delivery.active, pausedLevel: delivery.level,
         deliveryReason: null, platformStatus: ad.secondary_status || ad.operation_status || null,
-        period: pRow ? buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales) : null,
+        // الفترة من أيامها لو وصلت (المجموع = مجموع الأيام زي باقي المنصات)، وإلا من تقرير المجموع زي الأول
+        period: pd ? buildPeriod(r2(ttSum(pd.spend)), ttSum(pd.results), 0) : (pRow ? buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales) : null),
+        pd: pd,
         fail: false
       };
     });

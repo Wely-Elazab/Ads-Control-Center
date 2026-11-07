@@ -112,7 +112,7 @@
         return;
       }
       var snapCandidates = transformSnapchatAds(adsList, statsList, daysFromRange(payload.range), payload.account && payload.account.currency, payload.squads, payload.campaigns, payload.periodStats,
-        payload.storeStats ? payload.storeStats.timeseries_stats || [] : null, payload.periodStoreStats, payload.creatives, payload.media);
+        payload.storeStats ? payload.storeStats.timeseries_stats || [] : null, payload.periodStoreStats, payload.creatives, payload.media, payload.period);
       mergeCandidates(snapCandidates, 'snapchat:' + adAccountId);
       // توقيت الحساب للوحة «قيمة الأداة» (يوم التنبيه والشهر بتوقيت الحساب زي باقي الأرقام)
       if (typeof valueTzOf !== 'undefined') valueTzOf['snapchat:' + adAccountId] = (payload.account && payload.account.timezone) || BROWSER_TZ;
@@ -355,7 +355,8 @@
 
   // storeList/periodStore = «الأقرب للمتجر» (٧ أيام من السوايب، من غير المشاهدة — api/snapchat-ads-fetch.js) بنفس شكل
   // statsList/periodStats. null = مفيش مقارنة، والأرقام هي أرقام المنصة زي الأول
-  function transformSnapchatAds(adsList, statsList, days, currency, squads, campaigns, periodStats, storeList, periodStore, creatives, media) {
+  // pRange = مدى الفترة المختارة من السيرفر، وperiodStats/periodStore يوم بيوم (٣ نوفمبر ٢٠٢٦) — المجموع وأيام الفترة (pd) منهم
+  function transformSnapchatAds(adsList, statsList, days, currency, squads, campaigns, periodStats, storeList, periodStore, creatives, media, pRange) {
     var squadsById = {}, campaignsById = {};
     (squads || []).forEach(function (s) { squadsById[s.id] = s; });
     (campaigns || []).forEach(function (c) { campaignsById[c.id] = c; });
@@ -423,7 +424,11 @@
       });
       return out;
     };
-    var periodByAd = periodStats ? totalsByAd(periodStats, function (st) {
+    // الفترة يوم بيوم (DAY): الأيام لكل إعلان، والسيرفر القديم (مجموع TOTAL) لسه مقبول — من غير أيام
+    var daily = !!(periodStats && periodStats.timeseries_stats && pRange && pRange.since);
+    var periodSeries = daily ? seriesByAd(periodStats.timeseries_stats) : null;
+    var periodStoreSeries = daily && storeByAd && periodStore && periodStore.timeseries_stats ? seriesByAd(periodStore.timeseries_stats) : null;
+    var periodByAd = periodStats && !daily ? totalsByAd(periodStats, function (st) {
       return {
         spend: parseFloat(st.spend || 0) / 1000000,
         pur: parseFloat(st.conversion_purchases || 0), purSales: parseFloat(st.conversion_purchases_value || 0) / 1000000, swipes: parseFloat(st.swipes || 0)
@@ -454,8 +459,24 @@
       var md = cr && cr.mediaId && media ? media[cr.mediaId] || null : null;
       var landing = (cr && safeUrl(cr.url)) || null;
       // الفترة المختارة: «الأقرب للمتجر» لو طلبه رجع، وإلا رقم المنصة من غير مقارنة (زي قبل الميزة)
-      var period = null;
-      if (pRow) {
+      var period = null, pd = null;
+      if (periodSeries) {
+        var pDay = dayMap(periodSeries[ad.id]), sDay = periodStoreSeries ? dayMap(periodStoreSeries[ad.id]) : null, cmpP = cmp && !!periodStoreSeries;
+        var tot = { spend: 0, res: 0, sales: 0, pRes: 0, pSales: 0 };
+        pd = { dates: [], spend: [], results: [], sales: [] };
+        for (var k = pRange.since; k <= pRange.until; k = shiftKey(k, 1)) {
+          var st = pDay[k], sd = sDay ? sDay[k] : null;
+          var sp = st ? parseFloat(st.spend || 0) / 1000000 : 0;
+          var platRes = st ? Math.round(parseFloat((buy ? st.conversion_purchases : st.swipes) || 0)) : 0;
+          var platSales = st && buy ? parseFloat(st.conversion_purchases_value || 0) / 1000000 : 0;
+          var res = cmpP ? (sd ? Math.round(parseFloat(sd.conversion_purchases || 0)) : 0) : platRes;
+          var sales = cmpP ? (sd ? parseFloat(sd.conversion_purchases_value || 0) / 1000000 : 0) : platSales;
+          pd.dates.push(k); pd.spend.push(sp); pd.results.push(res); pd.sales.push(sales);
+          tot.spend += sp; tot.res += res; tot.sales += sales; tot.pRes += platRes; tot.pSales += platSales;
+        }
+        period = buildPeriod(tot.spend, tot.res, tot.sales);
+        if (cmpP) period.plat = { results: tot.pRes, sales: tot.pSales };
+      } else if (pRow) {
         var ps = cmp && periodStoreByAd ? (periodStoreByAd[ad.id] || { results: 0, sales: 0 }) : null;
         period = ps ? buildPeriod(pRow.spend, Math.round(ps.results), ps.sales)
           : buildPeriod(pRow.spend, Math.round(pRow.results), pRow.sales);
@@ -503,6 +524,8 @@
         active: delivery.active, pausedLevel: delivery.level,
         deliveryReason: null, platformStatus: ad.status || null,
         period: period,
+        // أيام الفترة (dates/spend/results/sales) لتقييم الفترة في ui.js — null = مفيش (السيرفر القديم أو فشل الطلب)
+        pd: pd,
         // رقم المنصة جنب «الأقرب للمتجر» (core.js platOf) — زي Meta
         plat: cmp ? { results: sum(p.purchases), sales: sum(p.sales) } : null,
         // أساس أرقامنا هنا = الطلبات المسجّلة في المتجر (مش النقر زي Meta) — alerts.js بيكتب سبب الفرق صح

@@ -783,8 +783,13 @@
       };
       return run().then(function (out) {
         var storeQ = queries.filter(function (x) { return x.indexOf('conversion_attribution_event_type') > -1; });
-        // أربعة: الإعلانات وPMax للنافذة اليومية، ونفسهم لمجموع الفترة (آخر ٧ أيام بتتجاب لوحدها من ١٠ أكتوبر ٢٠٢٦)
-        eq(storeQ.length, 4, 'ads + PMax for the daily window and for the period');
+        // ستة: الإعلانات وPMax للنافذة اليومية، ونفسهم لمجموع الفترة (آخر ٧ أيام بتتجاب لوحدها من ١٠ أكتوبر ٢٠٢٦)، ونفسهم
+        // للفترة يوم بيوم (٣ نوفمبر ٢٠٢٦ — تقييم الإعلان والحملة على أيام الفترة)
+        eq(storeQ.length, 6, 'ads + PMax for the daily window, for the period total and for the period day by day');
+        eq(storeQ.filter(function (x) { return /FROM ad_group_ad/.test(x) && /segments.date, segments.conversion_attribution_event_type/.test(x); }).length, 2, 'ads: the week and the period by day');
+        eq(storeQ.filter(function (x) { return /FROM campaign/.test(x) && /segments.date, segments.conversion_attribution_event_type/.test(x); }).length, 2, 'PMax: the week and the period by day');
+        // وأرقام المنصة لحملات PMax يوم بيوم للنافذة وللفترة
+        eq(queries.filter(function (x) { return /FROM campaign/.test(x) && x.indexOf('conversion_attribution_event_type') < 0 && /segments\.date,/.test(x); }).length, 2, 'PMax platform rows by day: week and period');
         ok(storeQ.every(function (x) {
           return x.indexOf("segments.conversion_attribution_event_type = 'INTERACTION'") > -1 && x.indexOf("'SIX_TO_SEVEN_DAYS')") > -1 &&
             x.indexOf('SEVEN_TO_EIGHT') < 0 && x.indexOf('metrics.cost_micros') < 0;
@@ -1391,7 +1396,9 @@
       var r = engine(ads);
       var a = r.alerts.filter(function (x) { return x.adId === 'waste'; })[0];
       eq([a.impact.spend, Math.round(a.impact.share * 100)], [620, 31]);
-      eq(a.impactText, t('al.impact', { spend: money(620, 'SAR'), pct: t('al.impactPct', { pct: ar(31) }) }));
+      // العبارة من أيام النافذة نفسها ({wd} — ٣ نوفمبر ٢٠٢٦): هنا ٧ خانات = ٦ أيام مكتملة، وفي الأداة ٨ = «خلال آخر ٧ أيام»
+      var wd6 = t('wd.last', { n: ar(6) + ' ' + I18N.noun(6, 'n.day') });
+      eq(a.impactText, t('al.impact', { spend: money(620, 'SAR'), pct: t('al.impactPct', { pct: ar(31) }), wd: wd6 }));
       eq(issuesOf(r, 'waste')[0].impactText, a.impactText, 'same line in the ad details');
       ok(/alert-impact/.test(alertMarkup(a)) && alertMarkup(a).indexOf(esc(a.impactText)) > -1, 'shown on the alert card');
     });
@@ -1448,7 +1455,7 @@
       ok(tiny && tiny.impactText.indexOf(t('al.impactPctLow')) > -1, 'under 1%: ' + (tiny && tiny.impactText));
       var stopped = [ad('s1', { daily: [100, 100, 100, 100, 100, 0, 0], res: [2, 2, 2, 2, 2, 0, 0] }), ad('s2', { daily: [100, 100, 100, 100, 100, 0, 0], res: [2, 2, 2, 2, 2, 0, 0] })];
       var acct = engine(stopped).alerts.filter(function (x) { return !x.adId; })[0];
-      ok(acct && acct.impactText === t('al.impactAccount', { spend: money(1000, 'SAR') }), 'whole account: ' + (acct && acct.impactText));
+      ok(acct && acct.impactText === t('al.impactAccount', { spend: money(1000, 'SAR'), wd: t('wd.last', { n: ar(6) + ' ' + I18N.noun(6, 'n.day') }) }), 'whole account: ' + (acct && acct.impactText));
     });
     test('الترتيب جوه كل مستوى: الأكبر في الميزانية الأول، ومشاكل الحساب العاجلة فوق الكل', function () {
       var ads = baseAccount().concat([
@@ -2056,7 +2063,7 @@
       var card = document.getElementById('card-fresh');
       ok(card && card.querySelector('.health-dot.h-pending') && card.textContent.indexOf(t('pend.learning.t')) > -1, card ? card.textContent : 'no card');
       openExpand(fresh);
-      ok(document.querySelector('#expandHealth .health-basis') && document.getElementById('expandHealth').textContent.indexOf(t('x.basisPeriod')) > -1, document.getElementById('expandHealth').textContent);
+      ok(document.querySelector('#expandHealth .health-basis') && document.getElementById('expandHealth').textContent.indexOf(t('x.basisPeriod', { period: periodLabel() })) > -1, document.getElementById('expandHealth').textContent);
       openExpand(w);
       ok(document.querySelector('#expandIssues .issue-advice').textContent.indexOf(t('x.suggest')) > -1, 'suggestion label');
       expandOverlay.classList.add('hidden');
@@ -5830,13 +5837,13 @@
       // بتخلّي النتيجة على حسب ساعة التشغيل. التنبيه من ٣ أيام الساعة ١٠، والإيقاف الساعة ١٢، واليوم اللي بعده مصرفش (اتوقف)
       var src = 'meta:act_9', calls = [], H = 3600000, now = Date.now(), day0 = shiftKey(todayKeyInTz('UTC'), -3);
       var firstAt = day0 + 'T10:00:00.000Z', pausedAt = day0 + 'T12:00:00.000Z', afterDay = shiftKey(day0, 1);
-      var old = { act: activeSources.meta, cands: candidates, analysis: analysis, sync: window.syncCall, tok: window.platformTokenOf, ack: valueAckNow,
+      var old = { act: activeSources.meta, cands: candidates, analysis: analysis, analysisNow: analysisNow, sync: window.syncCall, tok: window.platformTokenOf, ack: valueAckNow,
         stored: localStorage.getItem(VALUE_ACK_KEY), money: localStorage.getItem(VALUE_MONEY_KEY), load: loadingPlatforms.meta, pend: numbersPending.meta };
       var dates = [], daily = [], dailyCut = [];
       for (var i = 9; i >= 0; i--) { var k = shiftKey(todayKeyInTz('UTC'), -i); dates.push(k); daily.push(k >= afterDay ? 0 : 90); dailyCut.push(k >= afterDay ? 72 : 90); }
       var restore = function () {
         activeSources.meta = old.act; if (old.act === undefined) delete activeSources.meta;
-        candidates = old.cands; analysis = old.analysis; window.syncCall = old.sync; window.platformTokenOf = old.tok; valueAckNow = old.ack;
+        candidates = old.cands; analysis = old.analysis; analysisNow = old.analysisNow; window.syncCall = old.sync; window.platformTokenOf = old.tok; valueAckNow = old.ack;
         loadingPlatforms.meta = old.load; numbersPending.meta = old.pend;
         delete accountInfo[src]; delete valueEpisodes[src]; delete valueActions[src]; delete valueState[src]; delete valueMoney[55]; delete valueMoney[56];
         if (old.stored == null) localStorage.removeItem(VALUE_ACK_KEY); else localStorage.setItem(VALUE_ACK_KEY, old.stored);
@@ -5848,7 +5855,8 @@
         loadingPlatforms.meta = false; numbersPending.meta = false;
         candidates = [{ id: '111', nativeId: '111', source: src, active: true, currency: 'SAR', adsetId: '222', campaignId: '333', dailyDates: dates, daily: daily },
           { id: '112', nativeId: '112', source: src, active: true, currency: 'SAR', adsetId: '223', campaignId: '334', dailyDates: dates, daily: dailyCut }];
-        analysis = { alerts: [{ level: 'critical', atRisk: true, amount: 300, adId: '111', code: 'waste-week', currency: 'SAR', money: { daily: 90 } }], byAd: {} };
+        // سجل المشكلات على «الآن» (analysisNow) من ٣ نوفمبر ٢٠٢٦ — أيّاً كانت الفترة
+        analysisNow = analysis = { alerts: [{ level: 'critical', atRisk: true, amount: 300, adId: '111', code: 'waste-week', currency: 'SAR', money: { daily: 90 } }], byAd: {} };
         window.platformTokenOf = function () { return 'tok_abcdefghijklmnopqrstuvwxyz'; };
         window.syncCall = function (body) {
           calls.push(body);
@@ -7340,7 +7348,7 @@
       render();
       openExpand(c);
       var th = Array.prototype.map.call(document.querySelectorAll('#expandChart thead th'), function (x) { return x.textContent; });
-      eq([th.length, th[7], th[8], th[9]], [10, t('x.yesterday'), t('x.totalDays', { n: ar(7) }), t('x.today')]);
+      eq([th.length, th[7], th[8], th[9]], [10, t('x.yesterday'), t('x.totalDays', { n: dayCountText(7) }), t('x.today')]);
       var tot = document.querySelector('#expandChart tbody tr td.col-total');
       eq(tot.textContent, fmtNum(70, true), 'total = the 7 complete days without today');
       expandOverlay.classList.add('hidden');
@@ -9477,6 +9485,366 @@
           eq(missing, [], 'names runner.ts uses that the engine files do not define');
         }, function (e) { f.remove(); throw e; });
       });
+    });
+  });
+
+  // ---------- تقييم الإعلان على الفترة المختارة (طلب صاحب المنتج ٣ نوفمبر ٢٠٢٦، النقطة ٢: «حتى تقييم كل اعلان لا يكون ثابتاً
+  // على اخر 7 ايام فقط بل يكون بناءً على فترة البيانات») ----------
+  describe('تقييم الإعلان على الفترة المختارة', function () {
+    var W8 = last7Days(TODAY).map(function (d) { return d.key; });
+    var Y = shiftKey(TODAY, -1);
+    var z8 = function () { return [0, 0, 0, 0, 0, 0, 0, 0]; };
+    // إعلان بنافذة الأداة الحقيقية: ٧ أيام مكتملة + النهارده (آخر خانة مبتدخلش الإجماليات)
+    var w8 = function (id, o) {
+      var daily = o.daily, res = o.res || z8(), sales = o.sales || z8();
+      var c = ad(id, { daily: daily.slice(0, 7), res: res.slice(0, 7), sales: sales.slice(0, 7), key: o.key || 'lead', cid: o.cid || 'c1' });
+      c.daily = daily; c.dailyResults = res; c.dailySales = sales; c.dailyDates = W8;
+      if (o.edits) c.edits = o.edits;
+      return c;
+    };
+    // أيام الفترة (pd) زي ملفات المنصات، ومجموع الفترة = مجموع الأيام
+    var withPd = function (c, since, until, day) {
+      var pd = { dates: [], spend: [], results: [], sales: [] };
+      for (var k = since, i = 0; k <= until; k = shiftKey(k, 1), i++) {
+        var v = day(i, k);
+        pd.dates.push(k); pd.spend.push(v[0]); pd.results.push(v[1]); pd.sales.push(v[2] || 0);
+      }
+      c.pd = pd;
+      c.period = buildPeriod(sumArr(pd.spend), sumArr(pd.results), sumArr(pd.sales));
+      return c;
+    };
+    var flat = function (sp, r) { return function () { return [sp, r, 0]; }; };
+    var week = function (r) { return [r, r, r, r, r, r, r, 1]; };
+
+    test('نافذة الفترة للمحرّك: النهارده الحقيقي بعد فترة بتخلص أمس، وخانة فاضية بعد فترة خلصت قبل كده (من غير تعديلات)، وطول واحد للكل', function () {
+      var c = w8('v', { daily: [1, 1, 1, 1, 1, 1, 1, 9], res: [0, 0, 0, 0, 0, 0, 0, 2], sales: [0, 0, 0, 0, 0, 0, 0, 50],
+        edits: [{ date: Y, level: 'ad', kind: 'budget', from: 20000, to: 10000 }] });
+      withPd(c, shiftKey(TODAY, -14), Y, flat(10, 1));
+      var v = periodViewOf(c, 15);
+      eq([v.dailyDates.length, v.dailyDates[14], v.daily[14], v.dailyResults[14], v.dailySales[14]], [15, TODAY, 9, 2, 50], 'today after the period');
+      eq([v.dailyDates[0], v.daily[0], v.spend, v.results], [shiftKey(TODAY, -14), 10, 140, 14], 'the period days and totals');
+      eq(v.edits.length, 1, 'edits kept: «days since the edit» counts from the real today');
+      ok(c.daily.length === 8 && c.dailyDates === W8 && c.spend === 7, 'the ad itself is untouched');
+      // «الشهر الماضي» مثلاً: خانة فاضية بعده، والتعديلات بتتشال — «عُدّل من كام يوم» بيتحسب من آخر خانة
+      var since = shiftKey(TODAY, -40), until = shiftKey(TODAY, -20);
+      withPd(c, since, until, flat(5, 1));
+      v = periodViewOf(c, 22);
+      eq([v.dailyDates.length, v.dailyDates[21], v.daily[21], v.daily[20], v.edits.length], [22, shiftKey(until, 1), 0, 5, 0]);
+      // «أمس» بس: بيتكمّل لـ٨ خانات بأيام صفر قبله، والنهارده بعده
+      withPd(c, Y, Y, flat(7, 1));
+      v = periodViewOf(c, 2);
+      eq([v.dailyDates.length, v.daily.join(), v.dailyDates[6], v.dailyDates[7]], [8, '0,0,0,0,0,0,7,9', Y, TODAY]);
+      // حساب تاني فترته أطول بيوم (توقيت مختلف): كل النوافذ بطول واحد، والآخر في مكانه
+      v = periodViewOf(c, 10);
+      eq([v.dailyDates.length, v.daily[8], v.daily[9]], [10, 7, 9]);
+    });
+
+    test('المحرّك في حكم الفترة: قواعد «الآن» بتسكت لو الفترة مبتخلصش أمس (recent: false)، ونصوصه بعبارة الفترة', function () {
+      var s = { roasTarget: 3, roasBreakEven: 1 };
+      var stop = baseAccount().concat([ad('w', { daily: [50, 50, 50, 50, 50, 0, 0], res: steady(2) })]);
+      var has = function (r) { return r.byAd.w.issues.some(function (i) { return i.code === 'no-spend-y'; }); };
+      ok(has(engine(stop)), 'now: «stopped spending yesterday»');
+      ok(!has(PauseProofAlerts.analyze(stop, {}, s, ALERT_FMT, { recent: false, phrase: t('wd.lastMonth') })), 'a past period: no «yesterday» rule');
+      var dry = baseAccount().concat([ad('dry', { daily: steady(25) })]);
+      var pick = function (r) { return r.alerts.filter(function (x) { return x.adId === 'dry' && x.impactText; })[0]; };
+      var a = pick(PauseProofAlerts.analyze(dry, {}, Object.assign({ maxCost: { purchase: 20 } }, s), ALERT_FMT, { recent: false, phrase: t('wd.lastMonth') }));
+      ok(a && a.impactText.indexOf(t('wd.lastMonth')) > -1, a ? a.impactText : 'no alert on the dry ad');
+      // تكرار الظهور رقم آخر ٧ أيام، و«أكبر مصدر وقف» سؤاله عن النهارده: الاتنين مالهمش مكان في حكم فترة ماضية
+      var past = { recent: false, phrase: t('wd.lastMonth') };
+      var tired = baseAccount().concat([ad('tired', { daily: steady(100), res: steady(5), freq: 9 })]);
+      var freq = function (r) { return r.byAd.tired.issues.some(function (i) { return i.code === 'fatigue'; }); };
+      ok(freq(engine(tired)) && !freq(PauseProofAlerts.analyze(tired, {}, s, ALERT_FMT, past)), 'frequency: now only');
+      var star = [ad('star', { daily: [100, 100, 100, 100, 100, 100, 0], res: steady(3), sales: [900, 900, 900, 900, 900, 900, 0], active: false, pausedLevel: 'ad' }),
+        ad('s1', { daily: steady(100), res: steady(2), sales: steady(200) })];
+      var top = function (r) { return r.alerts.some(function (x) { return x.code === 'top-stopped'; }); };
+      ok(top(engine(star)) && !top(PauseProofAlerts.analyze(star, {}, s, ALERT_FMT, past)), 'top source stopped: now only');
+      // الإعلان المتوقف والإعلان الجديد: جملتهم «خلال آخر ٣ أيام واليوم» و«منذ بدايته حتى أمس» حقائق عن دلوقتي
+      var rej = baseAccount().concat([ad('rej', { daily: [100, 100, 100, 100, 100, 100, 0], active: false, pausedLevel: 'rejected' })]);
+      var stoppedOf = function (r) { return r.byAd.rej.issues.some(function (i) { return i.code === 'stopped'; }); };
+      ok(stoppedOf(engine(rej)) && !stoppedOf(PauseProofAlerts.analyze(rej, {}, s, ALERT_FMT, past)), 'stopped ad: now only');
+      var fresh = baseAccount().concat([ad('nw', { daily: [0, 0, 0, 0, 100, 100, 100], age: 1 })]);
+      var newOf = function (r) { return r.byAd.nw.issues.some(function (i) { return i.code === 'waste-new'; }); };
+      ok(newOf(engine(fresh)) && !newOf(PauseProofAlerts.analyze(fresh, {}, s, ALERT_FMT, past)), 'new ad: now only');
+      // العناوين: «طوال الأسبوع» في الأسبوع بس، وفي غيره عبارة الفترة — بالعربي والإنجليزي
+      var titleOf = function (r) { return r.byAd.dry.issues.filter(function (i) { return i.code === 'waste-week'; })[0].title; };
+      var maxS = Object.assign({ maxCost: { purchase: 20 } }, s);
+      eq(titleOf(engine(dry, {}, { maxCost: { purchase: 20 } })), t('al.wasteWeek.t'), 'the week: word for word');
+      eq(titleOf(PauseProofAlerts.analyze(dry, {}, maxS, ALERT_FMT, past)), t('al.wasteWeek.tP', { wd: t('wd.lastMonth') }), 'a period: its own words');
+      withLang('en', function () { ok(titleOf(PauseProofAlerts.analyze(dry, {}, maxS, ALERT_FMT, { recent: false, phrase: t('wd.lastMonth') })).indexOf('week') < 0, 'English too'); });
+      // فترة أقصر من أسبوع: يوم واحد إنفاقه أقل من تكلفة نتيجة مش «المنصة مش بتديله إنفاق»
+      var low = baseAccount().concat([ad('low', { daily: steady(1), res: steady(0), key: 'purchase', age: 30 })]);
+      var usOf = function (r) { return r.byAd.low.issues.some(function (i) { return i.code === 'underspend'; }); };
+      ok(usOf(PauseProofAlerts.analyze(low, {}, s, ALERT_FMT, past)) && !usOf(PauseProofAlerts.analyze(low, {}, s, ALERT_FMT, { recent: false, phrase: 'x', short: true })), 'short period: no «not getting spend»');
+      // ومن غير opts زي ما كان: النافذة هنا ٧ خانات = «خلال آخر ٦ أيام»
+      var a2 = pick(engine(dry, {}, { maxCost: { purchase: 20 } }));
+      ok(a2 && a2.impactText.indexOf(t('wd.last', { n: ar(6) + ' ' + I18N.noun(6, 'n.day') })) > -1, a2 ? a2.impactText : 'no alert');
+    });
+
+    test('عبارة كل فترة وقواعد «الآن»: شغّالة بس لو الفترة بتخلص أمس وفيها ٧ أيام مكتملة', function () {
+      var o = function (pp) { period = pp; return periodEngineOpts(); };
+      var d = function (n) { return t('wd.last', { n: ar(n) + ' ' + noun(n, 'n.day') }); };
+      eq(o({ preset: 'today' }), { phrase: t('wd.today'), recent: false, short: true });
+      eq(o({ preset: 'yesterday' }), { phrase: t('wd.yesterday'), recent: false, short: true });
+      eq(o({ preset: 'last14' }), { phrase: d(14), recent: true, short: false });
+      eq(o({ preset: 'last30' }), { phrase: d(30), recent: true, short: false });
+      eq(o({ preset: 'lastMonth' }).phrase, t('wd.lastMonth'));
+      eq(o({ preset: 'lastMonth' }).recent, false);
+      var since = shiftKey(TODAY, -8), range = t('wd.range', { range: fmtRange(since, Y) });
+      eq(o({ preset: 'custom', since: since, until: Y }), { phrase: range, recent: true, short: false }, 'custom up to yesterday, 8 days');
+      eq(o({ preset: 'custom', since: shiftKey(TODAY, -3), until: Y }).recent, false, 'custom up to yesterday, 3 days');
+      eq(o({ preset: 'custom', since: shiftKey(TODAY, -30), until: shiftKey(TODAY, -5) }).recent, false, 'custom that ended before yesterday');
+      var first = TODAY.slice(8) === '01';
+      eq(o({ preset: 'thisMonth' }).phrase, t(first ? 'wd.today' : 'wd.thisMonth'), 'this month (the first of the month = today)');
+    });
+
+    test('فترة أقصر من أسبوع: «أمس» مبيقولش «لا يأخذ إنفاقاً كافياً» على يوم واحد', function () {
+      period = { preset: 'yesterday' };
+      var r = resolvePeriodFor(BROWSER_TZ);
+      var mk = function (id, sp, n) { return withPd(w8(id, { daily: [sp, sp, sp, sp, sp, sp, sp, 1], res: week(n) }), r.since, r.until, flat(sp, n)); };
+      candidates = [mk('a', 100, 5), mk('b', 100, 5), mk('low', 0.5, 0)];
+      render();
+      var us = function () { return analysis.byAd.low.issues.some(function (i) { return i.code === 'underspend'; }); };
+      ok(analysis.period && !us(), 'one day is not «the platform gives it no spend»');
+      period = { preset: 'lastMonth' };
+      r = resolvePeriodFor(BROWSER_TZ);
+      candidates = [mk('a', 100, 5), mk('b', 100, 5), mk('low', 0.5, 0)];
+      render();
+      ok(us(), 'a month of it is what the note means');
+    });
+
+    test('تحليلين: الكروت بحكم الفترة، وصفحة التنبيهات على «الآن»، ووسم «عُدّل» حالة دلوقتي، ومن غير أيام فترته = حكم «الآن»', function () {
+      period = { preset: 'lastMonth' };
+      var r = resolvePeriodFor(BROWSER_TZ);
+      var good = function (id) { return withPd(w8(id, { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: week(5) }), r.since, r.until, flat(100, 5)); };
+      // «x» جاب عملاء طول الشهر اللي فات زي إخواته، والأسبوع ده صرف من غير ولا عميل، وميزانيته اتعدّلت أمس
+      var x = withPd(w8('x', { daily: [100, 100, 100, 100, 100, 100, 100, 40], edits: [{ date: Y, level: 'ad', kind: 'budget', from: 20000, to: 10000 }] }),
+        r.since, r.until, flat(100, 5));
+      var np = w8('np', { daily: [100, 100, 100, 100, 100, 100, 100, 40] });
+      np.period = buildPeriod(3000, 0, 0);   // أرقام الفترة وصلت إجمالي بس (من غير أيام)
+      candidates = [good('g1'), good('g2'), x, np];
+      render();
+      ok(analysis.period && analysis !== analysisNow, 'two analyses');
+      var urgent = function (a) { return a.level === 'critical' || a.level === 'warning'; };
+      ok(analysisNow.alerts.some(function (a) { return a.adId === 'x' && urgent(a); }), 'now: x is flagged');
+      ok(!analysis.byAd.x.issues.some(urgent) && analysis.byAd.x.health !== 'review', 'last month: x was fine — ' + analysis.byAd.x.health);
+      ok(analysis.byAd.x.editTag && analysis.byAd.x.editTag === analysisNow.byAd.x.editTag, 'the «edited» tag is a now status');
+      eq(analysis.byAd.np, analysisNow.byAd.np, 'no period days = the «now» verdict');
+      ok(analysis.alerts.some(function (a) { return a.adId === 'np'; }) && !analysis.alerts.some(function (a) { return a.adId === 'x' && urgent(a); }), 'the merged alert list');
+      var h = analysis.summary.health;
+      eq(h.good + h.improve + h.review + h.pending + h.inactive, 4, 'the status counts cover every ad');
+      renderAlerts();
+      ok(alertsListEl.textContent.indexOf('Ad x') > -1, 'the alerts page lists x (now)');
+    });
+
+    test('الكارت: التلوين وتلميح نقطة الحالة من حكم الفترة، ولو أيامها موصلتش من غير تلوين والتلميح بيقول إن الحكم على آخر ٧ أيام', function () {
+      period = { preset: 'lastMonth' };
+      var r = resolvePeriodFor(BROWSER_TZ);
+      var mk = function (id, n) { return withPd(w8(id, { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: week(n) }), r.since, r.until, flat(100, n)); };
+      // «hi»: تكلفة العميل ١٠٠ قصاد ٢٠ لإخواته طول الشهر
+      var hi = mk('hi', 1);
+      candidates = [mk('a', 5), mk('b', 5), hi];
+      render();
+      var card = document.getElementById('card-hi');
+      ok(card.querySelector('.card-stat[class*="mv-"], .card-stat[class*="tone-"]'), 'coloured from the period verdict');
+      var dot = card.querySelector('.health-dot').getAttribute('title');
+      ok(dot.indexOf(t('x.basisPeriodPast', { period: periodLabel() })) > -1 && dot.indexOf(t('x.basisPeriodNow')) > -1, dot);
+      delete hi.pd;
+      render();
+      card = document.getElementById('card-hi');
+      ok(!card.querySelector('.card-stat[class*="mv-"], .card-stat[class*="tone-"]'), 'no colour on numbers the verdict was not made on');
+      dot = card.querySelector('.health-dot').getAttribute('title');
+      ok(dot.indexOf(t('x.basisNow')) > -1, dot);
+    });
+
+    test('أساس الحكم في التفاصيل بيقول أنهي أيام: الفترة، أو اليوم حتى الآن، أو آخر ٧ أيام لو أيامها موصلتش', function () {
+      var setup = function (pp) {
+        period = pp;
+        var r = resolvePeriodFor(BROWSER_TZ);
+        var mk = function (id) { return withPd(w8(id, { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: week(5) }), r.since, r.until, flat(100, 5)); };
+        candidates = [mk('a'), mk('b'), mk('c')];
+        render();
+        return candidates[2];
+      };
+      var line = function (c) { openExpand(c); var p = document.querySelector('#expandHealth .health-period'); return p ? p.textContent : ''; };
+      var pl = function () { return { period: periodLabel() }; };
+      eq(line(setup({ preset: 'last7' })), t('x.basisPeriod', pl()), 'last 7 days');
+      eq(line(setup({ preset: 'last30' })), t('x.basisPeriod', pl()), 'last 30 days: the «now» rules are on too');
+      eq(line(setup({ preset: 'yesterday' })), t('x.basisPeriod', pl()) + ' ' + t('x.basisPeriodNow'), 'yesterday: under 7 days');
+      eq(line(setup({ preset: 'lastMonth' })), t('x.basisPeriodPast', pl()) + ' ' + t('x.basisPeriodNow'), 'last month');
+      eq(line(setup({ preset: 'today' })), t('x.basisToday'), 'today');
+      var c = setup({ preset: 'custom', since: shiftKey(TODAY, -3), until: TODAY });
+      eq(line(c), t('x.basisPeriodToday', pl()), 'a custom range up to today');
+      delete c.pd;
+      render();
+      eq(line(c), t('x.basisNow'), 'the period days did not load');
+      withLang('en', function () { render(); eq(line(c), t('x.basisNow'), 'English'); });
+      expandOverlay.classList.add('hidden');
+    });
+
+    test('جدول الأيام في التفاصيل بيتبع الفترة: أيامها والإجمالي، والنهارده منفصل لو الفترة بتخلص أمس أو فيها النهارده', function () {
+      var setup = function (pp, dayFn) {
+        period = pp;
+        var r = resolvePeriodFor(BROWSER_TZ);
+        var mk = function (id) { return withPd(w8(id, { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: week(5) }), r.since, r.until, dayFn || flat(100, 5)); };
+        candidates = [mk('a'), mk('b'), mk('c')];
+        render();
+        openExpand(candidates[2]);
+        var ths = document.querySelectorAll('#expandChart thead th'), tot = document.querySelector('#expandChart tbody tr td.col-total');
+        var today = document.querySelector('#expandChart tbody tr td.col-today');
+        return { r: r, th: Array.prototype.map.call(ths, function (x) { return x.textContent; }), cls: Array.prototype.map.call(ths, function (x) { return x.className; }),
+          title: document.getElementById('expandDailyTitle').textContent, total: tot ? tot.textContent : null, today: today ? today.textContent : null };
+      };
+      // آخر ١٤ يوماً: ١٤ يوم آخرهم «أمس»، والإجمالي (أيام الفترة نفسها)، والنهارده من النافذة اليومية
+      var o = setup({ preset: 'last14' }, function (i) { return [10 + i, 1, 0]; });
+      eq([o.th.length, o.th[14], o.th[15], o.th[16]], [17, t('x.yesterday'), t('x.totalDays', { n: dayCountText(14) }), t('x.today')]);
+      eq([o.title, o.total, o.today], [t('x.dailyTitleP', { period: periodLabel() }), fmtNum(231, true), fmtNum(40, true)]);
+      // الشهر الماضي: أيامه والإجمالي بس — من غير «أمس» ولا النهارده
+      o = setup({ preset: 'lastMonth' });
+      var n = keyDiffDays(o.r.since, o.r.until) + 1;
+      eq([o.th.length, o.th.indexOf(t('x.yesterday')), o.cls.indexOf('col-today'), o.th[n + 1], o.today], [n + 2, -1, -1, t('x.totalDays', { n: dayCountText(n) }), null]);
+      eq(o.cls.indexOf('col-yesterday'), -1, 'the last day of a past period is not marked as yesterday');
+      eq([o.title, o.total], [t('x.dailyTitlePOnly', { period: periodLabel() }), fmtNum(100 * n, true)]);
+      // أمس: عمود واحد من غير إجمالي (كان هيبقى نفس الرقم مرتين)، والنهارده منفصل
+      o = setup({ preset: 'yesterday' });
+      eq([o.th.length, o.th[1], o.th[2], o.total], [3, t('x.yesterday'), t('x.today'), null]);
+      // اليوم: عمود النهارده بس، برقم الفترة نفسها
+      o = setup({ preset: 'today' }, function () { return [33, 2, 0]; });
+      eq([o.th.length, o.th[1], o.today, o.title], [2, t('x.today'), fmtNum(33, true), t('x.dailyTitlePOnly', { period: periodLabel() })]);
+      // فترة مخصصة لحد النهارده: الأيام المكتملة والإجمالي، والنهارده (آخر يوم فيها) منفصل
+      o = setup({ preset: 'custom', since: shiftKey(TODAY, -3), until: TODAY }, function (i) { return [i === 3 ? 7 : 20, 1, 0]; });
+      eq([o.th.length, o.th[3], o.total, o.today], [6, t('x.yesterday'), fmtNum(60, true), fmtNum(7, true)]);
+      expandOverlay.classList.add('hidden');
+    });
+
+    test('Meta: أيام الفترة من صفوفها اليومية والمجموع = مجموع الأيام؛ والمجموع لوحده (الأيام اتقطعت) = من غير أيام', function () {
+      var base = { id: '1', name: 'A', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000',
+        adset: { id: 's', name: 'S', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c', name: 'C' }, creative: {} };
+      var pr = { since: shiftKey(TODAY, -20), until: shiftKey(TODAY, -11) };
+      var buy = function (d, spend, n, v) { return { date_start: d, spend: String(spend), actions: [{ action_type: 'omni_purchase', value: String(n) }], action_values: [{ action_type: 'omni_purchase', value: String(v) }] }; };
+      var c = transformRealAd(base, [], {}, DAYS_X, null, 'SAR', null, [buy(pr.since, 30, 1, 90), buy(shiftKey(pr.since, 5), 20.5, 2, 150)], pr);
+      eq([c.pd.dates.length, c.pd.dates[0], c.pd.dates[9]], [10, pr.since, pr.until]);
+      eq([c.pd.spend[0], c.pd.spend[5], c.pd.results[5], c.pd.sales[5], c.pd.spend[1], c.pd.results[1]], [30, 20.5, 2, 150, 0, 0]);
+      eq([c.period.spend, c.period.results, c.period.sales], [50.5, 3, 240], 'the card total = the sum of the days');
+      var tot = transformRealAd(base, [], {}, DAYS_X, null, 'SAR', null, buy(pr.since, 50.5, 3, 240), pr);
+      eq([tot.pd, tot.period.spend, tot.period.results], [null, 50.5, 3], 'totals only: no days');
+      var none = transformRealAd(base, [], {}, DAYS_X, null, 'SAR', null, [], pr);
+      eq([none.pd.dates.length, sumArr(none.pd.spend), none.period.spend], [10, 0, 0], 'no spend in the period = zero days');
+    });
+
+    test('Snapchat: الفترة يوم بيوم — «الأقرب للمتجر» لكل يوم ورقم المنصة جنبه، والمجموع = مجموع الأيام', function () {
+      var M = 1000000, pr = { since: shiftKey(TODAY, -9), until: shiftKey(TODAY, -2) };
+      var ser = function (rows) {
+        return { timeseries_stats: [{ timeseries_stat: { breakdown_stats: { ad: Object.keys(rows).map(function (id) {
+          return { id: id, timeseries: rows[id].map(function (x) { return { start_time: x[0] + 'T00:00:00.000+03:00', stats: x[1] }; }) };
+        }) } } }] };
+      };
+      var ads1 = [{ ad: { id: 'a1', name: 'S', status: 'ACTIVE', ad_squad_id: 'sq1' } }], squads = [{ id: 'sq1', optimization_goal: 'PIXEL_PURCHASE' }];
+      var wk = [{ timeseries_stat: { breakdown_stats: { ad: [{ id: 'a1', timeseries: [] }] } } }];
+      var pPlat = ser({ a1: [[pr.since, { spend: 100 * M, swipes: 10, conversion_purchases: 4, conversion_purchases_value: 400 * M }],
+        [shiftKey(pr.since, 3), { spend: 50 * M, swipes: 5, conversion_purchases: 2, conversion_purchases_value: 200 * M }]] });
+      var pStore = ser({ a1: [[pr.since, { conversion_purchases: 3, conversion_purchases_value: 300 * M }]] });
+      var c = transformSnapchatAds(ads1, wk, DAYS_X, 'SAR', squads, [], pPlat, [], pStore, null, null, pr)[0];
+      eq([c.pd.dates.length, c.pd.spend.join(), c.pd.results.join(), c.pd.sales.join()], [8, '100,0,0,50,0,0,0,0', '3,0,0,0,0,0,0,0', '300,0,0,0,0,0,0,0']);
+      eq([c.period.spend, c.period.results, c.period.sales, c.period.plat.results, c.period.plat.sales], [150, 3, 300, 6, 600]);
+      // «الأقرب» للفترة فشل: رقم المنصة يوم بيوم ومن غير مقارنة
+      var c2 = transformSnapchatAds(ads1, wk, DAYS_X, 'SAR', squads, [], pPlat, [], null, null, null, pr)[0];
+      eq([c2.pd.results.join(), c2.period.results, c2.period.plat], ['4,0,0,2,0,0,0,0', 6, undefined]);
+    });
+
+    test('Google: الفترة يوم بيوم — «الأقرب للمتجر» بحد المنصة في كل يوم زي الأسبوع، والمجموع والطلبات الصحيحة = مجموع الأيام', function () {
+      var M = 1000000, pr = { since: shiftKey(TODAY, -5), until: shiftKey(TODAY, -2) };
+      var row = function (g, a) { return { adGroup: { id: g, name: 'AG', status: 'ENABLED' }, adGroupAd: { ad: { id: a, name: 'Ad ' + a }, status: 'ENABLED' }, campaign: { id: '3', name: 'S', status: 'ENABLED' } }; };
+      var on = function (g, a, k, m) { return { adGroup: { id: g }, adGroupAd: { ad: { id: a } }, segments: { date: k }, metrics: m }; };
+      var tot = function (g, a, m) { return { adGroup: { id: g }, adGroupAd: { ad: { id: a } }, metrics: m }; };
+      // اليوم الأول المتجر ٣ والمنصة ١ (الحد ١)، والتالت المتجر صفر والمنصة ٢: يوم بيوم = ١ — والإجمالي كان هيقول ٣
+      var pDaily = [on('7', '9', pr.since, { costMicros: String(40 * M), conversions: 1, conversionsValue: 100 }), on('7', '9', shiftKey(pr.since, 2), { costMicros: String(60 * M), conversions: 2, conversionsValue: 200 })];
+      var pStoreD = [on('7', '9', pr.since, { conversions: 3, conversionsValue: 300 })];
+      var pTot = [tot('7', '9', { costMicros: String(100 * M), conversions: 3, conversionsValue: 300 })], pStoreT = [tot('7', '9', { conversions: 3, conversionsValue: 300 })];
+      var c = googleWholeOrders(transformGoogleRows([row('7', '9')], [], DAYS_X, 'SAR', pTot, [], pStoreT, pDaily, pStoreD, pr))[0];
+      eq([c.pd.dates.length, c.pd.spend.join(), c.pd.results.join(), c.pd.sales.join()], [4, '40,0,60,0', '1,0,0,0', '100,0,0,0']);
+      eq([c.period.spend, c.period.results, c.period.sales, c.period.plat.results], [100, 1, 100, 3], 'the card = the sum of the days');
+      var t2 = googleWholeOrders(transformGoogleRows([row('7', '9')], [], DAYS_X, 'SAR', pTot, [], pStoreT, null, null, pr))[0];
+      eq([t2.pd, t2.period.results], [null, 3], 'no period days: the total as before');
+      // كسور: إعلانين كل واحد ٠٫٦ طلب في يوم — إجمالي الحساب طلب واحد صحيح، وأيام كل إعلان بتتقسم على نصيبه هو
+      var fr = [on('7', '1', pr.since, { costMicros: String(10 * M), conversions: 0.6, conversionsValue: 60 }), on('7', '2', shiftKey(pr.since, 1), { costMicros: String(10 * M), conversions: 0.6, conversionsValue: 60 })];
+      var two = googleWholeOrders(transformGoogleRows([row('7', '1'), row('7', '2')], [], DAYS_X, 'SAR', [], null, null, fr, null, pr));
+      eq(two.map(function (x) { return x.period.results; }).reduce(function (a, b) { return a + b; }, 0), 1, 'whole orders across the account');
+      ok(two.every(function (x) { return sumArr(x.pd.results) === x.period.results; }), two.map(function (x) { return x.pd.results.join() + '=' + x.period.results; }).join(' | '));
+      // Performance Max: نفس الأيام على مستوى الحملة، وحملة صرفت في الفترة بس بتظهر بأيامها
+      var camp = { id: '21', name: 'PMax', status: 'ENABLED', primaryStatus: 'ELIGIBLE' };
+      var pm = googleWholeOrders(transformGooglePmax([], [{ campaign: camp, metrics: { costMicros: String(80 * M), conversions: 4, conversionsValue: 400 } }], DAYS_X, 'SAR', null, null,
+        [{ campaign: camp, segments: { date: pr.until }, metrics: { costMicros: String(80 * M), conversions: 4, conversionsValue: 400 } }], null, pr))[0];
+      eq([pm.pd.dates.length, pm.pd.spend[3], pm.pd.results[3], pm.period.spend, pm.period.results], [4, 80, 4, 80, 4]);
+    });
+
+    test('TikTok: الفترة يوم بيوم لكل إعلان، والمجموع على الكارت من أيامها لو وصلت', function () {
+      var pr = { since: shiftKey(TODAY, -4), until: shiftKey(TODAY, -2) };
+      var rows = [{ ad_id: '9', ad_name: 'T', campaign_id: '3', campaign_name: 'C', adgroup_id: '77', adgroup_name: 'AG', operation_status: 'ENABLE', ad_format: 'SINGLE_VIDEO' }];
+      // المجموع هنا مختلف عن الأيام قصداً: الكارت بياخد من الأيام (اللي الحكم عليها)
+      var pTot = [{ dimensions: { ad_id: '9' }, metrics: { spend: '31.00', conversion: '3' } }];
+      var pDay = [{ dimensions: { ad_id: '9', stat_time_day: pr.since + ' 00:00:00' }, metrics: { spend: '12.50', conversion: '1' } },
+        { dimensions: { ad_id: '9', stat_time_day: pr.until + ' 00:00:00' }, metrics: { spend: '17.50', conversion: '2' } }];
+      var c = transformTikTokAds(rows, [], DAYS_X, 'SAR', pTot, pDay, pr)[0];
+      eq([c.pd.dates.join(), c.pd.spend.join(), c.pd.results.join()], [[pr.since, shiftKey(pr.since, 1), pr.until].join(), '12.5,0,17.5', '1,0,2']);
+      eq([c.period.spend, c.period.results], [30, 3]);
+      var c2 = transformTikTokAds(rows, [], DAYS_X, 'SAR', pTot, null, pr)[0];
+      eq([c2.pd, c2.period.spend], [null, 31], 'no daily report: the total as before');
+    });
+
+    testAsync('Snapchat (الخادم): الفترة يوم بيوم على دفعات ٢٨ يوم ورا بعض، متجمّعة في رد واحد بنفس شكل الأسبوع', function () {
+      var realFetch = window.fetch, starts = [];
+      var json = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
+      window.fetch = function (url) {
+        var u = String(url);
+        if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'UTC', currency: 'USD' } }] });
+        if (/\/ads\?/.test(u)) return json({ ads: [{ ad: { id: 'a1', status: 'ACTIVE' } }] });
+        if (/\/adsquads/.test(u)) return json({ adsquads: [] });
+        if (/\/campaigns/.test(u)) return json({ campaigns: [] });
+        if (/\/stats/.test(u)) {
+          var q = new URL(u, 'https://x.example').searchParams, from = (q.get('start_time') || '').slice(0, 10), to = (q.get('end_time') || '').slice(0, 10);
+          if (q.get('granularity') === 'DAY' && /^spend,swipes/.test(q.get('fields') || '')) starts.push(from + '>' + to);
+          return json({ timeseries_stats: [{ timeseries_stat: { breakdown_stats: { ad: [{ id: 'a1', timeseries: [{ start_time: from + 'T00:00:00.000Z', stats: { spend: 1000000 } }] }] } } }] });
+        }
+        return json({});
+      };
+      var out = null;
+      var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      var since = shiftKey(TODAY, -45), until = shiftKey(TODAY, -6), mid = shiftKey(since, 28);   // ٤٠ يوم = ٢٨ + ١٢
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1', period: { preset: 'custom', since: since, until: until } } }, res);
+      }).then(function () {
+        window.fetch = realFetch;
+        ok(starts.indexOf(since + '>' + mid) > -1 && starts.indexOf(mid + '>' + shiftKey(until, 1)) > -1, starts.join(' | '));
+        var ts = out.periodStats.timeseries_stats[0].timeseries_stat.breakdown_stats.ad[0].timeseries;
+        eq(ts.map(function (x) { return x.start_time.slice(0, 10); }), [since, mid], 'one reply with both batches');
+        eq([out.period.since, out.period.until], [since, until]);
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+
+    testAsync('TikTok (الخادم): الفترة يوم بيوم على دفعات ٣٠ يوم ورا بعض (حد TikTok للتقرير اليومي)', function () {
+      var realFetch = window.fetch, daily = [];
+      var ok0 = function (data) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ code: 0, data: data }); } }); };
+      window.fetch = function (url) {
+        var u = String(url), q = new URL(u).searchParams;
+        if (u.indexOf('/advertiser/info/') > -1) return ok0({ list: [{ name: 'T', timezone: 'UTC', currency: 'USD' }] });
+        if (u.indexOf('/ad/get/') > -1) return ok0({ list: [{ ad_id: '9', operation_status: 'ENABLE' }], page_info: { total_page: 1 } });
+        if (u.indexOf('/report/integrated/get/') > -1) {
+          var dims = JSON.parse(q.get('dimensions') || '[]'), metrics = JSON.parse(q.get('metrics') || '[]');
+          if (dims.indexOf('stat_time_day') > -1 && metrics.indexOf('cost_per_conversion') < 0) daily.push(q.get('start_date') + '>' + q.get('end_date'));
+          return ok0({ list: [{ dimensions: { ad_id: '9', stat_time_day: q.get('start_date') + ' 00:00:00' }, metrics: { spend: '1.00', conversion: '1' } }], page_info: { total_page: 1 } });
+        }
+        return ok0({ list: [] });
+      };
+      var out = null;
+      var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      var since = shiftKey(TODAY, -45), until = shiftKey(TODAY, -6), mid = shiftKey(since, 30);   // ٤٠ يوم = ٣٠ + ١٠
+      return import('/api/tiktok-ads-fetch.js').then(function (m) {
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', advertiserId: '123', period: { preset: 'custom', since: since, until: until } } }, res);
+      }).then(function () {
+        window.fetch = realFetch;
+        eq(daily, [since + '>' + shiftKey(since, 29), mid + '>' + until], 'two batches in turn');
+        eq(out.periodDaily.map(function (r) { return r.dimensions.stat_time_day.slice(0, 10); }), [since, mid], 'one list');
+      }, function (e) { window.fetch = realFetch; throw e; });
     });
   });
 

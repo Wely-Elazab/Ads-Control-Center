@@ -404,12 +404,18 @@
     var reachP = fbPagesPromise('/' + accountId + '/insights', {
       level: 'ad', time_range: JSON.stringify({ since: days[0].key, until: days[days.length - 2].key }), fields: 'ad_id,frequency,reach,impressions', limit: 500
     }, FULL_SCAN_CAP);
-    // مجاميع الفترة المختارة (صف واحد لكل إعلان) — بيتبعت بالتوازي مع الباقي، ومش محتاج لو الفترة آخر ٧ أيام
+    // أرقام الفترة المختارة يوم بيوم لكل إعلان (٣ نوفمبر ٢٠٢٦ — تقييم الإعلان بقى على الفترة نفسها، مش آخر ٧ أيام بس). المجموع
+    // = جمع الأيام بالظبط. لو الصفوف اتقطعت (حساب ضخم وفترة طويلة — حد FULL_SCAN_CAP) بنرجع للمجموع زي الأول من غير أيام،
+    // والتقييم ساعتها على آخر ٧ أيام والحالة بتقول كده (note.periodDaily)
     var pr = resolvePeriodFor(info.timeZone || BROWSER_TZ);
+    var periodTotals = function () {
+      return insightsPromise(accountId, { level: 'ad', time_range: JSON.stringify({ since: pr.since, until: pr.until }), fields: 'ad_id,spend,actions,action_values', limit: 500 })
+        .then(function (res) { res.totalsOnly = true; return res; });
+    };
     var periodP = pr.isDefault ? Promise.resolve(null) : insightsPromise(accountId, {
-      level: 'ad', time_range: JSON.stringify({ since: pr.since, until: pr.until }),
-      fields: 'ad_id,spend,actions,action_values', limit: 500
-    });
+      level: 'ad', time_increment: 1, time_range: JSON.stringify({ since: pr.since, until: pr.until }),
+      fields: 'ad_id,date_start,spend,actions,action_values', limit: 500
+    }).then(function (res) { return res.err || res.truncated ? periodTotals() : res; });
 
     var order = [], adsById = {}, adsTruncated = false, adFields = null;
     var allInOne = false, stoppedUsed = false, stoppedFailed = false;
@@ -426,7 +432,7 @@
     var build = function (insightsByAd, reachByAd, adsetStatusMap, periodByAd) {
       return order.map(function (id) {
         return transformRealAd(adsById[id], (insightsByAd && insightsByAd[id]) || [], adsetStatusMap, days,
-          reachByAd && reachByAd[id], info.currency || null, accountInfo[source], periodByAd ? (periodByAd[id] || {}) : null);
+          reachByAd && reachByAd[id], info.currency || null, accountInfo[source], periodByAd ? (periodByAd[id] || (maps && maps.periodRes && maps.periodRes.totalsOnly ? {} : [])) : null, pr);
       });
     };
     var byAdId = function (rows, multi) {
@@ -514,6 +520,8 @@
       if (done || !cachedShown) cacheSource(source, candidates.filter(function (c) { return c.source === source; }));
       var notes = [];
       if (maps.periodRes && maps.periodRes.err) notes.push(msg('note.periodFailed'));
+      // الأيام اتقطعت أو فشلت والمجموع وصل (periodTotals): الكروت بأرقام الفترة، والتقييم على آخر ٧ أيام (ui.js judgedOnPeriod)
+      else if (maps.periodRes && maps.periodRes.totalsOnly) notes.push(msg('note.periodDaily'));
       if (maps.daily.noWindows) notes.push(msg('note.noWindows'));
       if (adsTruncated) notes.push(msg('note.adsCapped', { n: PAGE_SAFETY_CAP, ads: function () { return noun(PAGE_SAFETY_CAP, 'n.ad'); } }));
       if (maps.daily.err) notes.push(msg('note.dailyFailed', { msg: metaErrorText(maps.daily.err) }));
@@ -534,7 +542,7 @@
       if (!live() || !adsetStatusMap) return null;
       maps = {
         insights: byAdId(daily.data, true), reach: byAdId(reach.data), adsets: adsetStatusMap,
-        period: (periodRes && !periodRes.err) ? byAdId(periodRes.data) : null, daily: daily, periodRes: periodRes
+        period: (periodRes && !periodRes.err) ? byAdId(periodRes.data, !periodRes.totalsOnly) : null, daily: daily, periodRes: periodRes
       };
       // المرحلة التالتة: الإعلانات المتوقفة (في الخلفية) — بتنضاف بنفس الأرقام اللي اتحمّلت.
       // مبتبدأش لوحدها: الزرار في آخر القايمة أو فلتر «متوقف» بينادوها (stoppedLoaders.meta)
@@ -875,7 +883,8 @@
     return list.filter(function (u) { return !smallThumb(u); })[0] || list[0] || null;
   }
 
-  function transformRealAd(ad, insightRows, adsetStatusMap, days, reachRow, currency, acct, periodRow) {
+  // periodRow = صفوف الفترة يوم بيوم (قائمة) أو صف مجموعها (لو صفوف الأيام اتقطعت)، وpr = مدى الفترة
+  function transformRealAd(ad, insightRows, adsetStatusMap, days, reachRow, currency, acct, periodRow, pr) {
     var delivery = metaDelivery(ad, adsetStatusMap, acct);
     var creative = ad.creative || {};
     var imageUrl = metaImageUrl(ad);
@@ -940,9 +949,31 @@
     var cpr = (results && spend > 0) ? (spend / results) : null;
     var roas = (totalSales > 0 && spend > 0) ? (totalSales / spend) : null;
 
-    // أرقام الفترة المختارة — نفس منطق النتيجة (حسب هدف الإعلان) على صف المجموع
-    var periodData = null;
-    if (periodRow) {
+    // أرقام الفترة المختارة يوم بيوم (pd) — نفس منطق النتيجة (حسب هدف الإعلان) على كل يوم، والمجموع منها
+    var periodData = null, pd = null;
+    if (Array.isArray(periodRow) && pr) {
+      var pByDate = {}, pFirst = null;
+      periodRow.forEach(function (r) { pByDate[r.date_start] = r; });
+      periodRow.some(function (r) { pFirst = metaResults(r); return !!pFirst; });
+      if (pFirst && !firstMeta) { resultKey = pFirst.key; resultType = pFirst.type; }
+      var pKey = firstMeta || pFirst;
+      var pResOf = function (row) {
+        if (!pKey) return resultForGoal(row.actions, goal);
+        return metaResults(row) || { value: 0, platform: 0, key: pKey.key, type: pKey.type };
+      };
+      pd = { dates: [], spend: [], results: [], sales: [] };
+      var pRes = 0, pSpend = 0, pSalesSum = 0, pPlatR = 0, pPlatS = 0, pWin = false, anyRes = false;
+      for (var k = pr.since; k <= pr.until; k = shiftKey(k, 1)) {
+        var row = pByDate[k], sp = row ? r2(num(row.spend)) : 0, found = row ? pResOf(row) : null;
+        var type = (found && found.type) || resultType, sv = row && type ? valueForType(row.action_values, type) : null;
+        if (found) { anyRes = true; pRes += found.value; pPlatR += found.platform || 0; }
+        if (row && rowHasWindows(row)) { pWin = true; pPlatS += (type ? valueForType(row.action_values, type, true) : 0) || 0; }
+        pd.dates.push(k); pd.spend.push(sp); pd.results.push(found ? Math.round(found.value) : 0); pd.sales.push(sv != null ? r2(sv) : 0);
+        pSpend += sp; pSalesSum += sv || 0;
+      }
+      periodData = buildPeriod(r2(pSpend), anyRes || goal || firstMeta ? Math.round(pRes) : null, r2(pSalesSum));
+      if (pWin) periodData.plat = { results: Math.round(pPlatR), sales: r2(pPlatS) };
+    } else if (periodRow) {
       // نفس القاعدة: رقم Meta لو موجود في الفترة أو في الأسبوع، وإلا طريقتنا
       var pMeta = metaResults(periodRow);
       var pFound = pMeta || (firstMeta ? { value: 0, platform: 0, key: firstMeta.key, type: firstMeta.type } : resultForGoal(periodRow.actions, goal));
@@ -1023,6 +1054,8 @@
       statusPartial: !!delivery.partial,
       platformStatus: ad.effective_status || null,
       period: periodData,
+      // أيام الفترة المختارة لكل إعلان (dates/spend/results/sales) — تقييم الفترة في ui.js runAnalysis، و null = مفيش (المجموع بس)
+      pd: pd,
       // رقم المنصة للأسبوع، جنب «الأقرب للمتجر» (results وdailySales). null = Meta مرجّعتش نوافذ، فمفيش مقارنة
       plat: compared ? { results: results == null ? null : Math.round(platResults), sales: r2(platSales) } : null,
       fail: false

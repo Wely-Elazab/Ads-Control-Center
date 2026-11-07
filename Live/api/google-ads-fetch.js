@@ -125,19 +125,32 @@ export default async function handler(req, res) {
       WHERE segments.date BETWEEN '${periodRange.since}' AND '${periodRange.until}'
     `;
     const periodRows = periodRange.isDefault ? Promise.resolve(null) : gaql(opts, periodQuery).catch(function () { return null; });
+    // الفترة يوم بيوم لكل إعلان (٣ نوفمبر ٢٠٢٦ — تقييم الإعلان على الفترة نفسها، js/google.js pd)، و«الأقرب للمتجر» بنفس الأيام.
+    // المجموع فوق بيفضل زي ما هو للكروت (Google بيرجّع كسور طلبات، وتقسيمها على الأيام والإعلانات بيتعمل في الأداة)
+    const periodDailyQuery = `
+      SELECT ad_group.id, ad_group_ad.ad.id, segments.date, metrics.cost_micros, metrics.conversions, metrics.conversions_value
+      FROM ad_group_ad
+      WHERE segments.date BETWEEN '${periodRange.since}' AND '${periodRange.until}'
+    `;
+    const periodDaily = periodRange.isDefault ? Promise.resolve(null) : gaql(opts, periodDailyQuery).catch(function () { return null; });
+    const periodStoreDaily = periodRange.isDefault ? Promise.resolve(null)
+      : storeRows(storeQuery('ad_group_ad', 'ad_group.id, ad_group_ad.ad.id', periodRange.since, periodRange.until, true));
     // فشل استعلامات PMax مش بيوقف تحميل الإعلانات — بيرجع كملاحظة في الواجهة
     const pmaxDaily = pmaxRows(range.since, range.until, true).catch(function (err) { return { error: String(err && err.message ? err.message : err) }; });
     const pmaxPeriod = periodRange.isDefault ? Promise.resolve(null) : pmaxRows(periodRange.since, periodRange.until, false).catch(function () { return null; });
+    // PMax يوم بيوم للفترة كمان (٣ نوفمبر ٢٠٢٦ — نفس سبب الإعلانات فوق: حكم الحملة على أيام الفترة نفسها)
+    const pmaxPeriodDaily = periodRange.isDefault ? Promise.resolve(null) : pmaxRows(periodRange.since, periodRange.until, true).catch(function () { return null; });
 
     const custom = !periodRange.isDefault;
     const store = Promise.all([
       storeRows(storeQuery('ad_group_ad', 'ad_group.id, ad_group_ad.ad.id', range.since, range.until, true)),
       custom ? storeRows(storeQuery('ad_group_ad', 'ad_group.id, ad_group_ad.ad.id', periodRange.since, periodRange.until, false)) : null,
       storeRows(storeQuery('campaign', 'campaign.id', range.since, range.until, true, PMAX_ONLY)),
-      custom ? storeRows(storeQuery('campaign', 'campaign.id', periodRange.since, periodRange.until, false, PMAX_ONLY)) : null
+      custom ? storeRows(storeQuery('campaign', 'campaign.id', periodRange.since, periodRange.until, false, PMAX_ONLY)) : null,
+      custom ? storeRows(storeQuery('campaign', 'campaign.id', periodRange.since, periodRange.until, true, PMAX_ONLY)) : null
     ]);
 
-    const results = await Promise.all([adsWhere(ACTIVE_ONLY), gaql(opts, metricsQuery), periodRows, pmaxDaily, pmaxPeriod, store]);
+    const results = await Promise.all([adsWhere(ACTIVE_ONLY), gaql(opts, metricsQuery), periodRows, pmaxDaily, pmaxPeriod, store, periodDaily, periodStoreDaily, pmaxPeriodDaily]);
     let ads = results[0];
 
     // إعلانات اتحذفت بعد ما صرفت في الفترة: بنجيبها برقمها (حتى لو محذوفة) عشان صرفها يتحسب.
@@ -161,6 +174,8 @@ export default async function handler(req, res) {
       // «الأقرب للمتجر»: الفترة بتيجي بس لو أرقام المنصة للفترة نفسها رجعت (عشان المقارنة تبقى على نفس الأيام)
       storeMetrics: st[0], storePeriodMetrics: results[2] ? st[1] : null,
       storePmax: Array.isArray(pmax) ? st[2] : null, storePmaxPeriod: Array.isArray(results[4]) ? st[3] : null,
+      periodDaily: Array.isArray(results[6]) ? results[6] : null, storePeriodDaily: Array.isArray(results[6]) ? results[7] : null,
+      pmaxPeriodDaily: Array.isArray(results[8]) ? results[8] : null, storePmaxPeriodDaily: Array.isArray(results[8]) ? st[4] : null,
       range: range, period: periodRange
     });
   } catch (err) {
