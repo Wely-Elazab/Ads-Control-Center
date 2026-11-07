@@ -259,14 +259,17 @@ var DX = (function () {
   // ---------- العنوان: إيه اللي حصل للطلبات وتكلفتها ----------
   // phiD = تذبذب الحساب اليومي (الاختبار الأساسي «التغيّر حقيقي؟»)، phiH = تذبذبه بين الفترات («غير معتاد؟»)
   function headline(a, b, len, phiD, phiH, W) {
+    // الاختبارات على العدّ الحقيقي وأيامه: فترة مقارنة اتحولت لمتوسطها (analyze) عدّها المعروض مش عدّ حقيقي، و١٦٩ طلب في ١٠ أيام
+    // ثقتهم أقل من ٢٣٧ في ١٤ بنفس المعدّل. النسب نفسها مبتتغيرش
+    var ra = a.real || a;
     // كل فترة بطولها هي: الشهر الماضي ٣١ يوم والشهر اللي قبله ٣٠ (المقارنة بالشهر من ٣ نوفمبر ٢٠٢٦)
-    var orders = rateTest(a.pur, a.len || len, b.pur, b.len || len, phiD);
-    var eff = rateTest(a.pur, a.spend, b.pur, b.spend, phiD);   // موجب = طلبات أكتر لكل ريال
+    var orders = rateTest(ra.pur, ra.len || len, b.pur, b.len || len, phiD);
+    var eff = rateTest(ra.pur, ra.spend, b.pur, b.spend, phiD);   // موجب = طلبات أكتر لكل ريال
     // الفترة السابقة لوحدها فيها عشوائية زي الحالية بالظبط، فالمقارنة بيها ضعيفة في الحسابات الصغيرة.
     // متوسط آخر ٤ فترات أثبت بكتير: لو التغيّر حقيقي مقارنةً بيه وفي نفس اتجاه الفرق عن الفترة السابقة،
     // بنعتبره حقيقي (والكلام نفسه بيفضل مقارنةً بالفترة السابقة — الأرقام اللي العميل شايفها)
     var base = bundle(), baseDays = 0;
-    W.slice(1, 5).forEach(function (w) { addTo(base, w); baseDays += w.len; });
+    W.slice(1, 5).forEach(function (w) { var x = w.real || w; addTo(base, x); baseDays += x.len; });
     var effBase = rateTest(base.pur, base.spend, b.pur, b.spend, phiD);
     var ordBase = rateTest(base.pur, baseDays, b.pur, b.len || len, phiD);
     if (Math.abs(effBase.z) >= Z_REAL && sign(effBase.z) === sign(eff.z) && Math.abs(effBase.z) > Math.abs(eff.z)) eff = { ratio: eff.ratio, z: sign(eff.z) * Z_REAL, viaBase: true };
@@ -295,7 +298,7 @@ var DX = (function () {
     var tone = { betterMore: 'good', sameForLess: 'good', better: 'good', scaled: 'good', moreOrders: 'good', worse: 'bad', stable: 'neutral', withinNoise: 'neutral' }[type] || 'mixed';
 
     // مقارنة بتذبذب الحساب نفسه — بتحدد نبرة الكلام: «غير معتاد» ولا «في حدود تذبذبك»
-    var effHist = rateTest(a.pur, a.spend, b.pur, b.spend, phiH);
+    var effHist = rateTest(ra.pur, ra.spend, b.pur, b.spend, phiH);
     // ترتيب تكلفة الطلب الحالية بين كل الفترات اللي فيها طلبات كفاية
     var ranked = W.filter(function (w) { return w.pur >= 3; });
     var rank = null;
@@ -313,9 +316,9 @@ var DX = (function () {
     }
     // متوسط قيمة الطلب: مفيش قيمة كل طلب لوحده، فبنفترض تفاوت معتاد بين الطلبات (معامل اختلاف ٠٫٨)
     var aov = null;
-    if (a.pur >= 10 && b.pur >= 10 && a.rev > 0 && b.rev > 0) {
+    if (ra.pur >= 10 && b.pur >= 10 && a.rev > 0 && b.rev > 0) {
       var aovA = a.rev / a.pur, aovB = b.rev / b.pur, lnR = Math.log(aovB / aovA);
-      var z = lnR / Math.sqrt(PHI_SAMPLING * 0.64 * (1 / a.pur + 1 / b.pur));
+      var z = lnR / Math.sqrt(PHI_SAMPLING * 0.64 * (1 / ra.pur + 1 / b.pur));
       // «مؤكد» بنفس عتبة باقي أرقام الحساب (Z_REAL) — كانت Z_WHERE (٢)، فخلفية «مؤكد» في نفس الشريط كانت بمعيارين (ر٧٢).
       // Z_WHERE لمرحلة بتفسّر تغيّر اتأكد قبلها، ومتوسط قيمة الطلب حكم لوحده على الحساب
       aov = { from: aovA, to: aovB, pct: aovB / aovA - 1, z: z, real: Math.abs(z) >= Z_REAL && Math.abs(aovB / aovA - 1) >= MIN_PCT };
@@ -323,16 +326,16 @@ var DX = (function () {
     // المبيعات نفسها (نفس طول الفترتين): نفس اختبار العائد من غير الإنفاق — لون «المبيعات» كان بيتاخد من اختبار تاني (الطلبات أو
     // متوسط القيمة أو العائد)، فطلبات زادت ٥٠٪ ومتوسط قيمة نزل التلت = مبيعات +٢٪ بخلفية «تحسّن مؤكد» (مراجعة المرحلة ٤ ر٧١)
     var rev = null;
-    if (a.pur >= 5 && b.pur >= 5 && a.rev > 0 && b.rev > 0) {
-      var zV = Math.log(b.rev / a.rev) / Math.sqrt(phiD * 1.64 * (1 / a.pur + 1 / b.pur));
+    if (ra.pur >= 5 && b.pur >= 5 && a.rev > 0 && b.rev > 0) {
+      var zV = Math.log(b.rev / a.rev) / Math.sqrt(phiD * 1.64 * (1 / ra.pur + 1 / b.pur));
       rev = { pct: b.rev / a.rev - 1, z: zV, dir: Math.abs(zV) >= Z_REAL && Math.abs(b.rev / a.rev - 1) >= MIN_PCT ? sign(zV) : 0 };
     }
     // العائد على الإنفاق (قيمة المبيعات ÷ الإنفاق) — الربح أولاً (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦): العنوان كان بيحكم
     // بعدد الطلبات وتكلفتها بس، فإنفاق اتضاعف ومبيعات نزلت ٢٠٪ طلع «طلبات أكثر» بلون أخضر. المبيعات = عدد الطلبات ×
     // قيمتها، فتذبذبها = تذبذب العدّ (phiD) × (١ + تفاوت قيمة الطلب²) — نفس افتراض متوسط قيمة الطلب فوق (معامل اختلاف ٠٫٨)
     var roas = null;
-    if (a.pur >= 5 && b.pur >= 5 && a.rev > 0 && b.rev > 0 && a.spend > 0 && b.spend > 0) {
-      var roA = a.rev / a.spend, roB = b.rev / b.spend, zR = Math.log(roB / roA) / Math.sqrt(phiD * 1.64 * (1 / a.pur + 1 / b.pur));
+    if (ra.pur >= 5 && b.pur >= 5 && a.rev > 0 && b.rev > 0 && a.spend > 0 && b.spend > 0) {
+      var roA = a.rev / a.spend, roB = b.rev / b.spend, zR = Math.log(roB / roA) / Math.sqrt(phiD * 1.64 * (1 / ra.pur + 1 / b.pur));
       roas = { from: roA, to: roB, pct: roB / roA - 1, z: zR, dir: Math.abs(zR) >= Z_REAL && Math.abs(roB / roA - 1) >= MIN_PCT ? sign(zR) : 0 };
     }
     // تقسيم تغيّر الطلبات بين «الإنفاق اتغيّر» و«تكلفة الطلب اتغيّرت»: ln(الطلبات) = ln(الإنفاق) − ln(تكلفة الطلب)
@@ -1015,23 +1018,26 @@ var DX = (function () {
     // فترة مقارنة مختارة بطول مختلف كتير (٧ أيام قصاد ٣٠): المجاميع مش بتتقارن — الملخص كان هيكتب «الإنفاق أقل» لمجرد إن
     // فترة المقارنة أطول. أرقامها بمتوسطها اليومي على أيام الفترة الحالية، والملخص بيقول كده. الشهر بالشهر (٣١ قصاد ٣٠) بيفضل
     // بمجاميعه الحقيقية زي ما صاحب المنتج طلب، واختبار الطلبات بيحسب كل فترة بطولها (headline)
-    var cmpScaled = null;
+    var cmpScaled = null, cmpK = 1;
     if (input.cmp && W[1].len && Math.abs(W[1].len - W[0].len) > 0.1 * W[0].len) {
-      var k = W[0].len / W[1].len, sc = bundle();
-      FIELDS.forEach(function (f2) { sc[f2] = W[1][f2] * k; });
-      sc.since = W[1].since; sc.until = W[1].until; sc.len = W[0].len;
+      var sc = bundle();
+      cmpK = W[0].len / W[1].len;
+      FIELDS.forEach(function (f2) { sc[f2] = W[1][f2] * cmpK; });
+      // real = مجموعها الحقيقي: الملخص بيعرضه جنب المتوسط، والاختبارات الإحصائية عليه (العدّ المحوَّل مش عدّ حقيقي — headline)
+      sc.since = W[1].since; sc.until = W[1].until; sc.len = W[0].len; sc.real = W[1];
       cmpScaled = { days: W[1].len, to: W[0].len };
       W[1] = sc;
     }
     var cur = W[0], prev = W[1];
-    var total = W.reduce(function (t, w) { return addTo(t, w); }, bundle());
+    var total = W.reduce(function (t, w) { return addTo(t, w.real || w); }, bundle());
     var tr = trackingOf(total);
     var report = {
       since: cur.since, until: cur.until, prevSince: prev.since, prevUntil: prev.until, len: cur.len, partial: input.partial || null, cmpScaled: cmpScaled,
       currency: input.currency || null, cur: cur, prev: prev, windows: W, tracked: tr
     };
     if (!tr.pur) { report.status = 'noPurchases'; return report; }
-    if (cur.pur + prev.pur < MIN_ORDERS) { report.status = 'insufficient'; report.orders = cur.pur + prev.pur; return report; }
+    var prevPur = (prev.real || prev).pur;
+    if (cur.pur + prevPur < MIN_ORDERS) { report.status = 'insufficient'; report.orders = cur.pur + prevPur; return report; }
     report.status = 'ok';
     var stages = stagesFor(tr);
     // تذبذب الحساب في التاريخ (من الأقدم للأحدث، من غير الفترة الحالية)
@@ -1042,10 +1048,16 @@ var DX = (function () {
     report.phiHist = phiH; report.phiDaily = phiD;
     report.head = headline(prev, cur, cur.len, phiD, phiH, W);
     var dims = prepareDims(input.dims);
+    // أرقام الأجزاء في فترة المقارنة بنفس تحويل إجماليها. من غيره مجموع الحملات مبيطابقش الإجمالي، فكل التقسيمات بتسقط من المطابقة
+    // (coverDim) ويختفي من الملخص أكبر المساهمين والأجزاء اللي تحتاج قرار — حساب حقيقي ٧ نوفمبر: ١١ تقسيم من ١١ سقطوا
+    var scaleCmp = function (b) { if (b) FIELDS.forEach(function (f2) { b[f2] *= cmpK; }); };
+    if (cmpScaled) dims.forEach(function (d) { d.coverSegs.forEach(function (s) { scaleCmp(s.w[1]); }); });
     // حملات الأهداف التانية (وعي، تفاعل، رسائل...): أرقامها في كل فترة، و Wj = إجمالي الحساب من غيرها.
     // العنوان والأرقام الإجمالية و«لماذا» على الحساب كله (زي ما صاحب المتجر شايفه في المنصة)،
     // لكن الحكم على الأجزاء («يحتاج قرارك» والفرص والتغيّرات الحادة) على حملات الطلبات بس
-    var oth = input.other && Array.isArray(input.other.w) ? { w: input.other.w.map(bundle), goals: input.other.goals || {} } : otherOf(dims);
+    var givenOther = input.other && Array.isArray(input.other.w);
+    var oth = givenOther ? { w: input.other.w.map(bundle), goals: input.other.goals || {} } : otherOf(dims);
+    if (cmpScaled && givenOther) scaleCmp(oth.w[1]);   // otherOf طالعة من الأجزاء اللي اتحولت فوق
     var Wj = W.map(function (w, i) {
       var o = oth && oth.w[i];
       if (!o || !(o.spend > 0)) return w;
@@ -1523,11 +1535,12 @@ var DX = (function () {
     // (alerts.js — «متوسط إعلانات المبيعات في حسابك») على إعلانات المبيعات بس — اسم واضح لكل رقم بدل رقمين مختلفين بنفس الاسم
     // (مراجعة المرحلة ٤، ١٧ أكتوبر ٢٠٢٦: الملخص ×٢ أقل من المستهدف، وكل إعلان «متوسط إعلانات حسابك ×٣»)
     var whole = function (key) { var l = t(key); return r.other && r.other.spend > 0 ? t('dx.kpi.whole', { label: l }) : l; };
+    var avg = !!r.cmpScaled;   // المجاميع بس: النسب (العائد والتكلفة ومتوسط القيمة) هي هي
     // الترتيب بلغة الفلوس (قرار ٧ أكتوبر ٢٠٢٦): صرفت كام ← جالك كام طلب ← بمبيعات كام ← متوسط قيمة الطلب ← العائد ← تكلفة الطلب
     return [
-      { id: 'spend', label: t('dx.kpi.spend'), value: M(b.spend), prev: M(a.spend), pct: ch(a.spend, b.spend), sig: 0, goodUp: null },
-      { id: 'orders', label: t('dx.kpi.orders'), value: fmtNum(b.pur), prev: fmtNum(a.pur), pct: ordPct, sig: h.dOrd || 0, soft: h.dOrd ? 0 : lik(h.ordersZ, ordPct), goodUp: true },
-      { id: 'revenue', label: t('dx.kpi.revenue'), value: money(b.rev, r.currency), prev: money(a.rev, r.currency), pct: ch(a.rev, b.rev),
+      { id: 'spend', label: t('dx.kpi.spend'), value: M(b.spend), prev: M(a.spend), avg: avg, pct: ch(a.spend, b.spend), sig: 0, goodUp: null },
+      { id: 'orders', label: t('dx.kpi.orders'), value: fmtNum(b.pur), prev: fmtNum(a.pur), avg: avg, pct: ordPct, sig: h.dOrd || 0, soft: h.dOrd ? 0 : lik(h.ordersZ, ordPct), goodUp: true },
+      { id: 'revenue', label: t('dx.kpi.revenue'), value: money(b.rev, r.currency), prev: money(a.rev, r.currency), avg: avg, pct: ch(a.rev, b.rev),
         // لونه من اختبار المبيعات نفسها (headline rev — ر٧١)، و«مرجّح» لو احتمال الصدفة أقل من ٥٪ زي الباقي
         sig: (h.rev && h.rev.dir) || 0, soft: h.rev && !h.rev.dir ? lik(h.rev.z, ch(a.rev, b.rev)) : 0, goodUp: true },
       // متوسط قيمة الطلب = المبيعات ÷ الطلبات (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) — لونه من اختبار متوسط القيمة نفسه
@@ -1554,7 +1567,7 @@ var DX = (function () {
     if (tr.atc) { row(t('dx.m.cart'), pctOf(a.atc, a.clicks), pctOf(b.atc, b.clicks)); base = 'atc'; }
     if (tr.ic) { row(t('dx.m.checkout'), pctOf(a.ic, a[base]), pctOf(b.ic, b[base])); base = 'ic'; }
     row(t('dx.m.pay'), pctOf(a.pur, a[base]), pctOf(b.pur, b[base]));
-    return { head: [t('dx.m.metric'), t('dx.m.prev'), t('dx.m.cur')], rows: rows };
+    return { head: [t('dx.m.metric'), t(a.real ? 'dx.m.prevAvg' : 'dx.m.prev'), t('dx.m.cur')], rows: rows };
   }
 
   // «لماذا؟» — التفسير كله في بلوك واحد
@@ -2023,7 +2036,11 @@ var DX = (function () {
         : t('dx.compare', { cur: fmtRange(r.since, r.until), prev: fmtRange(r.prevSince, r.prevUntil) }) };
     // اليوم: الأرقام للساعات المكتملة بس، وتفاصيل الحملات والجمهور مبتتقسمش بالساعة عند المنصات
     if (r.partial) o.notes.push(t(r.partial.hour ? 'dx.partialNote' : 'dx.partialEarly'));
-    if (r.cmpScaled) o.notes.push(t('dx.cmpScaled', { days: fmtNum(r.cmpScaled.days) + ' ' + noun(r.cmpScaled.days, 'n.day'), to: fmtNum(r.cmpScaled.to) + ' ' + noun(r.cmpScaled.to, 'n.day') }));
+    // تحت الأرقام مش في آخر الصفحة: «السابقة» هنا غير رقم المنصة لنفس الأيام، فالسبب والمجموع الحقيقي لازم يبانوا معاها
+    if (r.cmpScaled) {
+      var dayN = function (n) { return fmtNum(n) + ' ' + noun(n, 'n.day'); }, real = r.prev.real;
+      o.kpiNote = t('dx.cmpScaled', { days: dayN(r.cmpScaled.days), to: dayN(r.cmpScaled.to), spend: M(real.spend), orders: ordersText(real.pur), rev: money(real.rev, r.currency) });
+    }
     if (r.status === 'noPurchases') {
       o.tone = 'neutral'; o.title = t('dx.head.noPurchases');
       o.blocks.push({ kind: 'note', title: t('dx.head.noPurchases'), lines: [t('dx.noPurchases')] });
@@ -2285,7 +2302,8 @@ var DX = (function () {
   function toText(o, accountName) {
     var L = ['📊 ' + t('dx.title') + (accountName ? ' — ' + accountName : ''), o.period, '', (TONE_ICON[o.tone] || '') + ' *' + o.title + '*'];
     if (o.basis) L.push(o.basis);
-    (o.kpis || []).forEach(function (k) { L.push('• ' + k.label + ': ' + k.value + ' (' + t('dx.kpi.prev', { v: k.prev }) + ')'); });
+    (o.kpis || []).forEach(function (k) { L.push('• ' + k.label + ': ' + k.value + ' (' + t(k.avg ? 'dx.kpi.prevAvg' : 'dx.kpi.prev', { v: k.prev }) + ')'); });
+    if (o.kpiNote && o.kpis && o.kpis.length) L.push('ℹ️ ' + o.kpiNote);
     if (o.platCmp) L.push('ℹ️ ' + o.platCmp);
     if (o.costCmp) L.push('ℹ️ ' + o.costCmp);
     (o.blocks || []).forEach(function (b) { L.push(''); L.push(blockText(b)); });

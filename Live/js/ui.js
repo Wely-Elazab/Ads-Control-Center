@@ -1201,7 +1201,7 @@
       '<span class="dx-kpi-pct' + tone + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + '>' + (k.pct > 0 ? '↑ ' : '↓ ') + dxPct(k.pct) + '</span>';
     return '<div class="dx-kpi"><div class="dx-kpi-label">' + esc(k.label) + '</div>' +
       '<div class="dx-kpi-value">' + esc(k.value) + ' ' + pct + '</div>' +
-      '<div class="dx-kpi-sub">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</div></div>';
+      '<div class="dx-kpi-sub">' + esc(t(k.avg ? 'dx.kpi.prevAvg' : 'dx.kpi.prev', { v: k.prev })) + '</div></div>';
   }
   // bare = جوه بند قابل للفتح (القائمة أو المطويات) — النوع والعنوان ظاهرين فوقه أصلاً
   function dxBlockHtml(b, i, bare) {
@@ -2002,7 +2002,8 @@
       (o.basis ? '<p class="dx-basis">' + esc(o.basis) + '</p>' : '') +
       (nums ? '<div class="dx-kpis">' + o.kpis.map(dxKpiHtml).join('') + '</div>' : '') +
       // شرح الألوان بيظهر بس لو فيه رقم ملوّن (على الهاتف مفيش تلميح بالماوس)
-      (nums && o.kpis.some(function (k) { return k.goodUp != null && (k.sig || k.soft); }) ? '<p class="dx-kpi-legend">' + esc(t('dx.kpi.legend')) + '</p>' : '') + '</div>';
+      (nums && o.kpis.some(function (k) { return k.goodUp != null && (k.sig || k.soft); }) ? '<p class="dx-kpi-legend">' + esc(t('dx.kpi.legend')) + '</p>' : '') +
+      (nums && o.kpiNote ? '<p class="dx-kpi-legend">' + esc(o.kpiNote) + '</p>' : '') + '</div>';
     renderVerdict(o);
     renderDxMore(o, renderTopAlerts(o));
   }
@@ -3118,9 +3119,9 @@
     // العدد مرفوعاً: «عمليتا شراء» و«تحويل واحد» (countPhrase بيرجّع المنصوب للواحد والاتنين)
     var nom = function (n) {
       var k = (I18N.lang === 'ar' && (n === 1 || n === 2)) ? 'resN' + n + '.' + key : null;
-      return k && t(k) !== k ? t(k) : I18N.countPhrase(n, key, ar);
+      return k && t(k) !== k ? t(k) : I18N.countPhrase(n, key, fmtNum);
     };
-    var gonePhrase = I18N.countPhrase(gone, key, ar);
+    var gonePhrase = I18N.countPhrase(gone, key, fmtNum);
     // «الأقرب» أكبر من رقم المنصة: Snapchat بس (المرحلة ٤، ١٧ أكتوبر ٢٠٢٦) — رقم المنصة بيوم ظهور الإعلان زي Ads Manager، و«الأقرب»
     // بيوم الطلب (api/snapchat-ads-fetch.js). Meta وGoogle الرقمين عندهم على نفس الأساس، و«الأقرب» مبيعداش رقم المنصة
     if ((p.results || 0) > (pp.results || 0)) {

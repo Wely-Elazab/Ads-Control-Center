@@ -6291,11 +6291,84 @@
       var r = DX.analyze({ since: '2026-10-27', until: '2026-11-02', cmp: { since: '2026-09-01', until: '2026-09-30' }, daily: days, dims: [] });
       eq([r.cmpScaled, Math.round(r.prev.spend), Math.round(r.prev.pur)], [{ days: 30, to: 7 }, 700, 42], 'scaled to 7 days');
       ok(r.head.type === 'stable' || r.head.type === 'withinNoise', 'no fake budget drop: ' + r.head.type);
-      withLang('ar', function () { ok(DX.compose(r).notes.indexOf(t('dx.cmpScaled', { days: '٣٠ يوماً', to: '٧ أيام' })) > -1, DX.compose(r).notes.join(' | ')); });
+      withLang('ar', function () { ok(/٣٠ يوماً/.test(DX.compose(r).kpiNote) && /٧ أيام/.test(DX.compose(r).kpiNote), DX.compose(r).kpiNote); });
       // الشهر الماضي ↔ الشهر اللي قبله: مجاميع حقيقية (٣١ قصاد ٣٠) من غير تحويل
       var m = DX.analyze({ since: '2026-10-01', until: '2026-10-31', unit: 'month', daily: days, dims: [] });
       eq([m.cmpScaled, m.prev.spend, m.cur.spend], [null, 3000, 3100]);
       ok(m.head.type === 'stable' || m.head.type === 'withinNoise', 'one more day is not a change in orders: ' + m.head.type);
+    });
+    test('فترة مقارنة بطول مختلف: الأجزاء بنفس التحويل، والاختبارات على العدّ الحقيقي، والسبب تحت الأرقام', function () {
+      var days = [];
+      for (var k = '2026-08-01'; k <= '2026-11-02'; k = shiftKey(k, 1)) {
+        var big = k >= '2026-09-01' && k <= '2026-09-10';
+        days.push({ date: k, spend: big ? 200 : 100, imp: 5000, clicks: 100, atc: 40, ic: 20, pur: big ? 12 : 6, rev: big ? 1200 : 600 });
+      }
+      var b = function (spend, pur) { return { spend: spend, imp: spend * 50, clicks: spend, atc: pur * 3, ic: pur * 2, pur: pur, rev: pur * 100 }; };
+      var base = { since: '2026-10-20', until: '2026-11-02', cmp: { since: '2026-09-01', until: '2026-09-10' }, daily: days };
+      var r = DX.analyze(Object.assign({}, base, { dims: [{ id: 'campaign', segs: [
+        { key: 'A', name: 'A', goal: 'sales', w: [b(1000, 60), b(1700, 102), b(700, 42)] },
+        { key: 'B', name: 'B', goal: 'sales', w: [b(400, 24), b(300, 18), b(300, 18)] }] }] }));
+      eq(r.cmpScaled, { days: 10, to: 14 });
+      ok(r.dims[0].cover.spend && r.dims[0].cover.pur, 'the campaigns still add up to the total');
+      eq([r.movers.dim, r.movers.list.map(function (x) { return x.key; }), Math.round(r.movers.list[0].v)], ['campaign', ['A'], -8280]);
+      // الأهداف التانية بتتحول مرة واحدة، جاية من التقسيمات أو من دمج المنصات
+      var viaDims = DX.analyze(Object.assign({}, base, { dims: [{ id: 'campaign', segs: [
+        { key: 'A', name: 'A', goal: 'sales', w: [b(1400, 84), b(1400, 120), b(1000, 60)] },
+        { key: 'R', name: 'R', goal: 'reach', w: [b(0, 0), b(600, 0), b(0, 0)] }] }] }));
+      var merged = DX.analyze(Object.assign({}, base, { dims: [], other: { w: [b(0, 0), b(600, 0), b(0, 0)], goals: { reach: 600 } } }));
+      eq([Math.round(viaDims.other.spendShift.share * 100), Math.round(merged.other.spendShift.share * 100)], [60, 60]);
+      // الاختبار على ١٢٠ طلب في ١٠ أيام، مش ١٦٨ في ١٤
+      ok(Math.abs(r.head.ordersZ - DX._.rateTest(120, 10, 84, 14, r.phiDaily).z) < 1e-9, 'z on the real count: ' + r.head.ordersZ);
+      // حد الطلبات على العدّ الحقيقي: ٤ طلبات في ٥ أيام مش ١٢
+      var fewDays = [];
+      for (var d = '2026-08-01'; d <= '2026-11-02'; d = shiftKey(d, 1)) {
+        fewDays.push({ date: d, spend: 10, imp: 100, clicks: 5, atc: 0, ic: 0, pur: (d >= '2026-09-01' && d <= '2026-09-04') || (d >= '2026-10-19' && d <= '2026-10-21') ? 1 : 0, rev: 0 });
+      }
+      var few = DX.analyze({ since: '2026-10-19', until: '2026-11-02', cmp: { since: '2026-09-01', until: '2026-09-05' }, daily: fewDays, dims: [] });
+      eq([few.status, few.orders], ['insufficient', 7]);
+      // وهل الحساب بيسجّل مشتريات أصلاً: طلبين في ٥ أيام مش ٦
+      var none = fewDays.map(function (x) { var y = Object.assign({}, x); y.pur = x.date === '2026-09-01' || x.date === '2026-09-02' || x.date === '2026-10-19' || x.date === '2026-10-20' ? 1 : 0; return y; });
+      eq(DX.analyze({ since: '2026-10-19', until: '2026-11-02', cmp: { since: '2026-09-01', until: '2026-09-05' }, daily: none, dims: [] }).status, 'noPurchases');
+      // كل اختبارات العنوان على العدّ الحقيقي: ١٤٠ طلب في ١٠ أيام، مش ١٩٦ في ١٤. النسب نفسها زي ما هي
+      var near = function (x, y) { return Math.abs(x - y) < 1e-9; };
+      var zd = days.map(function (x) { var y = Object.assign({}, x); if (y.spend === 200) { y.pur = 14; y.rev = 1500; } return y; });
+      var zr = DX.analyze(Object.assign({}, base, { daily: zd, dims: [] })), hh = zr.head, ph = zr.phiDaily;
+      var sd = Math.sqrt(ph * 1.64 * (1 / 140 + 1 / 84));
+      ok(near(hh.effZ, DX._.rateTest(140, 2000, 84, 1400, ph).z), 'cost per order: ' + hh.effZ);
+      ok(near(hh.histZ, DX._.rateTest(140, 2000, 84, 1400, zr.head.phiHist).z), 'against its own history: ' + hh.histZ);
+      ok(near(hh.rev.z, Math.log(8400 / 21000) / sd), 'sales: ' + hh.rev.z);
+      ok(near(hh.roas.z, Math.log(6 / 7.5) / sd), 'return: ' + hh.roas.z);
+      ok(near(hh.aov.z, Math.log(100 / (15000 / 140)) / Math.sqrt(DX._.T.PHI_SAMPLING * 0.64 * (1 / 140 + 1 / 84))), 'order value: ' + hh.aov.z);
+      // وخط الأساس (آخر ٤ فترات): ٢١٦ طلب في ١٢ يوم، مش ٤١٤ في ٢٣ — العدّ المنفوخ كان بيأكّد تغيّر مش مؤكد
+      var bd = [];
+      for (var q = '2026-08-01'; q <= '2026-11-02'; q = shiftKey(q, 1)) bd.push({ date: q, spend: 100, imp: 5000, clicks: 100, atc: 40, ic: 20, pur: q >= '2026-10-20' ? 13.5 : 18, rev: 600 });
+      var br = DX.analyze({ since: '2026-10-20', until: '2026-11-02', cmp: { since: '2026-09-01', until: '2026-09-03' }, daily: bd, dims: [] });
+      ok(near(br.head.ordersZ, DX._.rateTest(54, 3, 189, 14, br.phiDaily).z), 'no confirmation from inflated counts: ' + br.head.ordersZ);
+      withLang('ar', function () {
+        var o = DX.compose(r), sp = o.kpis[0];
+        eq(o.kpis.filter(function (x) { return x.avg; }).map(function (x) { return x.id; }), ['spend', 'orders', 'revenue']);
+        ok(dxKpiHtml(sp).indexOf(t('dx.kpi.prevAvg', { v: sp.prev })) > -1, 'the tile says it is the average');
+        ok(o.notes.indexOf(o.kpiNote) < 0 && o.kpiNote.indexOf('٢٬٠٠٠') > -1 && o.kpiNote.indexOf(fmtNum(120)) > -1, o.kpiNote);
+        ok(DX.toText(o).indexOf(o.kpiNote) > -1 && DX.toText(o).indexOf(t('dx.kpi.prevAvg', { v: sp.prev })) > -1, 'in the copied text too');
+        var ev = o.blocks.filter(function (x) { return x.evidence; })[0];
+        eq(ev && ev.evidence.head[1], t('dx.m.prevAvg'), 'the details table too');
+        // المقارنة العادية زي ما هي
+        var plain = DX.compose(DX.analyze({ since: base.since, until: base.until, daily: days, dims: [] }));
+        ok(plain.kpis.length && !plain.kpis.some(function (x) { return x.avg; }) && !plain.kpiNote, 'same length: nothing changes');
+        ok(compareNote({ resultKey: 'click', currency: null }, { results: 7812, sales: 0 }, { results: 7812, sales: 0 }).indexOf('٧٬٨١٢') > -1, 'thousands separator');
+        ok(compareNote({ resultKey: 'click', currency: null }, { results: 3000, sales: 0 }, { results: 7812, sales: 0 }).indexOf('٤٬٨١٢') > -1, 'the removed part too');
+      });
+      // السبب ظاهر تحت الأرقام نفسها، مش مع ملاحظات آخر الصفحة
+      try {
+        DX_ON = true; activeSources.meta = 'act_1';
+        dxState = { status: 'ready', key: 'k', report: r, account: 'Store', accountId: 'meta:act_1' };
+        withLang('ar', function () { renderDiagnosis(); });
+        var note = dxState.composed.kpiNote, head = document.querySelector('#storeSec .dx-head');
+        ok(note && head && head.textContent.indexOf(note) > -1, 'under the numbers');
+        ok(document.querySelector('#dxMore').textContent.indexOf(note) < 0, 'not repeated at the bottom');
+      } finally {
+        DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
+      }
     });
     testAsync('Meta — اليوم لحد الساعة: صفوف الساعات قبل الحد بس، مجموعة لكل يوم، ومن غير رقم المنصة بالنوافذ', function () {
       var prev = window.fbPagesPromise, seen = null;
