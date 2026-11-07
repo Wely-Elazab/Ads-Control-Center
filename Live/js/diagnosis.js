@@ -1021,13 +1021,14 @@ var DX = (function () {
   // مش صفر)، ومشاكل تقسيماتها اللي مش في الدمج (المواضع، الأعمار، الأجهزة، الشبكات). بيتضافوا للتقرير المدموج
   // بعلامة المنصة — والأيام اللي الدمج نفسه اكتشفها مش بتتكرر
   function attachPlatforms(rep, list) {
-    if (!rep || rep.status !== 'ok') return rep;
+    // «اليوم» لوحده (open) مفيش فيه غير عطل الإنفاق من غير طلبات — ده بالظبط اللي بيضيع لو منصة تانية بتبيع عادي
+    if (!rep || (rep.status !== 'ok' && rep.status !== 'open')) return rep;
     var covered = function (z) { return rep.zeroRuns.some(function (c) { return !c.platform && z.start <= c.end && z.end >= c.start; }); };
     list.forEach(function (p) {
       var r = p.report;
-      if (!r || r.status !== 'ok') return;
+      if (!r || (r.status !== 'ok' && r.status !== 'open')) return;
       r.zeroRuns.forEach(function (z) { if (!covered(z)) rep.zeroRuns.push(Object.assign({ platform: p.platform }, z)); });
-      r.segments.filter(function (g) { return g.dim !== 'campaign' && g.dim !== 'country'; })
+      if (rep.status === 'ok' && r.status === 'ok') r.segments.filter(function (g) { return g.dim !== 'campaign' && g.dim !== 'country'; })
         .forEach(function (g) { rep.segments.push(Object.assign({ platform: p.platform }, g)); });
     });
     return rep;

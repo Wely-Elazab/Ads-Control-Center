@@ -780,6 +780,8 @@ function summaryParts(sec: SumSection): string[] {
       o.kpis.map((k: any) => '<tr><td style="' + td + '">' + esc(k.label) + '</td><td style="' + td + ';padding-inline:8px;font-weight:700">' + esc(k.value) +
         '</td><td style="' + td + ';' + MUTED + '">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</td></tr>').join('') + '</table></div>');
   }
+  // الشهر بالشهر: عدد أيام الفترتين مختلف، والجملة دي بتقول إزاي الأرقام تتقري (النص المنسوخ فيه نفس السطر — DX.toText)
+  if (o.kpiNote) parts.push('<div>' + P(esc(o.kpiNote), MUTED) + '</div>');
   if (o.platCmp) parts.push('<div>' + P(esc(o.platCmp), MUTED) + '</div>');
   if (o.costCmp) parts.push('<div>' + P(esc(o.costCmp), MUTED) + '</div>');
   // بطاقة «مستقر» عنوانها هو نفس العنوان الرئيسي فوق — منكررهوش

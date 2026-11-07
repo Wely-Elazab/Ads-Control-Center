@@ -2134,7 +2134,9 @@
         var r = (c.dailyResults || [])[n] || 0, k = c.resultKey || 'generic';
         if (r > 0) res[k] = (res[k] || 0) + r;
       });
-      out.push({ today: true, text: t('dx.today', { parts: DX.listText([t('dx.todaySpend', { v: moneyByCur(spend) })].concat(resultTexts(res))) }) });
+      // فترة مقارنة فيها النهارده: «لا يدخل في المقارنة» كانت هتبقى غلط (فحص حي ٧ نوفمبر)
+      var inCmp = dxState.report && dxState.report.lens && dxState.report.lens.prevOpen;
+      out.push({ today: true, text: t(inCmp ? 'dx.todayCmp' : 'dx.today', { parts: DX.listText([t('dx.todaySpend', { v: moneyByCur(spend) })].concat(resultTexts(res))) }) });
     }
     var pc = platCompare(platforms);
     if (pc) out.push(pc);

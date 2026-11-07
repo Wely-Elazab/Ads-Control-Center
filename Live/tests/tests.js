@@ -6403,6 +6403,26 @@
       var mail = DX.analyze({ since: '2026-11-02', until: '2026-11-02', daily: days, dims: [] });
       eq([mail.status, mail.lens.open, mail.lens.uneven], ['ok', false, false]);
     });
+    test('«اليوم» في كل المنصات: عطل منصة واحدة بيظهر حتى لو المنصة التانية بتبيع عادي', function () {
+      var D = '2026-11-03', mk = function (todayPur) {
+        var d = [];
+        for (var i = 20; i >= 1; i--) d.push({ date: shiftKey(D, -i), spend: 100, imp: 5000, clicks: 100, atc: 20, ic: 10, pur: 6, rev: 600 });
+        d.push({ date: D, spend: 300, imp: 15000, clicks: 300, atc: 60, ic: 30, pur: todayPur, rev: todayPur * 100 });
+        return { since: D, until: D, today: D, currency: 'USD', timezone: 'Asia/Riyadh', daily: d, dims: [] };
+      };
+      var a = mk(18), b = mk(0);
+      var list = [{ platform: 'meta', input: a }, { platform: 'snapchat', input: b }];
+      var reps = [{ platform: 'meta', report: DX.analyze(a) }, { platform: 'snapchat', report: DX.analyze(b) }];
+      var merged = DX.analyze(DX.combine(list));
+      eq([merged.status, merged.zeroRuns.length, reps[1].report.zeroRuns.length], ['open', 0, 1], 'hidden by the other platform');
+      var r = DX.attachPlatforms(merged, reps);
+      eq(r.zeroRuns.map(function (z) { return z.platform; }), ['snapchat']);
+      withLang('ar', function () {
+        var o = DX.compose(r);
+        eq([o.blocks.length, o.blocks[0].kind], [1, 'urgent']);
+        ok(o.blocks[0].title.indexOf('Snapchat') > -1, o.blocks[0].title);
+      });
+    });
     test('«اليوم» في الواجهة: الأرقام وسطرها، ومن غير صندوق حكم — وسطر «اليوم حتى الآن» بس لو الفترة مش فيها النهارده', function () {
       var D = todayKeyInTz(BROWSER_TZ), days = [], keep = period;
       for (var i = 40; i >= 1; i--) days.push({ date: shiftKey(D, -i), spend: 100, imp: 5000, clicks: 100, atc: 20, ic: 10, pur: 6, rev: 600 });
@@ -6430,6 +6450,7 @@
           dxState.report = DX.analyze({ since: lp.since, until: lp.until, cmp: { since: shiftKey(D, -3), until: D }, today: D, currency: 'USD', daily: days, dims: [] });
           renderDiagnosis();
           ok(document.getElementById('dxPeriod').textContent.indexOf(t('dx.fullDays')) < 0, 'the comparison includes today');
+          ok(document.getElementById('dxToday').textContent.indexOf('ضمن فترة المقارنة') > -1 && document.getElementById('dxToday').textContent.indexOf('لا يدخل في المقارنة') < 0, 'today is inside the comparison: ' + document.getElementById('dxToday').textContent);
           eq(resultTexts({ message: 1 }), ['محادثة واحدة'], 'not «١ محادثة»');
           eq(resultTexts({ message: 12 }), ['١٢ محادثة']);
           // فترة مش فيها النهارده: سطره لوحده زي الأول، و«هذا الشهر» فيه النهارده فمبيظهرش
@@ -6497,7 +6518,7 @@
         eq(Math.round(o.kpis[1].pct * 100), -77, 'the change on the real figures, like the platforms');
         eq(o.kpis.map(function (k) { return k.goodUp; }), [null, null, null, true, true, false], 'a shorter period is not a red number');
         ok(!o.kpis.some(function (k) { return 'avg' in k; }), 'no average label');
-        ok(o.kpiNote.indexOf('٧ أيام') > -1 && o.kpiNote.indexOf('٣٠ يوماً') > -1 && o.kpiNote.indexOf('كما سجّلته المنصة') > -1, o.kpiNote);
+        ok(o.kpiNote.indexOf('٧ أيام') > -1 && o.kpiNote.indexOf('٣٠ يوماً') > -1 && o.kpiNote.indexOf('المجموع الفعلي') > -1, o.kpiNote);
         var v = o.blocks[o.main];
         ok(v.lines[0].indexOf('(الفترة ٧ أيام مقابل ٣٠ يوماً)') > -1 && v.lines[0].indexOf('الإنفاق قلّ من ٣٬٠٠٠ $ إلى ٧٠٠ $') > -1, v.lines[0]);
         ok(!v.check, 'no «was a budget cut?» when the days explain it');
