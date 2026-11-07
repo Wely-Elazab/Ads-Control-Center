@@ -325,35 +325,58 @@
       return res.err ? fbPagesPromise('/' + accountId + '/insights', params, FULL_SCAN_CAP) : res;
     });
   }
-  // أيام الفترة المختارة لكل إعلان (تقييم الإعلان على الفترة — ٣ نوفمبر ٢٠٢٦). طلب اليوم بيوم بياخد نحو ١٫٥ ثانية لكل يوم مهما كان عدد
-  // الصفوف، وMeta بترجّع HTTP 400 بعد ٣٠ ثانية (حساب حقيقي ٧ نوفمبر: ٧ أيام ١١ ث، ١٤ يوم ١٨ ث، ٣٠ يوم فشل ٦ مرات = ٣ دقايق والكروت
-  // مستنية). فدفعات ٧ أيام، ٤ مع بعض (٤ دفعات خدوا ١٢ ث — التوازي مبيبطّأش). أيام نافذة الأسبوع مبتتطلبش: طلب الأسبوع جابها أصلاً
+  // الحملات اللي ليها أرقام في المدى ده، وتصفية طلبات مستوى الإعلان بيها (٧ نوفمبر ٢٠٢٦ — أكبر سبب في بطء التحميل). طلب مستوى الإعلان
+  // غير المصفّى بيمسح كل حملات الحساب حتى اللي مالهاش أرقام: حساب حقيقي ٩٤ صف كانوا ١١٫٦ ثانية، وبتصفية الـ٨ حملات اللي اشتغلت فعلاً
+  // من ٣٧ بقوا ٢٫٢ ثانية بنفس الصفوف والأرقام (اتقارنوا صف بصف على حسابين و٨ نوافذ؛ الفرق صفوف فاضية بس). والقائمة نفسها ١٫٦ ثانية حتى
+  // لـ٩٣ يوم. actions في طلبها عشان حملة نتايجها جت متأخرة من غير إنفاق في المدى متتشالش. فشلها أو حملات كتير = زي الأول من غير تصفية.
+  // الحالات لازم تتكتب: أي طلب فيه filtering بيرجّع الإعلانات غير المؤرشفة بس من غير ما يقول (Meta، Insights: Deleted and Archived
+  // Objects) — فحص حقيقي: إعلان مؤرشف صرف ٦٦٫٧٥ جوه حملة نشطة كان بيختفي من النتيجة، وبالحالات رجع بنفس السرعة
+  var SCOPE_MAX_CAMPAIGNS = 100;
+  var AD_ALL_STATUSES = ['ACTIVE', 'PAUSED', 'DELETED', 'PENDING_REVIEW', 'DISAPPROVED', 'PREAPPROVED', 'PENDING_BILLING_INFO', 'CAMPAIGN_PAUSED', 'ARCHIVED', 'ADSET_PAUSED', 'IN_PROCESS', 'WITH_ISSUES'];
+  function metaCampaignIds(accountId, since, until) {
+    return fbPagesPromise('/' + accountId + '/insights', { level: 'campaign', time_range: JSON.stringify({ since: since, until: until }), fields: 'campaign_id,spend,actions', limit: 500 }, FULL_SCAN_CAP)
+      .then(function (res) {
+        var ids = res.err || res.truncated ? [] : res.data.map(function (r) { return r.campaign_id; }).filter(Boolean);
+        return ids.length && ids.length <= SCOPE_MAX_CAMPAIGNS ? ids : null;
+      }, function () { return null; });
+  }
+  function scopeToCampaigns(params, ids) {
+    if (!ids) return params;
+    var out = {};
+    for (var k in params) out[k] = params[k];
+    out.filtering = JSON.stringify([{ field: 'campaign.id', operator: 'IN', value: ids }, { field: 'ad.effective_status', operator: 'IN', value: AD_ALL_STATUSES }]);
+    return out;
+  }
+  // أيام الفترة المختارة لكل إعلان (تقييم الإعلان على الفترة — ٣ نوفمبر ٢٠٢٦). Meta بترجّع HTTP 400 لطلب اليوم بيوم الكبير (حساب حقيقي ٧ نوفمبر:
+  // ٣٠ يوم من غير تصفية فشل ٦ مرات × ٣٠ ثانية، و٩٣ يوم فشل حتى مع التصفية بعد دقيقة). فدفعات ٧ أيام، ٤ مع بعض (التوازي مبيبطّأش: ٤ دفعات
+  // في زمن دفعة واحدة). أيام نافذة الأسبوع مبتتطلبش: طلب الأسبوع جابها أصلاً
   var PERIOD_CHUNK_DAYS = 7, PERIOD_CHUNK_PARALLEL = 4;
-  function metaPeriodChunks(accountId, pr, days) {
+  function metaPeriodChunks(accountId, pr, days, campsP) {
     var first = days[0].key, until = pr.until < first ? pr.until : shiftKey(first, -1), parts = [], rows = [];
     for (var s = pr.since; s <= until; s = shiftKey(s, PERIOD_CHUNK_DAYS)) {
       var e = shiftKey(s, PERIOD_CHUNK_DAYS - 1);
       parts.push({ since: s, until: e < until ? e : until });
     }
-    var one = function (w, again) {
+    var one = function (w, ids, again) {
       return new Promise(function (resolve) {
-        fetchAllPages('/' + accountId + '/insights', { level: 'ad', time_increment: 1, time_range: JSON.stringify(w), action_attribution_windows: ATTR_WINDOWS,
-          fields: 'ad_id,date_start,spend,actions,action_values,results', limit: 500 }, FULL_SCAN_CAP, function (err, data, truncated) { resolve({ err: err, data: data || [], truncated: truncated }); });
+        fetchAllPages('/' + accountId + '/insights', scopeToCampaigns({ level: 'ad', time_increment: 1, time_range: JSON.stringify(w), action_attribution_windows: ATTR_WINDOWS,
+          fields: 'ad_id,date_start,spend,actions,action_values,results', limit: 500 }, ids), FULL_SCAN_CAP, function (err, data, truncated) { resolve({ err: err, data: data || [], truncated: truncated }); });
       }).then(function (res) {
         if (!res.err || again || isMetaAuthError(res.err)) return res;
-        return new Promise(function (r) { setTimeout(r, 1500); }).then(function () { return one(w, true); });
+        // المحاولة التانية من غير تصفية: لو Meta رفضت الفلتر نفسه الأرقام متضيعش بسببه
+        return new Promise(function (r) { setTimeout(r, 1500); }).then(function () { return one(w, null, true); });
       });
     };
-    var round = function (i) {
+    var round = function (i, ids) {
       if (i >= parts.length) return Promise.resolve({ data: rows });
-      return Promise.all(parts.slice(i, i + PERIOD_CHUNK_PARALLEL).map(function (w) { return one(w); })).then(function (list) {
+      return Promise.all(parts.slice(i, i + PERIOD_CHUNK_PARALLEL).map(function (w) { return one(w, ids); })).then(function (list) {
         var bad = list.filter(function (x) { return x.err || x.truncated; })[0];
         if (bad) return { err: bad.err || { message: 'truncated' } };
         list.forEach(function (x) { rows = rows.concat(x.data); });
-        return round(i + PERIOD_CHUNK_PARALLEL);
+        return round(i + PERIOD_CHUNK_PARALLEL, ids);
       });
     };
-    return round(0);
+    return campsP.then(function (ids) { return round(0, ids); });
   }
   // طلبات مجمّعة (Batch): لحد ٥٠ عنصر برقمه في طلب واحد. Meta لغت ?ids= من v26.0
   // («The ids query parameter is deprecated») — فالطريقة القديمة كانت بتفشل في صمت.
@@ -424,7 +447,17 @@
       return adsPromise(accountId, {}, PAGE_SAFETY_CAP).then(function (all) { all.all = true; return all; });
     });
     var adsetsP = new Promise(function (resolve) { loadAdsetStatusMap(accountId, resolve); });
-    var dailyP = insightsPromise(accountId, {
+    var pr = resolvePeriodFor(info.timeZone || BROWSER_TZ);
+    // حملات الأسبوع والفترة في طلب واحد خفيف، وكل طلبات مستوى الإعلان متصفّية بيها (metaCampaignIds)
+    var campsP = metaCampaignIds(accountId, pr.since < days[0].key ? pr.since : days[0].key, days[days.length - 1].key);
+    var scopedInsights = function (params) {
+      return campsP.then(function (ids) {
+        return insightsPromise(accountId, scopeToCampaigns(params, ids)).then(function (res) {
+          return res.err && ids && !isMetaAuthError(res.err) ? insightsPromise(accountId, params) : res;   // Meta رفضت الفلتر = زي الأول
+        });
+      });
+    };
+    var dailyP = scopedInsights({
       level: 'ad', time_increment: 1, time_range: timeRange,
       fields: 'ad_id,date_start,spend,actions,action_values', limit: 500
     });
@@ -437,13 +470,12 @@
     // أرقام الفترة المختارة: المجموع (صف لكل إعلان، ثانية أو اتنين) هو اللي الكروت بتستناه. أيام الفترة للحكم عليها (metaPeriodChunks)
     // بتتحمّل بالتوازي من غير ما توقف حاجة، وأول ما توصل الكروت بتتحدّث (useDays تحت). فشلها = الأرقام للفترة والتقييم على آخر ٧ أيام
     // والحالة بتقول كده (note.periodDaily). و«آخر ٧ أيام» حكمها على النافذة اليومية أصلاً، فمالهاش طلب أيام
-    var pr = resolvePeriodFor(info.timeZone || BROWSER_TZ);
-    var periodP = pr.isDefault ? Promise.resolve(null) : insightsPromise(accountId, {
+    var periodP = pr.isDefault ? Promise.resolve(null) : scopedInsights({
       level: 'ad', time_range: JSON.stringify({ since: pr.since, until: pr.until }),
       fields: 'ad_id,spend,actions,action_values', limit: 500
     });
-    var daysP = pr.preset === 'last7' ? null : metaPeriodChunks(accountId, pr, days);
-    var daysPending = !!daysP, daysPart = null, onDays = null;
+    var daysP = pr.preset === 'last7' ? null : metaPeriodChunks(accountId, pr, days, campsP);
+    var daysPending = !!daysP, daysPart = null, onDays = null, fillPending = false;
     if (daysP) daysP.then(function (part) { daysPart = part; if (onDays) onDays(); });
 
     var order = [], adsById = {}, adsTruncated = false, adFields = null;
@@ -565,7 +597,7 @@
       if (stoppedFailed) notes.push(msg('note.stoppedFailed'));
       setPlatformState('meta', null);
       var text = connectedText(notes);
-      var waiting = !done ? 's.metaStoppedLoading' : (daysPending ? 's.metaDaysLoading' : null);
+      var waiting = !done ? 's.metaStoppedLoading' : (daysPending || fillPending ? 's.metaDaysLoading' : null);
       if (waiting) setLoading('meta', true, function () { return text() + ' ' + t(waiting); }, { bg: true });
       else setLoading('meta', false, text);
       render();
@@ -573,8 +605,6 @@
 
     // المرحلة التانية: أرقام الإنفاق والنتائج والتكرار (من غير ما تستنى الإعلانات المتوقفة)
     Promise.all([stage1, dailyP, reachP, periodP]).then(function (r) {
-      return fillMissing(r[1], r[3]).then(function () { return r; });
-    }).then(function (r) {
       var adsetStatusMap = r[0], daily = r[1], reach = r[2], periodRes = r[3];
       if (!live() || !adsetStatusMap) return null;
       maps = {
@@ -609,7 +639,10 @@
         }).then(function () { stoppedBusy = false; if (live()) publish(true); });
       };
       stoppedLoaders.meta = needStopped() ? stage3 : null;
+      // الإعلانات اللي صرفت ومش في الدفعة (متوقفة أو محذوفة) بتتكمّل بعد ما الأرقام تظهر: الكروت كانت بتستناها ٣–٤ ثواني زيادة في كل تحميل
+      fillPending = true;
       publish(true);
+      fillMissing(daily, periodRes).then(function () { fillPending = false; if (live()) publish(!stoppedBusy); });
       // سجل عملاء التجربة (js/ui.js → Supabase): الحساب ده فتح الأداة — مرة في الجلسة، ولو فشل مفيش أي أثر
       if (typeof syncSeen === 'function') syncSeen(accountId);
       // لو الملخص التلقائي مفعّل للحساب ده: تجديد المفتاح المحفوظ على السيرفر (مرة في الجلسة)
@@ -1244,6 +1277,9 @@
     if (o.partial) return metaPartialInput(accountId, since, until, o.partial);
     var ws = DX.windows(since, until, { unit: o.unit, cmp: o.cmp });
     var range = function (w) { return JSON.stringify({ since: w.since, until: w.until }); };
+    // مستوى الإعلان متصفّي بحملات المدى زي الكروت (metaCampaignIds): كان ١٠ ثواني لكل نافذة والملخص مستنيه (٣ بعد التصفية). مستوى
+    // المجموعة مكسبه بسيط (١٫٨ لـ١٫٤) فبيفضل زي ما هو
+    var campsP = metaCampaignIds(accountId, ws[ws.length - 1].since, until);
     var dailyP = fbPagesPromise('/' + accountId + '/insights', {
       time_range: JSON.stringify({ since: ws[ws.length - 1].since, until: until }), time_increment: 1,
       fields: 'date_start,' + DX_FIELDS, limit: 500
@@ -1256,7 +1292,11 @@
       var job = jobs[next++], params = { time_range: range(ws[job.i]), fields: DX_FIELDS + (job.d.p.level ? ',' + job.d.key + ',' + job.d.name : '') + (job.d.goal ? ',objective,optimization_goal' : ''), limit: 500 };
       for (var k in job.d.p) params[k] = job.d.p[k];
       if (!job.d.goal) params.filtering = DX_JUDGED_FILTER;
-      return fbPagesPromise('/' + accountId + '/insights', params, FULL_SCAN_CAP).then(function (res) { results[job.d.id + ':' + job.i] = res; }).then(worker);
+      return (job.d.id === 'ad' ? campsP : Promise.resolve(null)).then(function (ids) {
+        return fbPagesPromise('/' + accountId + '/insights', scopeToCampaigns(params, ids), FULL_SCAN_CAP).then(function (res) {
+          return res.err && ids ? fbPagesPromise('/' + accountId + '/insights', params, FULL_SCAN_CAP) : res;
+        });
+      }).then(function (res) { results[job.d.id + ':' + job.i] = res; }).then(worker);
     };
     var pool = [];
     for (var n = 0; n < 6; n++) pool.push(worker());

@@ -6764,7 +6764,15 @@
       eq(inp.dims.filter(function (d) { return d.id === 'campaign'; })[0].segs.map(function (s) { return s.goal; }), ['awareness', 'messages', 'traffic', 'sales']);
       eq(inp.dims.filter(function (d) { return d.id === 'country'; })[0].scope, 'judged');
       ok(calls.filter(function (p) { return p.breakdowns; }).every(function (p) { return p.filtering === DX_JUDGED_FILTER; }), 'breakdowns filtered');
-      ok(calls.filter(function (p) { return p.level; }).every(function (p) { return !p.filtering && p.fields.indexOf('objective,optimization_goal') > -1; }), 'levels carry goals, unfiltered');
+      // مستوى الإعلان بحملات المدى (metaCampaignIds — ٧ نوفمبر ٢٠٢٦) ومن غير فلتر الأهداف، والحملة والمجموعة من غير تصفية
+      var lv = calls.filter(function (p) { return p.level && p.fields.indexOf('objective,optimization_goal') > -1; });
+      var scope = scopeToCampaigns({}, ['1', '2', '3', '4']).filtering;
+      eq(lv.length, 9, 'three levels, three windows');
+      // قائمة الحملات بتغطي كل نوافذ المقارنة — لو قصرت عليها بس، أرقام الفترة السابقة كانت هتضيع
+      var list = calls.filter(function (p) { return p.level === 'campaign' && /^campaign_id/.test(p.fields); });
+      var all = DX.windows('2026-09-22', '2026-09-28', {});
+      eq([list.length, JSON.parse(list[0].time_range)], [1, { since: all[all.length - 1].since, until: '2026-09-28' }], 'one list from the oldest window');
+      ok(lv.every(function (p) { return p.level === 'ad' ? p.filtering === scope : !p.filtering; }), 'levels carry goals; the ad level scoped to the campaigns only');
       ok(!calls.some(function (p) { return p.time_increment && p.filtering; }), 'daily totals unfiltered (match Ads Manager)');
       var f = JSON.parse(DX_JUDGED_FILTER);
       ok(f[0].value.indexOf('OUTCOME_AWARENESS') > -1 && f[0].value.indexOf('OUTCOME_TRAFFIC') < 0 && f[0].value.indexOf('LINK_CLICKS') < 0 && f[0].value.indexOf('OUTCOME_SALES') < 0, 'objective filter');
@@ -9794,15 +9802,23 @@
     // حساب Meta وهمي: طلبات الأيام (time_increment خارج نافذة الأسبوع) بتتمسك لحد ما الاختبار يردّ عليها
     var metaFake = function (id, o) {
       o = o || {};
-      var hadFB = 'FB' in window, prevFB = window.FB, held = [], f = { held: held, totals: 0, weeks: 0, ranges: [] };
+      var hadFB = 'FB' in window, prevFB = window.FB, held = [], f = { held: held, totals: 0, weeks: 0, ranges: [], camps: [], filters: [] };
       var buy = function (d, sp) { return { ad_id: 'm1', date_start: d, spend: String(sp), actions: [{ action_type: 'omni_purchase', value: '1' }], action_values: [{ action_type: 'omni_purchase', value: '100' }] }; };
       var week = last7Days(todayKeyInTz('UTC')).map(function (d) { return d.key; });
       window.FB = { api: function (path, params, cb) {
         var p = typeof params === 'object' ? params : {}, reply = { data: [] };
         if (/\/ads$/.test(path) && o.holdStopped && /PAUSED/.test(p.effective_status || '')) { f.stopped = function () { cb({ data: [] }); return sleep(60); }; return; }
         if (/\/ads$/.test(path)) reply = { data: [{ id: 'm1', name: 'M', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000', adset: { id: 's', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c', name: 'C' }, creative: {} }] };
+        if (/insights$/.test(path) && p.level === 'campaign' && /^campaign_id/.test(p.fields || '')) {
+          f.camps.push(JSON.parse(p.time_range));
+          reply = o.noCamps ? { error: { code: 1, message: 'no list' } } : { data: [{ campaign_id: 'c' }, { campaign_id: 'd' }] };
+          setTimeout(function () { cb(reply); }, 0);
+          return;
+        }
         if (/insights$/.test(path) && /actions/.test(p.fields || '') && p.time_range) {
           var r = JSON.parse(p.time_range);
+          f.filters.push(p.filtering || null);
+          if (o.rejectFilter && p.filtering) { setTimeout(function () { cb({ error: { code: 100, message: 'Invalid filtering' } }); }, 0); return; }
           if (!p.time_increment) { f.totals++; reply = { data: [Object.assign(buy(r.since, 900), { date_start: undefined })] }; }
           else if (r.until === week[week.length - 1] && r.since === week[0]) {
             f.weeks++;
@@ -9850,6 +9866,109 @@
           ok(statusText().indexOf(t('s.metaDaysLoading')) < 0 && !loadingPlatforms.meta, statusText());
         });
       }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: طلبات مستوى الإعلان متصفّية بحملات المدى، ولو القائمة فشلت زي الأول من غير تصفية', function () {
+      // حساب حقيقي ٧ نوفمبر: نفس الصفوف والأرقام بـ٢٫٢ ثانية بدل ١١٫٦ (كان بيمسح ٣٧ حملة والمفيد ٨)
+      period = { preset: 'last30' };
+      var f = metaFake('act_47');
+      loadAdsForAccount('act_47');
+      var want = scopeToCampaigns({}, ['c', 'd']).filtering;
+      // فحص حقيقي: الطلب المتصفّي بيرجّع غير المؤرشف بس — إعلان مؤرشف صرف ٦٦٫٧٥ كان بيختفي. الحالات مكتوبة صراحة
+      var st = JSON.parse(want)[1];
+      eq([st.field, st.operator, st.value.indexOf('ARCHIVED') > -1, st.value.indexOf('DELETED') > -1], ['ad.effective_status', 'IN', true, true], 'archived and deleted ads stay in');
+      return sleep(80).then(function () {
+        var r = resolvePeriodFor('UTC'), week = last7Days(todayKeyInTz('UTC')).map(function (d) { return d.key; });
+        eq(f.camps, [{ since: r.since, until: week[week.length - 1] }], 'one list for the period and the week together');
+        eq([f.filters.length, f.filters.every(function (x) { return x === want; })], [6, true], 'week + total + 4 batches, all scoped');
+        return f.pump();
+      }).then(function () {
+        f.restore();
+        var g = metaFake('act_48', { noCamps: true });
+        loadAdsForAccount('act_48');
+        // القائمة بتتعاد مرة بعد ثانية ونص زي أي طلب أرقام (fbPagesPromise) قبل ما نكمّل من غيرها
+        return sleep(1800).then(function () {
+          eq([g.filters.length, g.filters.every(function (x) { return x === null; }), g.ad().period.spend], [6, true, 900], 'no list: as before, unfiltered');
+          return g.pump();
+        }).then(function () { eq(g.ad().pd.dates.length, 30); g.restore(); }, function (e) { g.restore(); throw e; });
+      }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: قائمة الحملات — فشلها أو أكتر من الحد أو الصفحات اتقطعت أو فاضية = من غير تصفية', function () {
+      var real = window.fbPagesPromise, reply = null;
+      window.fbPagesPromise = function () { return Promise.resolve(reply); };
+      var rows = function (n) { var out = []; for (var i = 0; i < n; i++) out.push({ campaign_id: 'c' + i }); return out; };
+      var get = function (r) { reply = r; return metaCampaignIds('act_1', '2026-10-01', '2026-10-31'); };
+      return get({ data: rows(100) }).then(function (ids) {
+        eq(ids.length, 100, 'up to the limit');
+        return get({ data: rows(101) });
+      }).then(function (ids) { eq(ids, null, 'over the limit');
+        return get({ data: rows(3), truncated: true });
+      }).then(function (ids) { eq(ids, null, 'cut off');
+        return get({ err: { code: 1 }, data: [] });
+      }).then(function (ids) { eq(ids, null, 'failed');
+        return get({ data: [] });
+      }).then(function (ids) { eq(ids, null, 'empty: no filter, so nothing is hidden');
+        eq(scopeToCampaigns({ level: 'ad' }, null), { level: 'ad' }, 'no list = the request as it was');
+        window.fbPagesPromise = real;
+      }, function (e) { window.fbPagesPromise = real; throw e; });
+    });
+
+    testAsync('Meta — الملخص: لو Meta رفضت الفلتر على مستوى الإعلان، الطلب بيتعاد من غيره والتقسيم بيفضل موجود', function () {
+      var real = window.fbPagesPromise, seen = [];
+      var row = function (x) { return Object.assign({ spend: '10', impressions: '100', inline_link_clicks: '1', actions: [], action_values: [] }, x); };
+      window.fbPagesPromise = function (path, p) {
+        if (p.time_increment) return Promise.resolve({ data: [row({ date_start: '2026-09-25' })] });
+        if (p.level === 'campaign') return Promise.resolve({ data: [row({ campaign_id: '1', campaign_name: 'A', objective: 'OUTCOME_SALES', optimization_goal: 'OFFSITE_CONVERSIONS' })] });
+        if (p.level === 'ad') { seen.push(!!p.filtering); if (p.filtering) return Promise.resolve({ err: { code: 100, message: 'Invalid filtering' }, data: [] }); }
+        return Promise.resolve({ data: [row({ ad_id: 'd', ad_name: 'y', adset_id: 'a', adset_name: 'x', objective: 'OUTCOME_SALES', optimization_goal: 'OFFSITE_CONVERSIONS', country: 'KW', region: 'r', age: '25-34', gender: 'male',
+          publisher_platform: 'instagram', platform_position: 'feed', device_platform: 'mobile_app', impression_device: 'iphone' })] });
+      };
+      return metaDiagnosisInput('act_1', '2026-09-22', '2026-09-28').then(function (inp) {
+        window.fbPagesPromise = real;
+        ok(inp.dims.some(function (d) { return d.id === 'ad'; }), 'the ad breakdown survived');
+        eq([seen.indexOf(true) > -1, seen.indexOf(false) > -1], [true, true], 'filtered first, then not');
+      }, function (e) { window.fbPagesPromise = real; throw e; });
+    });
+
+    testAsync('Meta: لو Meta رفضت الفلتر نفسه الأرقام بتيجي زي الأول من غير تصفية — التحسين ميضيّعش رقم', function () {
+      period = { preset: 'last14' };
+      var f = metaFake('act_50', { rejectFilter: true });
+      loadAdsForAccount('act_50');
+      return sleep(4600).then(function () {
+        eq([f.ad().spend > 0, f.ad().period.spend, loadingPlatforms.meta === true || f.held.length > 0], [true, 900, true], 'the week and the total came back unfiltered');
+        ok(f.filters.some(function (x) { return x === null; }) && f.filters.some(function (x) { return x !== null; }), 'filtered first, then not');
+        return f.pump();
+      }).then(function () { eq(f.ad().pd.dates.length, 14, 'the batch retried without the filter too'); f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: الأرقام متستناش تكملة الإعلانات اللي صرفت ومش في الدفعة — بتظهر أول، والمتوقف بينضاف بعدها', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, release = null;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      var live = { id: 'L1', name: 'L', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000', adset: { id: 's', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c', name: 'C' }, creative: {} };
+      var gone = Object.assign({}, live, { id: 'G1', effective_status: 'PAUSED' });
+      var day = shiftKey(todayKeyInTz('UTC'), -1);
+      var row = function (id) { return { ad_id: id, date_start: day, spend: '50', actions: [{ action_type: 'omni_purchase', value: '1' }] }; };
+      window.FB = { api: function (path, a, b, c) {
+        var p = typeof a === 'object' ? a : (typeof b === 'object' ? b : {}), cb = [a, b, c].filter(function (x) { return typeof x === 'function'; })[0], reply = { data: [] };
+        if (/\/ads$/.test(path)) reply = { data: [live] };
+        if (/insights$/.test(path) && /actions/.test(p.fields || '') && p.level !== 'campaign') reply = { data: [row('L1'), row('G1')] };
+        // تكملة الإعلانات بالأرقام (Batch): الرد ممسوك لحد ما الاختبار يسيبه
+        if (p.batch) { release = function () { cb([{ code: 200, body: JSON.stringify(gone) }]); }; return; }
+        setTimeout(function () { cb(reply); }, 0);
+      } };
+      accountInfo['meta:act_49'] = { timeZone: 'UTC', currency: 'SAR' };
+      loadAdsForAccount('act_49');
+      return sleep(80).then(function () {
+        ok(release, 'the filling request is on its way');
+        eq([candidates.map(function (c) { return c.id; }), numbersPending.meta, loadingPlatforms.meta], [['L1'], false, true], 'numbers are out, the page is not locked');
+        ok(statusText().indexOf(t('s.metaDaysLoading')) > -1, statusText());
+        release();
+        return sleep(80);
+      }).then(function () {
+        eq([candidates.map(function (c) { return c.id; }).sort(), loadingPlatforms.meta], [['G1', 'L1'], false], 'the stopped ad joined');
+        restore();
+      }, function (e) { restore(); throw e; });
     });
 
     testAsync('Meta: زيارة الفترة تاني — أيام النسخة المحفوظة بتفضل لحد ما الجديدة توصل، فالحكم مبيقلبش', function () {
