@@ -46,17 +46,27 @@ export function daysBetweenKeys(a, b) {
   return Math.round((Date.UTC(pb[0], pb[1] - 1, pb[2]) - Date.UTC(pa[0], pa[1] - 1, pa[2])) / 86400000);
 }
 
+// أول يوم في الأسبوع (الأحد زي Meta)
+function weekStart(key) {
+  const p = key.split('-').map(Number);
+  return shiftDateKey(key, -new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay());
+}
+
 export function resolvePeriod(period, tz) {
   const today = todayKeyInTz(tz), yesterday = shiftDateKey(today, -1);
   const preset = (period && period.preset) || 'last7';
-  // الفترات المتحركة = أيام مكتملة بس، والنهارده منفصل (نفس resolvePeriodFor في js/core.js — ١٠ أكتوبر ٢٠٢٦).
+  // زي المنصات (نفس resolvePeriodFor في js/core.js): «آخر N يوم» بتخلص أمس، و«اليوم وأمس» و«هذا الأسبوع» و«هذا الشهر» فيهم النهارده.
   // isDefault دايماً false: مجاميع الفترة بتتجاب لوحدها (النافذة اليومية فيها النهارده)
   let since = shiftDateKey(today, -7), until = yesterday;
   if (preset === 'today') { since = until = today; }
   else if (preset === 'yesterday') { since = until = yesterday; }
+  else if (preset === 'todayYesterday') { since = yesterday; until = today; }
   else if (preset === 'last14') { since = shiftDateKey(today, -14); }
+  else if (preset === 'last28') { since = shiftDateKey(today, -28); }
   else if (preset === 'last30') { since = shiftDateKey(today, -30); }
-  else if (preset === 'thisMonth') { since = today.slice(0, 8) + '01'; if (since > until) until = today; }
+  else if (preset === 'thisWeek') { since = weekStart(today); until = today; }
+  else if (preset === 'lastWeek') { since = shiftDateKey(weekStart(today), -7); until = shiftDateKey(since, 6); }
+  else if (preset === 'thisMonth') { since = today.slice(0, 8) + '01'; until = today; }
   else if (preset === 'lastMonth') {
     until = shiftDateKey(today.slice(0, 8) + '01', -1);
     since = until.slice(0, 8) + '01';

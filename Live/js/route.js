@@ -14,7 +14,7 @@
 // الفلاتر اللي جوه الدرج والترتيب برّه الرابط لحد المرحلة ٧ (قرار مكتوب في الوثيقة).
 // بيتحمّل بعد ui.js وقبل main.js: الحساب اللي في الرابط لازم يتحط قبل ما main.js يسترجع الجلسة.
 
-  // cmp/csince/cuntil = فترة المقارنة المختارة (٣ نوفمبر ٢٠٢٦) — «الفترة السابقة» الافتراضية من غير معامل
+  // cmp/csince/cuntil = فترة المقارنة المختارة: cmp=custom مع التاريخين، أو cmp=period|week|month|year — الافتراضي من غير معامل
   var ROUTE_KEYS = ['meta', 'google', 'snapchat', 'tiktok', 'view', 'list', 'campaign', 'adset', 'ad', 'period', 'since', 'until', 'cmp', 'csince', 'cuntil'];
   // شكل رقم الحساب في كل منصة — أي قيمة تانية في الرابط بتتجاهل
   var ROUTE_ACCOUNT_RE = {
@@ -51,7 +51,7 @@
     if (q.get('cmp') === 'custom') {
       var cp = routeCustomPeriod(q.get('csince'), q.get('cuntil'), today || todayKeyInTz(BROWSER_TZ));
       if (cp) r.compare = { mode: 'custom', since: cp.since, until: cp.until };
-    }
+    } else if (CMP_MODES[q.get('cmp')] === 1) r.compare = { mode: q.get('cmp') };
     return r;
   }
   // نفس قواعد زرار «تطبيق» في الفترة المخصصة (ui.js): مترتبة، مش في المستقبل، وأقصاها PERIOD_MAX_DAYS
@@ -89,7 +89,8 @@
     }
     if (parts.compare) {
       var cb = parts.compare.split(':');
-      q.set('cmp', 'custom'); q.set('csince', cb[0]); q.set('cuntil', cb[1]);
+      if (cb.length === 2) { q.set('cmp', 'custom'); q.set('csince', cb[0]); q.set('cuntil', cb[1]); }
+      else q.set('cmp', cb[0]);
     }
     var s = q.toString();
     return s ? '?' + s : '';
@@ -151,7 +152,7 @@
   }
   function routeParts() {
     var parts = { accounts: {}, view: currentView, list: viewMode === 'ads' ? null : viewMode, campaign: null, adset: null, ad: null, period: routePeriodText(period),
-      compare: compare.mode === 'custom' ? compare.since + ':' + compare.until : null, overlay: null };
+      compare: compare.mode === 'custom' ? compare.since + ':' + compare.until : (compare.mode !== 'prev' ? compare.mode : null), overlay: null };
     PLATFORMS.forEach(function (p) { var id = routePending.accounts[p] || activeSources[p]; if (id) parts.accounts[p] = id; });
     parts.campaign = filters.campaign ? routeCampaignParam(filters.campaign) : routePending.campaign;
     parts.adset = filters.adset ? routeAdsetParam(filters.adset) : routePending.adset;

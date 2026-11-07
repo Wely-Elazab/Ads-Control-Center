@@ -141,21 +141,20 @@
   // السيرفر (action=diagnosis في api/snapchat-ads-fetch.js) بيرجّع أرقام محرك التشخيص. لم يُختبر على حساب حقيقي بعد
   function loadSnapchatDiagnosis(adAccountId, account, token) {
     if (!DX_ON || !window.DX) return;
-    var tz = account.timezone || BROWSER_TZ, p = dxPeriodFor(tz), ws = DX.windows(p.since, p.until, { unit: p.unit, cmp: p.cmp, partial: p.partial });
+    var tz = account.timezone || BROWSER_TZ, p = dxPeriodFor(tz), ws = DX.windows(p.since, p.until, { unit: p.unit, cmp: p.cmp });
     var key = adAccountId + '|' + p.since + '|' + p.until + '|' + dxCompareKey(p);
     var opt = (platformOptions.snapchat || []).filter(function (o) { return o.value === adAccountId; })[0];
     var name = opt ? String(opt.label).replace(/^Snapchat — /, '') : adAccountId;
     if (!dxBegin('snapchat', key, name, 'snapchat:' + adAccountId)) return;
     apiPost('/api/snapchat-ads-fetch', {
       accessToken: snapchatAccessToken, action: 'diagnosis', adAccountId: adAccountId, clientTz: BROWSER_TZ,
-      daily: { since: ws[ws.length - 1].since, until: p.until },
-      windows: ws.slice(0, 3).map(function (w) { return { since: w.since, until: w.until }; }),
-      partial: p.partial || undefined
+      daily: DX.spans(ws),
+      windows: ws.slice(0, 3).map(function (w) { return { since: w.since, until: w.until }; })
     }).then(function (res) {
       if (!isCurrentLoad('snapchat', token)) return;
       if (isAuthFailure(res)) { markExpired('snapchat'); dxFail('snapchat', key, null); return; }
       if (!res.ok || !res.data || res.data.error) { dxFail('snapchat', key, res.data); return; }
-      dxDone('snapchat', key, { since: p.since, until: p.until, unit: p.unit, cmp: p.cmp, partial: p.partial || null, currency: account.currency || null, timezone: tz,
+      dxDone('snapchat', key, { since: p.since, until: p.until, unit: p.unit, cmp: p.cmp, today: p.today, currency: account.currency || null, timezone: tz,
         daily: res.data.daily || [], dims: res.data.dims || [] });
     }).catch(function (err) { dxFail('snapchat', key, err); });
   }

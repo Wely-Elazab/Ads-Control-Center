@@ -137,13 +137,11 @@ var DX = (function () {
   }
 
   // ---------- الفترات ----------
-  // الفترة الحالية، وفترة المقارنة، وفترات قبلها لقياس تذبذب الحساب. من ٣ نوفمبر ٢٠٢٦ «الفترة السابقة» زي المنصات (طلب صاحب
-  // المنتج — قبلها الفترة الأقل من أسبوع كانت بتتقارن بنفس أيام الأسبوع اللي قبله، فـ«أمس» كان بيتقارن بنفس اليوم من الأسبوع
-  // اللي فات). المرجع: Google Ads وMeta («الفترة السابقة» = نفس الطول قبلها مباشرةً) وShopify (وحدة التقويم: الشهر بالشهر):
-  //   - افتراضياً: نفس عدد الأيام قبلها مباشرةً (أمس ↔ اللي قبله، آخر ٧ ↔ الـ٧ اللي قبلها)
-  //   - unit 'month' (الشهر الماضي): الشهر اللي قبله كامل حتى لو أيامه مختلفة (أكتوبر ٣١ ↔ سبتمبر ٣٠)
-  //   - unit 'mtd' (هذا الشهر لحد أمس): نفس الأيام من الشهر اللي قبله (١–٣ نوفمبر ↔ ١–٣ أكتوبر)، ولو أقصر بنقف عند آخره
-  //   - cmp (فترة مقارنة يختارها المستخدم): هي نفسها بالظبط، والفترات اللي قبلها بطولها هي
+  // الفترة الحالية، وفترة المقارنة، وفترات قبلها لقياس تذبذب الحساب. المرجع: منتقي التاريخ في Meta نفسه (قياس حي ٧ نوفمبر ٢٠٢٦):
+  //   - افتراضياً «الفترة السابقة»: نفس عدد الأيام قبلها مباشرةً (اليوم ↔ أمس كاملاً، أمس ↔ اللي قبله، آخر ٧ ↔ الـ٧ اللي قبلها)
+  //   - unit 'month' (الشهر الماضي): الشهر اللي قبله كامل حتى لو أيامه مختلفة (أكتوبر ٣١ ↔ سبتمبر ٣٠) — «الشهر السابق» في Meta
+  //   - unit 'mtd' (هذا الشهر): نفس الأيام من الشهر اللي قبله (١–٧ نوفمبر ↔ ١–٧ أكتوبر)، ولو أقصر بنقف عند آخره
+  //   - cmp: أي فترة تانية (الأسبوع والسنة السابقة ومخصصة — core.js dxPeriodFor) بالظبط زي ما هي، والفترات اللي قبلها بطولها هي
   // فرق يوم الأسبوع (الجمعة غير الخميس) بقى جزء من تذبذب المقارنة، فاختبار «حقيقي ولا صدفة» بيحسبه ومبيصرّخش عليه.
   // المعامل التالت القديم (true/false = consecutive) لسه مقبول عشان المُشغّل المثبّت على إيداع قديم — المعنيين بقوا واحد
   function windowCount(len) {
@@ -163,16 +161,44 @@ var DX = (function () {
     }
     return { since: shiftKey(w.since, -w.days), until: shiftKey(w.since, -1), days: w.days };
   }
-  // partial = { hour }: «اليوم» لحد آخر ساعة مكتملة — كل الفترات أيام لحد نفس الساعة، و٧ بس (حد Snapchat للأرقام بالساعة)
   function windowsFor(since, until, opts) {
     var o = opts && typeof opts === 'object' ? opts : {};
-    var len = dayCount(since, until), n = o.partial ? 7 : windowCount(len), out = [{ since: since, until: until, days: len }];
+    var len = dayCount(since, until), out = [{ since: since, until: until, days: len }];
     var unit = o.unit === 'month' || o.unit === 'mtd' ? o.unit : null, dayN = Number(until.slice(8, 10));
-    // فترة المقارنة المختارة لازم تخلص قبل الفترة الحالية (الواجهة بتضمن ده) — غير كده «الفترة السابقة»
-    var cmp = validRange(o.cmp) && o.cmp.until < since ? { since: o.cmp.since, until: o.cmp.until, days: dayCount(o.cmp.since, o.cmp.until) } : null;
+    // أي فترة يختارها المستخدم، حتى لو متداخلة مع الفترة أو بعدها (طلب صاحب المنتج: «تخصيص اي فترة»، وMeta بتسمح بالتداخل)
+    var cmp = validRange(o.cmp) ? { since: o.cmp.since, until: o.cmp.until, days: dayCount(o.cmp.since, o.cmp.until) } : null;
+    // عدد الفترات بطول أطولهم: ٩ فترات بطول مقارنة ٩٣ يوم كانت هتعدّي حد الطلب اليومي عند السيرفر (٥٠٠ يوم)
+    var n = windowCount(Math.max(len, cmp ? cmp.days : 0));
     out.push(cmp || prevWindow(out[0], unit, dayN));
     while (out.length < n) out.push(prevWindow(out[out.length - 1], cmp ? null : unit, dayN));
     return out;
+  }
+  // الأرقام اليومية بتتجاب على مدى واحد لو الفترات قريبة من بعض، وعلى أكتر من مدى لو فترة المقارنة بعيدة (السنة السابقة مثلاً):
+  // الأيام اللي بينهم مالهاش لازمة وكانت هتعدّي حد الطلب (٥٠٠ يوم). أقل من شهر فجوة = مدى واحد زي الأول
+  var SPAN_GAP = 31;
+  function spansOf(ws) {
+    var out = [];
+    ws.slice().sort(function (a, b) { return a.since < b.since ? -1 : 1; }).forEach(function (w) {
+      var last = out[out.length - 1];
+      if (last && keyDiffDays(last.until, w.since) <= SPAN_GAP) { if (w.until > last.until) last.until = w.until; }
+      else out.push({ since: w.since, until: w.until });
+    });
+    return out;
+  }
+  // الفترات ورا بعض من غير فجوة؟ جمل زي «منذ {تاريخ}» و«في آخر ٩ أسابيع» و«ظهر ذلك في الفترة السابقة أيضاً» صح بس لو كده:
+  // «هذا الشهر» (نفس أيام الشهر اللي قبله) والمقارنة المخصصة والسنة السابقة مش فترات متتالية
+  function chained(W, n) {
+    for (var i = 0; i + 1 < Math.min(n, W.length); i++) if (W[i + 1].until !== shiftKey(W[i].since, -1)) return false;
+    return true;
+  }
+  // الفترتين مش زي بعض؟ diff = عدد أيام مختلف (الشهر بالشهر كمان)، open = الفترة فيها النهارده ولسه مخلصش، uneven = فرق كبير أو يوم
+  // ناقص، فمجاميع الفترتين (الإنفاق والطلبات والمبيعات) بتتعرض زي ما هي ومبيتحكمش عليها (طلب صاحب المنتج ٧ نوفمبر ٢٠٢٦: «الرقم الفعلي
+  // لكل فترة»، والحكم بيوضّح). الشهر بالشهر (٣١ قصاد ٢٨ أقصى فرق) مش uneven
+  var LEN_GAP = 0.1;
+  function lensOf(cur, prev, today) {
+    var open = !!today && cur.until >= today, prevOpen = !!today && prev.until >= today;
+    return { cur: cur.len, prev: prev.len, diff: cur.len !== prev.len, open: open, prevOpen: prevOpen,
+      uneven: open || prevOpen || Math.abs(cur.len - prev.len) > LEN_GAP * Math.max(cur.len, prev.len) };
   }
   // فترة المقارنة لوحدها (المنتقي في الواجهة بيعرضها جنب الفترة)
   function compareWindow(since, until, opts) { var w = windowsFor(since, until, opts)[1]; return { since: w.since, until: w.until }; }
@@ -258,18 +284,17 @@ var DX = (function () {
 
   // ---------- العنوان: إيه اللي حصل للطلبات وتكلفتها ----------
   // phiD = تذبذب الحساب اليومي (الاختبار الأساسي «التغيّر حقيقي؟»)، phiH = تذبذبه بين الفترات («غير معتاد؟»)
-  function headline(a, b, len, phiD, phiH, W) {
-    // الاختبارات على العدّ الحقيقي وأيامه: فترة مقارنة اتحولت لمتوسطها (analyze) عدّها المعروض مش عدّ حقيقي، و١٦٩ طلب في ١٠ أيام
-    // ثقتهم أقل من ٢٣٧ في ١٤ بنفس المعدّل. النسب نفسها مبتتغيرش
-    var ra = a.real || a;
+  // uneven = الفترتين مش زي بعض (lensOf): مجاميعهم مبيتحكمش عليها، والحكم على النسب بس (تكلفة الطلب والعائد ومتوسط القيمة) لأنها
+  // مبتتأثرش بعدد الأيام. مفيش أي رقم بيتحوّل لمتوسط أو يتوقّع (قرار صاحب المنتج ٧ نوفمبر ٢٠٢٦)
+  function headline(a, b, len, phiD, phiH, W, uneven) {
     // كل فترة بطولها هي: الشهر الماضي ٣١ يوم والشهر اللي قبله ٣٠ (المقارنة بالشهر من ٣ نوفمبر ٢٠٢٦)
-    var orders = rateTest(ra.pur, ra.len || len, b.pur, b.len || len, phiD);
-    var eff = rateTest(ra.pur, ra.spend, b.pur, b.spend, phiD);   // موجب = طلبات أكتر لكل ريال
+    var orders = rateTest(a.pur, a.len || len, b.pur, b.len || len, phiD);
+    var eff = rateTest(a.pur, a.spend, b.pur, b.spend, phiD);   // موجب = طلبات أكتر لكل ريال
     // الفترة السابقة لوحدها فيها عشوائية زي الحالية بالظبط، فالمقارنة بيها ضعيفة في الحسابات الصغيرة.
     // متوسط آخر ٤ فترات أثبت بكتير: لو التغيّر حقيقي مقارنةً بيه وفي نفس اتجاه الفرق عن الفترة السابقة،
     // بنعتبره حقيقي (والكلام نفسه بيفضل مقارنةً بالفترة السابقة — الأرقام اللي العميل شايفها)
     var base = bundle(), baseDays = 0;
-    W.slice(1, 5).forEach(function (w) { var x = w.real || w; addTo(base, x); baseDays += x.len; });
+    W.slice(1, 5).forEach(function (w) { addTo(base, w); baseDays += w.len; });
     var effBase = rateTest(base.pur, base.spend, b.pur, b.spend, phiD);
     var ordBase = rateTest(base.pur, baseDays, b.pur, b.len || len, phiD);
     if (Math.abs(effBase.z) >= Z_REAL && sign(effBase.z) === sign(eff.z) && Math.abs(effBase.z) > Math.abs(eff.z)) eff = { ratio: eff.ratio, z: sign(eff.z) * Z_REAL, viaBase: true };
@@ -278,9 +303,9 @@ var DX = (function () {
     var ordPct = a.pur > 0 ? b.pur / a.pur - 1 : null;
     var cpaA = cpaOf(a), cpaB = cpaOf(b);
     var cpaPct = (cpaA && cpaB) ? cpaB / cpaA - 1 : null;
-    var dOrd = (Math.abs(orders.z) >= Z_REAL && ordPct != null && Math.abs(ordPct) >= MIN_PCT) ? sign(orders.z) : 0;
+    var dOrd = (!uneven && Math.abs(orders.z) >= Z_REAL && ordPct != null && Math.abs(ordPct) >= MIN_PCT) ? sign(orders.z) : 0;
     var dEff = (Math.abs(eff.z) >= Z_REAL && cpaPct != null && Math.abs(cpaPct) >= MIN_PCT) ? sign(eff.z) : 0;
-    var dSpend = spendPct != null && Math.abs(spendPct) >= SPEND_MOVE ? sign(spendPct) : 0;
+    var dSpend = !uneven && spendPct != null && Math.abs(spendPct) >= SPEND_MOVE ? sign(spendPct) : 0;
     // «ثابتة» = الفرق نفسه صغير، مش «مش متأكدين». تكلفة اتغيّرت ٥٠٪ بس في حدود التذبذب مش «ثابتة» —
     // دي «غير مؤكدة»، والكلام عنها بيقول الرقم وإنه في حدود التذبذب، من غير ما يدّعي سبب
     var flatEff = cpaPct != null && Math.abs(cpaPct) < MIN_PCT;
@@ -294,15 +319,15 @@ var DX = (function () {
     else if (dOrd > 0) type = 'moreOrders';
     else if (dOrd < 0) type = 'fewer';
     // «مستقر» بس لو الفروق نفسها صغيرة؛ فروق كبيرة في حدود التذبذب ليها عنوان صادق تاني
-    else type = (Math.abs(ordPct || 0) < 0.2 && Math.abs(cpaPct || 0) < 0.2) ? 'stable' : 'withinNoise';
+    else type = (Math.abs((!uneven && ordPct) || 0) < 0.2 && Math.abs(cpaPct || 0) < 0.2) ? 'stable' : 'withinNoise';
     var tone = { betterMore: 'good', sameForLess: 'good', better: 'good', scaled: 'good', moreOrders: 'good', worse: 'bad', stable: 'neutral', withinNoise: 'neutral' }[type] || 'mixed';
 
     // مقارنة بتذبذب الحساب نفسه — بتحدد نبرة الكلام: «غير معتاد» ولا «في حدود تذبذبك»
-    var effHist = rateTest(ra.pur, ra.spend, b.pur, b.spend, phiH);
+    var effHist = rateTest(a.pur, a.spend, b.pur, b.spend, phiH);
     // ترتيب تكلفة الطلب الحالية بين كل الفترات اللي فيها طلبات كفاية
     var ranked = W.filter(function (w) { return w.pur >= 3; });
     var rank = null;
-    if (ranked.length >= 5 && cpaB) {
+    if (ranked.length >= 5 && cpaB && chained(W, W.length)) {
       var better = ranked.filter(function (w) { return cpaOf(w) < cpaB; }).length;
       var worse = ranked.filter(function (w) { return cpaOf(w) > cpaB; }).length;
       if (better === 0) rank = { kind: 'best', n: ranked.length };
@@ -316,9 +341,9 @@ var DX = (function () {
     }
     // متوسط قيمة الطلب: مفيش قيمة كل طلب لوحده، فبنفترض تفاوت معتاد بين الطلبات (معامل اختلاف ٠٫٨)
     var aov = null;
-    if (ra.pur >= 10 && b.pur >= 10 && a.rev > 0 && b.rev > 0) {
+    if (a.pur >= 10 && b.pur >= 10 && a.rev > 0 && b.rev > 0) {
       var aovA = a.rev / a.pur, aovB = b.rev / b.pur, lnR = Math.log(aovB / aovA);
-      var z = lnR / Math.sqrt(PHI_SAMPLING * 0.64 * (1 / ra.pur + 1 / b.pur));
+      var z = lnR / Math.sqrt(PHI_SAMPLING * 0.64 * (1 / a.pur + 1 / b.pur));
       // «مؤكد» بنفس عتبة باقي أرقام الحساب (Z_REAL) — كانت Z_WHERE (٢)، فخلفية «مؤكد» في نفس الشريط كانت بمعيارين (ر٧٢).
       // Z_WHERE لمرحلة بتفسّر تغيّر اتأكد قبلها، ومتوسط قيمة الطلب حكم لوحده على الحساب
       aov = { from: aovA, to: aovB, pct: aovB / aovA - 1, z: z, real: Math.abs(z) >= Z_REAL && Math.abs(aovB / aovA - 1) >= MIN_PCT };
@@ -326,16 +351,16 @@ var DX = (function () {
     // المبيعات نفسها (نفس طول الفترتين): نفس اختبار العائد من غير الإنفاق — لون «المبيعات» كان بيتاخد من اختبار تاني (الطلبات أو
     // متوسط القيمة أو العائد)، فطلبات زادت ٥٠٪ ومتوسط قيمة نزل التلت = مبيعات +٢٪ بخلفية «تحسّن مؤكد» (مراجعة المرحلة ٤ ر٧١)
     var rev = null;
-    if (ra.pur >= 5 && b.pur >= 5 && a.rev > 0 && b.rev > 0) {
-      var zV = Math.log(b.rev / a.rev) / Math.sqrt(phiD * 1.64 * (1 / ra.pur + 1 / b.pur));
-      rev = { pct: b.rev / a.rev - 1, z: zV, dir: Math.abs(zV) >= Z_REAL && Math.abs(b.rev / a.rev - 1) >= MIN_PCT ? sign(zV) : 0 };
+    if (a.pur >= 5 && b.pur >= 5 && a.rev > 0 && b.rev > 0) {
+      var zV = Math.log(b.rev / a.rev) / Math.sqrt(phiD * 1.64 * (1 / a.pur + 1 / b.pur));
+      rev = { pct: b.rev / a.rev - 1, z: zV, dir: !uneven && Math.abs(zV) >= Z_REAL && Math.abs(b.rev / a.rev - 1) >= MIN_PCT ? sign(zV) : 0 };
     }
     // العائد على الإنفاق (قيمة المبيعات ÷ الإنفاق) — الربح أولاً (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦): العنوان كان بيحكم
     // بعدد الطلبات وتكلفتها بس، فإنفاق اتضاعف ومبيعات نزلت ٢٠٪ طلع «طلبات أكثر» بلون أخضر. المبيعات = عدد الطلبات ×
     // قيمتها، فتذبذبها = تذبذب العدّ (phiD) × (١ + تفاوت قيمة الطلب²) — نفس افتراض متوسط قيمة الطلب فوق (معامل اختلاف ٠٫٨)
     var roas = null;
-    if (ra.pur >= 5 && b.pur >= 5 && a.rev > 0 && b.rev > 0 && a.spend > 0 && b.spend > 0) {
-      var roA = a.rev / a.spend, roB = b.rev / b.spend, zR = Math.log(roB / roA) / Math.sqrt(phiD * 1.64 * (1 / ra.pur + 1 / b.pur));
+    if (a.pur >= 5 && b.pur >= 5 && a.rev > 0 && b.rev > 0 && a.spend > 0 && b.spend > 0) {
+      var roA = a.rev / a.spend, roB = b.rev / b.spend, zR = Math.log(roB / roA) / Math.sqrt(phiD * 1.64 * (1 / a.pur + 1 / b.pur));
       roas = { from: roA, to: roB, pct: roB / roA - 1, z: zR, dir: Math.abs(zR) >= Z_REAL && Math.abs(roB / roA - 1) >= MIN_PCT ? sign(zR) : 0 };
     }
     // تقسيم تغيّر الطلبات بين «الإنفاق اتغيّر» و«تكلفة الطلب اتغيّرت»: ln(الطلبات) = ln(الإنفاق) − ln(تكلفة الطلب)
@@ -345,7 +370,7 @@ var DX = (function () {
       split = { spend: ls / lo, eff: le / lo };
     }
     return {
-      type: type, tone: tone, dOrd: dOrd, dEff: dEff, dSpend: dSpend, flatEff: flatEff, effUncertain: effUncertain, phiDaily: phiD,
+      type: type, tone: tone, uneven: !!uneven, dOrd: dOrd, dEff: dEff, dSpend: dSpend, flatEff: flatEff, effUncertain: effUncertain, phiDaily: phiD,
       ordersZ: orders.z, effZ: eff.z, spendPct: spendPct, ordPct: ordPct, cpaPct: cpaPct,
       unusual: Math.abs(effHist.z) >= Z_UNUSUAL, histZ: effHist.z, phiHist: phiH,
       rank: rank, marginal: marginal, aov: aov, split: split, roas: roas, rev: rev
@@ -648,7 +673,7 @@ var DX = (function () {
           kind: kind, dim: dim.id, dimKind: dim.kind, key: s.key, name: s.name, goal: s.goal || null, z: kind === 'under' ? -strength : test.z,
           conf: (kind === 'under' ? strength : test.z) >= Z_SEG_STRONG ? 'high' : 'medium', ratio: ratio,
           spend: S.spend, pur: S.pur, expected: expected, restCpa: restCpa, cpa: cpaOf(S),
-          since: W[idx[idx.length - 1]].since, persistent: persistent, stage: stage,
+          since: W[idx[idx.length - 1]].since, persistent: idx.length > 1 ? persistent : null, stage: stage,
           curSpend: S0.spend, curPur: S0.pur,
           curExcess: R0.pur > 0 ? Math.max(0, S0.spend - S0.pur * (R0.spend / R0.pur)) : null,
           _S: S
@@ -692,7 +717,8 @@ var DX = (function () {
   // الأجزاء اللي بتتفحص هنا قليلة (الكبيرة بس: ٢–٥ في العادة)، فعتبتها أقل من فحص كل التقسيمات (٣٫٥)
   var Z_CHANGE = 3;
   var CHANGE_DIMS = { campaign: 1, country: 1 };
-  function segmentChanges(dims, stages, tr, phiD) {
+  // lenK = أيام فترة المقارنة ÷ أيام الفترة: «الميزانية اتقصت» بتتقاس بالنسبة لعدد الأيام، مش إن الفترة نفسها أقصر
+  function segmentChanges(dims, stages, tr, phiD, lenK) {
     var out = [];
     dims.forEach(function (dim) {
       if (!CHANGE_DIMS[dim.id] || !dim.informative || !dim.cover.pur || !dim.cover.spend) return;
@@ -704,7 +730,7 @@ var DX = (function () {
         if (!A || !B || !(A.spend > 0 && B.spend > 0) || A.pur < 10) return;
         if (Math.max(A.spend / totA, B.spend / totB) < 0.15) return;
         // الإنفاق نفسه اتقص للنص أو أكتر = قرار ميزانية مش تغيّر أداء، ومتوقع أقل من ١٠ طلبات = مفيش حكم
-        if (B.spend < 0.5 * A.spend || A.pur / A.spend * B.spend < 10) return;
+        if (B.spend * (lenK || 1) < 0.5 * A.spend || A.pur / A.spend * B.spend < 10) return;
         var test = rateTest(A.pur, A.spend, B.pur, B.spend, Math.max(PHI_SAMPLING, phiD));
         var cpaA = cpaOf(A), cpaB = cpaOf(B);
         if (!(test.z <= -Z_CHANGE && (cpaB == null || cpaB / cpaA >= 1.4))) return;
@@ -756,7 +782,8 @@ var DX = (function () {
     var cur = W[0], hist = W.slice(1).filter(function (w) { return w.pur >= 3; });
     if (hist.length < 3 || cur.pur < 30) return null;
     var pooled = bundle(); hist.forEach(function (w) { addTo(pooled, w); });
-    var medCpa = median(hist.map(cpaOf)), medSpend = median(hist.map(function (w) { return w.spend; })), cpa = cpaOf(cur);
+    // الإنفاق المعتاد بأيام الفترة: فترة مقارنة مختارة ممكن تكون أطول، فمجموعها مبيتقارنش بمجموع الفترة
+    var medCpa = median(hist.map(cpaOf)), medSpend = median(hist.map(function (w) { return w.spend / w.len; })) * cur.len, cpa = cpaOf(cur);
     // المقارنة بتذبذب الحساب نفسه (phiH): الفرصة لازم تكون أكبر من التذبذب المعتاد، مش أسبوع حلو بالصدفة
     var t = rateTest(pooled.pur, pooled.spend, cur.pur, cur.spend, phiH);
     // والفترة اللي قبلها كانت أحسن من المعتاد هي كمان — فرصة ميزانية مبتتبنيش على فترة واحدة
@@ -891,7 +918,7 @@ var DX = (function () {
         var s = findSeg(dims, g.dim, g.key), now = s && s.w[0], rest = now && minus(Wj[0], now);
         if (!now) return;
         var status;
-        if (now.spend < 0.2 * (s.w[1].spend || 0)) status = 'stopped';
+        if (now.spend * W[1].len / W[0].len < 0.2 * (s.w[1].spend || 0)) status = 'stopped';
         else if (rest.pur > 0 && now.spend > 0 && (now.pur / now.spend) >= 0.8 * (rest.pur / rest.spend)) status = 'improved';
         else status = 'ongoing';
         out.push({ type: 'segment', dim: g.dim, key: g.key, name: g.name, status: status });
@@ -938,7 +965,7 @@ var DX = (function () {
     });
   }
   function combine(sources) {
-    var first = sources[0].input, ws = windowsFor(first.since, first.until, { unit: first.unit, cmp: first.cmp, partial: first.partial }).slice(0, 3);
+    var first = sources[0].input, ws = windowsFor(first.since, first.until, { unit: first.unit, cmp: first.cmp }).slice(0, 3);
     var norm = function (list) { return (list || []).filter(function (d) { return d && d.date; }).map(function (d) { var b = bundle(d); b.date = d.date; return b; }); };
     var byDate = {};
     sources.forEach(function (s) {
@@ -985,7 +1012,7 @@ var DX = (function () {
       });
       dims.push({ id: 'country', scope: otherW && clean ? 'judged' : 'all', segs: Object.keys(byKey).map(function (k) { return byKey[k]; }) });
     }
-    var out = { since: first.since, until: first.until, currency: first.currency, timezone: first.timezone, unit: first.unit || null, cmp: first.cmp || null, partial: first.partial || null,
+    var out = { since: first.since, until: first.until, currency: first.currency, timezone: first.timezone, unit: first.unit || null, cmp: first.cmp || null, today: first.today || null,
       daily: Object.keys(byDate).sort().map(function (k) { return byDate[k]; }), dims: dims };
     if (otherW) out.other = { w: otherW, goals: otherGoals };
     return out;
@@ -1007,57 +1034,46 @@ var DX = (function () {
   }
 
   // ---------- التحليل كله ----------
-  // input: { since, until (أيام مكتملة)، currency، timezone،
+  // input: { since, until، today (تاريخ النهارده بتوقيت الحساب: فترة فيها النهارده لسه مكملتش — البريد مبيبعتوش)، currency، timezone،
   //          daily: [{ date, spend, imp, clicks, atc, ic, pur, rev }] بتغطي كل الفترات (DX.windows)،
   //          dims: [{ id, segs: [{ key, name, w: [الحالية، السابقة، اللي قبلها] }] }] }
   function analyze(input) {
-    var ws = windowsFor(input.since, input.until, { unit: input.unit, cmp: input.cmp, partial: input.partial });
+    var ws = windowsFor(input.since, input.until, { unit: input.unit, cmp: input.cmp });
     var daily = (input.daily || []).filter(function (d) { return d && /^\d{4}-\d{2}-\d{2}$/.test(d.date); })
       .map(function (d) { var b = bundle(d); b.date = d.date; return b; });
     var W = ws.map(function (w) { return sumDays(daily, w); });
-    // فترة مقارنة مختارة بطول مختلف كتير (٧ أيام قصاد ٣٠): المجاميع مش بتتقارن — الملخص كان هيكتب «الإنفاق أقل» لمجرد إن
-    // فترة المقارنة أطول. أرقامها بمتوسطها اليومي على أيام الفترة الحالية، والملخص بيقول كده. الشهر بالشهر (٣١ قصاد ٣٠) بيفضل
-    // بمجاميعه الحقيقية زي ما صاحب المنتج طلب، واختبار الطلبات بيحسب كل فترة بطولها (headline)
-    var cmpScaled = null, cmpK = 1;
-    if (input.cmp && W[1].len && Math.abs(W[1].len - W[0].len) > 0.1 * W[0].len) {
-      var sc = bundle();
-      cmpK = W[0].len / W[1].len;
-      FIELDS.forEach(function (f2) { sc[f2] = W[1][f2] * cmpK; });
-      // real = مجموعها الحقيقي: الملخص بيعرضه جنب المتوسط، والاختبارات الإحصائية عليه (العدّ المحوَّل مش عدّ حقيقي — headline)
-      sc.since = W[1].since; sc.until = W[1].until; sc.len = W[0].len; sc.real = W[1];
-      cmpScaled = { days: W[1].len, to: W[0].len };
-      W[1] = sc;
-    }
+    // كل فترة بمجموع أيامها الفعلي زي المنصات، حتى لو أطوالها مختلفة. جولة ٧ نوفمبر الأولى كانت بتحوّل فترة المقارنة لمتوسطها اليومي،
+    // وصاحب المنتج رفض: «الرقم الفعلي لكل فترة… ليس افتراض متوسط أرقام»، والفرق بيتوضّح في الحكم (lensOf وfinalHead)
     var cur = W[0], prev = W[1];
-    var total = W.reduce(function (t, w) { return addTo(t, w.real || w); }, bundle());
-    var tr = trackingOf(total);
+    var total = W.reduce(function (t, w) { return addTo(t, w); }, bundle());
+    var tr = trackingOf(total), lens = lensOf(cur, prev, /^\d{4}-\d{2}-\d{2}$/.test(input.today || '') ? input.today : null);
     var report = {
-      since: cur.since, until: cur.until, prevSince: prev.since, prevUntil: prev.until, len: cur.len, partial: input.partial || null, cmpScaled: cmpScaled,
+      since: cur.since, until: cur.until, prevSince: prev.since, prevUntil: prev.until, len: cur.len, lens: lens,
       currency: input.currency || null, cur: cur, prev: prev, windows: W, tracked: tr
     };
     if (!tr.pur) { report.status = 'noPurchases'; return report; }
-    var prevPur = (prev.real || prev).pur;
-    if (cur.pur + prevPur < MIN_ORDERS) { report.status = 'insufficient'; report.orders = cur.pur + prevPur; return report; }
-    report.status = 'ok';
-    var stages = stagesFor(tr);
     // تذبذب الحساب في التاريخ (من الأقدم للأحدث، من غير الفترة الحالية)
     var phiH = historyPhi(W.slice(1).reverse(), 'pur', 'spend') || PHI_DEFAULT_HIST;
     var phiD = Math.max(PHI_SAMPLING, dailyPhi(daily, cur.since, 'pur', 'spend') || PHI_DEFAULT_HIST);
+    // «اليوم» لوحده لسه مخلصش: أرقامه حقائق بتتعرض قصاد أمس كامل زي المنصات، ومفيش حكم قبل ما يكتمل — حتى تكلفة الطلب: الطلب بييجي بعد
+    // النقرة بساعات، فأول اليوم بيبان أغلى من غير ما يبقى كده. الاستثناء إنفاق من غير أي طلب: محسوب من الإنفاق نفسه
+    if (lens.open && cur.len === 1) {
+      report.status = 'open';
+      report.zeroRuns = zeroRuns(daily, cur, baseRates(W, 1), tr, phiD);
+      return report;
+    }
+    if (cur.pur + prev.pur < MIN_ORDERS) { report.status = 'insufficient'; report.orders = cur.pur + prev.pur; return report; }
+    report.status = 'ok';
+    var stages = stagesFor(tr);
     // التذبذب بين الفترات عمره ما يبقى أقل من اليومي (الفترة مجموع أيام متذبذبة)
     phiH = Math.max(phiH, phiD);
     report.phiHist = phiH; report.phiDaily = phiD;
-    report.head = headline(prev, cur, cur.len, phiD, phiH, W);
+    report.head = headline(prev, cur, cur.len, phiD, phiH, W, lens.uneven);
     var dims = prepareDims(input.dims);
-    // أرقام الأجزاء في فترة المقارنة بنفس تحويل إجماليها. من غيره مجموع الحملات مبيطابقش الإجمالي، فكل التقسيمات بتسقط من المطابقة
-    // (coverDim) ويختفي من الملخص أكبر المساهمين والأجزاء اللي تحتاج قرار — حساب حقيقي ٧ نوفمبر: ١١ تقسيم من ١١ سقطوا
-    var scaleCmp = function (b) { if (b) FIELDS.forEach(function (f2) { b[f2] *= cmpK; }); };
-    if (cmpScaled) dims.forEach(function (d) { d.coverSegs.forEach(function (s) { scaleCmp(s.w[1]); }); });
     // حملات الأهداف التانية (وعي، تفاعل، رسائل...): أرقامها في كل فترة، و Wj = إجمالي الحساب من غيرها.
     // العنوان والأرقام الإجمالية و«لماذا» على الحساب كله (زي ما صاحب المتجر شايفه في المنصة)،
     // لكن الحكم على الأجزاء («يحتاج قرارك» والفرص والتغيّرات الحادة) على حملات الطلبات بس
-    var givenOther = input.other && Array.isArray(input.other.w);
-    var oth = givenOther ? { w: input.other.w.map(bundle), goals: input.other.goals || {} } : otherOf(dims);
-    if (cmpScaled && givenOther) scaleCmp(oth.w[1]);   // otherOf طالعة من الأجزاء اللي اتحولت فوق
+    var oth = input.other && Array.isArray(input.other.w) ? { w: input.other.w.map(bundle), goals: input.other.goals || {} } : otherOf(dims);
     var Wj = W.map(function (w, i) {
       var o = oth && oth.w[i];
       if (!o || !(o.spend > 0)) return w;
@@ -1067,6 +1083,8 @@ var DX = (function () {
     dims.forEach(function (d) { coverDim(d, d.scope === 'judged' ? Wj : W); });
     report.dims = dims.map(function (d) { return { id: d.id, scope: d.scope, informative: d.informative, cover: d.cover }; });
     var idx = dims.length && dims[0].segs.length && dims[0].segs[0].w.length >= 3 ? [0, 1, 2] : [0, 1];
+    // فترات مش متتالية: «أنفق كذا منذ {تاريخ}» كانت هتقول مبلغ الفترات بس كأنه كل الأيام من التاريخ ده — فالفترة الحالية لوحدها
+    if (!chained(W, idx.length)) idx = [0];
     var oSpend = 0, tSpend = 0;
     idx.forEach(function (i) { oSpend += (oth && oth.w[i] && oth.w[i].spend) || 0; tSpend += W[i].spend || 0; });
     var otherShare = tSpend > 0 ? oSpend / tSpend : 0;
@@ -1087,7 +1105,7 @@ var DX = (function () {
       // الإنفاق اتغيّر كتير، ونصّ التغيير أو أكتر كان في حملات الأهداف التانية (زاد عليها أو اتقص منها) —
       // ده بيفسّر ليه الطلبات ما اتحركتش بنفس نسبة الإنفاق
       var dO = o0 - o1, dT = cur.spend - prev.spend;
-      if (Math.abs(dT) >= SPEND_MOVE * prev.spend && sign(dO) === sign(dT) && Math.abs(dO) >= 0.5 * Math.abs(dT)) {
+      if (!lens.uneven && Math.abs(dT) >= SPEND_MOVE * prev.spend && sign(dO) === sign(dT) && Math.abs(dO) >= 0.5 * Math.abs(dT)) {
         report.other.spendShift = { dir: sign(dT), share: Math.min(1, dO / dT) };
       }
     }
@@ -1117,7 +1135,7 @@ var DX = (function () {
         return (s.dim === dimId && s.key === key) || (s.alsoAs || []).some(function (x) { return x.dim === dimId && x.key === key; });
       });
     };
-    report.changes = segmentChanges(gapDims, stages, tr, phiD).filter(function (c) { return !said(c.dim, c.key); }).slice(0, 2);
+    report.changes = segmentChanges(gapDims, stages, tr, phiD, prev.len / cur.len).filter(function (c) { return !said(c.dim, c.key); }).slice(0, 2);
     report.zeroRuns = zeroRuns(daily, W[0], baseRates(W, 1), tr, phiD);
     // المشكلة اللي لسه قايمة وظاهرة أصلاً في «يحتاج قرارك» مش بتتكرر في المتابعة
     var shown = function (f) {
@@ -1125,10 +1143,11 @@ var DX = (function () {
         return (s.dim === f.dim && s.key === f.key) || (s.alsoAs || []).some(function (x) { return x.dim === f.dim && x.key === f.key; });
       });
     };
-    report.followUps = followUps(daily, W, Wj, gapDims, stages, tr, phiD).filter(function (f) { return !(f.type === 'segment' && f.status === 'ongoing' && shown(f)); });
+    // «متابعة الفترة السابقة» معناها فترات متتالية بس
+    report.followUps = chained(W, 3) ? followUps(daily, W, Wj, gapDims, stages, tr, phiD).filter(function (f) { return !(f.type === 'segment' && f.status === 'ongoing' && shown(f)); }) : [];
     // أكبر المساهمين في فرق المبيعات (أو الطلبات لو مفيش قيمة مبيعات) — «لماذا تغيّرت مبيعاتك؟» (reshapeVerdict)
     report.movers = salesMovers(dims, W, cur.rev > 0 && prev.rev > 0 ? 'rev' : 'pur');
-    report.opportunity = scaleOpportunity(W, phiH);
+    report.opportunity = prev.until < cur.since ? scaleOpportunity(W, phiH) : null;
     report.context = contextOf(W, countriesOf(dims, input.timezone));
     report.owner = ownerContext(input.feedback, W);
     return report;
@@ -1419,11 +1438,6 @@ var DX = (function () {
     if (isAr()) return head.join('، و') + (arr.length > 2 ? '، و' : t('join.and')) + last;
     return head.join(', ') + t('join.and') + last;
   }
-  // «٢:٠٠ م» — الساعة بس (الحد اللي الأرقام اتقصّت عنده)
-  function hourText(h) {
-    try { return new Date(Date.UTC(2000, 0, 1, h, 0)).toLocaleTimeString(isAr() ? 'ar-EG' : 'en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }); }
-    catch (e) { return String(h) + ':00'; }
-  }
   function periodsText(n, len) {
     if (len === 7) return fmtNum(n) + ' ' + noun(n, 'n.week');
     return t('dx.periodsSimilar', { n: fmtNum(n), periods: noun(n, 'n.period') });
@@ -1535,20 +1549,22 @@ var DX = (function () {
     // (alerts.js — «متوسط إعلانات المبيعات في حسابك») على إعلانات المبيعات بس — اسم واضح لكل رقم بدل رقمين مختلفين بنفس الاسم
     // (مراجعة المرحلة ٤، ١٧ أكتوبر ٢٠٢٦: الملخص ×٢ أقل من المستهدف، وكل إعلان «متوسط إعلانات حسابك ×٣»)
     var whole = function (key) { var l = t(key); return r.other && r.other.spend > 0 ? t('dx.kpi.whole', { label: l }) : l; };
-    var avg = !!r.cmpScaled;   // المجاميع بس: النسب (العائد والتكلفة ومتوسط القيمة) هي هي
+    // مجاميع فترتين مش زي بعض (أو يوم لسه مخلصش) من غير لون: الفرق فيها فرق أيام قبل أي حاجة، والنسب هي اللي بتتلوّن.
+    // «اليوم» لوحده من غير ألوان خالص: مفيش حكم قبل ما يكتمل
+    var uneven = !!(r.lens && r.lens.uneven), openDay = r.status === 'open', totUp = uneven ? null : true, ratioUp = openDay ? null : true, ratioDown = openDay ? null : false;
     // الترتيب بلغة الفلوس (قرار ٧ أكتوبر ٢٠٢٦): صرفت كام ← جالك كام طلب ← بمبيعات كام ← متوسط قيمة الطلب ← العائد ← تكلفة الطلب
     return [
-      { id: 'spend', label: t('dx.kpi.spend'), value: M(b.spend), prev: M(a.spend), avg: avg, pct: ch(a.spend, b.spend), sig: 0, goodUp: null },
-      { id: 'orders', label: t('dx.kpi.orders'), value: fmtNum(b.pur), prev: fmtNum(a.pur), avg: avg, pct: ordPct, sig: h.dOrd || 0, soft: h.dOrd ? 0 : lik(h.ordersZ, ordPct), goodUp: true },
-      { id: 'revenue', label: t('dx.kpi.revenue'), value: money(b.rev, r.currency), prev: money(a.rev, r.currency), avg: avg, pct: ch(a.rev, b.rev),
+      { id: 'spend', label: t('dx.kpi.spend'), value: M(b.spend), prev: M(a.spend), pct: ch(a.spend, b.spend), sig: 0, goodUp: null },
+      { id: 'orders', label: t('dx.kpi.orders'), value: fmtNum(b.pur), prev: fmtNum(a.pur), pct: ordPct, sig: h.dOrd || 0, soft: h.dOrd ? 0 : lik(h.ordersZ, ordPct), goodUp: totUp },
+      { id: 'revenue', label: t('dx.kpi.revenue'), value: money(b.rev, r.currency), prev: money(a.rev, r.currency), pct: ch(a.rev, b.rev),
         // لونه من اختبار المبيعات نفسها (headline rev — ر٧١)، و«مرجّح» لو احتمال الصدفة أقل من ٥٪ زي الباقي
-        sig: (h.rev && h.rev.dir) || 0, soft: h.rev && !h.rev.dir ? lik(h.rev.z, ch(a.rev, b.rev)) : 0, goodUp: true },
+        sig: (h.rev && h.rev.dir) || 0, soft: h.rev && !h.rev.dir ? lik(h.rev.z, ch(a.rev, b.rev)) : 0, goodUp: totUp },
       // متوسط قيمة الطلب = المبيعات ÷ الطلبات (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) — لونه من اختبار متوسط القيمة نفسه
       { id: 'aov', label: t('dx.kpi.aov'), value: aovB ? M(aovB) : '—', prev: aovA ? M(aovA) : '—', pct: aovA && aovB ? aovB / aovA - 1 : null,
-        sig: h.aov && h.aov.real ? sign(h.aov.pct) : 0, soft: h.aov && !h.aov.real ? lik(h.aov.z, aovPct) : 0, goodUp: true },
+        sig: h.aov && h.aov.real ? sign(h.aov.pct) : 0, soft: h.aov && !h.aov.real ? lik(h.aov.z, aovPct) : 0, goodUp: ratioUp },
       // لون العائد من اختبار العائد نفسه (مش من تكلفة الطلب): عائد نزل ٦٠٪ كان بيفضل رمادي لأن تكلفة الطلب في حدود التذبذب
-      { id: 'roas', label: whole('dx.kpi.roas'), value: roasB ? roasStr(roasB) : '—', prev: roasA ? roasStr(roasA) : '—', pct: roasPct, sig: (h.roas && h.roas.dir) || 0, soft: h.roas && !h.roas.dir ? lik(h.roas.z, roasPct) : 0, goodUp: true },
-      { id: 'cpa', label: whole('dx.kpi.cpa'), value: cpaB ? M(cpaB) : '—', prev: cpaA ? M(cpaA) : '—', pct: cpaPct, sig: h.dEff ? -h.dEff : 0, soft: h.dEff ? 0 : lik(h.effZ, cpaPct), goodUp: false }
+      { id: 'roas', label: whole('dx.kpi.roas'), value: roasB ? roasStr(roasB) : '—', prev: roasA ? roasStr(roasA) : '—', pct: roasPct, sig: (h.roas && h.roas.dir) || 0, soft: h.roas && !h.roas.dir ? lik(h.roas.z, roasPct) : 0, goodUp: ratioUp },
+      { id: 'cpa', label: whole('dx.kpi.cpa'), value: cpaB ? M(cpaB) : '—', prev: cpaA ? M(cpaA) : '—', pct: cpaPct, sig: h.dEff ? -h.dEff : 0, soft: h.dEff ? 0 : lik(h.effZ, cpaPct), goodUp: ratioDown }
     ];
   }
   // جدول الأدلة (للمسوّق): الفترتين جنب بعض، مرحلة مرحلة
@@ -1567,7 +1583,7 @@ var DX = (function () {
     if (tr.atc) { row(t('dx.m.cart'), pctOf(a.atc, a.clicks), pctOf(b.atc, b.clicks)); base = 'atc'; }
     if (tr.ic) { row(t('dx.m.checkout'), pctOf(a.ic, a[base]), pctOf(b.ic, b[base])); base = 'ic'; }
     row(t('dx.m.pay'), pctOf(a.pur, a[base]), pctOf(b.pur, b[base]));
-    return { head: [t('dx.m.metric'), t(a.real ? 'dx.m.prevAvg' : 'dx.m.prev'), t('dx.m.cur')], rows: rows };
+    return { head: [t('dx.m.metric'), t('dx.m.prev'), t('dx.m.cur')], rows: rows };
   }
 
   // «لماذا؟» — التفسير كله في بلوك واحد
@@ -1671,11 +1687,13 @@ var DX = (function () {
       { id: 'cpa', l: -Math.log(cpaOf(b) / cpaOf(a)), from: cpaOf(a), to: cpaOf(b) }];
     if (rev) parts.push({ id: 'aov', l: Math.log((b.rev / b.pur) / (a.rev / a.pur)), from: a.rev / a.pur, to: b.rev / b.pur });
     parts.forEach(function (p) { p.v = L * p.l; });
-    return { metric: rev ? 'rev' : 'pur', from: A, to: B, diff: B - A, pct: B / A - 1, flat: Math.abs(B / A - 1) < DRV_FLAT, parts: parts };
+    return { metric: rev ? 'rev' : 'pur', from: A, to: B, diff: B - A, pct: B / A - 1, flat: Math.abs(B / A - 1) < DRV_FLAT, parts: parts,
+      uneven: !!(r.lens && r.lens.uneven), lenNote: lenClause(r) };
   }
   function drvAmount(d, v, M) { return d.metric === 'rev' ? M(Math.abs(v)) : ordersText(Math.abs(v)); }
+  // فترتين مش زي بعض: الإنفاق مجموع أيام، فعدد الأيام بيتقال جنب رقمه — حقيقة جنب حقيقة من غير توزيع افتراضي للفرق على الأيام
   function drvPhrase(d, p, M) {
-    return t('dx.drv.' + p.id + '.' + (p.to > p.from ? 'up' : 'down'), { v: drvAmount(d, p.v, M), from: M(p.from), to: M(p.to) });
+    return t('dx.drv.' + p.id + '.' + (p.to > p.from ? 'up' : 'down'), { v: drvAmount(d, p.v, M), from: M(p.from), to: M(p.to) }) + (p.id === 'spend' ? d.lenNote : '');
   }
   // العوامل اللي بتتقال: ١٠٪ من الفرق على الأقل (ولو الفرق قريب من صفر: ٥٪ من مبيعات الفترة السابقة)، وأكبر عامل في اتجاه الفرق دايماً.
   // العامل العكسي من نص الحد (٥٪): فحص حي ٢٦ أكتوبر (سناب شات) — «نحو ٣٬١٧٥ $… ونحو ٢٬٢٤٨ $…» مجموعهم ٥٬٤٢٣ $ والزيادة ٤٬٩٧٩ $،
@@ -1710,6 +1728,8 @@ var DX = (function () {
   // «تحقّق أولاً» بأكبر عامل — ولتكلفة الطلب: فحص المرحلة اللي اتحددت لو تغيّرها اتأكد (whyBlock)، وإلا الحملات اللي فوق
   function drvCheck(d, top, b, hasMovers) {
     if (!top || d.flat) return null;
+    // الإنفاق اختلف مع اختلاف الأيام: «هل خُفّضت ميزانية؟» سؤال مالوش أساس هنا
+    if (d.uneven && top.id === 'spend') return null;
     var bad = d.diff < 0;
     if (top.id === 'cpa' && bad && b.check) return { check: b.check, owner: b.owner || 'ads' };
     var key = top.id + (bad ? '' : 'Good') + (top.id === 'cpa' && !hasMovers ? 'All' : '');
@@ -1767,7 +1787,7 @@ var DX = (function () {
       var key = (st.id === 'checkout' || st.id === 'pay') ? 'dx.seg.stage.' + st.id + '.' + st.base : 'dx.seg.stage.' + st.id;
       lines.push(tOr(key, vars, t('dx.seg.stageNone')));
     } else lines.push(t('dx.seg.stageNone'));
-    lines.push(t(s.persistent ? 'dx.seg.persist' : 'dx.seg.new'));
+    if (s.persistent != null) lines.push(t(s.persistent ? 'dx.seg.persist' : 'dx.seg.new'));
     if (s.alsoAs && s.alsoAs.length) lines.push(t('dx.seg.alsoAs', { list: listText(s.alsoAs.map(function (x) { return segName(x.dim, x.key, x.name); })) }));
     var blk = { kind: 'decision', title: onPlat(s.platform, title), lines: lines, after: [t('dx.seg.decide', { seg: name })], conf: s.conf,
       fbKey: (s.platform ? s.platform + ':' : '') + 'seg:' + s.dim + ':' + s.key, seg: { dim: s.dim, key: s.key, platform: s.platform || null } };
@@ -1865,7 +1885,7 @@ var DX = (function () {
   // (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «تكررت في حسابك من قبل» بتقلّل من فرق مقلق محتاج انتباه)
   function revShift(r) {
     var a = r.prev, b = r.cur;
-    if (!a || !b || !(a.rev > 0)) return null;
+    if (!a || !b || !(a.rev > 0) || (r.head && r.head.uneven)) return null;
     var pct = b.rev / a.rev - 1;
     if (Math.abs(pct) < 0.25) return null;
     var size = Math.abs(Math.log(Math.max(b.rev, 1) / a.rev)), seen = false, W = r.windows || [];
@@ -1931,7 +1951,7 @@ var DX = (function () {
   }
   function ordersNoiseLine(r) {
     var a = r.prev, b = r.cur, h = r.head;
-    if (h.ordPct == null || Math.abs(h.ordPct) < MIN_PCT || h.dOrd !== 0 || h.dSpend !== 0) return null;
+    if (h.uneven || h.ordPct == null || Math.abs(h.ordPct) < MIN_PCT || h.dOrd !== 0 || h.dSpend !== 0) return null;
     var up = h.ordPct > 0;
     return t('dx.fact.orders.' + (up ? 'up' : 'down'), { from: fmtNum(a.pur), to: fmtNum(b.pur), pct: pctText(h.ordPct) }) + ' ' +
       certText(h.ordersZ, a.pur, b.pur, h.ordPct) + reviewText(h.ordPct, !up);
@@ -1942,14 +1962,14 @@ var DX = (function () {
     var ro = h.roas;
     if (ro && ro.dir === 0 && ro.pct <= -MIN_PCT && ro.z < 0 && chanceTier(pFromZ(ro.z)) === 'likely') return 'likelyRoas';
     if (h.dEff === 0 && h.cpaPct != null && h.cpaPct >= MIN_PCT && h.effZ < 0 && chanceTier(pFromZ(h.effZ)) === 'likely') return 'likelyWorse';
-    if (h.dOrd === 0 && h.dSpend === 0 && h.ordPct != null && h.ordPct <= -MIN_PCT && h.ordersZ < 0 && chanceTier(pFromZ(h.ordersZ)) === 'likely') return 'likelyFewer';
+    if (!h.uneven && h.dOrd === 0 && h.dSpend === 0 && h.ordPct != null && h.ordPct <= -MIN_PCT && h.ordersZ < 0 && chanceTier(pFromZ(h.ordersZ)) === 'likely') return 'likelyFewer';
     return null;
   }
   function likelyGood(h) {
     var ro = h.roas, L = function (z) { return chanceTier(pFromZ(z)) === 'likely'; };
     return !!((ro && ro.dir === 0 && ro.pct >= MIN_PCT && ro.z > 0 && L(ro.z)) ||
       (h.dEff === 0 && h.cpaPct != null && h.cpaPct <= -MIN_PCT && h.effZ > 0 && L(h.effZ)) ||
-      (h.dOrd === 0 && h.dSpend === 0 && h.ordPct != null && h.ordPct >= MIN_PCT && h.ordersZ > 0 && L(h.ordersZ)));
+      (!h.uneven && h.dOrd === 0 && h.dSpend === 0 && h.ordPct != null && h.ordPct >= MIN_PCT && h.ordersZ > 0 && L(h.ordersZ)));
   }
   // الفروق الكبيرة (٢٠٪ أو أكتر) اللي لسه متأكدتش، للعنوان — بترتيب الربح: المبيعات، العائد، تكلفة الطلب، الطلبات
   function bigMoves(r, h) {
@@ -1958,11 +1978,11 @@ var DX = (function () {
       if (pct == null || !isFinite(pct) || Math.abs(pct) < BIG_MOVE) return;
       ((pct > 0) === goodUp ? good : bad).push(t('dx.move.' + key + (pct > 0 ? '.up' : '.down'), { pct: pctText(pct) }));
     };
-    if (a.rev > 0 && b.rev >= 0) add('sales', b.rev / a.rev - 1, true);
+    if (a.rev > 0 && b.rev >= 0 && !h.uneven) add('sales', b.rev / a.rev - 1, true);
     if (h.roas) { if (!h.roas.dir) add('roas', h.roas.pct, true); }
     else if (a.rev > 0 && b.rev > 0 && a.spend > 0 && b.spend > 0) add('roas', (b.rev / b.spend) / (a.rev / a.spend) - 1, true);
     if (!h.dEff) add('cpa', h.cpaPct, false);
-    if (!h.dOrd && !h.dSpend) add('orders', h.ordPct, true);
+    if (!h.dOrd && !h.dSpend && !h.uneven) add('orders', h.ordPct, true);
     return { bad: bad, good: good };
   }
   // بلغة الفلوس: كل ١٠٠ اتصرفت على الإعلانات رجّعت مبيعات قد إيه، مقابل الفترة السابقة — ولو العائد اتحرك ١٠٪ أو أكتر
@@ -1996,9 +2016,41 @@ var DX = (function () {
       if (lk) return { key: lk + act, tone: 'mixed' };
       if (likelyGood(h)) return actionable ? { key: 'likelyBetterAct', tone: 'mixed' } : { key: 'likelyBetter', tone: 'neutral' };
       if (mv.good.length) return { key: 'notable' + act, tone: actionable ? 'mixed' : 'neutral', vars: { moves: listText(mv.good.slice(0, 2)) } };
+      if (h.uneven) { var lh = lenHead(r); return { key: 'len' + act, tone: actionable ? 'mixed' : lh.tone, vars: lh.vars }; }
       if (actionable) return { key: h.type + 'Act', tone: 'mixed' };
     }
     return { key: h.type, tone: h.tone };
+  }
+  // جملة الفترتين جنب رقم الإنفاق: «(الفترة ١٤ يوماً مقابل ١٠ أيام)» أو «(والفترة لم تكتمل)» — فاضية لو الفترتين زي بعض
+  function lenClause(r) {
+    var L = r.lens;
+    if (!L || !L.uneven) return '';
+    if (L.open || L.prevOpen) return ' ' + t('dx.len.clauseOpen');
+    return ' ' + t('dx.len.clause', { cur: daysPhrase(L.cur), prev: daysPhrase(L.prev) });
+  }
+  // العنوان لما الفترتين مش زي بعض ومفيش تغيّر مؤكد في النسب: الطلبات زي ما هي جنب حقيقة الأيام، من غير رقم محسوب بافتراض.
+  // «رغم أن» لما الطلبات عكس اتجاه الأيام: طلبات أقل في فترة أطول حقيقة بتستحق الانتباه من غير أي حساب
+  function lenHead(r) {
+    var L = r.lens, a = r.prev, b = r.cur, pct = a.pur > 0 ? b.pur / a.pur - 1 : (b.pur > 0 ? 1 : 0);
+    var dir = Math.abs(pct) < MIN_PCT ? 0 : sign(pct), ord = t('dx.len.' + (dir > 0 ? 'more' : (dir < 0 ? 'fewer' : 'same'))), why, despite = false;
+    if (L.open) { ord += t('dx.len.sofar'); why = t(L.cur === 1 ? 'dx.len.today' : 'dx.len.open'); }
+    else if (L.prevOpen) why = t('dx.len.prevOpen');
+    else {
+      var shorter = L.cur < L.prev;
+      despite = dir !== 0 && (dir > 0) === shorter;
+      why = t('dx.len.' + (shorter ? 'short' : 'long') + (despite ? 'Despite' : ''), { cur: daysPhrase(L.cur), prev: daysPhrase(L.prev) });
+    }
+    return { vars: { ord: ord, why: why }, tone: despite && dir < 0 ? 'mixed' : 'neutral' };
+  }
+  // السطر تحت الأرقام: الفترة فيها يوم لسه مخلصش و/أو أطوال مختلفة. الأرقام نفسها فعلية، ودي بتقول إزاي تتقري
+  function lenNote(r) {
+    var L = r.lens, parts = [];
+    if (!L) return null;
+    if (L.open && L.cur === 1) parts.push(t('dx.lenNote.today', { prev: fmtRange(r.prevSince, r.prevUntil) }));
+    else if (L.open) parts.push(t('dx.lenNote.open'));
+    else if (L.prevOpen) parts.push(t('dx.lenNote.prevOpen'));
+    if (L.diff) parts.push(t('dx.lenNote.days', { cur: daysPhrase(L.cur), prev: daysPhrase(L.prev) }));
+    return parts.length ? parts.join(' ') : null;
   }
   // العائد مقارنةً بالمستهدف وحد الخسارة (إعدادات التنبيهات — opts.target). الملخص بالبريد بيعرفهم من ٧ أكتوبر ٢٠٢٦
   // (digest_settings — runner.ts targetOf) لو العميل بعتهم من الأداة، وإلا مبيتبعتش فيه السطر ده
@@ -2032,21 +2084,22 @@ var DX = (function () {
     var M = function (v) { return money(v, r.currency); };
     SEEN = (r.owner && r.owner.seen) || {};
     var o = { status: r.status, blocks: [], kpis: [], notes: [],
-      period: r.partial ? t('dx.compareHour', { cur: fmtKey(r.since), prev: fmtKey(r.prevSince), time: hourText(r.partial.hour) })
-        : t('dx.compare', { cur: fmtRange(r.since, r.until), prev: fmtRange(r.prevSince, r.prevUntil) }) };
-    // اليوم: الأرقام للساعات المكتملة بس، وتفاصيل الحملات والجمهور مبتتقسمش بالساعة عند المنصات
-    if (r.partial) o.notes.push(t(r.partial.hour ? 'dx.partialNote' : 'dx.partialEarly'));
-    // تحت الأرقام مش في آخر الصفحة: «السابقة» هنا غير رقم المنصة لنفس الأيام، فالسبب والمجموع الحقيقي لازم يبانوا معاها
-    if (r.cmpScaled) {
-      var dayN = function (n) { return fmtNum(n) + ' ' + noun(n, 'n.day'); }, real = r.prev.real;
-      o.kpiNote = t('dx.cmpScaled', { days: dayN(r.cmpScaled.days), to: dayN(r.cmpScaled.to), spend: M(real.spend), orders: ordersText(real.pur), rev: money(real.rev, r.currency) });
-    }
+      period: t(r.lens && r.lens.open ? 'dx.compareOpen' : 'dx.compare', { cur: fmtRange(r.since, r.until), prev: fmtRange(r.prevSince, r.prevUntil) }) };
+    // تحت الأرقام مش في آخر الصفحة: الأرقام فعلية، وده السطر اللي بيقول إزاي تتقري لما الفترتين مش زي بعض
+    o.kpiNote = lenNote(r);
     if (r.status === 'noPurchases') {
       o.tone = 'neutral'; o.title = t('dx.head.noPurchases');
       o.blocks.push({ kind: 'note', title: t('dx.head.noPurchases'), lines: [t('dx.noPurchases')] });
       return o;
     }
     o.kpis = kpiList(r, M);
+    // «اليوم» لوحده: الأرقام والسطر اللي تحتها والعطل بس (analyze) — مفيش حكم قبل ما يكتمل
+    if (r.status === 'open') {
+      var oh = lenHead(r);
+      o.tone = 'neutral'; o.title = capFirst(t('dx.head.len', oh.vars)); o.main = -1;
+      r.zeroRuns.forEach(function (z) { o.blocks.push(zeroBlock(z, M)); });
+      return o;
+    }
     if (r.status === 'insufficient') {
       o.tone = 'neutral'; o.title = t('dx.head.insufficient');
       o.blocks.push({ kind: 'note', title: t('dx.head.insufficient'), lines: [t(opts && opts.mail ? 'dx.insufficient.mail' : 'dx.insufficient', { orders: ordersText(r.orders) })] });
@@ -2062,7 +2115,7 @@ var DX = (function () {
       var rev = revenueLine(r, M);
       // الفروق بالأرقام والحد اللي كان لازم تعدّيه (ملاحظة ١٠ أكتوبر) — والجملة العامة بس لو مفيش أرقام نقولها
       var noise = [cpaNoiseLine(r, M), ordersNoiseLine(r)].filter(Boolean);
-      var first = !noise.length ? [h.dSpend !== 0 ? t('dx.stable.spend', { pct: pctText(h.spendPct) }) : t('dx.stable')]
+      var first = !noise.length ? (h.uneven ? [] : [h.dSpend !== 0 ? t('dx.stable.spend', { pct: pctText(h.spendPct) }) : t('dx.stable')])
         : (h.dSpend !== 0 ? [t(h.spendPct > 0 ? 'dx.vol.spend.up' : 'dx.vol.spend.down', { pct: pctText(h.spendPct) })] : []).concat(noise);
       // المبيعات قبل الإنفاق وتكلفة الطلب (الربح أولاً) — وسطر «كل ١٠٠ رجّعت كام» بيتحط قبلهم تحت
       calmBlock = { kind: 'note', title: t('dx.head.' + h.type),
@@ -2106,7 +2159,8 @@ var DX = (function () {
       // الخلاصة: «في مستواه المعتاد» بس لو مفيش حاجة تناقضها (تحت حد الخسارة أو المستهدف، أو المبيعات نزلت). خلاصة
       // «مرجّح» و«ملحوظ» مبتدّعيش إن الحساب في مستواه، فبتظهر حتى لو العائد تحت المستهدف
       var calmOk = !tl || tl.level === 'above';
-      if (calmOk && fh.key === h.type) calmBlock.lines.push(t('dx.verdict.calm'));
+      if (/^len/.test(fh.key)) { if (calmOk && cpaOf(r.cur) && cpaOf(r.prev)) calmBlock.lines.push(t('dx.verdict.lenCalm')); }
+      else if (calmOk && fh.key === h.type) calmBlock.lines.push(t('dx.verdict.calm'));
       else if (calmOk && fh.key === h.type + 'Act') calmBlock.lines.push(t('dx.verdict.calmAct'));
       else if (/^review/.test(fh.key)) calmBlock.lines.push(t('dx.verdict.review'));
       else if (/^notable/.test(fh.key)) { if (calmOk) calmBlock.lines.push(t('dx.verdict.notableGood')); }
@@ -2302,7 +2356,7 @@ var DX = (function () {
   function toText(o, accountName) {
     var L = ['📊 ' + t('dx.title') + (accountName ? ' — ' + accountName : ''), o.period, '', (TONE_ICON[o.tone] || '') + ' *' + o.title + '*'];
     if (o.basis) L.push(o.basis);
-    (o.kpis || []).forEach(function (k) { L.push('• ' + k.label + ': ' + k.value + ' (' + t(k.avg ? 'dx.kpi.prevAvg' : 'dx.kpi.prev', { v: k.prev }) + ')'); });
+    (o.kpis || []).forEach(function (k) { L.push('• ' + k.label + ': ' + k.value + ' (' + t('dx.kpi.prev', { v: k.prev }) + ')'); });
     if (o.kpiNote && o.kpis && o.kpis.length) L.push('ℹ️ ' + o.kpiNote);
     if (o.platCmp) L.push('ℹ️ ' + o.platCmp);
     if (o.costCmp) L.push('ℹ️ ' + o.costCmp);
@@ -2331,8 +2385,8 @@ var DX = (function () {
     // اختيارات «ما الذي حدث فعلاً؟» في زر التقييم (بنفس ترتيب ظهورها)
     REASONS: Object.keys(REASON_CAUSES).concat(['other']),
     windows: windowsFor,
+    spans: spansOf,
     compareWindow: compareWindow,
-    hourText: hourText,
     // التعديلات على الإعلانات ونتيجتها (الملخص التلقائي بالبريد — supabase/functions/sync/runner.ts)
     actionGroups: actionGroups,
     actionsFrom: actionsFrom,

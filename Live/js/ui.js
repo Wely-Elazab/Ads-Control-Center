@@ -719,11 +719,10 @@
   // عبارة الفترة في نصوص التقييم ({wd}) وقواعد «الآن»: شغّالة بس لو الفترة بتخلص أمس وفيها ٧ أيام مكتملة على الأقل
   function periodEngineOpts() {
     var r = resolvePeriodFor(BROWSER_TZ), today = todayKeyInTz(BROWSER_TZ), days = keyDiffDays(r.since, r.until) + 1, phrase;
-    if (r.preset === 'today' || (r.preset === 'thisMonth' && r.since === today)) phrase = t('wd.today');
+    if (r.since === today && r.until === today) phrase = t('wd.today');
     else if (r.preset === 'yesterday') phrase = t('wd.yesterday');
-    else if (r.preset === 'last14' || r.preset === 'last30') phrase = t('wd.last', { n: ar(days) + ' ' + noun(days, 'n.day') });
-    else if (r.preset === 'thisMonth') phrase = t('wd.thisMonth');
-    else if (r.preset === 'lastMonth') phrase = t('wd.lastMonth');
+    else if (r.preset === 'last14' || r.preset === 'last28' || r.preset === 'last30') phrase = t('wd.last', { n: ar(days) + ' ' + noun(days, 'n.day') });
+    else if (r.preset === 'todayYesterday' || r.preset === 'thisWeek' || r.preset === 'lastWeek' || r.preset === 'thisMonth' || r.preset === 'lastMonth') phrase = t('wd.' + r.preset);
     else phrase = t('wd.range', { range: fmtRange(r.since, r.until) });
     return { phrase: phrase, recent: r.until === shiftKey(today, -1) && days >= 7, short: days < 7 };
   }
@@ -1201,7 +1200,7 @@
       '<span class="dx-kpi-pct' + tone + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + '>' + (k.pct > 0 ? '↑ ' : '↓ ') + dxPct(k.pct) + '</span>';
     return '<div class="dx-kpi"><div class="dx-kpi-label">' + esc(k.label) + '</div>' +
       '<div class="dx-kpi-value">' + esc(k.value) + ' ' + pct + '</div>' +
-      '<div class="dx-kpi-sub">' + esc(t(k.avg ? 'dx.kpi.prevAvg' : 'dx.kpi.prev', { v: k.prev })) + '</div></div>';
+      '<div class="dx-kpi-sub">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</div></div>';
   }
   // bare = جوه بند قابل للفتح (القائمة أو المطويات) — النوع والعنوان ظاهرين فوقه أصلاً
   function dxBlockHtml(b, i, bare) {
@@ -2123,8 +2122,8 @@
   function storeLines(platforms) {
     var mine = candidates.filter(function (c) { return onPlatforms(c, platforms); }), out = [];
     if (!mine.length) return out;
-    // النهارده بيظهر لوحده دايماً (الفترات المتحركة بقت أيام مكتملة بس — ١٠ أكتوبر ٢٠٢٦)، إلا لو الفترة المختارة هي «اليوم»
-    if (period.preset !== 'today') {
+    // النهارده بيظهر لوحده لو مش جوه الفترة المختارة (آخر ٧ أيام وأمس… — ١٠ أكتوبر ٢٠٢٦). الفترة اللي فيها النهارده أرقامها بتشمله
+    if (resolvePeriodFor(BROWSER_TZ).until < todayKeyInTz(BROWSER_TZ)) {
       var spend = {}, res = {};
       mine.forEach(function (c) {
         var d = c.daily || [], n = d.length - 1;   // آخر يوم في أرقام الإعلان = النهارده بتوقيت حسابه
@@ -2252,15 +2251,17 @@
   }
 
 
-  // ---------- اختيار فترة البيانات (زي منتقي التاريخ في Google Ads وMeta — ٣ نوفمبر ٢٠٢٦) ----------
-  // زرار واحد بيقول الفترة المطبّقة والمقارنة، وبيفتح لوحة: الفترات الجاهزة، و«من/إلى» (الفترة الجاهزة بتملاهم بأيامها زي Google)،
-  // و«قارن مع» (الفترة السابقة أو فترة أخرى). «تطبيق» بيقفل اللوحة والزرار بيقول اللي اتطبّق — قبل كده الفترة المخصصة كانت
-  // بتسيب صندوق التاريخ وزرار «تطبيق» ظاهرين كأنها متطبّقتش (ملاحظة صاحب المنتج). «إلغاء» أو Esc أو الضغط برّه = من غير تغيير
+  // ---------- اختيار فترة البيانات (زي منتقي التاريخ في Meta وSnapchat — قياس حي ٧ نوفمبر ٢٠٢٦) ----------
+  // زرار واحد بيقول الفترة المطبّقة والمقارنة، وبيفتح لوحة: الفترات الجاهزة، وتقويم بشهرين بنختار عليه الفترة بضغطتين، و«من/إلى» (الفترة
+  // الجاهزة بتملاهم بأيامها)، و«قارن مع» بنفس خيارات Meta. «تطبيق» بيقفل اللوحة والزرار بيقول اللي اتطبّق — قبل كده الفترة المخصصة
+  // كانت بتسيب صندوق التاريخ وزرار «تطبيق» ظاهرين كأنها متطبّقتش (ملاحظة صاحب المنتج). «إلغاء» أو Esc أو الضغط برّه = من غير تغيير
   var periodBtn = document.getElementById('periodBtn'), periodPanel = document.getElementById('periodPanel');
   var periodPresets = document.getElementById('periodPresets'), periodError = document.getElementById('periodError');
-  var cmpPrev = document.getElementById('cmpPrev'), cmpCustom = document.getElementById('cmpCustom');
+  var cmpMode = document.getElementById('cmpMode'), calMonths = document.getElementById('calMonths');
   var cmpFrom = document.getElementById('cmpFrom'), cmpTo = document.getElementById('cmpTo');
   var pendingPreset = period.preset;   // الفترة الجاهزة المختارة في اللوحة قبل «تطبيق»
+  var pendingCmp = null;               // خيار «قارن مع» قبل «تطبيق» — null = الافتراضي حسب الفترة (cmpModeFor)
+  var calFirst = null, calTarget = 'main', calPick = null;   // أول شهر ظاهر، والتقويم بيختار أنهي فترة، وأول ضغطة في اختيار المدى
   // اسم الفترة على الزرار: الجاهزة باسمها وأيامها، والمخصصة بأيامها بس
   function periodBtnText(r) {
     return r.preset === 'custom' ? fmtRange(r.since, r.until) : PERIOD_LABELS[r.preset] + ' · ' + fmtRange(r.since, r.until);
@@ -2269,14 +2270,9 @@
   function compareRangeFor(pp, cc) {
     if (!window.DX || !DX.compareWindow) return null;
     var d = dxPeriodFor(BROWSER_TZ, pp, cc);
-    var w = DX.compareWindow(d.since, d.until, { unit: d.unit, cmp: d.cmp, partial: d.partial });
-    return Object.assign(w, { partial: d.partial || null });
+    return DX.compareWindow(d.since, d.until, { unit: d.unit, cmp: d.cmp });
   }
-  // «٢٠–٢٦ أكتوبر»، واليوم «أمس حتى الساعة نفسها» من غير رقم الساعة: كل حساب بيتقص بتوقيته هو (فحص حقيقي ٣ نوفمبر: الزرار
-  // كان بيقول ١٠ م بتوقيت المتصفح في القاهرة والملخص ١١ م بتوقيت الحساب في الرياض). الساعة نفسها في رأس الملخص من البيانات
-  function compareRangeText(w) {
-    return w.partial ? t('period.vsSameHour') : t('period.vs', { range: fmtRange(w.since, w.until) });
-  }
+  function compareRangeText(w) { return t('period.vs', { range: fmtRange(w.since, w.until) }); }
   function syncPeriodUi() {
     var r = resolvePeriodFor(BROWSER_TZ), w = compareRangeFor();
     document.getElementById('periodBtnMain').textContent = periodBtnText(r);
@@ -2294,18 +2290,44 @@
       b.setAttribute('aria-checked', on ? 'true' : 'false');
       b.tabIndex = on ? 0 : -1;
     });
-    var w = compareRangeFor(pendingPeriodValue(), { mode: 'prev' });
-    document.getElementById('cmpPrevRange').textContent = w ? '(' + (w.partial ? t('period.sameHour') : fmtRange(w.since, w.until)) + ')' : '';
-    // اليوم بيتقارن بأمس لحد نفس الساعة بس: يوم ناقص قصاد أيام كاملة كان هيبان «انخفاض» كاذب
-    var today = !!(w && w.partial);
-    cmpCustom.disabled = today;
-    if (today && cmpCustom.checked) { cmpCustom.checked = false; cmpPrev.checked = true; }
-    document.getElementById('periodCmpToday').hidden = !today;
-    document.getElementById('cmpDates').hidden = !cmpCustom.checked;
+    var mode = pendingCmp || cmpModeFor(pendingPreset, null), custom = mode === 'custom';
+    cmpMode.value = mode;
+    var w = custom ? null : compareRangeFor(pendingPeriodValue(), { mode: mode });
+    document.getElementById('cmpRange').textContent = w ? fmtRange(w.since, w.until) : '';
+    document.getElementById('cmpDates').hidden = !custom;
+    renderCal(w);
+  }
+  // التقويم: شهرين جنب بعض (الهاتف: التاني بس). ضغطة أولى = بداية الفترة، وتانية = نهايتها، والأيام اللي لسه مجتش مقفولة
+  function calShow(key) { var k = shiftMonths(key.slice(0, 8) + '01', -1); calFirst = k; }
+  function calMonthHtml(first, main, cmp, today) {
+    var p = first.split('-').map(Number), lead = new Date(Date.UTC(p[0], p[1] - 1, 1)).getUTCDay(), days = new Date(Date.UTC(p[0], p[1], 0)).getUTCDate();
+    var html = '<div class="cal-month"><div class="cal-title">' + esc(monthsShort()[p[1] - 1] + ' ' + ar(p[0])) + '</div><div class="cal-grid">';
+    t('cal.days').split(',').forEach(function (d) { html += '<span class="cal-wd">' + esc(d) + '</span>'; });
+    for (var i = 0; i < lead; i++) html += '<span></span>';
+    for (var n = 1; n <= days; n++) {
+      var key = first.slice(0, 8) + (n < 10 ? '0' : '') + n, cls = 'cal-day';
+      var inMain = main && key >= main.since && key <= main.until, inCmp = cmp && key >= cmp.since && key <= cmp.until;
+      if (inCmp) cls += ' cmp';
+      if (inMain) cls += ' on';
+      if (inMain && (key === main.since || key === main.until)) cls += ' edge';
+      else if (inCmp && (key === cmp.since || key === cmp.until)) cls += ' cmp-edge';
+      if (key === today) cls += ' now';
+      html += '<button type="button" class="' + cls + '" data-d="' + key + '" aria-label="' + esc(fmtKey(key)) + '" aria-pressed="' + (inMain ? 'true' : 'false') + '"' + (key > today ? ' disabled' : '') + '>' + ar(n) + '</button>';
+    }
+    return html + '</div></div>';
+  }
+  function renderCal(w) {
+    var today = todayKeyInTz(BROWSER_TZ), main = dateFrom.value && dateTo.value ? { since: dateFrom.value, until: dateTo.value } : null;
+    var cmp = cmpMode.value === 'custom' ? (cmpFrom.value && cmpTo.value ? { since: cmpFrom.value, until: cmpTo.value } : null) : w;
+    if (!calFirst) calShow(dateTo.value || today);
+    var second = shiftMonths(calFirst, 1);
+    calMonths.innerHTML = calMonthHtml(calFirst, main, cmp, today) + calMonthHtml(second, main, cmp, today);
+    document.getElementById('calNext').disabled = second >= today.slice(0, 8) + '01';
   }
   function pickPreset(preset) {
     pendingPreset = preset;
-    if (preset !== 'custom') { var r = resolvePeriodFor(BROWSER_TZ, { preset: preset }); dateFrom.value = r.since; dateTo.value = r.until; }
+    calPick = null; calTarget = 'main';
+    if (preset !== 'custom') { var r = resolvePeriodFor(BROWSER_TZ, { preset: preset }); dateFrom.value = r.since; dateTo.value = r.until; calShow(r.until); }
     periodError.hidden = true;
     renderPeriodPanel();
   }
@@ -2314,8 +2336,9 @@
     pendingPreset = r.preset;
     dateFrom.value = r.since; dateTo.value = r.until;
     var custom = compare.mode === 'custom';
-    cmpCustom.checked = custom; cmpPrev.checked = !custom;
+    pendingCmp = compare.mode === 'prev' ? null : compare.mode;
     cmpFrom.value = custom ? compare.since : ''; cmpTo.value = custom ? compare.until : '';
+    calPick = null; calTarget = 'main'; calShow(r.until);
     periodError.hidden = true;
     renderPeriodPanel();
     periodPanel.classList.remove('hidden');
@@ -2352,8 +2375,36 @@
   [dateFrom, dateTo].forEach(function (el) {
     el.addEventListener('input', function () { pendingPreset = 'custom'; periodError.hidden = true; renderPeriodPanel(); });
   });
-  [cmpPrev, cmpCustom].forEach(function (el) { el.addEventListener('change', function () { periodError.hidden = true; renderPeriodPanel(); }); });
-  [cmpFrom, cmpTo].forEach(function (el) { el.addEventListener('input', function () { cmpCustom.checked = true; cmpPrev.checked = false; periodError.hidden = true; renderPeriodPanel(); }); });
+  // «مخصصة» بتبدأ من مدى الخيار اللي كان ظاهر، والتقويم بعدها بيختار فترة المقارنة
+  cmpMode.addEventListener('change', function () {
+    var was = document.getElementById('cmpRange').textContent ? compareRangeFor(pendingPeriodValue(), { mode: pendingCmp || cmpModeFor(pendingPreset, null) }) : null;
+    pendingCmp = cmpMode.value;
+    if (pendingCmp === 'custom') {
+      calTarget = 'cmp'; calPick = null;
+      if (was && !cmpFrom.value) { cmpFrom.value = was.since; cmpTo.value = was.until; }
+    } else calTarget = 'main';
+    periodError.hidden = true;
+    renderPeriodPanel();
+  });
+  [cmpFrom, cmpTo].forEach(function (el) {
+    el.addEventListener('input', function () { pendingCmp = 'custom'; periodError.hidden = true; renderPeriodPanel(); });
+    el.addEventListener('focus', function () { calTarget = 'cmp'; calPick = null; });
+  });
+  [dateFrom, dateTo].forEach(function (el) { el.addEventListener('focus', function () { calTarget = 'main'; calPick = null; }); });
+  calMonths.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-d]');
+    if (!b || b.disabled) return;
+    var d = b.getAttribute('data-d'), from = calTarget === 'cmp' ? cmpFrom : dateFrom, to = calTarget === 'cmp' ? cmpTo : dateTo;
+    if (!calPick) { calPick = d; from.value = d; to.value = d; }
+    else { from.value = d < calPick ? d : calPick; to.value = d < calPick ? calPick : d; calPick = null; }
+    if (calTarget === 'cmp') pendingCmp = 'custom'; else pendingPreset = 'custom';
+    periodError.hidden = true;
+    renderPeriodPanel();
+    var again = calMonths.querySelector('[data-d="' + d + '"]');
+    if (again) again.focus();
+  });
+  document.getElementById('calPrev').addEventListener('click', function () { calFirst = shiftMonths(calFirst, -1); renderPeriodPanel(); });
+  document.getElementById('calNext').addEventListener('click', function () { calFirst = shiftMonths(calFirst, 1); renderPeriodPanel(); });
   document.getElementById('periodCancel').addEventListener('click', function () { closePeriodPanel(true); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePeriodPanel(true); });
   // الضغط برّه اللوحة بيقفلها (composedPath زي قايمة الحسابات: العنصر ممكن يتشال من الصفحة قبل ما الضغطة توصل هنا)
@@ -2367,6 +2418,12 @@
   // فترة مخصصة: مترتبة، مش في المستقبل، وأقصاها ٩٣ يوم — عشان اسم الفترة على الأرقام يطابق البيانات. وMeta مبتديش أرقام أقدم
   // من ٣٧ شهراً (ردها نفسه: «(#3018) The start date of the time range cannot be beyond 37 months from the current date») وملخص المتجر
   // بيجيب فترات قبلها للمقارنة (DX.windows) — فبنقدّم البداية لحد ما الفترة واللي قبلها يدخلوا (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦)
+  // أقدم يوم Meta بترجّع أرقامه (٣٧ شهر)
+  function metaOldestKey(today) {
+    var lim = new Date(today + 'T00:00:00Z');
+    lim.setUTCMonth(lim.getUTCMonth() - 37);
+    return shiftKey(lim.toISOString().slice(0, 10), 1);
+  }
   function customPeriodOf(since, until) {
     var today = todayKeyInTz(BROWSER_TZ), out = { trimmed: false, tooOld: false };
     if (since > until) { var tmp = since; since = until; until = tmp; }
@@ -2375,9 +2432,7 @@
     out.trimmed = keyDiffDays(since, until) > PERIOD_MAX_DAYS - 1;
     if (out.trimmed) since = shiftKey(until, -(PERIOD_MAX_DAYS - 1));
     if (activeSources.meta && window.DX && DX.windows) {
-      var lim = new Date(today + 'T00:00:00Z');
-      lim.setUTCMonth(lim.getUTCMonth() - 37);
-      var oldest = shiftKey(lim.toISOString().slice(0, 10), 1);
+      var oldest = metaOldestKey(today);
       var ws = DX.windows(since, until), first = ws[ws.length - 1].since;
       if (first < oldest) {
         var len = keyDiffDays(since, until);
@@ -2411,17 +2466,19 @@
     var pr = pendingPreset !== 'custom' ? resolvePeriodFor(BROWSER_TZ, { preset: pendingPreset }) : null;
     var custom = !pr || dateFrom.value !== pr.since || dateTo.value !== pr.until ? customPeriodOf(dateFrom.value, dateTo.value) : null;
     var nextPeriod = custom ? custom.period : { preset: pendingPreset };
-    var nextCompare = { mode: 'prev' };
-    if (cmpCustom.checked) {
+    var nextCompare = { mode: pendingCmp || 'prev' }, today = todayKeyInTz(BROWSER_TZ);
+    if (nextCompare.mode === 'custom') {
       if (!cmpFrom.value || !cmpTo.value) { showPeriodError(t('period.cmpPickDates')); return; }
-      var cs = cmpFrom.value, cu = cmpTo.value, today = todayKeyInTz(BROWSER_TZ);
+      var cs = cmpFrom.value, cu = cmpTo.value;
       if (cs > cu) { var tmp = cs; cs = cu; cu = tmp; }
       if (cu > today) cu = today;
       if (keyDiffDays(cs, cu) > PERIOD_MAX_DAYS - 1) cs = shiftKey(cu, -(PERIOD_MAX_DAYS - 1));
-      // المقارنة لازم تخلص قبل أول يوم في فترة الملخص (diagnosis.js windowsFor بيرفضها غير كده)
-      var first = dxPeriodFor(BROWSER_TZ, nextPeriod, { mode: 'prev' }).since;
-      if (cu >= first) { showPeriodError(t('period.cmpBefore', { date: fmtKey(first) })); return; }
       nextCompare = { mode: 'custom', since: cs, until: cu };
+    }
+    // Meta مبتديش أرقام أقدم من ٣٧ شهر: فترة مقارنة قديمة (أو الفترات اللي قبلها) كانت هتوقّع الملخص كله
+    if (activeSources.meta && window.DX && DX.windows) {
+      var dp = dxPeriodFor(BROWSER_TZ, nextPeriod, nextCompare), oldestW = DX.spans(DX.windows(dp.since, dp.until, { unit: dp.unit, cmp: dp.cmp }))[0].since;
+      if (oldestW < metaOldestKey(today)) { showPeriodError(t('period.cmpTooOld')); return; }
     }
     var periodChanged = JSON.stringify(nextPeriod) !== JSON.stringify(period.preset === 'custom' ? period : { preset: period.preset });
     var compareChanged = JSON.stringify(nextCompare) !== JSON.stringify(compare);

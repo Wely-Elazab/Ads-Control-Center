@@ -394,7 +394,8 @@
   // الفترة بتتحسب بتوقيت كل حساب، بنفس منطق السيرفر (api/_dates.js → resolvePeriod)
   var PERIOD_KEY = 'acc.period.v1';
   var PERIOD_LABELS = i18nMap({
-    today: 'period.today', yesterday: 'period.yesterday', last7: 'period.last7', last14: 'period.last14', last30: 'period.last30',
+    today: 'period.today', yesterday: 'period.yesterday', todayYesterday: 'period.todayYesterday', last7: 'period.last7', last14: 'period.last14',
+    last28: 'period.last28', last30: 'period.last30', thisWeek: 'period.thisWeek', lastWeek: 'period.lastWeek',
     thisMonth: 'period.thisMonth', lastMonth: 'period.lastMonth', custom: 'period.custom'
   });
   var PERIOD_MAX_DAYS = 93;
@@ -406,13 +407,16 @@
     return { preset: 'last7' };
   })();
   function savePeriod() { try { localStorage.setItem(PERIOD_KEY, JSON.stringify(period)); } catch (e) { /* مش مهم */ } }
-  // فترة المقارنة (٣ نوفمبر ٢٠٢٦ — زي Google Ads وMeta): «الفترة السابقة» افتراضياً، أو فترة يختارها المستخدم ({ mode: 'custom',
-  // since, until }). ملخص المتجر بيقارن بيها (dxPeriodFor ← diagnosis.js windowsFor)
+  // فترة المقارنة — نفس خيارات Meta (قياس حي ٧ نوفمبر ٢٠٢٦: الفترة السابقة، الشهر السابق، السنة السابقة، مخصصة) + الأسبوع السابق.
+  // mode 'prev' = الافتراضي حسب الفترة (cmpModeFor)؛ 'period' / 'week' / 'month' / 'year' اختيار صريح؛ 'custom' معاها since وuntil.
+  // ملخص المتجر بيقارن بيها (dxPeriodFor ← diagnosis.js windowsFor)
   var COMPARE_KEY = 'acc.compare.v1';
+  var CMP_MODES = { period: 1, week: 1, month: 1, year: 1 };
   var compare = (function () {
     try {
       var c = JSON.parse(localStorage.getItem(COMPARE_KEY) || 'null');
       if (c && c.mode === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(c.since || '') && /^\d{4}-\d{2}-\d{2}$/.test(c.until || '') && c.since <= c.until) return c;
+      if (c && CMP_MODES[c.mode] === 1) return { mode: c.mode };
     } catch (e) { /* تخزين مقفول */ }
     return { mode: 'prev' };
   })();
@@ -425,19 +429,31 @@
     var pa = a.split('-').map(Number), pb = b.split('-').map(Number);
     return Math.round((Date.UTC(pb[0], pb[1] - 1, pb[2]) - Date.UTC(pa[0], pa[1] - 1, pa[2])) / 86400000);
   }
+  function weekStartKey(key) {
+    var p = key.split('-').map(Number);
+    return shiftKey(key, -new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay());
+  }
+  // نفس اليوم بعد عدد شهور — ولو الشهر أقصر آخر يوم فيه: ٣١ أكتوبر ← ٣٠ سبتمبر (زي «الشهر السابق» في Meta)
+  function shiftMonths(key, n) {
+    var p = key.split('-').map(Number), last = new Date(Date.UTC(p[0], p[1] + n, 0)).getUTCDate();
+    return new Date(Date.UTC(p[0], p[1] - 1 + n, Math.min(p[2], last))).toISOString().slice(0, 10);
+  }
   // pp = فترة غير المطبّقة (المنتقي بيعرض مدى أي اختيار قبل «تطبيق») — من غيرها الفترة الحالية
   function resolvePeriodFor(tz, pp) {
     var per = pp || period;
-    // الفترات المتحركة = أيام مكتملة بس، والنهارده منفصل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦، المرة التانية: «آخر ٧ أيام
-    // يعني الـ٧ أيام اللي فاتت بس، واليوم منفصل مش مجموع معاهم»). النهارده بيظهر لوحده (سطر «اليوم حتى الآن» وعمود اليوم).
-    // isDefault دايماً false: أرقام الفترة بتتجاب لوحدها من المنصة (النافذة اليومية نفسها فيها النهارده)
+    // زي المنصات بالظبط (قياس حي في Meta ٧ نوفمبر ٢٠٢٦، وتوثيق Google Ads): «آخر N يوم» بتخلص أمس، و«اليوم» و«اليوم وأمس» و«هذا الأسبوع»
+    // و«هذا الشهر» فيهم النهارده لحد آخر تحديث. النهارده بيظهر لوحده بس لو الفترة مش فيها (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦).
+    // الأسبوع بيبدأ الأحد زي Meta (this_week_sun_today). isDefault دايماً false: أرقام الفترة بتتجاب لوحدها من المنصة
     var today = todayKeyInTz(tz), yesterday = shiftKey(today, -1), since = shiftKey(today, -7), until = yesterday, preset = per.preset;
     if (preset === 'today') since = until = today;
     else if (preset === 'yesterday') since = until = yesterday;
+    else if (preset === 'todayYesterday') { since = yesterday; until = today; }
     else if (preset === 'last14') since = shiftKey(today, -14);
+    else if (preset === 'last28') since = shiftKey(today, -28);
     else if (preset === 'last30') since = shiftKey(today, -30);
-    // أول يوم في الشهر مفيش أيام مكتملة فيه — بنعرض النهارده
-    else if (preset === 'thisMonth') { since = today.slice(0, 8) + '01'; if (since > until) until = today; }
+    else if (preset === 'thisWeek') { since = weekStartKey(today); until = today; }
+    else if (preset === 'lastWeek') { since = shiftKey(weekStartKey(today), -7); until = shiftKey(since, 6); }
+    else if (preset === 'thisMonth') { since = today.slice(0, 8) + '01'; until = today; }
     else if (preset === 'lastMonth') { until = shiftKey(today.slice(0, 8) + '01', -1); since = until.slice(0, 8) + '01'; }
     else if (preset === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(per.since || '') && /^\d{4}-\d{2}-\d{2}$/.test(per.until || '')) {
       since = per.since; until = per.until;
@@ -527,33 +543,28 @@
       if (typeof dxRecompute === 'function') dxRecompute();
     }
   }
-  // فترة التشخيص = الفترة المختارة بس أيام مكتملة (أرقام النهارده لسه بتتحسب ومينفعش تتقارن بيوم كامل):
-  // بتقف عند أمس. «آخر ٧ أيام» = ٧ أيام مكتملة + النهارده، فالتشخيص = الـ٧ المكتملة بالظبط، و«اليوم» = أمس
-  // unit = وحدة «الفترة السابقة» (الشهر الماضي ↔ الشهر اللي قبله كامل، وهذا الشهر ↔ نفس أيامه من الشهر اللي قبله)، وcmp = فترة
-  // المقارنة المختارة — لازم تخلص قبل الفترة (غير كده الفترة السابقة)
-  function dxPeriodFor(tz, pp, cc) {
-    var p = resolvePeriodFor(tz, pp), today = todayKeyInTz(tz), since = p.since, until = p.until, cm = cc || compare;
-    if (until >= today) until = shiftKey(today, -1);
-    if (since > until) since = until;
-    var unit = p.preset === 'lastMonth' ? 'month' : (p.preset === 'thisMonth' && since.slice(8) === '01' ? 'mtd' : null);
-    var cmp = cm.mode === 'custom' && cm.until < since ? { since: cm.since, until: cm.until } : null;
-    // «اليوم» (وهذا الشهر في أوله): النهارده نفسه لحد آخر ساعة مكتملة، مقارنةً بأمس لحد نفس الساعة (طلب صاحب المنتج ٣ نوفمبر ٢٠٢٦ —
-    // كان بيعرض أمس). يوم ناقص قصاد يوم كامل كان هيطلّع «انخفاض» كاذب كل يوم قبل المسا، فالساعات نفسها في الاتنين
-    if (p.preset === 'today' || (p.preset === 'thisMonth' && p.since === today)) {
-      return { since: today, until: today, unit: null, cmp: null, partial: { hour: hourNowInTz(tz) } };
-    }
-    return { since: since, until: until, unit: unit, cmp: cmp };
+  // فترة الملخص = الفترة المختارة نفسها زي المنصات، حتى لو فيها النهارده (today بيقول للمحرك إن فترة فيها النهارده لسه مكملتش).
+  // طلب صاحب المنتج ٧ نوفمبر ٢٠٢٦: «اليوم حتى الآن» بيتقارن بأمس كامل، مش بنفس عدد الساعات. قبلها كان الملخص بيقف عند أمس،
+  // و«اليوم» بيتقص بالساعة في اليومين
+  // المقارنة الافتراضية بوحدة الفترة: الشهر بالشهر، والأسبوع بالأسبوع، وأي فترة تانية بالفترة اللي قبلها مباشرةً (طلب صاحب المنتج ٣ نوفمبر)
+  function cmpModeFor(preset, cm) {
+    if (cm && cm.mode && cm.mode !== 'prev') return cm.mode;
+    return preset === 'thisMonth' || preset === 'lastMonth' ? 'month' : (preset === 'thisWeek' || preset === 'lastWeek' ? 'week' : 'period');
   }
-  // الساعة دلوقتي (٠–٢٣) بتوقيت الحساب = عدد الساعات المكتملة النهارده
-  function hourNowInTz(tz) {
-    var opts = { hour: 'numeric', hourCycle: 'h23' };
-    try { return Number(new Intl.DateTimeFormat('en-US', Object.assign({ timeZone: tz || undefined }, opts)).format(new Date())) % 24; }
-    catch (e) { return new Date().getHours(); }
+  function dxPeriodFor(tz, pp, cc) {
+    var p = resolvePeriodFor(tz, pp), since = p.since, until = p.until, cm = cc || compare, mode = cmpModeFor(p.preset, cm), unit = null, cmp = null;
+    if (mode === 'month' && p.preset === 'lastMonth') unit = 'month';
+    else if (mode === 'month' && p.preset === 'thisMonth') unit = 'mtd';
+    else if (mode === 'month') cmp = { since: shiftMonths(since, -1), until: shiftMonths(until, -1) };
+    else if (mode === 'week') cmp = { since: shiftKey(since, -7), until: shiftKey(until, -7) };
+    else if (mode === 'year') cmp = { since: shiftMonths(since, -12), until: shiftMonths(until, -12) };
+    else if (mode === 'custom') cmp = { since: cm.since, until: cm.until };
+    return { since: since, until: until, unit: unit, cmp: cmp, today: todayKeyInTz(tz) };
   }
   // تغيير المقارنة لوحدها بيعيد ملخص المتجر بس (مش أرقام الإعلانات): كل منصة بتسجّل هنا طريقة إعادة ملخصها وقت ما بتتحمّل
   var dxReloaders = {};
   // جزء مفتاح الملخص اللي بيتغيّر مع المقارنة (تغييرها = تحميل جديد)
-  function dxCompareKey(p) { return p && p.partial ? 'h' + p.partial.hour : (p && p.cmp ? p.cmp.since + ':' + p.cmp.until : (p && p.unit) || 'prev'); }
+  function dxCompareKey(p) { return p && p.cmp ? p.cmp.since + ':' + p.cmp.until : (p && p.unit) || 'prev'; }
 
   // ---------- التحميل: نسخة محفوظة + حالة واضحة ----------
   // آخر تحميل لكل حساب بيتحفظ في الذاكرة، فلما ترجع لحساب فتحته قبل كده بيظهر فوراً

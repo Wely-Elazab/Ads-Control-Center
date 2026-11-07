@@ -575,38 +575,17 @@ export default async function handler(req, res) {
           atc: Number(st.conversion_add_cart || 0), ic: Number(st.conversion_start_checkout || 0)
         }, extra);
       };
-      // «اليوم» لحد آخر ساعة مكتملة (٣ نوفمبر ٢٠٢٦): كل يوم من الـ٧ لحد نفس الساعة، من أرقام الحملات بالساعة (HOUR — Snapchat
-      // بيسمح بيها لحد ٧ أيام في الطلب). التقسيمات (الحملات والدول بالفترة) مبتتجابش: مفيش منها بالساعة لكل فترة
-      const cut = body.partial && Number.isInteger(body.partial.hour) && body.partial.hour >= 0 && body.partial.hour <= 23 ? body.partial.hour : null;
-      if (cut != null) {
-        if (daysBetweenKeys(ranges.daily.since, ranges.daily.until) > 6) { badRequest(res, 'أرقام اليوم بالساعة لحد ٧ أيام بس.'); return; }
-        const d = await getStats('granularity=HOUR&breakdown=campaign' + span(ranges.daily));
-        const byDay = {};
-        const addHour = function (p) {
-          if (!p || !p.start_time) return;
-          // الوقت بتوقيت الحساب نفسه (span بيبعته بفرقه): «2026-11-03T14:00:00.000+03:00» = الساعة ١٤ يوم ٣
-          const k = String(p.start_time).slice(0, 10), h = Number(String(p.start_time).slice(11, 13));
-          if (!(h >= 0) || h >= cut) return;
-          const r = row(p.stats), a = byDay[k] || (byDay[k] = row({}, { date: k }));
-          ['spend', 'imp', 'clicks', 'pur', 'rev', 'atc', 'ic'].forEach(function (f) { a[f] += r[f]; });
-        };
-        (d.timeseries_stats || []).forEach(function (e) {
-          const ts = e.timeseries_stat || e;
-          ((ts.breakdown_stats && ts.breakdown_stats.campaign) || []).forEach(function (b) { (b.timeseries || []).forEach(addHour); });
-          (ts.timeseries || []).forEach(addHour);
-        });
-        res.status(200).json({ daily: dxDaily(Object.keys(byDay).map(function (k) { return byDay[k]; })), dims: [], partial: { hour: cut },
-          account: acc ? { timezone: acc.timezone || null, currency: acc.currency || null } : null });
-        return;
-      }
       // الأرقام اليومية: Snapchat بيحدد مدى طلب اليوم الواحد — بنقسّمه على دفعات ٢٨ يوم
       const dailyRows = [];
       // الحساب نفسه بيرفض أي حقل غير spend («Only field 'spend' should be used when querying AdAccount stats») — فملخص المتجر
       // لـ Snapchat كان بيفشل دايماً ومن غير ما يقول (حساب حقيقي ١١ أكتوبر). دلوقتي: الحملات يوم بيوم، ونجمعها لكل يوم
       const FIELDS_SUM = ['spend', 'imp', 'clicks', 'pur', 'rev', 'atc', 'ic'];
-      for (let s = ranges.daily.since; s <= ranges.daily.until; s = shiftDateKey(s, 28)) {
-        const u = shiftDateKey(s, 27) < ranges.daily.until ? shiftDateKey(s, 27) : ranges.daily.until;
-        const d = await getStats('granularity=DAY&breakdown=campaign' + span({ since: s, until: u }));
+      const dailyChunks = [];
+      ranges.daily.forEach(function (r) {
+        for (let s = r.since; s <= r.until; s = shiftDateKey(s, 28)) dailyChunks.push({ since: s, until: shiftDateKey(s, 27) < r.until ? shiftDateKey(s, 27) : r.until });
+      });
+      for (const chunk of dailyChunks) {
+        const d = await getStats('granularity=DAY&breakdown=campaign' + span(chunk));
         const byDay = {};
         const addPoint = function (p) {
           if (!p || !p.start_time) return;

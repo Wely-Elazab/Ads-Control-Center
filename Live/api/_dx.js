@@ -17,22 +17,26 @@ export function dxAdd(t, r) { DX_FIELDS.forEach(function (f) { const v = Number(
 function range(r) {
   return r && typeof r === 'object' && isDateKey(r.since) && isDateKey(r.until) && r.since <= r.until ? { since: r.since, until: r.until } : null;
 }
-// { daily: {since, until}, windows: [٣ فترات] } — أي حاجة ناقصة أو غريبة = null (والـ endpoint بيرجع BAD_REQUEST)
+// { daily: مدى أو قايمة أمداء (DX.spans), windows: [٣ فترات] } — أي حاجة ناقصة أو غريبة = null (والـ endpoint بيرجع BAD_REQUEST).
+// فترة مقارنة بعيدة (السنة السابقة) بتتطلب على مديين، من غير الأيام اللي بينهم
 export function dxRanges(body) {
-  const daily = range(body && body.daily);
+  const raw = body && body.daily, list = (Array.isArray(raw) ? raw : [raw]).map(range);
   const ws = body && Array.isArray(body.windows) && body.windows.length === 3 ? body.windows.map(range) : null;
-  if (!daily || !ws || ws.some(function (w) { return !w; })) return null;
-  if (daysBetweenKeys(daily.since, daily.until) + 1 > MAX_DAILY_DAYS) return null;
-  if (ws.some(function (w) { return w.since < daily.since || w.until > daily.until; })) return null;
-  return { daily: daily, windows: ws };
+  if (!list.length || list.length > 9 || list.some(function (r) { return !r; }) || !ws || ws.some(function (w) { return !w; })) return null;
+  if (list.reduce(function (n, r) { return n + daysBetweenKeys(r.since, r.until) + 1; }, 0) > MAX_DAILY_DAYS) return null;
+  if (!ws.every(function (w) { return list.some(function (r) { return w.since >= r.since && w.until <= r.until; }); })) return null;
+  return { daily: list, windows: ws };
 }
-// أول تاريخ وآخر تاريخ في الفترات الـ ٣ (التقسيمات بتتطلب على المدى ده مرة واحدة يوم بيوم وبتتوزع هنا)
-export function windowsSpan(ws) {
-  return { since: ws.reduce(function (m, w) { return w.since < m ? w.since : m; }, ws[0].since), until: ws[0].until };
-}
-export function windowIndex(date, ws) {
-  for (let i = 0; i < ws.length; i++) if (date >= ws[i].since && date <= ws[i].until) return i;
-  return -1;
+// الفترات الـ ٣ في أقل عدد أمداء (التقسيمات بتتطلب على كل مدى مرة واحدة يوم بيوم وبتتوزع هنا): فترتين قريبتين مدى واحد زي الأول،
+// وفترة بعيدة (أكتر من شهر فجوة — زي DX.spans) مدى لوحدها
+export function windowsSpans(ws) {
+  const out = [];
+  ws.slice().sort(function (a, b) { return a.since < b.since ? -1 : 1; }).forEach(function (w) {
+    const last = out[out.length - 1];
+    if (last && daysBetweenKeys(last.until, w.since) <= 31) { if (w.until > last.until) last.until = w.until; }
+    else out.push({ since: w.since, until: w.until });
+  });
+  return out;
 }
 // صفوف { date, key, name, goal, ...أرقام } → أجزاء التقسيم بأرقام كل فترة (اللي برّه الفترات بيتجاهل).
 // goal = هدف الحملة (sales / traffic / awareness ...) — بيتبعت بس لو المنصة رجّعته
@@ -40,13 +44,14 @@ export function dxSegments(rows, ws) {
   const map = {};
   (rows || []).forEach(function (r) {
     if (!r || r.key == null) return;
-    const i = r.date ? windowIndex(r.date, ws) : r.w;
-    if (!(i >= 0 && i < 3)) return;
+    // فترة المقارنة ممكن تتداخل مع الفترة: اليوم بيتحسب في كل فترة هو جواها
+    const hits = r.date ? [0, 1, 2].filter(function (i) { return ws[i] && r.date >= ws[i].since && r.date <= ws[i].until; }) : [r.w];
+    if (!hits.length || !(hits[0] >= 0 && hits[0] < 3)) return;
     const key = String(r.key);
     const s = map[key] = map[key] || { key: key, name: r.name || null, w: [null, null, null] };
     if (!s.name && r.name) s.name = r.name;
     if (!s.goal && r.goal) s.goal = r.goal;
-    s.w[i] = dxAdd(s.w[i] || dxEmpty(), r);
+    hits.forEach(function (i) { s.w[i] = dxAdd(s.w[i] || dxEmpty(), r); });
   });
   return Object.keys(map).map(function (k) { return map[k]; });
 }
