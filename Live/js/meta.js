@@ -325,6 +325,36 @@
       return res.err ? fbPagesPromise('/' + accountId + '/insights', params, FULL_SCAN_CAP) : res;
     });
   }
+  // أيام الفترة المختارة لكل إعلان (تقييم الإعلان على الفترة — ٣ نوفمبر ٢٠٢٦). طلب اليوم بيوم بياخد نحو ١٫٥ ثانية لكل يوم مهما كان عدد
+  // الصفوف، وMeta بترجّع HTTP 400 بعد ٣٠ ثانية (حساب حقيقي ٧ نوفمبر: ٧ أيام ١١ ث، ١٤ يوم ١٨ ث، ٣٠ يوم فشل ٦ مرات = ٣ دقايق والكروت
+  // مستنية). فدفعات ٧ أيام، ٤ مع بعض (٤ دفعات خدوا ١٢ ث — التوازي مبيبطّأش). أيام نافذة الأسبوع مبتتطلبش: طلب الأسبوع جابها أصلاً
+  var PERIOD_CHUNK_DAYS = 7, PERIOD_CHUNK_PARALLEL = 4;
+  function metaPeriodChunks(accountId, pr, days) {
+    var first = days[0].key, until = pr.until < first ? pr.until : shiftKey(first, -1), parts = [], rows = [];
+    for (var s = pr.since; s <= until; s = shiftKey(s, PERIOD_CHUNK_DAYS)) {
+      var e = shiftKey(s, PERIOD_CHUNK_DAYS - 1);
+      parts.push({ since: s, until: e < until ? e : until });
+    }
+    var one = function (w, again) {
+      return new Promise(function (resolve) {
+        fetchAllPages('/' + accountId + '/insights', { level: 'ad', time_increment: 1, time_range: JSON.stringify(w), action_attribution_windows: ATTR_WINDOWS,
+          fields: 'ad_id,date_start,spend,actions,action_values,results', limit: 500 }, FULL_SCAN_CAP, function (err, data, truncated) { resolve({ err: err, data: data || [], truncated: truncated }); });
+      }).then(function (res) {
+        if (!res.err || again || isMetaAuthError(res.err)) return res;
+        return new Promise(function (r) { setTimeout(r, 1500); }).then(function () { return one(w, true); });
+      });
+    };
+    var round = function (i) {
+      if (i >= parts.length) return Promise.resolve({ data: rows });
+      return Promise.all(parts.slice(i, i + PERIOD_CHUNK_PARALLEL).map(function (w) { return one(w); })).then(function (list) {
+        var bad = list.filter(function (x) { return x.err || x.truncated; })[0];
+        if (bad) return { err: bad.err || { message: 'truncated' } };
+        list.forEach(function (x) { rows = rows.concat(x.data); });
+        return round(i + PERIOD_CHUNK_PARALLEL);
+      });
+    };
+    return round(0);
+  }
   // طلبات مجمّعة (Batch): لحد ٥٠ عنصر برقمه في طلب واحد. Meta لغت ?ids= من v26.0
   // («The ids query parameter is deprecated») — فالطريقة القديمة كانت بتفشل في صمت.
   // query = الحقول بصيغة ?fields=... — بيرجّع قائمة العناصر اللي رجعت (الفاشل بيتشال)
@@ -404,18 +434,17 @@
     var reachP = fbPagesPromise('/' + accountId + '/insights', {
       level: 'ad', time_range: JSON.stringify({ since: days[0].key, until: days[days.length - 2].key }), fields: 'ad_id,frequency,reach,impressions', limit: 500
     }, FULL_SCAN_CAP);
-    // أرقام الفترة المختارة يوم بيوم لكل إعلان (٣ نوفمبر ٢٠٢٦ — تقييم الإعلان بقى على الفترة نفسها، مش آخر ٧ أيام بس). المجموع
-    // = جمع الأيام بالظبط. لو الصفوف اتقطعت (حساب ضخم وفترة طويلة — حد FULL_SCAN_CAP) بنرجع للمجموع زي الأول من غير أيام،
-    // والتقييم ساعتها على آخر ٧ أيام والحالة بتقول كده (note.periodDaily)
+    // أرقام الفترة المختارة: المجموع (صف لكل إعلان، ثانية أو اتنين) هو اللي الكروت بتستناه. أيام الفترة للحكم عليها (metaPeriodChunks)
+    // بتتحمّل بالتوازي من غير ما توقف حاجة، وأول ما توصل الكروت بتتحدّث (useDays تحت). فشلها = الأرقام للفترة والتقييم على آخر ٧ أيام
+    // والحالة بتقول كده (note.periodDaily). و«آخر ٧ أيام» حكمها على النافذة اليومية أصلاً، فمالهاش طلب أيام
     var pr = resolvePeriodFor(info.timeZone || BROWSER_TZ);
-    var periodTotals = function () {
-      return insightsPromise(accountId, { level: 'ad', time_range: JSON.stringify({ since: pr.since, until: pr.until }), fields: 'ad_id,spend,actions,action_values', limit: 500 })
-        .then(function (res) { res.totalsOnly = true; return res; });
-    };
     var periodP = pr.isDefault ? Promise.resolve(null) : insightsPromise(accountId, {
-      level: 'ad', time_increment: 1, time_range: JSON.stringify({ since: pr.since, until: pr.until }),
-      fields: 'ad_id,date_start,spend,actions,action_values', limit: 500
-    }).then(function (res) { return res.err || res.truncated ? periodTotals() : res; });
+      level: 'ad', time_range: JSON.stringify({ since: pr.since, until: pr.until }),
+      fields: 'ad_id,spend,actions,action_values', limit: 500
+    });
+    var daysP = pr.preset === 'last7' ? null : metaPeriodChunks(accountId, pr, days);
+    var daysPending = !!daysP, daysPart = null, onDays = null;
+    if (daysP) daysP.then(function (part) { daysPart = part; if (onDays) onDays(); });
 
     var order = [], adsById = {}, adsTruncated = false, adFields = null;
     var allInOne = false, stoppedUsed = false, stoppedFailed = false;
@@ -432,7 +461,7 @@
     var build = function (insightsByAd, reachByAd, adsetStatusMap, periodByAd) {
       return order.map(function (id) {
         return transformRealAd(adsById[id], (insightsByAd && insightsByAd[id]) || [], adsetStatusMap, days,
-          reachByAd && reachByAd[id], info.currency || null, accountInfo[source], periodByAd ? (periodByAd[id] || (maps && maps.periodRes && maps.periodRes.totalsOnly ? {} : [])) : null, pr);
+          reachByAd && reachByAd[id], info.currency || null, accountInfo[source], periodByAd ? (periodByAd[id] || (maps && maps.days ? [] : {})) : null, pr);
       });
     };
     var byAdId = function (rows, multi) {
@@ -505,6 +534,13 @@
     var needStopped = function () { return !allInOne && !stoppedUsed; };
     var publish = function (done) {
       var fresh = build(maps.insights, maps.reach, maps.adsets, maps.period);
+      // الأيام لسه جاية: أيام النسخة المحفوظة لنفس الفترة بتفضل لحد ما توصل، بدل ما الحكم يقلب على «آخر ٧ أيام» ويرجع
+      if (daysPending) {
+        fresh.forEach(function (c) {
+          var o = findCandidate(c.id);
+          if (o && o.pd && o.pd.dates[0] === pr.since && o.pd.dates[o.pd.dates.length - 1] === pr.until) c.pd = o.pd;
+        });
+      }
       // لسه المتوقفة جاية: الكروت المتوقفة من النسخة المحفوظة بتفضل ظاهرة لحد ما الجديدة توصل (مفيش فيها أرقام بتتغيّر)
       if (!done && cachedShown) {
         var ids = {};
@@ -520,8 +556,8 @@
       if (done || !cachedShown) cacheSource(source, candidates.filter(function (c) { return c.source === source; }));
       var notes = [];
       if (maps.periodRes && maps.periodRes.err) notes.push(msg('note.periodFailed'));
-      // الأيام اتقطعت أو فشلت والمجموع وصل (periodTotals): الكروت بأرقام الفترة، والتقييم على آخر ٧ أيام (ui.js judgedOnPeriod)
-      else if (maps.periodRes && maps.periodRes.totalsOnly) notes.push(msg('note.periodDaily'));
+      // الأيام فشلت والمجموع وصل: الكروت بأرقام الفترة، والتقييم على آخر ٧ أيام (ui.js judgedOnPeriod)
+      else if (maps.daysFailed) notes.push(msg('note.periodDaily'));
       if (maps.daily.noWindows) notes.push(msg('note.noWindows'));
       if (adsTruncated) notes.push(msg('note.adsCapped', { n: PAGE_SAFETY_CAP, ads: function () { return noun(PAGE_SAFETY_CAP, 'n.ad'); } }));
       if (maps.daily.err) notes.push(msg('note.dailyFailed', { msg: metaErrorText(maps.daily.err) }));
@@ -529,8 +565,9 @@
       if (stoppedFailed) notes.push(msg('note.stoppedFailed'));
       setPlatformState('meta', null);
       var text = connectedText(notes);
-      if (done) setLoading('meta', false, text);
-      else setLoading('meta', true, function () { return text() + ' ' + t('s.metaStoppedLoading'); }, { bg: true });
+      var waiting = !done ? 's.metaStoppedLoading' : (daysPending ? 's.metaDaysLoading' : null);
+      if (waiting) setLoading('meta', true, function () { return text() + ' ' + t(waiting); }, { bg: true });
+      else setLoading('meta', false, text);
       render();
     };
 
@@ -542,8 +579,18 @@
       if (!live() || !adsetStatusMap) return null;
       maps = {
         insights: byAdId(daily.data, true), reach: byAdId(reach.data), adsets: adsetStatusMap,
-        period: (periodRes && !periodRes.err) ? byAdId(periodRes.data, !periodRes.totalsOnly) : null, daily: daily, periodRes: periodRes
+        period: (periodRes && !periodRes.err) ? byAdId(periodRes.data) : null, daily: daily, periodRes: periodRes
       };
+      // أيام الفترة = الدفعات + أيام الفترة اللي جوه نافذة الأسبوع. طلب الأسبوع لو فشل أو رجع من غير نوافذ النسب أرقامه مش بنفس الأساس
+      var stoppedBusy = false;
+      var useDays = function () {
+        daysPending = false;
+        if (daysPart.err || daily.err || daily.truncated || daily.noWindows) { maps.daysFailed = true; return; }
+        var rows = daysPart.data.concat(daily.data.filter(function (row) { return row.date_start >= pr.since && row.date_start <= pr.until; }));
+        maps.period = byAdId(rows, true); maps.periodRes = { data: rows }; maps.days = true;
+      };
+      if (daysPart) useDays();
+      else if (daysP) onDays = function () { if (!live()) return; useDays(); publish(!stoppedBusy); };
       // المرحلة التالتة: الإعلانات المتوقفة (في الخلفية) — بتنضاف بنفس الأرقام اللي اتحمّلت.
       // مبتبدأش لوحدها: الزرار في آخر القايمة أو فلتر «متوقف» بينادوها (stoppedLoaders.meta)
       var stage3Started = false;
@@ -551,6 +598,7 @@
         if (stage3Started || !live() || !needStopped()) return;
         stage3Started = true;
         if (stoppedLoaders.meta === stage3) stoppedLoaders.meta = null;
+        stoppedBusy = true;
         publish(false);   // الحالة: «جارٍ تحميل الإعلانات المتوقفة في الخلفية…»
         stoppedP().then(function (s) {
           if (!live()) return null;
@@ -558,7 +606,7 @@
           if (s.truncated) adsTruncated = true;
           var added = s.data.filter(add);
           return new Promise(function (resolve) { resolveMetaImages(accountId, added, resolve); });
-        }).then(function () { if (live()) publish(true); });
+        }).then(function () { stoppedBusy = false; if (live()) publish(true); });
       };
       stoppedLoaders.meta = needStopped() ? stage3 : null;
       publish(true);

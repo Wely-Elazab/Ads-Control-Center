@@ -9791,6 +9791,147 @@
       eq([c2.pd, c2.period.spend], [null, 31], 'no daily report: the total as before');
     });
 
+    // حساب Meta وهمي: طلبات الأيام (time_increment خارج نافذة الأسبوع) بتتمسك لحد ما الاختبار يردّ عليها
+    var metaFake = function (id, o) {
+      o = o || {};
+      var hadFB = 'FB' in window, prevFB = window.FB, held = [], f = { held: held, totals: 0, weeks: 0, ranges: [] };
+      var buy = function (d, sp) { return { ad_id: 'm1', date_start: d, spend: String(sp), actions: [{ action_type: 'omni_purchase', value: '1' }], action_values: [{ action_type: 'omni_purchase', value: '100' }] }; };
+      var week = last7Days(todayKeyInTz('UTC')).map(function (d) { return d.key; });
+      window.FB = { api: function (path, params, cb) {
+        var p = typeof params === 'object' ? params : {}, reply = { data: [] };
+        if (/\/ads$/.test(path) && o.holdStopped && /PAUSED/.test(p.effective_status || '')) { f.stopped = function () { cb({ data: [] }); return sleep(60); }; return; }
+        if (/\/ads$/.test(path)) reply = { data: [{ id: 'm1', name: 'M', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000', adset: { id: 's', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c', name: 'C' }, creative: {} }] };
+        if (/insights$/.test(path) && /actions/.test(p.fields || '') && p.time_range) {
+          var r = JSON.parse(p.time_range);
+          if (!p.time_increment) { f.totals++; reply = { data: [Object.assign(buy(r.since, 900), { date_start: undefined })] }; }
+          else if (r.until === week[week.length - 1] && r.since === week[0]) {
+            f.weeks++;
+            reply = o.weekNoWindows && p.action_attribution_windows ? { error: { code: 100, message: 'bad windows' } } : { data: week.map(function (d) { return buy(d, 10); }) };
+          }
+          else {
+            f.ranges.push(r);
+            held.push({ r: r, answer: function (bad) {
+              var out = [];
+              for (var k = r.since; k <= r.until; k = shiftKey(k, 1)) out.push(buy(k, 20));
+              cb(bad ? { error: { code: 1, message: 'Please reduce the amount of data' } } : { data: out });
+            } });
+            return;
+          }
+        }
+        setTimeout(function () { cb(reply); }, 0);
+      } };
+      accountInfo['meta:' + id] = { timeZone: 'UTC', currency: 'SAR' };
+      f.restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; };
+      f.pump = function (bad) { var list = held.splice(0, held.length); list.forEach(function (h) { h.answer(bad); }); return sleep(60); };
+      f.ad = function () { return candidates.filter(function (c) { return c.id === 'm1'; })[0]; };
+      return f;
+    };
+    var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+    var statusText = function () { return document.getElementById('connectStatus').textContent; };
+
+    testAsync('Meta: الكروت متستناش أيام الفترة — المجموع أول، والأيام دفعات ٧ أيام بالتوازي من غير أيام الأسبوع', function () {
+      period = { preset: 'last30' };
+      var f = metaFake('act_41');
+      loadAdsForAccount('act_41');
+      return sleep(80).then(function () {
+        // حساب حقيقي ٧ نوفمبر: طلب ٣٠ يوم يوم بيوم فشل ٦ مرات ٣٠ ثانية، والكروت مستنية ٣ دقايق
+        var c = f.ad(), week = last7Days(todayKeyInTz('UTC')).map(function (d) { return d.key; }), r = resolvePeriodFor('UTC');
+        eq([c.period.spend, c.pd, numbersPending.meta, f.weeks, f.totals], [900, null, false, 1, 1], 'numbers first, days still on the way');
+        ok(statusText().indexOf(t('s.metaDaysLoading')) > -1, statusText());
+        eq(f.ranges.length, 4, 'four at a time');
+        eq([f.ranges[0].since, f.ranges[0].until], [r.since, shiftKey(r.since, 6)]);
+        return f.pump().then(function () {
+          // ٢٣ يوم قبل نافذة الأسبوع = ٤ دفعات، كلها في الجولة الأولى، وآخرها بيقف قبل النافذة
+          eq(f.ranges[3].until, shiftKey(week[0], -1), 'the week is not fetched again');
+          var d = f.ad();
+          eq([d.pd.dates.length, d.pd.dates[0], d.pd.dates[29], d.pd.spend[0], d.pd.spend[29]], [30, r.since, r.until, 20, 10]);
+          eq([d.period.spend, d.period.results], [23 * 20 + 7 * 10, 30], 'the card total = the sum of the days');
+          ok(analysis.period && judgedOnPeriod(d), 'judged on the period');
+          ok(statusText().indexOf(t('s.metaDaysLoading')) < 0 && !loadingPlatforms.meta, statusText());
+        });
+      }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: زيارة الفترة تاني — أيام النسخة المحفوظة بتفضل لحد ما الجديدة توصل، فالحكم مبيقلبش', function () {
+      period = { preset: 'last30' };
+      var f = metaFake('act_42');
+      loadAdsForAccount('act_42');
+      return sleep(80).then(function () { return f.pump(); }).then(function () {
+        ok(f.ad().pd, 'first visit: days arrived');
+        loadAdsForAccount('act_42');
+        return sleep(80);
+      }).then(function () {
+        var c = f.ad();
+        eq([f.held.length, !!c.pd, c.pd && c.pd.dates.length], [4, true, 30], 'still the saved days while the new ones load');
+        return f.pump();
+      }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: دفعة فشلت مرتين = الأرقام للفترة والتقييم على آخر ٧ أيام والحالة بتقول كده، ومرة واحدة بتتعاد', function () {
+      period = { preset: 'last14' };
+      var f = metaFake('act_43');
+      loadAdsForAccount('act_43');
+      return sleep(80).then(function () {
+        eq(f.held.length, 1, 'seven days before the week = one batch');
+        return f.pump(true);
+      }).then(function () { return sleep(1600); }).then(function () {
+        eq(f.held.length, 1, 'one more try');
+        return f.pump(true);
+      }).then(function () {
+        var c = f.ad();
+        eq([c.pd, c.period.spend, !!judgedOnPeriod(c)], [null, 900, false]);
+        ok(statusText().indexOf(t('note.periodDaily')) > -1 && !loadingPlatforms.meta, statusText());
+      }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: طلب الأسبوع رجع من غير نوافذ النسب = الأيام مبتتخلطش بأساسين، والحالة بتقول كده', function () {
+      period = { preset: 'last14' };
+      var f = metaFake('act_45', { weekNoWindows: true });
+      loadAdsForAccount('act_45');
+      return sleep(1800).then(function () { return f.pump(); }).then(function () {
+        var c = f.ad();
+        eq([c.pd, c.period.spend, !!judgedOnPeriod(c)], [null, 900, false]);
+        ok(statusText().indexOf(t('note.periodDaily')) > -1, statusText());
+      }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: الأيام وصلت والمتوقفة لسه جاية = الحالة بتفضل تقول إنها بتتحمّل، ومبتخلّصش قبلها', function () {
+      period = { preset: 'last14' };
+      var f = metaFake('act_46', { holdStopped: true });
+      loadAdsForAccount('act_46');
+      return sleep(80).then(function () {
+        stoppedLoaders.meta();
+        return sleep(40);
+      }).then(function () { return f.pump(); }).then(function () {
+        ok(f.ad().pd, 'the days are in');
+        ok(statusText().indexOf(t('s.metaStoppedLoading')) > -1 && loadingPlatforms.meta, statusText());
+        return f.stopped();
+      }).then(function () {
+        ok(statusText().indexOf(t('s.metaStoppedLoading')) < 0 && !loadingPlatforms.meta, statusText());
+      }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
+    testAsync('Meta: «آخر ٧ أيام» من غير طلب أيام، و«أمس» و«اليوم» من طلب الأسبوع نفسه من غير أي طلب زيادة', function () {
+      period = { preset: 'last7' };
+      var f = metaFake('act_44');
+      loadAdsForAccount('act_44');
+      return sleep(80).then(function () {
+        eq([f.weeks, f.totals, f.ranges.length, f.ad().pd], [1, 1, 0, null], 'last 7 days');
+        period = { preset: 'yesterday' };
+        loadAdsForAccount('act_44');
+        return sleep(80);
+      }).then(function () {
+        var d = f.ad(), y = shiftKey(todayKeyInTz('UTC'), -1);
+        eq([f.ranges.length, d.pd.dates, d.pd.spend, d.period.spend], [0, [y], [10], 10], 'yesterday: from the week');
+        period = { preset: 'today' };
+        loadAdsForAccount('act_44');
+        return sleep(80);
+      }).then(function () {
+        var d = f.ad();
+        eq([f.ranges.length, d.pd.dates, d.period.spend], [0, [todayKeyInTz('UTC')], 10], 'today: from the week');
+      }).then(function () { f.restore(); }, function (e) { f.restore(); throw e; });
+    });
+
     testAsync('Snapchat (الخادم): الفترة يوم بيوم على دفعات ٢٨ يوم ورا بعض، متجمّعة في رد واحد بنفس شكل الأسبوع', function () {
       var realFetch = window.fetch, starts = [];
       var json = function (obj) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(obj); } }); };
