@@ -479,6 +479,12 @@
     if (a[0] === b[0] && a[1] === b[1]) return ar(a[2]) + '–' + ar(b[2]) + ' ' + monthsShort()[a[1] - 1];
     return fmtKey(since) + ' – ' + fmtKey(until);
   }
+  // فترة جنب فترة تانية: لو في سنتين مختلفتين السنة لازم تبان. فحص حي ٧ نوفمبر ٢٠٢٦ على «السنة السابقة»: الملخص قال
+  // «٨ أكتوبر – ٦ نوفمبر مقارنةً بـ ٨ أكتوبر – ٦ نوفمبر» كأنها نفس الفترة
+  function fmtCompared(since, until, other) {
+    var y = until.slice(0, 4) !== other.until.slice(0, 4) || since.slice(0, 4) !== other.since.slice(0, 4);
+    return fmtRange(since, until) + (y ? ' ' + ar(until.slice(0, 4)) : '');
+  }
   function periodLabel() {
     if (period.preset !== 'custom') return PERIOD_LABELS[period.preset];
     return fmtRange(period.since, period.until);

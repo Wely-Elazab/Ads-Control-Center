@@ -456,6 +456,8 @@
     .period-presets { flex-direction: row; flex-wrap: wrap; min-width: 0; }
     .period-presets [data-preset] { min-height: 44px; border: 1px solid var(--line); }
     .period-apply, .period-actions .ghost-btn { min-height: 44px; }
+    /* زرار «تطبيق» ظاهر دايماً: اللوحة أطول من الشاشة وكان لازم تنزل لآخرها عشان تلاقيه (فحص حي ٧ نوفمبر) */
+    .period-actions { position: sticky; bottom: -14px; margin: 0 -14px -14px; padding: 10px 14px; background: var(--card); border-top: 1px solid var(--line); }
     .period-side { width: auto; }
     .cal-month { width: 100%; }
     .cal-grid { grid-template-columns: repeat(7, 1fr); }

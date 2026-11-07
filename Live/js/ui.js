@@ -1979,7 +1979,9 @@
     var lines = (nums ? storeLines(dxViewPlatforms()) : []).concat(costVsMax(dxViewPlatforms()));
     document.getElementById('dxToday').innerHTML = lines.map(function (l) { return '<p>' + esc(l.text) + '</p>'; }).join('');
     // بين قوسين مش «·» — النقطة جنب الأرقام العربية بتتقري «٠»
-    period.textContent = nums ? o.period + (lines.some(function (l) { return l.today; }) ? ' (' + t('dx.fullDays') + ')' : '') : '';
+    // «أيام مكتملة» بتتقال بس لو الفترتين كده: فترة مقارنة فيها النهارده مش مكتملة
+    var full = lines.some(function (l) { return l.today; }) && !(dxState.report && dxState.report.lens && dxState.report.lens.prevOpen);
+    period.textContent = nums ? o.period + (full ? ' (' + t('dx.fullDays') + ')' : '') : '';
     // أزرار المنصات («كل المنصات» + كل منصة متصلة بلونها وشعارها) — اسم الحساب جنب المنصة: قائمة الحسابات فوق بتقول حساب منصة
     // واحدة بس (حساب حقيقي ١١ أكتوبر ٢٠٢٦: القائمة على Snapchat والصفحة فيها إعلانات Meta ومفيش مكان بيقول أنهي حساب Meta)
     var chips = platChipsHtml(true);
@@ -2086,7 +2088,7 @@
   // «٦ طلبات، و٤٠ محادثة» — كل نوع لوحده، الأكبر الأول (زي شريط النتائج). الشراء «طلبات» بنفس كلمة أرقام الملخص فوق
   function resultTexts(map) {
     return Object.keys(map).sort(function (a, b) { return map[b] - map[a]; }).map(function (k) {
-      return k === 'purchase' ? DX.ordersText(map[k]) : fmtNum(map[k]) + ' ' + I18N.resultNoun(map[k], k);
+      return k === 'purchase' ? DX.ordersText(map[k]) : I18N.countPhrase(map[k], k, fmtNum);
     });
   }
   // مجموع بعملات مختلفة: كلها مربوطة بالدولار بسعر رسمي = مبلغ واحد بالعملة المختارة (قرار ٢٥ أكتوبر — DX.pegRate)، وإلا كل عملة
@@ -2263,8 +2265,9 @@
   var pendingCmp = null;               // خيار «قارن مع» قبل «تطبيق» — null = الافتراضي حسب الفترة (cmpModeFor)
   var calFirst = null, calTarget = 'main', calPick = null;   // أول شهر ظاهر، والتقويم بيختار أنهي فترة، وأول ضغطة في اختيار المدى
   // اسم الفترة على الزرار: الجاهزة باسمها وأيامها، والمخصصة بأيامها بس
-  function periodBtnText(r) {
-    return r.preset === 'custom' ? fmtRange(r.since, r.until) : PERIOD_LABELS[r.preset] + ' · ' + fmtRange(r.since, r.until);
+  function periodBtnText(r, w) {
+    var days = fmtCompared(r.since, r.until, w || r);
+    return r.preset === 'custom' ? days : PERIOD_LABELS[r.preset] + ' · ' + days;
   }
   // فترة المقارنة اللي ملخص المتجر بيقارن بيها (diagnosis.js windowsFor) — للفترة pp والمقارنة cc (أو المطبّقتين)
   function compareRangeFor(pp, cc) {
@@ -2272,11 +2275,11 @@
     var d = dxPeriodFor(BROWSER_TZ, pp, cc);
     return DX.compareWindow(d.since, d.until, { unit: d.unit, cmp: d.cmp });
   }
-  function compareRangeText(w) { return t('period.vs', { range: fmtRange(w.since, w.until) }); }
+  function compareRangeText(w, r) { return t('period.vs', { range: fmtCompared(w.since, w.until, r) }); }
   function syncPeriodUi() {
     var r = resolvePeriodFor(BROWSER_TZ), w = compareRangeFor();
-    document.getElementById('periodBtnMain').textContent = periodBtnText(r);
-    document.getElementById('periodBtnCmp').textContent = w ? compareRangeText(w) : '';
+    document.getElementById('periodBtnMain').textContent = periodBtnText(r, w);
+    document.getElementById('periodBtnCmp').textContent = w ? compareRangeText(w, r) : '';
     var today = todayKeyInTz(BROWSER_TZ);
     [dateFrom, dateTo, cmpFrom, cmpTo].forEach(function (el) { el.max = today; });
   }
@@ -2293,7 +2296,7 @@
     var mode = pendingCmp || cmpModeFor(pendingPreset, null), custom = mode === 'custom';
     cmpMode.value = mode;
     var w = custom ? null : compareRangeFor(pendingPeriodValue(), { mode: mode });
-    document.getElementById('cmpRange').textContent = w ? fmtRange(w.since, w.until) : '';
+    document.getElementById('cmpRange').textContent = w ? fmtCompared(w.since, w.until, { since: dateFrom.value || w.since, until: dateTo.value || w.until }) : '';
     document.getElementById('cmpDates').hidden = !custom;
     renderCal(w);
   }

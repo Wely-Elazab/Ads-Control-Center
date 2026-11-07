@@ -1051,7 +1051,9 @@ var DX = (function () {
       since: cur.since, until: cur.until, prevSince: prev.since, prevUntil: prev.until, len: cur.len, lens: lens,
       currency: input.currency || null, cur: cur, prev: prev, windows: W, tracked: tr
     };
-    if (!tr.pur) { report.status = 'noPurchases'; return report; }
+    // «لا تُسجَّل مشتريات» بس لو مفيش ولا طلب: فحص حي ٧ نوفمبر ٢٠٢٦ — حساب فيه ٤ طلبات في ٩ أيام طلع عنه «لا تصل إليها أي عمليات
+    // شراء» في فترة «اليوم» (نوافذها قصيرة). الطلبات القليلة نتيجتها «البيانات لا تكفي» تحت
+    if (!(total.pur > 0)) { report.status = 'noPurchases'; return report; }
     // تذبذب الحساب في التاريخ (من الأقدم للأحدث، من غير الفترة الحالية)
     var phiH = historyPhi(W.slice(1).reverse(), 'pur', 'spend') || PHI_DEFAULT_HIST;
     var phiD = Math.max(PHI_SAMPLING, dailyPhi(daily, cur.since, 'pur', 'spend') || PHI_DEFAULT_HIST);
@@ -2084,7 +2086,8 @@ var DX = (function () {
     var M = function (v) { return money(v, r.currency); };
     SEEN = (r.owner && r.owner.seen) || {};
     var o = { status: r.status, blocks: [], kpis: [], notes: [],
-      period: t(r.lens && r.lens.open ? 'dx.compareOpen' : 'dx.compare', { cur: fmtRange(r.since, r.until), prev: fmtRange(r.prevSince, r.prevUntil) }) };
+      period: t(r.lens && r.lens.open ? 'dx.compareOpen' : 'dx.compare', { cur: fmtCompared(r.since, r.until, { since: r.prevSince, until: r.prevUntil }),
+        prev: fmtCompared(r.prevSince, r.prevUntil, r) }) };
     // تحت الأرقام مش في آخر الصفحة: الأرقام فعلية، وده السطر اللي بيقول إزاي تتقري لما الفترتين مش زي بعض
     o.kpiNote = lenNote(r);
     if (r.status === 'noPurchases') {

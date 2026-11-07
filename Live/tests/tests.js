@@ -6307,6 +6307,12 @@
         eq(row('last30', mon), '2026-10-08 2026-11-06 2026-09-08 2026-10-06', 'a different length, like Meta');
         // «السنة السابقة»
         eq(row('last30', { mode: 'year' }), '2026-10-08 2026-11-06 2025-10-08 2025-11-06');
+        // في سنتين مختلفتين السنة بتبان، وفي سنة واحدة لأ
+        withLang('ar', function () {
+          eq(fmtCompared('2026-10-08', '2026-11-06', { since: '2025-10-08', until: '2025-11-06' }), fmtRange('2026-10-08', '2026-11-06') + ' ٢٠٢٦');
+          eq(fmtCompared('2026-10-08', '2026-11-06', { since: '2026-09-08', until: '2026-10-07' }), fmtRange('2026-10-08', '2026-11-06'));
+          ok(fmtCompared('2027-01-01', '2027-01-07', { since: '2026-12-25', until: '2026-12-31' }).indexOf('٢٠٢٧') > -1, 'across new year');
+        });
         // الافتراضي بوحدة الفترة (طلب صاحب المنتج ٣ نوفمبر): الشهر بالشهر والأسبوع بالأسبوع
         var auto = { mode: 'prev' };
         eq(row('lastMonth', auto), '2026-10-01 2026-10-31 2026-09-01 2026-09-30');
@@ -6415,6 +6421,17 @@
           eq(document.querySelectorAll('#storeSec .dx-kpi-pct.good, #storeSec .dx-kpi-pct.bad').length, 0, 'no colours');
           eq(document.getElementById('dxPeriod').textContent, o.period, 'no «complete days» label');
           ok(document.getElementById('dxToday').textContent.indexOf('لا يدخل في المقارنة') < 0, 'today is the period itself');
+          // «أيام مكتملة» جنب الفترة بس لو الفترتين كده: فترة مقارنة فيها النهارده مش مكتملة
+          period = { preset: 'last7' };
+          var lp = resolvePeriodFor(BROWSER_TZ);
+          dxState.report = DX.analyze({ since: lp.since, until: lp.until, today: D, currency: 'USD', daily: days, dims: [] });
+          renderDiagnosis();
+          ok(document.getElementById('dxPeriod').textContent.indexOf(t('dx.fullDays')) > -1, 'complete days on both sides');
+          dxState.report = DX.analyze({ since: lp.since, until: lp.until, cmp: { since: shiftKey(D, -3), until: D }, today: D, currency: 'USD', daily: days, dims: [] });
+          renderDiagnosis();
+          ok(document.getElementById('dxPeriod').textContent.indexOf(t('dx.fullDays')) < 0, 'the comparison includes today');
+          eq(resultTexts({ message: 1 }), ['محادثة واحدة'], 'not «١ محادثة»');
+          eq(resultTexts({ message: 12 }), ['١٢ محادثة']);
           // فترة مش فيها النهارده: سطره لوحده زي الأول، و«هذا الشهر» فيه النهارده فمبيظهرش
           period = { preset: 'last7' };
           ok(storeLines(['meta']).some(function (l) { return l.today; }), 'last 7 days: today on its own line');
@@ -6522,6 +6539,14 @@
       var none = flat.map(function (d) { return d.date >= '2026-10-27' ? Object.assign({}, d, { pur: 0, rev: 0, atc: 0, ic: 0 }) : d; });
       var zero = DX.analyze({ since: '2026-10-27', until: '2026-11-02', cmp: { since: '2026-09-01', until: '2026-09-30' }, currency: 'USD', daily: none, dims: [] });
       withLang('ar', function () { ok(DX.toText(DX.compose(zero)).indexOf(t('dx.verdict.lenCalm')) < 0, 'no «no change in cost» with zero orders'); });
+      // مقارنة بسنة تانية: الرأس بيقول السنتين، مش نفس الأيام مرتين
+      var yr = [];
+      for (var y2 = '2025-09-01'; y2 <= '2026-11-02'; y2 = shiftKey(y2, 1)) yr.push({ date: y2, spend: 100, imp: 5000, clicks: 100, atc: 20, ic: 10, pur: 6, rev: 600 });
+      withLang('ar', function () {
+        var p2 = DX.compose(DX.analyze({ since: '2026-10-27', until: '2026-11-02', cmp: { since: '2025-10-27', until: '2025-11-02' }, currency: 'USD', daily: yr, dims: [] })).period;
+        ok(p2.indexOf('٢٠٢٦') > -1 && p2.indexOf('٢٠٢٥') > -1, p2);
+        ok(DX.compose(DX.analyze({ since: '2026-10-27', until: '2026-11-02', currency: 'USD', daily: yr, dims: [] })).period.indexOf('٢٠٢٦') < 0, 'same year: no year');
+      });
       // نفس الطول: من غير أي سطر
       var plain = DX.compose(DX.analyze({ since: '2026-10-20', until: '2026-11-02', daily: flat, dims: [] }));
       ok(plain.kpis.length && !plain.kpiNote, 'same length: nothing changes');
@@ -6553,8 +6578,11 @@
       }
       var few = DX.analyze({ since: '2026-10-19', until: '2026-11-02', cmp: { since: '2026-09-01', until: '2026-09-05' }, daily: fewDays, dims: [] });
       eq([few.status, few.orders], ['insufficient', 7]);
-      var none = fewDays.map(function (x) { var y = Object.assign({}, x); y.pur = x.date === '2026-09-01' || x.date === '2026-09-02' || x.date === '2026-10-19' || x.date === '2026-10-20' ? 1 : 0; return y; });
-      eq(DX.analyze({ since: '2026-10-19', until: '2026-11-02', cmp: { since: '2026-09-01', until: '2026-09-05' }, daily: none, dims: [] }).status, 'noPurchases');
+      // طلبات قليلة مش «لا تُسجَّل مشتريات»: الجملة دي بس لو مفيش ولا طلب (حساب حقيقي ٧ نوفمبر: ٤ طلبات في ٩ أيام)
+      var low = fewDays.map(function (x) { var y = Object.assign({}, x); y.pur = x.date === '2026-09-01' || x.date === '2026-09-02' || x.date === '2026-10-19' || x.date === '2026-10-20' ? 1 : 0; return y; });
+      eq(DX.analyze({ since: '2026-10-19', until: '2026-11-02', cmp: { since: '2026-09-01', until: '2026-09-05' }, daily: low, dims: [] }).status, 'insufficient');
+      var noneAtAll = fewDays.map(function (x) { return Object.assign({}, x, { pur: 0 }); });
+      eq(DX.analyze({ since: '2026-10-19', until: '2026-11-02', cmp: { since: '2026-09-01', until: '2026-09-05' }, daily: noneAtAll, dims: [] }).status, 'noPurchases');
       // كل اختبارات العنوان على العدّ الفعلي لكل فترة
       var zd = days.map(function (x) { var y = Object.assign({}, x); if (y.spend === 200) { y.pur = 14; y.rev = 1500; } return y; });
       var zr = DX.analyze(Object.assign({}, base, { daily: zd, dims: [] })), hh = zr.head, ph = zr.phiDaily;
@@ -9339,9 +9367,12 @@
         panel.querySelector('[data-preset="last30"]').click();
         eq(sel.value, 'year', 'an explicit choice stays, like Meta');
         var r = w.resolvePeriodFor(w.BROWSER_TZ, { preset: 'last30' });
-        eq(range(), w.fmtRange(w.shiftMonths(r.since, -12), w.shiftMonths(r.until, -12)));
+        var ya = w.shiftMonths(r.since, -12), yb = w.shiftMonths(r.until, -12);
+        eq(range(), w.fmtRange(ya, yb) + ' ' + w.ar(yb.slice(0, 4)), 'the year shows, or it reads like the same days');
         d.getElementById('periodApply').click();
         eq(w.compare, { mode: 'year' }, 'saved');
+        eq(d.getElementById('periodBtnCmp').textContent, w.t('period.vs', { range: w.fmtRange(ya, yb) + ' ' + w.ar(yb.slice(0, 4)) }));
+        ok(d.getElementById('periodBtnMain').textContent.indexOf(w.ar(r.until.slice(0, 4))) > -1, 'on both sides');
         var a = w.routeParts ? w.routeParts() : null;
         if (a) eq(a.compare, 'year');
         eq(w.parseRoute('?cmp=year&period=thisWeek', today).compare, { mode: 'year' }, 'from a link');
@@ -9460,6 +9491,8 @@
           var minL = rtl ? w.innerWidth - vw : 0, maxR = rtl ? w.innerWidth : vw;
           ok(pb.l >= minL && pb.r <= maxR && pb.h > 0, 'inside the screen: ' + JSON.stringify(pb) + ' / ' + minL + '..' + maxR);
           eq([].filter.call(panel.querySelectorAll('.cal-month'), function (m) { return box(m).h > 0; }).length, 1, 'one month on a phone');
+          // «تطبيق» ظاهر من غير نزول لآخر اللوحة
+          ok(box(d.getElementById('periodApply')).b <= pb.b + 1, 'apply stays in view: ' + box(d.getElementById('periodApply')).b + ' of ' + pb.b);
           var small = [].slice.call(panel.querySelectorAll('[data-preset], #periodApply, #periodCancel, #calPrev, #calNext, #cmpMode')).filter(function (el) { return box(el).h < 44; })
             .map(function (el) { return (el.id || el.getAttribute('data-preset')) + '=' + box(el).h; });
           eq(small, [], 'touch targets');
