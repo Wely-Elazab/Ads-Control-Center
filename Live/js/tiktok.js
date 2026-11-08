@@ -100,10 +100,31 @@
       }
       setLoading('tiktok', false, connectedText(ttNotes));
       render();
+      var tz = (payload.advertiser && payload.advertiser.timezone) || BROWSER_TZ;
+      loadTikTokCompare(advertiserId, tz, token);
+      cmpLoaders.tiktok = function () { if (isCurrentLoad('tiktok', token)) loadTikTokCompare(advertiserId, tz, token); };
     }).catch(function (err) {
       if (!isCurrentLoad('tiktok', token)) return;
       fail(msg('s.adsFailed', { platform: 'TikTok', msg: err.message }));
     });
+  }
+  // أرقام فترة المقارنة لكل إعلان (core.js cmpOf — «٣ أرقام في كل الأداة»، ٧ نوفمبر ٢٠٢٦): نفس طلب الإعلانات بالظبط على مدى المقارنة
+  // ونفس التحويل، فرقم المقارنة هو اللي الكارت كان هيقوله لو المدى ده هو الفترة. السيرفر بيقص أي فترة لـ ٩٣ يوم: مدى رجع غير اللي
+  // طلبناه = مفيش مقارنة، مش أرقام مدى تاني
+  function loadTikTokCompare(advertiserId, tz, token) {
+    var source = 'tiktok:' + advertiserId, w = cmpBegin(source, tz);
+    if (!w) return;
+    var gone = function () { if (isCurrentLoad('tiktok', token) && cmpFail(source, w)) render(); };
+    apiPost('/api/tiktok-ads-fetch', { accessToken: tiktokAccessToken, advertiserId: advertiserId, clientTz: BROWSER_TZ,
+      period: { preset: 'custom', since: w.since, until: w.until } }).then(function (res) {
+      if (!isCurrentLoad('tiktok', token)) return;
+      var d = res.data;
+      if (!res.ok || !d || d.error || !Array.isArray(d.periodReport) || !d.period || d.period.since !== w.since || d.period.until !== w.until) { gone(); return; }
+      var list = transformTikTokAds(d.ads || [], d.report || [], daysFromRange(d.range), d.advertiser && d.advertiser.currency, d.periodReport, d.periodDaily, d.period);
+      var byId = {};
+      list.forEach(function (c) { byId[c.id] = c.period || null; });
+      if (cmpDone(source, w, byId)) render();
+    }).catch(gone);
   }
 
   // TikTok بترجّع الأوقات بصيغة "YYYY-MM-DD HH:MM:SS" بتوقيت UTC — نحوّلها لصيغة ISO عشان كل المتصفحات تفهمها

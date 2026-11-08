@@ -128,13 +128,38 @@
       loadSnapchatDiagnosis(adAccountId, payload.account || {}, token);
       dxReloaders.snapchat = function () { if (isCurrentLoad('snapchat', token)) loadSnapchatDiagnosis(adAccountId, payload.account || {}, token); };
       // صور الفيديوهات الأول (بتبان على الكروت)، وبعدها سجل التعديلات — ورا بعض عشان حد سرعة Snapchat (١٠ في الثانية للمفتاح)
-      loadSnapchatThumbs(adAccountId, token).then(function () { return loadSnapchatCatalog(adAccountId, token); }).then(function () {
-        loadSnapchatEdits(adAccountId, (payload.account && payload.account.timezone) || BROWSER_TZ, token);
-      });
+      // وأرقام فترة المقارنة بعد الصور (ورا بعض برضه — حد السرعة)
+      var tz = (payload.account && payload.account.timezone) || BROWSER_TZ;
+      cmpLoaders.snapchat = function () { if (isCurrentLoad('snapchat', token)) loadSnapchatCompare(adAccountId, tz, token); };
+      loadSnapchatThumbs(adAccountId, token).then(function () { return loadSnapchatCompare(adAccountId, tz, token); })
+        .then(function () { return loadSnapchatCatalog(adAccountId, token); }).then(function () {
+          loadSnapchatEdits(adAccountId, tz, token);
+        });
     }).catch(function (err) {
       if (!isCurrentLoad('snapchat', token)) return;
       fail(msg('s.adsFailed', { platform: 'Snapchat', msg: err.message }));
     });
+  }
+
+  // أرقام فترة المقارنة لكل إعلان (core.js cmpOf — «٣ أرقام في كل الأداة»، ٧ نوفمبر ٢٠٢٦): نفس طلب الإعلانات بالظبط على مدى المقارنة
+  // ونفس التحويل، فرقم المقارنة هو اللي الكارت كان هيقوله لو المدى ده هو الفترة. السيرفر بيقص أي فترة لـ ٩٣ يوم: مدى رجع غير اللي
+  // طلبناه = مفيش مقارنة، مش أرقام مدى تاني
+  // numbersOnly = من غير المحتوى والوسائط (مالهمش لازمة هنا، وبيوفّروا طلبات على حد Snapchat)
+  function loadSnapchatCompare(adAccountId, tz, token) {
+    var source = 'snapchat:' + adAccountId, w = cmpBegin(source, tz);
+    if (!w) return Promise.resolve();
+    var gone = function () { if (isCurrentLoad('snapchat', token) && cmpFail(source, w)) render(); };
+    return apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'ads', adAccountId: adAccountId, clientTz: BROWSER_TZ, numbersOnly: true,
+      period: { preset: 'custom', since: w.since, until: w.until } }).then(function (res) {
+      if (!isCurrentLoad('snapchat', token)) return;
+      var d = res.data;
+      if (!res.ok || !d || d.error || !d.periodStats || !d.period || d.period.since !== w.since || d.period.until !== w.until) { gone(); return; }
+      var list = transformSnapchatAds(d.ads || [], (d.stats && d.stats.timeseries_stats) || [], daysFromRange(d.range), d.account && d.account.currency, d.squads, d.campaigns,
+        d.periodStats, d.storeStats ? d.storeStats.timeseries_stats || [] : null, d.periodStoreStats, null, null, d.period);
+      var byId = {};
+      list.forEach(function (c) { byId[c.id] = c.period || false; });
+      if (cmpDone(source, w, byId)) render();
+    }).catch(gone);
   }
 
   // ملخص المتجر (Snapchat): بعد ما الإعلانات تظهر، بتوقيت الحساب وعملته اللي رجعوا مع الإعلانات.
@@ -154,8 +179,9 @@
       if (!isCurrentLoad('snapchat', token)) return;
       if (isAuthFailure(res)) { markExpired('snapchat'); dxFail('snapchat', key, null); return; }
       if (!res.ok || !res.data || res.data.error) { dxFail('snapchat', key, res.data); return; }
+      // plat = رقم Snapchat نفسه للفترة (الحساب كله)، وnumbers = 'platform' لو الملخص نفسه بأرقام المنصة — diagnosis.js platTotals
       dxDone('snapchat', key, { since: p.since, until: p.until, unit: p.unit, cmp: p.cmp, today: p.today, currency: account.currency || null, timezone: tz,
-        daily: res.data.daily || [], dims: res.data.dims || [] });
+        daily: res.data.daily || [], dims: res.data.dims || [], plat: res.data.plat || null, numbers: res.data.numbers || null });
     }).catch(function (err) { dxFail('snapchat', key, err); });
   }
 

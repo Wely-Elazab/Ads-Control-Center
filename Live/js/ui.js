@@ -773,6 +773,67 @@
     return (inX ? ' ' : '') + '<span class="trend-tag trend-' + tt.dir + '"' + (inX ? '' : ' title="' + esc(tt.note) + '"') + '>' +
       (tt.dir === 'up' ? '▲' : '▼') + ' ' + esc(label) + '</span>';
   }
+  // ---------- ٣ أرقام في كل الأداة ----------
+  // طلب صاحب المنتج ٧ نوفمبر ٢٠٢٦: «في الملخص بيتم المقارنة فقط مع الفترة السابقة فقط، وفي كارت الاعلان يتم المقارنة مع المنصة فقط …
+  // فيكون لدينا 3 ارقام في كل الاداة»: الأقرب للمتجر في الفترة (الرقم الكبير)، والأقرب للمتجر في فترة المقارنة (core.js cmpOf)، ورقم المنصة
+  // في الفترة (platNumOf). تحت كل رقم في الكروت سطرين، وفي التفاصيل جدول بالتلاتة، وفي الملخص سطر المنصة تحت سطر المقارنة
+  var NUM_FMT = {
+    spend: function (p, cur) { return money(p.spend, cur); },
+    results: function (p) { return p.results != null ? fmtNum(p.results) : '—'; },
+    cpr: function (p, cur) { return p.cpr != null ? money(p.cpr, cur) : '—'; },
+    sales: function (p, cur) { return money(p.sales, cur); },
+    roas: function (p) { return roasStr(p.roas); }
+  };
+  // مدى فترة المقارنة اللي اتجابت أرقامها (للتلميح)
+  function cmpRangeText(source) {
+    var e = cmpStore[source], k = e && e.key ? e.key.split(':') : null;
+    return k ? fmtRange(k[0], k[1]) : '';
+  }
+  // cs = { state, p } (cmpOf أو مجموع حملة): … = لسه بيتحمّل، و— = مش متاح. pl = أرقام المنصة في الفترة. الرقم نفسه مبيتقصش أبداً: لو
+  // الخلية ضيقة (كارت الحملة، والإنجليزي أطول) بينزل سطر تحت اسمه بدل «Comparison: …» (فحص بصري ٨ نوفمبر ٢٠٢٦)
+  function subLine(k, v, tip) {
+    var parts = t(k, { v: '\u0000' }).split('\u0000');
+    return '<span class="card-stat-s" title="' + esc(tip) + '">' + esc(parts[0]) + '<b class="card-stat-n">' + esc(v) + '</b>' + esc(parts[1] || '') + '</span>';
+  }
+  function statSubs(key, cs, pl, cur, source, platName) {
+    var out = '';
+    if (cs && cs.state) {
+      var range = cmpRangeText(source);
+      var tip = cs.state === 'failed' ? t('card.cmpFailed') : (range ? t('card.cmpTip', { range: range }) : t('card.cmpTipNone'));
+      out += subLine('card.cmp', cs.state === 'ok' ? NUM_FMT[key](cs.p, cur) : (cs.state === 'failed' ? '—' : '…'), tip);
+    }
+    if (pl) out += subLine('card.plat', NUM_FMT[key](pl, cur), t('card.platTip', { plat: platName }));
+    return out;
+  }
+  // خلية رقم — مكوّن واحد لكارت الإعلان والمجموعة والحملة
+  function statCell(key, value, label, cls, title, cs, pl, cur, source, platName) {
+    return '<span class="card-stat' + cls + '" title="' + esc(title) + '"><b class="card-stat-v">' + value + '</b><span class="card-stat-k">' + esc(label) + '</span>' +
+      statSubs(key, cs, pl, cur, source, platName) + '</span>';
+  }
+  // مجموع فترة المقارنة لإعلانات حملة أو مجموعة: إعلان واحد مش متاح = المجموع كله مش متاح، ولسه بيتحمّل = لسه (مجموع ناقص = رقم غلط)
+  function groupCmp(g) {
+    var state = 'ok', spend = 0, sales = 0, results = 0, resOk = g.results != null;
+    for (var i = 0; i < g.ads.length; i++) {
+      var x = cmpOf(g.ads[i]);
+      if (!x.state) return { state: null, p: null };
+      if (x.state === 'failed') return { state: 'failed', p: null };
+      if (x.state === 'loading') { state = 'loading'; continue; }
+      spend += x.p.spend || 0; sales += x.p.sales || 0;
+      if (periodOf(g.ads[i]).results == null) continue;
+      if (x.p.results == null) resOk = false; else results += x.p.results;
+    }
+    return state === 'ok' ? { state: 'ok', p: buildPeriod(spend, resOk ? results : null, sales) } : { state: state, p: null };
+  }
+  // رقم المنصة لإعلانات حملة أو مجموعة في الفترة — نفس الإعلانات اللي في أرقام الكارت
+  function groupPlat(g) {
+    var spend = 0, sales = 0, results = 0;
+    g.ads.forEach(function (c) {
+      var p = platNumOf(c);
+      spend += p.spend || 0; sales += p.sales || 0;
+      if (periodOf(c).results != null) results += p.results || 0;
+    });
+    return buildPeriod(spend, g.results != null ? results : null, sales);
+  }
   function cardChips(c) {
     // الأرقام للفترة المختارة، وتلوينها من الحكم لو الحكم على نفس الأرقام (judgedOnPeriod — من ٣ نوفمبر ٢٠٢٦ الحكم بيتبع الفترة).
     // لو الحكم على «الآن» (أيام الفترة موصلتش) مفيش تلوين — عشان رقم ٣٠ يوم ميتلوّنش أحمر بسبب حاجة حصلت أمس بس
@@ -792,15 +853,15 @@
     var tip = ' — ' + periodLabel();
     // شبكة أرقام بعنوان صغير تحت كل رقم (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: الكارت فيه نص وتفاصيل كتير — أرقام من غير عناوين
     // في سطرين بأشكال مختلفة). نفس الألوان: ملاحظة التنبيه (mv-*) أو اللون الخفيف من التقييم (tone-*)
-    var stat = function (value, label, cls, title) {
-      return '<span class="card-stat' + cls + '" title="' + esc(title) + '"><b class="card-stat-v">' + value + '</b><span class="card-stat-k">' + esc(label) + '</span></span>';
-    };
-    var cells = [stat(money(p.spend, c.currency), t('chip.spend'), hl('spend'), t('chip.spend') + tip)];
-    if (p.results != null) cells.push(stat(fmtNum(p.results), resultLabelOf(c), hl('results'), t('chip.results') + tip));
+    // وتحت كل رقم: الأقرب للمتجر في فترة المقارنة ورقم المنصة في الفترة (٣ أرقام — statSubs)
+    var cs = cmpOf(c), pn = platNumOf(c);
+    var stat = function (key, value, label, cls, title) { return statCell(key, value, label, cls, title, cs, pn, c.currency, c.source, c.platform); };
+    var cells = [stat('spend', money(p.spend, c.currency), t('chip.spend'), hl('spend'), t('chip.spend') + tip)];
+    if (p.results != null) cells.push(stat('results', fmtNum(p.results), resultLabelOf(c), hl('results'), t('chip.results') + tip));
     // تكلفة النتيجة (زي تكلفة الطلب CPO) والعائد (ROAS) الاتنين بيظهروا لو موجودين — كل واحد بيجاوب سؤال مختلف:
     // التكلفة مقارنةً بهامش ربحك، والعائد مقارنةً بالمبيعات
-    if (p.cpr != null) cells.push(stat(money(p.cpr, c.currency), t('card.k.cpr', { one: resultNounOf(c, 1) }), hl('cpr') + tn('cpr'), t('chip.cprTip') + tip + tnTip('cpr')));
-    if (p.roas != null || hl('roas')) cells.push(stat(roasStr(p.roas), t('chip.roas'), hl('roas') + tn('roas'), t('chip.roasTip') + tip + tnTip('roas')));
+    if (p.cpr != null) cells.push(stat('cpr', money(p.cpr, c.currency), t('card.k.cpr', { one: resultNounOf(c, 1) }), hl('cpr') + tn('cpr'), t('chip.cprTip') + tip + tnTip('cpr')));
+    if (p.roas != null || hl('roas')) cells.push(stat('roas', roasStr(p.roas), t('chip.roas'), hl('roas') + tn('roas'), t('chip.roasTip') + tip + tnTip('roas')));
     // علامات بتظهر بس لو عليها ملاحظة (تكرار عالي، وصول ضعيف)
     var flags = '';
     if (c.frequency != null && mv(c, 'frequency')) {
@@ -986,11 +1047,15 @@
       : g.ads.length < g.total
         ? t('camp.adsOf', { n: ar(g.ads.length), total: ar(g.total), ads: noun(g.total, 'n.ad') })
         : ar(g.total) + ' ' + noun(g.total, 'n.ad');
-    var chips = '<span class="metric-chip">' + money(g.spend, g.currency) + '</span>';
-    if (g.results != null) chips += '<span class="metric-chip">' + fmtNum(g.results) + ' ' + esc(I18N.resultNoun(g.results, g.resultKey)) + '</span>';
-    else if (g.mixedResults) chips += '<span class="metric-chip">' + t('camp.mixedResults') + '</span>';
-    if (g.cpr != null) chips += '<span class="metric-chip" title="' + t('chip.cprTip') + '">' + money(g.cpr, g.currency) + ' / ' + esc(t('res1.' + (g.resultKey || 'generic'))) + '</span>';
-    if (g.roas != null) chips += '<span class="metric-chip" title="' + t('chip.roasTip') + '">' + t('chip.roas') + ' ' + roasStr(g.roas) + '</span>';
+    // نفس شبكة أرقام كارت الإعلان بالأرقام التلاتة (٧ نوفمبر ٢٠٢٦ — كانت سطر شرائح من غير مقارنة): مجموع إعلاناتها في الفترة، وفي فترة
+    // المقارنة (groupCmp)، ورقم المنصة (groupPlat)
+    var gc = groupCmp(g), gp = groupPlat(g), src = g.ads[0] && g.ads[0].source, tip = ' — ' + periodLabel();
+    var cell = function (key, value, label, title) { return statCell(key, value, label, '', title, gc, gp, g.currency, src, g.platform); };
+    var chips = cell('spend', money(g.spend, g.currency), t('chip.spend'), t('chip.spend') + tip);
+    if (g.results != null) chips += cell('results', fmtNum(g.results), t('res.' + (g.resultKey || 'generic')), t('chip.results') + tip);
+    else if (g.mixedResults) chips += '<span class="card-stat"><b class="card-stat-v">—</b><span class="card-stat-k">' + esc(t('camp.mixedResults')) + '</span></span>';
+    if (g.cpr != null) chips += cell('cpr', money(g.cpr, g.currency), t('card.k.cpr', { one: I18N.resultNoun(1, g.resultKey) }), t('chip.cprTip') + tip);
+    if (g.roas != null) chips += cell('roas', roasStr(g.roas), t('chip.roas'), t('chip.roasTip') + tip);
     var issues = [];
     if (g.urgent) issues.push('<span class="camp-badge lv-critical">' + t('camp.urgent', { n: ar(g.urgent) }) + '</span>');
     if (g.important) issues.push('<span class="camp-badge lv-warning">' + t('camp.important', { n: ar(g.important) }) + '</span>');
@@ -1004,7 +1069,7 @@
         // المجموعة تحتها حملتها الأم — عشان تلاقيها في المنصة زي ما هي
         (isSet && g.campName ? '<div class="camp-parent" dir="auto" title="' + esc(g.campName) + '">' + esc(t('adset.inCamp', { name: g.campName })) + '</div>' : '') +
         '<div class="camp-count">' + count + '</div>' +
-        '<div class="card-metrics">' + chips + '</div>' +
+        '<div class="card-stats">' + chips + '</div>' +
         '<div class="camp-issues">' + issues.join('') + '</div>' +
         // التنقّل زي المنصة: الحملة ← مجموعاتها. الضغطة الأساسية بتفضل على إعلاناتها («اعرض الحملة» في الملخص وفي
         // أسباب الحكم بيعتمدوا عليها)، والزرار بيظهر بس لما الحملة فيها أكتر من مجموعة — غير كده مفيش فايدة من خطوة زيادة
@@ -1200,7 +1265,8 @@
       '<span class="dx-kpi-pct' + tone + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + '>' + (k.pct > 0 ? '↑ ' : '↓ ') + dxPct(k.pct) + '</span>';
     return '<div class="dx-kpi"><div class="dx-kpi-label">' + esc(k.label) + '</div>' +
       '<div class="dx-kpi-value">' + esc(k.value) + ' ' + pct + '</div>' +
-      '<div class="dx-kpi-sub">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</div></div>';
+      '<div class="dx-kpi-sub">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</div>' +
+      (k.plat != null ? '<div class="dx-kpi-sub">' + esc(t('dx.kpi.plat', { v: k.plat })) + '</div>' : '') + '</div>';
   }
   // bare = جوه بند قابل للفتح (القائمة أو المطويات) — النوع والعنوان ظاهرين فوقه أصلاً
   function dxBlockHtml(b, i, bare) {
@@ -1963,9 +2029,10 @@
     var loading = dxOn && dxState.status === 'loading', o = null;
     if (dxOn && dxState.status === 'ready' && dxState.report) {
       // الهدف وحد الخسارة من إعدادات التنبيهات (نفس اللي بيتحكم بيهم على الإعلانات) — الربح أولاً في الملخص كمان
-      o = DX.compose(dxState.report, { target: dxGoals() });
+      // plat = رقم المنصة نفسها لكل خانة (٣ أرقام في كل الأداة — ٧ نوفمبر ٢٠٢٦)
+      o = DX.compose(dxState.report, { target: dxGoals(), plat: dxPlatTotals() });
       // أكتر من حساب كلهم من غير مشتريات: العنوان بصيغة الجمع
-      if (o && dxState.sel && dxState.sel.multi && dxState.report.status === 'noPurchases') {
+      if (o && dxState.sel && dxState.sel.multi && dxState.report.status === 'noPurchases' && o.title === t('dx.head.noPurchases')) {
         var one = o.title;
         o.title = t('dx.head.noPurchasesMany');
         (o.blocks || []).forEach(function (b) { if (b.title === one) b.title = o.title; });
@@ -1976,7 +2043,7 @@
     // أرقام الملخص (طلبات، مبيعات، عائد…) — مفيش مشتريات = شريط الإنفاق والنتائج مكانها
     var nums = !!(o && o.kpis && o.kpis.length);
     renderKpis(!nums && !loading, dxViewPlatforms());
-    var lines = (nums ? storeLines(dxViewPlatforms()) : []).concat(costVsMax(dxViewPlatforms()));
+    var lines = (nums ? storeLines(dxViewPlatforms()) : []).concat(costVsMax(dxShownPlats()));
     document.getElementById('dxToday').innerHTML = lines.map(function (l) { return '<p>' + esc(l.text) + '</p>'; }).join('');
     // بين قوسين مش «·» — النقطة جنب الأرقام العربية بتتقري «٠»
     // «أيام مكتملة» بتتقال بس لو الفترتين كده: فترة مقارنة فيها النهارده مش مكتملة
@@ -2063,6 +2130,10 @@
   }
   // المنصات المختارة المتصلة (شريط الأرقام وسطر النهارده والتكلفة مقابل الحد) — null = كل الإعلانات
   function dxViewPlatforms() { return platSel ? platSel.slice() : null; }
+  // المنصات اللي أرقامها في الملخص الظاهر فعلاً: «كل المنصات» (platSel = null) = منصات التقرير نفسه (dxSelection — اللي فيها مبيعات)،
+  // وإلا المتصلة. مراجعة ٨ نوفمبر ٢٠٢٦: من ٢٥ أكتوبر (a749cbc — «كل المنصات» افتراضياً) العرض الافتراضي كان بيبعت null، فسطر رقم المنصة
+  // وسطر «التكلفة مقابل الحد» مكانوش بيظهروا خالص لحساب بمنصة واحدة — في البريد بس
+  function dxShownPlats() { return platSel ? platSel.slice() : ((dxState.sel && dxState.sel.plats) || connectedPlats()).slice(); }
   // جمل فوق أرقام الملخص وفي النص المنسوخ: منصة برّه أرقام المبيعات (مفيش مشتريات بتوصلها)، والتحويل بسعر الربط، والتوقيت
   // المختلف، ومنقدرش نجمع (عملة مش مربوطة أو أيام مختلفة)
   function dxMixNotes() {
@@ -2138,7 +2209,7 @@
       var inCmp = dxState.report && dxState.report.lens && dxState.report.lens.prevOpen;
       out.push({ today: true, text: t(inCmp ? 'dx.todayCmp' : 'dx.today', { parts: DX.listText([t('dx.todaySpend', { v: moneyByCur(spend) })].concat(resultTexts(res))) }) });
     }
-    var pc = platCompare(platforms);
+    var pc = platCompare(dxShownPlats());
     if (pc) out.push(pc);
     dxState.platCmp = pc ? pc.text : null;   // للنص المنسوخ («انسخ الملخص») — زي رسالة البريد
     var other = {};
@@ -2153,13 +2224,32 @@
   // سطر المقارنة برقم المنصة نفسها (مراجعة ١١ أكتوبر ٢٠٢٦): الملخص على «الأقرب للمتجر»، وMeta كانت بتنسب لنفس الحساب ٥١ طلباً
   // بعائد ×٤٫٩ والملخص ٢٣ بعائد ×٢ من غير ولا كلمة — ومسؤول الإعلانات بيقارن بـ Ads Manager على طول. Meta: أرقام الحساب نفسه من
   // طلب الملخص (ppur/prev — مجموع الإعلانات بيزيد طلب لأن Meta بتشيل التكرار بين الإعلانات). غيرها: مجموع رقم المنصة للإعلانات
+  // من ٧ نوفمبر ٢٠٢٦ الأرقام نفسها جوه كل خانة (dxPlatTotals) والسطر ده بيقول ليه رقم المنصة أعلى بس. منصة واحدة: من المحرك نفسه
+  // (diagnosis.js DX.platCompare — نفس السطر في رسالة البريد والنص المنسوخ)، وأكتر من منصة: مجموعهم قصاد مجموع الملخص
   function platCompare(platforms) {
-    if (!platforms || platforms.length !== 1) return null;
-    var p = platforms[0], S = dxState.sources[p], inp = S && S.input;
-    if (!inp) return null;
-    // من المحرك نفسه (diagnosis.js DX.platCompare) — نفس السطر في رسالة البريد والنص المنسوخ. غير Meta: بإعلانات المنصة في الأداة
-    var tx = DX.platCompare(inp, p, p === 'meta' ? null : candidates.filter(function (c) { return onPlatforms(c, platforms); }));
-    return tx ? { text: tx } : null;
+    if (!platforms || !platforms.length) return null;
+    if (platforms.length === 1) {
+      var p = platforms[0], S = dxState.sources[p], inp = S && S.input;
+      var tx = inp ? DX.platCompare(inp, p) : null;
+      return tx ? { text: tx } : null;
+    }
+    var pl = dxPlatTotals(), r = dxState.report;
+    return pl && r && r.cur && Math.round(pl.pur) > Math.round(r.cur.pur) ? { text: t('dx.platWhyAll') } : null;
+  }
+  // رقم المنصة نفسها لعرض الملخص الظاهر (diagnosis.js platTotals لكل منصة مختارة) بعملة التقرير — نفس تحويل الأرقام (dxSelection).
+  // منصة من غير رقم = null: مجموع ناقص هيبقى رقم غلط
+  function dxPlatTotals() {
+    var sel = dxState.sel, S = dxState.sources;
+    if (!sel || !sel.plats || !sel.plats.length || !window.DX || !DX.platTotals) return null;
+    var to = sel.conv && sel.conv.to, sum = { pur: 0, rev: 0 };
+    for (var i = 0; i < sel.plats.length; i++) {
+      var x = S[sel.plats[i]] && S[sel.plats[i]].input, tot = x ? DX.platTotals(x, sel.plats[i]) : null;
+      if (!tot) return null;
+      var rate = to && x.currency !== to ? DX.pegRate(x.currency, to) : 1;
+      if (!rate) return null;
+      sum.pur += tot.pur; sum.rev += tot.rev * rate;
+    }
+    return sum;
   }
   // البلوكات المفتوحة (في القائمة والشرح) بتفضل مفتوحة بعد إعادة الرسم — أي render بيبني القسم من الأول
   var foldOpen = {};
@@ -2457,12 +2547,13 @@
     Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); });
     render();
   }
-  // المقارنة لوحدها: ملخص المتجر بس بيتجاب تاني (أرقام الإعلانات زي ما هي)
+  // المقارنة لوحدها: ملخص المتجر وأرقام فترة المقارنة في الكروت بس بيتجابوا تاني (أرقام الفترة زي ما هي)
   function applyCompare(next) {
     compare = next;
     saveCompare();
     syncPeriodUi();
     Object.keys(dxReloaders).forEach(function (p) { if (activeSources[p]) dxReloaders[p](); });
+    Object.keys(cmpLoaders).forEach(function (p) { if (activeSources[p] && typeof cmpLoaders[p] === 'function') cmpLoaders[p](); });
     render();
   }
   document.getElementById('periodApply').addEventListener('click', function () {
@@ -3133,39 +3224,38 @@
 
   // ---------- أرقام المنصة مقابل «الأقرب للمتجر» (قرار صاحب المنتج ٦ أكتوبر ٢٠٢٦) ----------
   // كل الأداة (الكروت والتقييم والتنبيهات) مبنية على «الأقرب للمتجر» = اللي نقر على الإعلان واشترى خلال ٧ أيام.
-  // الجدول ده جوه تفاصيل الإعلان بس: رقم المنصة، رقمنا، والفرق — والشرح تحته بلغة الفايدة مش بلغة تقنية.
-  // lowerIsBetter: التكلفة الزيادة أسوأ، والطلبات والمبيعات والعائد الأقل أسوأ
-  function cmpDiff(store, plat, lowerIsBetter) {
-    if (store == null || plat == null || !(plat > 0)) return { txt: '—', cls: '' };
-    var d = (store - plat) / plat;
-    var pct = Math.round(Math.abs(d) * 100);
-    if (pct === 0) return { txt: t('cmp.same'), cls: '' };
-    var worse = lowerIsBetter ? d > 0 : d < 0;
-    return { txt: '<bdi dir="ltr">' + (d > 0 ? '+' : '−') + t('cmp.pct', { n: ar(pct) }) + '</bdi>', cls: worse ? ' cmp-worse' : ' cmp-better' };
+  // الجدول جوه تفاصيل الإعلان: الأرقام التلاتة لكل سطر — الأقرب للمتجر في الفترة (ونسبة تغيّره عن فترة المقارنة)، والأقرب للمتجر في فترة
+  // المقارنة، ورقم المنصة في الفترة (٧ نوفمبر ٢٠٢٦ — كان رقم المنصة ورقمنا والفرق بس). النسبة من غير لون: مفيش اختبار تذبذب هنا زي
+  // الملخص، والحكم في مكانه فوق. الشرح تحته بلغة الفايدة مش بلغة تقنية
+  function chgText(cur, prev) {
+    if (cur == null || prev == null || !(prev > 0)) return '';
+    var d = cur / prev - 1;
+    return Math.abs(d) < 0.005 ? '' : ' <span class="cmp-chg">' + (d > 0 ? '↑ ' : '↓ ') + dxPct(d) + '</span>';
   }
-  function compareMarkup(c, p, pp, hl, pl) {
-    var cur = c.currency;
+  function compareMarkup(c, p, pp, hl) {
+    var cur = c.currency, cs = cmpOf(c), ok = cs.state === 'ok';
     var one = esc(t('res1.' + (c.resultKey || 'generic')));
-    var row = function (label, platTxt, storeTxt, diff, mark) {
-      return '<tr><th scope="row">' + label + '</th><td><span class="mono">' + platTxt + '</span></td>' +
-        '<td class="cmp-store' + (mark || '') + '"><span class="mono">' + storeTxt + '</span></td>' +
-        '<td class="cmp-diff' + diff.cls + '">' + diff.txt + '</td></tr>';
+    var range = cmpRangeText(c.source);
+    var row = function (label, key, mark) {
+      var prev = ok ? NUM_FMT[key](cs.p, cur) : (cs.state === 'failed' ? '—' : '…');
+      return '<tr><th scope="row">' + label + '</th>' +
+        '<td class="cmp-store' + (mark || '') + '"><span class="cmp-n">' + NUM_FMT[key](p, cur) + '</span>' + (ok ? chgText(p[key], cs.p[key]) : '') + '</td>' +
+        '<td' + (cs.state === 'failed' ? ' title="' + esc(t('card.cmpFailed')) + '"' : '') + '><span class="cmp-n">' + prev + '</span></td>' +
+        '<td><span class="cmp-n">' + NUM_FMT[key](pp, cur) + '</span></td></tr>';
     };
-    var none = { txt: '—', cls: '' };
-    var rows =
-      row(t('x.spend'), money(p.spend, cur), money(p.spend, cur), none, hl('spend') || hl('delivery')) +
-      row(esc(resultLabelOf(c)), pp.results != null ? fmtNum(pp.results) : '—', fmtNum(p.results), cmpDiff(p.results, pp.results), hl('results')) +
-      row(t('cmp.cpr', { r: one }), pp.cpr != null ? money(pp.cpr, cur) : '—', p.cpr != null ? money(p.cpr, cur) : '—', cmpDiff(p.cpr, pp.cpr, true), hl('cpr'));
-    if (pp.sales > 0 || p.sales > 0) {
-      rows += row(t('x.sales'), money(pp.sales, cur), money(p.sales, cur), cmpDiff(p.sales, pp.sales)) +
-        row(t('cmp.roas'), roasStr(pp.roas), roasStr(p.roas), cmpDiff(p.roas, pp.roas), hl('roas'));
-    }
+    var rows = row(t('x.spend'), 'spend', hl('spend') || hl('delivery')) +
+      row(esc(p.results != null ? resultLabelOf(c) : t('x.results')), 'results', hl('results')) +
+      row(t('cmp.cpr', { r: one }), 'cpr', hl('cpr'));
+    if (pp.sales > 0 || p.sales > 0 || (ok && cs.p.sales > 0)) rows += row(t('x.sales'), 'sales') + row(t('cmp.roas'), 'roas', hl('roas'));
+    // الشرح: رقم المنصة غير رقمنا = جملة الفايدة المعتمدة (compareNote). مفيش رقم منصة منفصل = الأقرب للمتجر هو رقم المنصة نفسه
+    var note = p.results == null ? '' : (platOf(c) ? compareNote(c, p, pp) : t('cmp.noteOwn'));
+    var head = function (txt, sub, cls) { return '<th scope="col"' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(txt) + (sub ? '<span class="cmp-sub">' + esc(sub) + '</span>' : '') + '</th>'; };
     return '<div class="attr-compare">' +
-      '<div class="attr-title">' + t('cmp.title') + pl + '</div>' +
-      '<div class="attr-table-wrap"><table class="attr-table"><thead><tr><th></th><th scope="col">' + t('cmp.platform') + '</th>' +
-      '<th scope="col" class="cmp-store">' + t('cmp.store') + '</th><th scope="col">' + t('cmp.diff') + '</th></tr></thead>' +
+      '<div class="attr-title">' + t('cmp.title') + '</div>' +
+      '<div class="attr-table-wrap"><table class="attr-table"><thead><tr><th></th>' +
+      head(t('cmp.store'), periodLabel(), 'cmp-store') + head(t('cmp.prev'), range) + head(t('cmp.platformOf', { plat: c.platform }), periodLabel()) + '</tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>' +
-      '<p class="attr-note">' + esc(compareNote(c, p, pp)) + '</p>' +
+      (note ? '<p class="attr-note">' + esc(note) + '</p>' : '') +
       // شرح الجدول بالتفصيل في صفحة الدليل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) — في تاب جديد عشان الإعلانات المحمّلة متضيعش
       '<a class="attr-more" href="/help#compare" target="_blank" rel="noopener">' + esc(t('cmp.more')) + '</a>' +
     '</div>';
@@ -3263,7 +3353,7 @@
   function expandSig(c) {
     var a = adAnalysis(c), own;
     try { own = JSON.stringify(c); } catch (e) { own = JSON.stringify([c.daily, c.dailyResults, c.dailySales, c.edits, c.frequency, c.frequencyLife]); }
-    return own + JSON.stringify([a.health, a.pending, a.basis, a.issues.map(function (i) { return [i.level, i.title, i.detail, i.advice]; })]);
+    return own + JSON.stringify([a.health, a.pending, a.basis, a.issues.map(function (i) { return [i.level, i.title, i.detail, i.advice]; })]) + JSON.stringify(cmpOf(c));
   }
   // تفاصيل إعلان مفتوحة واللي فيها اتغيّر من وراها (التعديلات وصلت، أو الرجوع للتاب بعد نص ساعة حدّث الأرقام لوحده): نرسمها
   // من جديد في نفس مكان التمرير. قبل كده كانت بتفضل على حالتها القديمة والكارت اللي وراها اتغيّر. مفيش تغيير = منلمسهاش (الفيديو بيكمّل)
@@ -3334,23 +3424,9 @@
     // مربعات الأرقام للفترة المختارة، وتلوينها من الحكم لو الحكم على نفس الأرقام (judgedOnPeriod)
     var p = periodOf(c);
     var hl = function (metric) { return judgedOnPeriod(c) ? mv(c, metric) : ''; };
-    var pl = ' (' + periodLabel() + ')';
-    var resultsLabelTxt = p.results != null ? (t('x.results') + ' — ' + esc(resultLabelOf(c)) + pl) : t('x.results') + pl;
-    var pp = platOf(c);
-    var boxes;
-    if (pp && p.results != null) {
-      // Meta وSnapchat وGoogle: الأرقام الأساسية «الأقرب للمتجر» جنب رقم المنصة والفرق — مكان المربعات الخمسة
-      boxes = compareMarkup(c, p, pp, hl, pl);
-      if (c.frequency != null || c.frequency30 != null) boxes += freqBox(c);
-    } else {
-      boxes =
-        metricBox(t('x.spend') + pl, money(p.spend, cur), hl('spend') || hl('delivery')) +
-        metricBox(resultsLabelTxt, p.results != null ? fmtNum(p.results) : t('x.noConversions'), hl('results')) +
-        metricBox(t('x.cpr'), p.cpr != null ? money(p.cpr, cur) : '—', hl('cpr')) +
-        metricBox(t('x.roas'), roasStr(p.roas), hl('roas'));
-      if (c.frequency != null || c.frequency30 != null) boxes += freqBox(c);
-      boxes += metricBox(t('x.sales') + pl, p.sales > 0 ? money(p.sales, cur) : t('x.noSales'));
-    }
+    // الأرقام التلاتة لكل الإعلانات وكل المنصات (٧ نوفمبر ٢٠٢٦): الأقرب للمتجر، وفترة المقارنة، ورقم المنصة — مكان المربعات الخمسة
+    var boxes = compareMarkup(c, p, platNumOf(c), hl);
+    if (c.frequency != null || c.frequency30 != null) boxes += freqBox(c);
     document.getElementById('expandMetrics').innerHTML = boxes;
 
     // جدول الأيام: أيام الفترة المختارة نفسها لو الحكم عليها (dailyTableData — ٣ نوفمبر ٢٠٢٦؛ كان آخر ٧ أيام دايماً تحت أرقام

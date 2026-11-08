@@ -214,10 +214,39 @@
       render();
       loadGoogleDiagnosis(customerId, info, token);
       dxReloaders.google = function () { if (isCurrentLoad('google', token)) loadGoogleDiagnosis(customerId, info, token); };
+      loadGoogleCompare(customerId, info, token);
+      cmpLoaders.google = function () { if (isCurrentLoad('google', token)) loadGoogleCompare(customerId, info, token); };
     }).catch(function (err) {
       if (!isCurrentLoad('google', token)) return;
       fail(msg('s.adsFailed', { platform: 'Google Ads', msg: err.message }));
     });
+  }
+
+  // أرقام فترة المقارنة لكل إعلان (core.js cmpOf — «٣ أرقام في كل الأداة»، ٧ نوفمبر ٢٠٢٦): نفس طلب الإعلانات بالظبط على مدى المقارنة
+  // ونفس التحويل، فرقم المقارنة هو اللي الكارت كان هيقوله لو المدى ده هو الفترة. السيرفر بيقص أي فترة لـ ٩٣ يوم: مدى رجع غير اللي
+  // طلبناه = مفيش مقارنة، مش أرقام مدى تاني
+  // حملات Performance Max من غير أرقام فترة (pmaxPeriod فشل) = مفيش مقارنة ليها بس
+  function loadGoogleCompare(customerId, info, token) {
+    var source = 'google:' + customerId, w = cmpBegin(source, info.timeZone || BROWSER_TZ);
+    if (!w) return;
+    var gone = function () { if (isCurrentLoad('google', token) && cmpFail(source, w)) render(); };
+    apiPost('/api/google-ads-fetch', {
+      accessToken: googleAccessToken, customerId: customerId, loginCustomerId: info.loginCustomerId, timeZone: info.timeZone, clientTz: BROWSER_TZ,
+      period: { preset: 'custom', since: w.since, until: w.until }
+    }).then(function (res) {
+      if (!isCurrentLoad('google', token)) return;
+      var d = res.data;
+      if (!res.ok || !d || d.error || !Array.isArray(d.periodMetrics) || !d.period || d.period.since !== w.since || d.period.until !== w.until) { gone(); return; }
+      var days = daysFromRange(d.range);
+      var pmax = transformGooglePmax(d.pmax, d.pmaxPeriod, days, info.currency, d.storePmax, d.storePmaxPeriod, d.pmaxPeriodDaily, d.storePmaxPeriodDaily, d.period);
+      var list = googleWholeOrders(transformGoogleRows(d.ads || [], d.metrics || [], days, info.currency, d.periodMetrics,
+        d.storeMetrics, d.storePeriodMetrics, d.periodDaily, d.storePeriodDaily, d.period).concat(pmax));
+      var byId = {};
+      list.forEach(function (c) { byId[c.id] = c.period || null; });
+      // أرقام PMax للمدى فشلت: كل حملات PMax اللي في الكروت من غير مقارنة — حملة مش في الرد كانت هتبان «صفر» (مصرفتش) وهي مش معروفة
+      if (!Array.isArray(d.pmaxPeriod)) candidates.forEach(function (c) { if (c.source === source && c.campaignLevel) byId[c.id] = false; });
+      if (cmpDone(source, w, byId)) render();
+    }).catch(gone);
   }
 
   // ملخص المتجر (Google Ads): بيبدأ بعد ما الإعلانات تظهر، بنفس فترة التشخيص (أيام مكتملة بتوقيت الحساب).
@@ -235,8 +264,9 @@
       if (!isCurrentLoad('google', token)) return;
       if (isAuthFailure(res)) { markExpired('google'); dxFail('google', key, null); return; }
       if (!res.ok || !res.data || res.data.error) { dxFail('google', key, res.data); return; }
+      // plat = رقم Google نفسه للفترة (الحساب كله)، وnumbers = 'platform' لو الملخص نفسه بأرقام المنصة — diagnosis.js platTotals
       dxDone('google', key, { since: p.since, until: p.until, unit: p.unit, cmp: p.cmp, today: p.today, currency: info.currency || null, timezone: tz,
-        daily: res.data.daily || [], dims: res.data.dims || [] });
+        daily: res.data.daily || [], dims: res.data.dims || [], plat: res.data.plat || null, numbers: res.data.numbers || null });
     }).catch(function (err) { dxFail('google', key, err); });
   }
 

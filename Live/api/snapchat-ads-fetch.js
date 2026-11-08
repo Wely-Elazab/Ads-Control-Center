@@ -304,8 +304,10 @@ export default async function handler(req, res) {
       // المحتوى الإبداعي (العنوان، الرابط، نوع الإعلان) والوسائط (صورة أو فيديو): من غيرهم كل إعلان كان «صورة ثابتة» من غير
       // صورة ولا وجهة، حتى إعلانات الفيديو (حساب حقيقي ١١ أكتوبر). قوائم الحساب بالصفحات مش طلب لكل إعلان — حد الطلبات
       // الفرعية في Cloudflare. فشلهم مش بيوقف التحميل: الإعلانات بتظهر زي الأول من غير صور
-      const creativesP = fetchListSafe('/creatives', 'creatives', 'creative', 5).catch(function () { return null; });
-      const mediaP = fetchListSafe('/media', 'media', 'media', 5).catch(function () { return null; });
+      // numbersOnly = أرقام فترة المقارنة لكروت ظاهرة أصلاً (js/snapchat.js loadSnapchatCompare): المحتوى والوسائط مالهمش لازمة
+      const numbersOnly = body.numbersOnly === true;
+      const creativesP = numbersOnly ? Promise.resolve(null) : fetchListSafe('/creatives', 'creatives', 'creative', 5).catch(function () { return null; });
+      const mediaP = numbersOnly ? Promise.resolve(null) : fetchListSafe('/media', 'media', 'media', 5).catch(function () { return null; });
 
       const acc = await accountP;
       const tz = (acc && acc.timezone) || clientTz;
@@ -636,7 +638,26 @@ export default async function handler(req, res) {
       }
       if (campaignsOk && campaignRows.length) dims.push({ id: 'campaign', segs: dxSegments(campaignRows, ranges.windows) });
       if (countriesOk && countryRows.length) dims.push({ id: 'country', segs: dxSegments(countryRows, ranges.windows) });
-      res.status(200).json({ daily: dxDaily(dailyRows), dims: dims, account: acc ? { timezone: acc.timezone || null, currency: acc.currency || null } : null });
+      // رقم Snapchat نفسه للفترة (الحساب كله، بإعداد Ads Manager — PLATFORM_WINDOWS) جنب «الأقرب للمتجر» في كل خانة من الملخص
+      // (js/diagnosis.js platTotals — «٣ أرقام في كل الأداة»، ٧ نوفمبر ٢٠٢٦). الملخص نفسه بأرقام المنصة (النوافذ اترفضت) = الرقمين واحد.
+      // فشله = null والملخص بيكمّل من غيره
+      const numbers = windows === STORE_WINDOWS ? 'store' : 'platform';
+      let plat = null;
+      if (numbers === 'store') {
+        try {
+          const d = await get('granularity=TOTAL&breakdown=campaign' + span(ranges.windows[0]) + '&fields=' + STORE_FIELDS + PLATFORM_WINDOWS);
+          let pur = 0, rev = 0;
+          (d.total_stats || []).forEach(function (e) {
+            const ts = e.total_stat || e;
+            ((ts.breakdown_stats && ts.breakdown_stats.campaign) || []).forEach(function (b) {
+              const st = (b && b.stats) || {};
+              pur += Number(st.conversion_purchases || 0); rev += Number(st.conversion_purchases_value || 0) / 1e6;
+            });
+          });
+          plat = { pur: pur, rev: rev };
+        } catch (e) { plat = null; }
+      }
+      res.status(200).json({ daily: dxDaily(dailyRows), dims: dims, plat: plat, numbers: numbers, account: acc ? { timezone: acc.timezone || null, currency: acc.currency || null } : null });
       return;
     }
 

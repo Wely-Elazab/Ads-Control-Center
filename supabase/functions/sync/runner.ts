@@ -682,10 +682,12 @@ async function buildSummary(user: string, accountId: string, acct: Acct, since: 
   input.currency = acct.currency || null;
   input.timezone = tz;
   input.feedback = await feedbackOf(user, accountId);
-  // سطر «العائد أعلى/أقل من المستهدف» زي اللي في الأداة — بس لو العميل بعت المستهدف وحد الخسارة
-  const composed = g.DX.compose(g.DX.analyze(input), { mail: true, target });
-  // «للمقارنة: تنسب Meta لهذه الفترة…» زي الأداة بالظبط (diagnosis.js DX.platCompare) — من غيره «٥ طلبات» في البريد قصاد ١٦ في
-  // مدير الإعلانات من غير ولا كلمة (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦). نص البريد (DX.toText) بياخده من composed.platCmp
+  // سطر «العائد أعلى/أقل من المستهدف» زي اللي في الأداة — بس لو العميل بعت المستهدف وحد الخسارة. plat = رقم Meta نفسه جنب كل رقم
+  // (diagnosis.js platTotals — «٣ أرقام في كل الأداة»، ٧ نوفمبر ٢٠٢٦: البريد زي الأداة)
+  const plat = typeof g.DX.platTotals === 'function' ? g.DX.platTotals(input, 'meta') : null;
+  const composed = g.DX.compose(g.DX.analyze(input), { mail: true, target, plat });
+  // سطر «ليه رقم Meta أعلى» زي الأداة بالظبط (diagnosis.js DX.platCompare) — من غيره «٥ طلبات» في البريد قصاد ١٦ في مدير الإعلانات
+  // من غير ولا كلمة (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦). نص البريد (DX.toText) بياخده من composed.platCmp
   composed.platCmp = typeof g.DX.platCompare === 'function' ? g.DX.platCompare(input, 'meta') : null;
   try { composed.costCmp = await costLine(accountId, cands, since, until, sens); } catch (e) {
     composed.costCmp = null;
@@ -776,9 +778,11 @@ function summaryParts(sec: SumSection): string[] {
   if (o.basis) parts.push('<div>' + P(esc(o.basis)) + '</div>');
   if (o.kpis && o.kpis.length) {
     const td = 'padding:7px 0;border-bottom:1px solid #e5e7eb';
+    // عمود رقم المنصة لو موجود (k.plat — diagnosis.js platKpis)
     parts.push('<div style="margin:0 0 20px"><table role="presentation" style="border-collapse:collapse;width:100%">' +
       o.kpis.map((k: any) => '<tr><td style="' + td + '">' + esc(k.label) + '</td><td style="' + td + ';padding-inline:8px;font-weight:700">' + esc(k.value) +
-        '</td><td style="' + td + ';' + MUTED + '">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</td></tr>').join('') + '</table></div>');
+        '</td><td style="' + td + ';' + MUTED + '">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</td>' +
+        (k.plat != null ? '<td style="' + td + ';padding-inline-start:8px;' + MUTED + '">' + esc(t('dx.kpi.plat', { v: k.plat })) + '</td>' : '') + '</tr>').join('') + '</table></div>');
   }
   // الشهر بالشهر: عدد أيام الفترتين مختلف، والجملة دي بتقول إزاي الأرقام تتقري (النص المنسوخ فيه نفس السطر — DX.toText)
   if (o.kpiNote) parts.push('<div>' + P(esc(o.kpiNote), MUTED) + '</div>');
@@ -1109,16 +1113,17 @@ async function snapSummary(ctx: SnapCtx, tz: string, cur: string | null, since: 
     windows: ws.slice(0, 3).map((w: any) => ({ since: w.since, until: w.until })) });
   if (!d.ok || !d.data) throw new Error('snapchat diagnosis ' + (d.auth ? 'auth' : 'failed'));
   // تقييمات «هل كان التشخيص صحيحاً؟» لـ Snapchat على الجهاز بس (ui.js syncableView: Meta بس بتتحفظ عندنا)
-  const input = { since, until, currency: cur, timezone: tz, daily: d.data.daily || [], dims: d.data.dims || [], feedback: [] };
-  const composed = g.DX.compose(g.DX.analyze(input), { mail: true, target });
-  composed.platCmp = null;
+  // plat = رقم Snapchat نفسه للفترة (الحساب كله) جنب كل رقم، وnumbers = 'platform' لو الملخص نفسه بأرقام المنصة — زي الأداة
+  // (diagnosis.js platTotals، ٧ نوفمبر ٢٠٢٦). سطر «ليه رقم Snapchat أعلى» منهم كمان، مش من إعلانات الشراء بس
+  const input = { since, until, currency: cur, timezone: tz, daily: d.data.daily || [], dims: d.data.dims || [], feedback: [],
+    plat: d.data.plat || null, numbers: d.data.numbers || null };
+  const plat = typeof g.DX.platTotals === 'function' ? g.DX.platTotals(input, 'snapchat') : null;
+  const composed = g.DX.compose(g.DX.analyze(input), { mail: true, target, plat });
+  composed.platCmp = typeof g.DX.platCompare === 'function' ? g.DX.platCompare(input, 'snapchat') : null;
   composed.costCmp = null;
   try {
     const p = await snapCandidates(ctx, tz, { preset: 'custom', since, until }, true);
-    if (p.cands) {
-      composed.platCmp = g.DX.platCompare(input, 'snapchat', p.cands);
-      composed.costCmp = snapCostLine(p.cands, sens, since, until);
-    }
+    if (p.cands) composed.costCmp = snapCostLine(p.cands, sens, since, until);
   } catch (e) {
     console.error('summary snapchat lines failed', String((e as Error).message || e).slice(0, 200));
   }

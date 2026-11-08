@@ -387,14 +387,16 @@
       var c2 = transformSnapchatAds(ads, plat, days, 'SAR', [], [], pPlat, store, null)[0];
       eq([c2.period.results, c2.period.plat, platOf(c2)], [20, undefined, null]);
     });
-    test('تفاصيل إعلان Snapchat: جدول المقارنة، والكارت برا بـ«الأقرب للمتجر» بس', function () {
+    test('تفاصيل إعلان Snapchat: جدول الأرقام التلاتة، والكارت رقمه الكبير «الأقرب للمتجر» وتحته رقم المنصة', function () {
       var prev = candidates;
       var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], null, store, null)[0];
       try {
         candidates = [c];
         render();
         var card = document.getElementById('card-' + c.id);
-        ok(card && card.textContent.indexOf(fmtNum(9)) > -1 && card.textContent.indexOf(fmtNum(14)) === -1, 'card shows our number only');
+        var main = Array.prototype.map.call(card.querySelectorAll('.card-stat-v'), function (x) { return x.textContent; }).join(' ');
+        ok(main.indexOf(fmtNum(9)) > -1 && main.indexOf(fmtNum(14)) === -1, 'the big number is ours: ' + main);
+        ok(card.textContent.indexOf(t('card.plat', { v: fmtNum(14) })) > -1, 'the platform number under it');
         openExpand(c);
         var box = document.querySelector('#expandMetrics .attr-compare');
         ok(box, 'comparison table');
@@ -406,9 +408,48 @@
         render();
       }
     });
+    // «٣ أرقام في كل الأداة» (٧ نوفمبر ٢٠٢٦): أرقام فترة المقارنة من نفس طلب الإعلانات على مدى المقارنة ونفس التحويل
+    testAsync('Snapchat: أرقام فترة المقارنة لكل إعلان من نفس طلب الإعلانات على مدى المقارنة — من غير المحتوى والوسائط', function () {
+      var realFetch = window.fetch, sent = [], trim = false;
+      var reply = function (obj) { return Promise.resolve({ ok: true, status: 200, text: function () { return Promise.resolve(JSON.stringify(obj)); }, json: function () { return Promise.resolve(obj); } }); };
+      var main = { ads: ads, stats: { timeseries_stats: plat }, storeStats: { timeseries_stats: store },
+        periodStats: totals({ a1: { spend: 150 * M, swipes: 30, conversion_purchases: 14, conversion_purchases_value: 1400 * M } }),
+        periodStoreStats: totals({ a1: { conversion_purchases: 9, conversion_purchases_value: 900 * M } }),
+        squads: [{ id: 'sq1', optimization_goal: 'PIXEL_PURCHASE' }],
+        period: { since: days[0].key, until: days[6].key }, range: { since: days[0].key, until: days[7].key }, account: { currency: 'SAR', timezone: 'UTC' } };
+      window.fetch = function (url, opts) {
+        var body = {};
+        try { body = JSON.parse((opts && opts.body) || '{}'); } catch (e) { /* مش JSON */ }
+        if (String(url).indexOf('/api/snapchat-ads-fetch') < 0 || body.action !== 'ads') return reply({});
+        sent.push(body);
+        if (!body.numbersOnly) return reply(main);
+        var w = cardCompareRange('UTC');
+        return reply(Object.assign({}, main, { period: { since: trim ? shiftKey(w.since, 1) : w.since, until: w.until },
+          periodStats: totals({ a1: { spend: 50 * M, swipes: 10, conversion_purchases: 3, conversion_purchases_value: 300 * M } }),
+          periodStoreStats: totals({ a1: { conversion_purchases: 2, conversion_purchases_value: 200 * M } }) }));
+      };
+      sessionTokens.snapchat = { token: 'tok', expiresAt: Date.now() + 3600000 };
+      snapchatAccessToken = 'tok';
+      loadSnapchatAdsForAccount('acc-c');
+      var wait = function () { return tick().then(tick).then(tick).then(tick).then(tick).then(tick); };
+      return wait().then(function () {
+        var w = cardCompareRange('UTC'), cmpCall = sent.filter(function (b) { return b.numbersOnly; })[0];
+        ok(cmpCall, 'a comparison request');
+        eq([cmpCall.numbersOnly, cmpCall.period], [true, { preset: 'custom', since: w.since, until: w.until }]);
+        var c = candidates.filter(function (x) { return x.source === 'snapchat:acc-c'; })[0], x = cmpOf(c);
+        eq([x.state, x.p.spend, x.p.results, x.p.sales, x.p.plat.results], ['ok', 50, 2, 200, 3], 'the same numbers the card would show for that range');
+        // السيرفر قص المدى (حد ٩٣ يوم): أرقام مدى تاني مش مقارنة
+        trim = true;
+        cmpLoaders.snapchat();
+        return wait();
+      }).then(function () {
+        window.fetch = realFetch;
+        eq(cmpOf(candidates.filter(function (x) { return x.source === 'snapchat:acc-c'; })[0]).state, 'failed', 'another range = no comparison');
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
     test('شرح المقارنة من غير أي كلام تقني', function () {
       ['ar', 'en'].forEach(function (lang) {
-        var all = withLang(lang, function () { return ['cmp.note', 'cmp.noteSame', 'cmp.noteZero', 'cmp.noteNone', 'cmp.noteMore', 'cmp.noteMoreNone', 'al.compare', 'diff.source'].map(function (k) { return t(k); }).join(' '); });
+        var all = withLang(lang, function () { return ['cmp.note', 'cmp.noteSame', 'cmp.noteZero', 'cmp.noteNone', 'cmp.noteMore', 'cmp.noteMoreNone', 'al.compare', 'diff.source', 'dx.platWhy', 'dx.platWhyAll', 'cmp.noteOwn', 'dx.noPurchases.plat'].map(function (k) { return t(k); }).join(' '); });
         ok(!/نقر|سوايب|مشاهدة|نسب الإحالة|\b(click|clicks|swipe|swipes|view|views|attribution)\b/i.test(all), lang + ': ' + all);
       });
     });
@@ -519,6 +560,29 @@
     });
 
     // حساب حقيقي ١٧ أكتوبر: بعد رقم المنصة بيوم الظهور، إعلان متوقف اتعرض قبل الفترة واتشرى منه جواها اختفى، و«الأقرب» بقى ١٣ بدل ١٤
+    testAsync('السيرفر: طلب أرقام فترة المقارنة (numbersOnly) من غير المحتوى والوسائط — والطلب العادي بيهم', function () {
+      var realFetch = window.fetch, urls = [];
+      window.fetch = function (url) {
+        var u = String(url);
+        urls.push(u);
+        if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'UTC', currency: 'USD' } }] });
+        return json({});
+      };
+      var run = function (lean) {
+        urls = [];
+        var res = { setHeader: function () {}, status: function () { return this; }, json: function () { return this; }, end: function () {} };
+        return import('/api/snapchat-ads-fetch.js').then(function (m) {
+          return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1', numbersOnly: lean, period: { preset: 'custom', since: '2026-09-01', until: '2026-09-07' } } }, res);
+        }).then(function () { return urls.filter(function (u) { return /\/(creatives|media)\b/.test(u); }).length; });
+      };
+      return run(true).then(function (n) {
+        eq(n, 0, 'numbers only: no creatives or media');
+        return run(false);
+      }).then(function (n) {
+        window.fetch = realFetch;
+        ok(n >= 2, 'the normal request fetches them: ' + n);
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
     testAsync('السيرفر: إعلان متوقف ليه طلبات في «الأقرب للمتجر» بس (مش في أرقام المنصة) بيفضل في القائمة', function () {
       var realFetch = window.fetch;
       var withAds = function (ids, pur) { return { breakdown_stats: { ad: ids.map(function (id) {
@@ -564,6 +628,8 @@
           var from = decodeURIComponent((u.match(/start_time=([^&]+)/) || [])[1] || '').slice(0, 10);
           var to = decodeURIComponent((u.match(/end_time=([^&]+)/) || [])[1] || '').slice(0, 10);
           var inRange = /granularity=DAY/.test(u) && '2026-09-25' >= from && '2026-09-25' < to;
+          // رقم المنصة للفترة (الحساب كله بإعداد Ads Manager — طلب واحد TOTAL بنوافذ المنصة)
+          if (/granularity=TOTAL/.test(u) && /action_report_time=impression/.test(u)) return json({ total_stats: [{ total_stat: { breakdown_stats: { campaign: [{ id: 'c1', stats: { conversion_purchases: 5, conversion_purchases_value: 500000000 } }, { id: 'c2', stats: { conversion_purchases: 2, conversion_purchases_value: 100000000 } }] } } }] });
           return json({ timeseries_stats: [{ timeseries_stat: { timeseries: inRange ? [{ start_time: '2026-09-25T00:00:00.000+03:00', stats: st }] : [] } }], total_stats: [] });
         }
         return json({});
@@ -581,13 +647,16 @@
       var windowed = function () { return urls.filter(function (u) { return /swipe_up_attribution_window=7_DAY&view_attribution_window=none/.test(u); }).length; };
       var platWin = function () { return urls.filter(function (u) { return /swipe_up_attribution_window=28_DAY&view_attribution_window=1_DAY&action_report_time=impression/.test(u); }).length; };
       return run().then(function (out) {
-        eq(windowed(), urls.length, 'every summary request uses the store windows');
+        eq([windowed(), platWin()], [urls.length - 1, 1], 'every summary request uses the store windows, plus one for the platform number');
+        ok(urls.filter(function (u) { return /action_report_time=impression/.test(u); })[0].indexOf('granularity=TOTAL') > -1, 'one total for the period');
+        eq([out.numbers, out.plat], ['store', { pur: 7, rev: 600 }], 'the whole account, as in Ads Manager');
         eq(out.daily.filter(function (d) { return d.date === '2026-09-25'; })[0].pur, 3);
         reject = 'store';
         return run();
       }).then(function (out) {
         eq(windowed(), 1, 'one rejected try');
         eq(platWin(), urls.length - 1, 'then the platform numbers as in Ads Manager (like the ad cards) for everything');
+        eq([out.numbers, out.plat], ['platform', null], 'the summary is already the platform numbers: no extra request');
         eq(out.daily.filter(function (d) { return d.date === '2026-09-25'; })[0].pur, 3, 'the summary still works');
         reject = 'all';
         return run();
@@ -2541,27 +2610,118 @@
       expandOverlay.classList.add('hidden');
     });
     // الكارت برا = «الأقرب للمتجر» بس؛ والتفاصيل جوه = جدول المنصة مقابل الأقرب للمتجر والفرق وشرح الفايدة
-    test('تفاصيل الإعلان: جدول أرقام المنصة مقابل الأقرب للمتجر، والكارت برا من غير مقارنة', function () {
+    // الأرقام التلاتة (طلب صاحب المنتج ٧ نوفمبر ٢٠٢٦): الرقم الكبير «الأقرب للمتجر»، وتحته فترة المقارنة ورقم المنصة، والتفاصيل جدول بالتلاتة
+    test('الأرقام التلاتة: تحت كل رقم في الكارت فترة المقارنة ورقم المنصة، والتفاصيل جدول بيهم', function () {
       var c = ad('cmp1', { daily: steady(100), res: [10, 10, 10, 10, 10, 10, 22], sales: steady(1000) });
-      c.plat = { results: 100, sales: 8750 };
-      candidates = [c];
-      render();
-      var card = document.getElementById('card-cmp1');
-      ok(card && card.textContent.indexOf(fmtNum(82)) > -1 && card.textContent.indexOf(fmtNum(100)) === -1, 'card shows our number only');
-      openExpand(c);
-      var box = document.querySelector('#expandMetrics .attr-compare');
-      ok(box, 'comparison table');
-      var rowText = function (i) { return Array.prototype.map.call(box.querySelectorAll('tbody tr')[i].children, function (x) { return x.textContent.trim(); }); };
-      eq(rowText(1), [resultLabelOf(c), fmtNum(100), fmtNum(82), '−' + t('cmp.pct', { n: ar(18) })], 'orders: platform, ours, difference');
-      eq(rowText(2)[3], '+' + t('cmp.pct', { n: ar(22) }), 'cost per order went up');
-      ok(box.querySelectorAll('tbody tr')[2].querySelector('.cmp-worse'), 'higher cost is marked as worse');
-      eq(box.querySelector('.attr-note').textContent, t('cmp.note', { head: t('cmp.head.purchase'), kept: I18N.countPhrase(82, 'order', ar),
-        kv: t('cmp.noteValue', { m: money(7000, 'SAR') }), gone: I18N.countPhrase(18, 'order', ar), other: t('cmp.other'), gv: t('cmp.noteValue', { m: money(1750, 'SAR') }) }));
-      expandOverlay.classList.add('hidden');
-      delete c.plat;
-      openExpand(c);
-      ok(!document.querySelector('#expandMetrics .attr-compare') && document.querySelectorAll('#expandMetrics .metric-box').length >= 4, 'no platform number = the old boxes');
-      expandOverlay.classList.add('hidden');
+      c.period = buildPeriod(700, 82, 7000);
+      c.period.plat = { results: 100, sales: 8750 };
+      var tz = BROWSER_TZ, w = cardCompareRange(tz), saved = cmpStore[c.source];
+      var subs = function () { return Array.prototype.map.call(document.getElementById('card-cmp1').querySelectorAll('.card-stat-s'), function (x) { return x.textContent; }); };
+      try {
+        delete cmpStore[c.source];
+        candidates = [c];
+        render();
+        var main = Array.prototype.map.call(document.getElementById('card-cmp1').querySelectorAll('.card-stat-v'), function (x) { return x.textContent; }).join(' ');
+        ok(main.indexOf(fmtNum(82)) > -1 && main.indexOf(fmtNum(100)) === -1, 'the big number is ours: ' + main);
+        eq(subs().slice(0, 4), [t('card.cmp', { v: '…' }), t('card.plat', { v: money(700, 'SAR') }), t('card.cmp', { v: '…' }), t('card.plat', { v: fmtNum(100) })], 'still loading; the platform under each');
+        // التفاصيل مفتوحة وأرقام المقارنة وصلت: الجدول بيتحدّث من غير ما تتقفل وتتفتح
+        openExpand(c);
+        var cell = function () { return document.querySelectorAll('#expandMetrics tbody tr')[1].children[2].textContent.trim(); };
+        eq(cell(), '…', 'the open details wait too');
+        cmpStore[c.source] = { key: cmpKeyOf(w), tz: tz, status: 'ok', byId: { cmp1: Object.assign(buildPeriod(500, 50, 4000), { plat: { results: 60, sales: 5000 } }) }, calc: null };
+        refreshOpenExpand();
+        eq(cell(), fmtNum(50), 'and refresh when the numbers arrive');
+        expandOverlay.classList.add('hidden');
+        // نفس الأساس (الأقرب للمتجر جنب رقم المنصة) في الفترتين
+        cmpStore[c.source] = { key: cmpKeyOf(w), tz: tz, status: 'ok', byId: { cmp1: Object.assign(buildPeriod(500, 50, 4000), { plat: { results: 60, sales: 5000 } }) }, calc: null };
+        render();
+        var s = subs();
+        eq([s.length, s[0], s[2], s[4], s[6], s[7]], [8, t('card.cmp', { v: money(500, 'SAR') }), t('card.cmp', { v: fmtNum(50) }), t('card.cmp', { v: money(10, 'SAR') }),
+          t('card.cmp', { v: roasStr(8) }), t('card.plat', { v: roasStr(8750 / 700) })], 'the comparison period and the platform under every number');
+        openExpand(c);
+        var box = document.querySelector('#expandMetrics .attr-compare');
+        ok(box, 'comparison table');
+        var rowText = function (i) { return Array.prototype.map.call(box.querySelectorAll('tbody tr')[i].children, function (x) { return x.textContent.trim(); }); };
+        var head = Array.prototype.map.call(box.querySelectorAll('thead th'), function (x) { return x.textContent; });
+        eq(head.slice(1), [t('cmp.store') + periodLabel(), t('cmp.prev') + fmtRange(w.since, w.until), t('cmp.platformOf', { plat: 'Meta' }) + periodLabel()], 'ours, the comparison period, the platform');
+        eq(rowText(1), [resultLabelOf(c), fmtNum(82) + ' ↑ ' + dxPct(0.64), fmtNum(50), fmtNum(100)], 'orders: ours (and its change), the comparison period, the platform');
+        eq(rowText(0), [t('x.spend'), money(700, 'SAR') + ' ↑ ' + dxPct(0.4), money(500, 'SAR'), money(700, 'SAR')], 'spend: the platform spends the same');
+        eq(box.querySelector('.attr-note').textContent, t('cmp.note', { head: t('cmp.head.purchase'), kept: I18N.countPhrase(82, 'order', ar),
+          kv: t('cmp.noteValue', { m: money(7000, 'SAR') }), gone: I18N.countPhrase(18, 'order', ar), other: t('cmp.other'), gv: t('cmp.noteValue', { m: money(1750, 'SAR') }) }));
+        expandOverlay.classList.add('hidden');
+        cmpStore[c.source].status = 'failed';
+        render();
+        eq(subs()[0], t('card.cmp', { v: '—' }), 'not available');
+        openExpand(c);
+        eq(Array.prototype.map.call(document.querySelectorAll('#expandMetrics tbody tr')[1].children, function (x) { return x.textContent.trim(); })[2], '—');
+        expandOverlay.classList.add('hidden');
+        // مفيش رقم منصة منفصل: الأقرب للمتجر هو رقم المنصة نفسه، والشرح بيقول كده
+        delete c.period.plat;
+        openExpand(c);
+        var row1 = Array.prototype.map.call(document.querySelectorAll('#expandMetrics tbody tr')[1].children, function (x) { return x.textContent.trim(); });
+        eq([row1[3], document.querySelector('#expandMetrics .attr-note').textContent], [fmtNum(82), t('cmp.noteOwn')]);
+        expandOverlay.classList.add('hidden');
+      } finally {
+        expandOverlay.classList.add('hidden');
+        if (saved) cmpStore[c.source] = saved; else delete cmpStore[c.source];
+      }
+    });
+    test('أرقام فترة المقارنة لإعلان (cmpOf): لسه بتتحمّل، ومش متاحة، وصفر لو مصرفش، ومدى قديم = مستنية الجديد، وأساس مختلف = مش متاحة', function () {
+      var c = ad('co1', { daily: steady(10), res: steady(1) }), tz = BROWSER_TZ, w = cardCompareRange(tz), saved = cmpStore[c.source];
+      try {
+        eq(cmpOf(c).state, 'failed', 'the period itself failed: nothing to compare');
+        c.period = buildPeriod(70, 7, 0);
+        delete cmpStore[c.source];
+        eq(cmpOf(c).state, 'loading', 'not started yet');
+        cmpStore[c.source] = { key: cmpKeyOf(w), tz: tz, status: 'ok', byId: {}, calc: null };
+        eq(cmpOf(c), { state: 'ok', p: buildPeriod(0, 0, 0) }, 'not in the reply = no spend in that range');
+        cmpStore[c.source].key = '2020-01-01:2020-01-07';
+        eq(cmpOf(c).state, 'loading', 'another range: waiting for the new one');
+        cmpStore[c.source].key = cmpKeyOf(w);
+        cmpStore[c.source].byId = { co1: false };
+        eq(cmpOf(c).state, 'failed', 'that ad has no numbers');
+        // الفترة بالأقرب للمتجر والمقارنة برقم المنصة (طلب المتجر فشل فيها بس) — مش نفس الرقم
+        c.period.plat = { results: 9, sales: 0 };
+        cmpStore[c.source].byId = { co1: buildPeriod(30, 3, 0) };
+        eq(cmpOf(c).state, 'failed', 'another basis');
+        cmpStore[c.source].byId.co1.plat = { results: 4, sales: 0 };
+        eq(cmpOf(c).p.results, 3, 'same basis');
+        // Meta (calc): أساس واحد في الطلبين
+        cmpStore[c.source].calc = function () { return buildPeriod(30, 3, 0); };
+        eq(cmpOf(c).state, 'ok');
+        // نوع نتيجة تاني في فترة المقارنة: الإنفاق بس
+        cmpStore[c.source].calc = function () { return { spend: 30, results: null, sales: 0, cpr: null, roas: null, otherType: true }; };
+        eq([cmpOf(c).p.results, cmpOf(c).p.spend], [null, 30]);
+        eq(cmpStore[c.source].status = 'loading', 'loading');
+        ok(cmpDone(c.source, w, { co1: buildPeriod(1, 1, 0) }) && cmpStore[c.source].status === 'ok', 'done');
+        ok(!cmpFail(c.source, w), 'a late failure does not undo it');
+        ok(!cmpDone(c.source, { since: '2020-01-01', until: '2020-01-07' }, {}), 'an old range does not overwrite');
+      } finally { if (saved) cmpStore[c.source] = saved; else delete cmpStore[c.source]; }
+    });
+    test('كارت الحملة والمجموعة: نفس شبكة الأرقام بالتلاتة — مجموع فترة المقارنة لو كل إعلاناتها جاهزة', function () {
+      var a = ad('ga', { daily: steady(10), res: steady(1), sales: steady(100) }), b = ad('gb', { daily: steady(20), res: steady(1), sales: steady(50) });
+      a.period = buildPeriod(70, 7, 700); a.period.plat = { results: 9, sales: 900 };
+      b.period = buildPeriod(140, 7, 350);   // من غير رقم منصة منفصل = رقمه هو رقم المنصة
+      // إعلان من غير نتائج في الفترة (نوع نتيجة تاني): إنفاقه في المجموع، وعدده لأ — زي أرقام الكارت نفسها
+      var x3 = ad('gx', { daily: steady(5), noResults: true });
+      x3.period = buildPeriod(30, null, 0);
+      var saved = cmpStore['meta:act_1'], tz = BROWSER_TZ, w = cardCompareRange(tz);
+      try {
+        var g = { kind: 'campaign', key: 'c1', name: 'Camp', platform: 'Meta', currency: 'SAR', ads: [a, b, x3], total: 3, spend: 240, results: 14, resultKey: 'purchase',
+          sales: 1050, cpr: 15, roas: 5, mixedResults: false, status: 'good', active: 3, urgent: 0, important: 0, health: { good: 3 }, sets: 1 };
+        eq(groupPlat(g), buildPeriod(240, 16, 1250), 'the platform: its own number, or ours where they are the same');
+        delete cmpStore['meta:act_1'];
+        eq(groupCmp(g).state, 'loading');
+        cmpStore['meta:act_1'] = { key: cmpKeyOf(w), tz: tz, status: 'ok', byId: { ga: Object.assign(buildPeriod(50, 5, 400), { plat: { results: 6, sales: 500 } }), gx: buildPeriod(20, 4, 0) }, calc: null };
+        eq(groupCmp(g), { state: 'ok', p: buildPeriod(70, 5, 400) }, 'an ad that did not run then = zero; an ad without results: its spend only');
+        var box = document.createElement('div');
+        box.innerHTML = campaignMarkup(g);
+        var lines = Array.prototype.map.call(box.querySelectorAll('.card-stats .card-stat-s'), function (x) { return x.textContent; });
+        ok(lines.indexOf(t('card.cmp', { v: money(70, 'SAR') })) > -1 && lines.indexOf(t('card.plat', { v: fmtNum(16) })) > -1, 'the same grid as the ad card, with the three numbers: ' + lines.join(' | '));
+        ok(box.querySelectorAll('.card-stat-s .card-stat-n').length === lines.length, 'the number itself in its own element (never cut off)');
+        cmpStore['meta:act_1'].byId.gb = false;
+        eq(groupCmp(g).state, 'failed', 'one ad not available = the total is not (a partial total would be wrong)');
+      } finally { if (saved) cmpStore['meta:act_1'] = saved; else delete cmpStore['meta:act_1']; }
     });
     test('نص الخطأ اللي في الرابط مبيظهرش — رسالة من عندنا بس', function () {
       var denied = oauthErrorFromUrl(new URLSearchParams('error=access_denied&error_description=Call+0100+now'));
@@ -4286,6 +4446,33 @@
       eq(costVsMax(['meta', 'snapchat']), [], 'several accounts: no line');
       useSettings({});
       eq(costVsMax(['meta']), [], 'no limits: no line');
+    });
+    // الملخص المرسوم فعلاً في «كل المنصات» (الافتراضي — ومنصة واحدة متصلة دايماً كده): رقم المنصة في كل خانة، وسطر «ليه أعلى»، وسطر
+    // التكلفة مقابل الحد. من ٢٥ أكتوبر (a749cbc) السطرين دول مكانوش بيظهروا خالص في الأداة — في البريد بس (مراجعة ٨ نوفمبر ٢٠٢٦)
+    test('الملخص في العرض الافتراضي: رقم المنصة في كل خانة، وسطر «ليه أعلى»، وسطر التكلفة مقابل الحد بيظهروا', function () {
+      var keep = { on: DX_ON, period: period, compare: compare, sel: platSel, dx: dxState };
+      try {
+        DX_ON = true; period = { preset: 'last7' }; compare = { mode: 'prev' }; platSel = null;
+        activeSources.meta = 'act_1';
+        useSettings({ maxCost: { message: 12 } });
+        candidates = costAccount();
+        var p = dxPeriodFor(BROWSER_TZ), daily = [];
+        for (var k = shiftKey(p.since, -60); k <= p.until; k = shiftKey(k, 1)) daily.push({ date: k, spend: 100, imp: 5000, clicks: 100, atc: 20, ic: 10, pur: 5, rev: 500, ppur: 8, prev: 900 });
+        var inp = { since: p.since, until: p.until, unit: p.unit, cmp: p.cmp, today: p.today, currency: 'SAR', timezone: BROWSER_TZ, daily: daily, dims: [] };
+        dxState = dxFresh();
+        dxState.status = 'ready';
+        dxState.sources.meta = { status: 'ready', key: 'k', input: inp, report: DX.analyze(inp), account: 'A', accountId: 'act_1', gen: 1 };
+        dxBuild();
+        renderDiagnosis();
+        var body = document.getElementById('dxBody').textContent, under = document.getElementById('dxToday').textContent;
+        ok(body.indexOf(t('dx.kpi.plat', { v: fmtNum(56) })) > -1 && body.indexOf(t('dx.kpi.plat', { v: money(6300, 'SAR') })) > -1, 'the platform number in the boxes: ' + body);
+        ok(under.indexOf(t('dx.platWhy', { plat: 'Meta' })) > -1, 'why it is higher: ' + under);
+        ok(under.indexOf(money(1400 / 84, 'SAR')) > -1 && under.indexOf(money(12, 'SAR')) > -1, 'the cost against the limit: ' + under);
+      } finally {
+        DX_ON = keep.on; period = keep.period; compare = keep.compare; platSel = keep.sel; dxState = keep.dx;
+        useSettings({});
+        renderDiagnosis();
+      }
     });
     // قرار صاحب المنتج ٢٥ أكتوبر: «ضيفه في البريد ايضاً» — السطر كان في الأداة بس. الحساب بقى في المحرك (DX.costVsMax)، والمُشغّل
     // بيديله أرقام فترة الملخص لكل إعلان (runner.ts costLine)، والنص المنسوخ ونص البريد (DX.toText) بيقولوه
@@ -7762,21 +7949,45 @@
       var aov = o.kpis[3];
       ok(aov.value && aov.value !== '—' && aov.prev !== '—', 'aov shown with the previous period');
     });
-    test('سطر المقارنة برقم المنصة تحت أرقام الملخص: بيظهر لما المنصة بتنسب طلبات أكتر، وبيختفي لو متساويين', function () {
-      // حساب حقيقي ١١ أكتوبر: Meta بتنسب ٥١ طلباً بعائد ×٤٫٩ والملخص ٢٣ بعائد ×٢ من غير ولا كلمة
-      var saved = dxState.sources.meta, savedC = candidates;
+    test('سطر «ليه رقم المنصة أعلى» تحت الملخص: منصة واحدة من المحرك، وكل المنصات من مجموعهم بعد تحويل العملة', function () {
+      // حساب حقيقي ١١ أكتوبر: Meta بتنسب ٥١ طلباً بعائد ×٤٫٩ والملخص ٢٣ بعائد ×٢ من غير ولا كلمة — الأرقام نفسها بقت في كل خانة (٧ نوفمبر)
+      var saved = { s: dxState.sources, sel: dxState.sel, r: dxState.report };
       try {
         var row = function (d, ppur) { return { date: d, spend: 100, pur: 2, rev: 400, ppur: ppur, prev: ppur * 200 }; };
-        dxState.sources.meta = { input: { since: '2026-10-04', until: '2026-10-05', currency: 'SAR', daily: [row('2026-10-03', 9), row('2026-10-04', 5), row('2026-10-05', 5)] } };
-        candidates = [];
-        var line = withLang('ar', function () { return platCompare(['meta']); });
-        ok(line && /تنسب Meta لهذه الفترة ١٠ طلبات بمبيعات ٢٬٠٠٠ ر\.س \(عائد ×١٠\)/.test(line.text), line ? line.text : 'no line');
+        dxState.sources = { meta: { input: { since: '2026-10-04', until: '2026-10-05', currency: 'SAR', daily: [row('2026-10-04', 5), row('2026-10-05', 5)] } },
+          snapchat: { input: { since: '2026-10-04', until: '2026-10-05', currency: 'USD', daily: [{ date: '2026-10-04', spend: 10, pur: 1, rev: 40 }], plat: { pur: 3, rev: 100 } } } };
+        eq(withLang('ar', function () { return platCompare(['meta']).text; }), withLang('ar', function () { return t('dx.platWhy', { plat: 'Meta' }); }));
         dxState.sources.meta.input.daily = [row('2026-10-04', 2), row('2026-10-05', 2)];
         eq(platCompare(['meta']), null, 'same numbers = no line');
-        dxState.sources.meta.input.daily = [{ date: '2026-10-04', spend: 100, pur: 2, rev: 400, ppur: null, prev: null }];
-        eq(platCompare(['meta']), null, 'no attribution windows = no line');
-        eq(platCompare(['meta', 'snapchat']), null, 'combined view = no line');
-      } finally { dxState.sources.meta = saved; candidates = savedC; }
+        dxState.sources.meta.input.daily = [row('2026-10-04', 5), row('2026-10-05', 5)];
+        dxState.sel = { plats: ['meta', 'snapchat'], conv: { to: 'SAR', from: ['USD'] } };
+        dxState.report = { cur: { pur: 5, rev: 0, spend: 0 } };
+        var tot = dxPlatTotals();
+        eq([tot.pur, Math.round(tot.rev * 100) / 100], [13, 2000 + 100 * DX.pegRate('USD', 'SAR')], 'summed in the report currency');
+        eq(platCompare(['meta', 'snapchat']).text, t('dx.platWhyAll'));
+        dxState.report = { cur: { pur: 13 } };
+        eq(platCompare(['meta', 'snapchat']), null, 'not more = no line');
+        delete dxState.sources.snapchat.input.plat;
+        eq([dxPlatTotals(), platCompare(['meta', 'snapchat'])], [null, null], 'a platform without its number = no total (a partial total would be wrong)');
+      } finally { dxState.sources = saved.s; dxState.sel = saved.sel; dxState.report = saved.r; }
+      // «كل المنصات» (الافتراضي — ومنصة واحدة متصلة دايماً كده): السطر بيظهر برضه. من ٢٥ أكتوبر كان مبيظهرش خالص (a749cbc)
+      var keepSel = platSel, keepC = candidates.slice(), keep2 = { s: dxState.sources, sel: dxState.sel };
+      try {
+        platSel = null;
+        dxState.sources = { meta: { input: { since: '2026-10-04', until: '2026-10-05', currency: 'SAR', daily: [
+          { date: '2026-10-04', spend: 100, pur: 2, rev: 400, ppur: 5, prev: 1000 }, { date: '2026-10-05', spend: 100, pur: 2, rev: 400, ppur: 5, prev: 1000 }] } } };
+        dxState.sel = { plats: ['meta'] };
+        candidates.length = 0;
+        candidates.push(ad('sl1', { daily: steady(10), res: steady(1) }));
+        eq(dxShownPlats(), ['meta'], 'the platforms of the summary itself');
+        ok(storeLines(dxViewPlatforms()).some(function (l) { return l.text === t('dx.platWhy', { plat: 'Meta' }); }), 'the line shows in the default view');
+      } finally {
+        platSel = keepSel; dxState.sources = keep2.s; dxState.sel = keep2.sel;
+        candidates.length = 0; keepC.forEach(function (c) { candidates.push(c); });
+      }
+      var html = dxKpiHtml({ label: 'L', value: 'V', prev: 'P', plat: 'X', pct: null, sig: 0, goodUp: null });
+      ok(html.indexOf(esc(t('dx.kpi.plat', { v: 'X' }))) > -1 && html.indexOf(esc(t('dx.kpi.prev', { v: 'P' }))) > -1, 'the summary box: the comparison and the platform under the number');
+      ok(dxKpiHtml({ label: 'L', value: 'V', prev: 'P', pct: null, sig: 0, goodUp: null }).indexOf(esc(t('dx.kpi.plat', { v: '' }).split(':')[0])) < 0, 'no platform number = no line');
     });
     test('جدول الأيام في التفاصيل: الأيام المكتملة وآخرها «أمس»، وبعدها «الإجمالي» (bold) وبعده «اليوم» منفصل', function () {
       var c = ad8('d1', s8(10), s8(1));
@@ -8122,46 +8333,62 @@
       ok(!issueOf(r, 'tiny', 'loss'), issuesOf(r, 'tiny'));
     });
     // حساب حقيقي ١٨ أكتوبر: معاينة البريد قالت «٥ طلبات» من غير سطر «للمقارنة: تنسب Meta…» اللي في الأداة (Meta بتنسب ١٦)
-    test('سطر المقارنة برقم المنصة من المحرك نفسه: الأداة والنص المنسوخ ورسالة البريد بنفس الكلام', function () {
-      var row = function (d, ppur) { return { date: d, spend: 100, pur: 2, rev: 400, ppur: ppur, prev: ppur * 200 }; };
+    test('رقم المنصة في كل خانة من الملخص وسطر «ليه أعلى» من المحرك نفسه — الأداة والنص المنسوخ ورسالة البريد بنفس الكلام', function () {
+      var row = function (d, ppur) { return { date: d, spend: 100, pur: 2, rev: 400, ppur: ppur, prev: ppur == null ? null : ppur * 200 }; };
       var inp = { since: '2026-10-04', until: '2026-10-05', currency: 'SAR', daily: [row('2026-10-03', 9), row('2026-10-04', 5), row('2026-10-05', 5)] };
+      eq(DX.platTotals(inp, 'meta'), { pur: 10, rev: 2000 }, 'Meta: the days of the period only');
       var line = withLang('ar', function () { return DX.platCompare(inp, 'meta'); });
-      ok(line && /تنسب Meta لهذه الفترة ١٠ طلبات بمبيعات ٢٬٠٠٠ ر\.س \(عائد ×١٠\)/.test(line), line || 'no line');
-      var saved = dxState.sources.meta;
-      try {
-        dxState.sources.meta = { input: inp };
-        eq(withLang('ar', function () { return platCompare(['meta']); }).text, line, 'the tool shows the engine line');
-      } finally { dxState.sources.meta = saved; }
-      var text = withLang('ar', function () { return DX.toText({ period: 'p', title: 'T', tone: 'bad', kpis: [], blocks: [], notes: [], platCmp: line }, 'Acc'); });
-      ok(text.indexOf(line) > -1, text);
-      eq(DX.platCompare({ since: '2026-10-04', until: '2026-10-04', daily: [{ date: '2026-10-04', spend: 1, pur: 1, rev: 1, ppur: null }] }, 'meta'), null, 'a day without a platform number');
-      eq(DX.platCompare(inp, 'snapchat'), null, 'other platforms need their ads');
+      eq(line, withLang('ar', function () { return t('dx.platWhy', { plat: 'Meta' }); }));
+      var one = { since: '2026-10-04', until: '2026-10-04', daily: [row('2026-10-04', null)] };
+      eq([DX.platTotals(one, 'meta'), DX.platCompare(one, 'meta')], [{ pur: 2, rev: 400 }, null], 'a day without windows: its number is the platform number itself');
+      // Snapchat وGoogle: الحساب كله من السيرفر (plat)، ولو الملخص نفسه بأرقام المنصة الرقمين واحد
+      var sn = { since: '2026-10-04', until: '2026-10-05', currency: 'SAR', daily: [{ date: '2026-10-04', spend: 100, pur: 1, rev: 100 }, { date: '2026-10-05', spend: 100, pur: 2, rev: 200 }] };
+      eq([DX.platTotals(sn, 'snapchat'), DX.platCompare(sn, 'snapchat')], [null, null], 'an old server reply = no number');
+      sn.plat = { pur: 8, rev: 1600 };
+      eq(DX.platTotals(sn, 'snapchat'), { pur: 8, rev: 1600 });
+      eq(withLang('ar', function () { return DX.platCompare(sn, 'snapchat'); }), withLang('ar', function () { return t('dx.platWhy', { plat: 'Snapchat' }); }));
+      sn.numbers = 'platform';
+      eq([DX.platTotals(sn, 'snapchat'), DX.platCompare(sn, 'snapchat')], [{ pur: 3, rev: 300 }, null], 'the summary is already the platform numbers');
+      // كل خانة بنفس الإنفاق
+      withLang('ar', function () {
+        var o = { kpis: ['spend', 'orders', 'revenue', 'aov', 'roas', 'cpa'].map(function (id) { return { id: id, label: id, value: 'v', prev: 'p' }; }) };
+        DX.platKpis(o, { currency: 'SAR', cur: { spend: 200, pur: 4, rev: 800 } }, { pur: 10, rev: 2000 });
+        eq(o.kpis.map(function (k) { return k.plat; }), [money(200, 'SAR'), fmtNum(10), money(2000, 'SAR'), money(200, 'SAR'), roasStr(10), money(20, 'SAR')]);
+        var text = DX.toText({ period: 'p', title: 'T', tone: 'bad', kpis: o.kpis, blocks: [], notes: [], platCmp: line }, 'Acc');
+        ok(text.indexOf(line) > -1 && text.indexOf('• orders: v (' + t('dx.kpi.prev', { v: 'p' }) + t('dx.kpi.sep') + t('dx.kpi.plat', { v: fmtNum(10) }) + ')') > -1, text);
+        eq(DX.platKpis({ kpis: [{ id: 'orders' }] }, { cur: { spend: 1 } }, { pur: 0, rev: 0 }).kpis[0].plat, fmtNum(0), 'zero is a number');
+      });
+      // من غير مشتريات عندنا والمنصة بتنسب طلبات: البيكسل شغّال — «لا تصل إلى المنصة أي عمليات شراء» كانت هتبقى غلط
+      var d = [];
+      for (var i = 40; i >= 1; i--) d.push({ date: shiftKey('2026-10-20', -i), spend: 100, imp: 1000, clicks: 10, atc: 0, ic: 0, pur: 0, rev: 0 });
+      var rep = DX.analyze({ since: '2026-10-13', until: '2026-10-19', currency: 'SAR', daily: d, dims: [] });
+      eq(rep.status, 'noPurchases');
+      withLang('ar', function () {
+        var po = DX.compose(rep, { plat: { pur: 3, rev: 300 } });
+        eq([po.title, po.blocks[0].title, po.blocks[0].lines[0]], [t('dx.head.noProven'), t('dx.head.noProven'), t('dx.noPurchases.plat', { orders: DX.ordersText(3) })], 'the heading says it too');
+        eq(DX.compose(rep).title, t('dx.head.noPurchases'));
+        eq(DX.compose(rep, { plat: { pur: 0, rev: 0 } }).blocks[0].lines[0], t('dx.noPurchases'));
+        eq(DX.compose(rep).blocks[0].lines[0], t('dx.noPurchases'));
+      });
     });
     // ٣١ أكتوبر: سطر Snapchat اتنقل من ui.js للمحرك عشان ملخص Snapchat بالبريد يقوله (runner.ts snapSummary)
-    test('سطر المقارنة لـ Snapchat من إعلانات الفترة: نفس الكلام في الأداة والمحرك، وإعلان من غير رقم منصة = من غير سطر', function () {
-      var inp = { since: '2026-10-04', until: '2026-10-05', currency: 'SAR', daily: [{ date: '2026-10-03', spend: 50 }, { date: '2026-10-04', spend: 100 }, { date: '2026-10-05', spend: 100 }] };
-      var ad = function (id, pur, platPur) {
-        var p = buildPeriod(100, pur, pur * 200);
-        p.plat = { results: platPur, sales: platPur * 200 };
-        return { id: id, source: 'snapchat:s1', platform: 'Snapchat', resultKey: 'purchase', period: p };
-      };
-      var cands = [ad('a', 2, 6), ad('b', 1, 2), { id: 'c', source: 'snapchat:s1', platform: 'Snapchat', resultKey: 'link_click', period: buildPeriod(10, 5, 0) }];
-      var line = withLang('ar', function () { return DX.platCompare(inp, 'snapchat', cands); });
-      ok(line && /تنسب Snapchat لهذه الفترة ٨ طلبات بمبيعات ١٬٦٠٠ ر\.س \(عائد ×٨\)/.test(line), line || 'no line');
-      var saved = { src: dxState.sources.snapchat, cands: candidates.slice() };
+    test('ملخص Snapchat وGoogle بياخد رقم المنصة للحساب كله من رد السيرفر (مش من إعلانات الشراء بس — إعلانات الزيارات ليها طلبات كمان)', function () {
+      var keep = { apiPost: window.apiPost, isCurrentLoad: window.isCurrentLoad, dxBegin: window.dxBegin, dxDone: window.dxDone }, keepOn = DX_ON, got = null;
+      window.apiPost = function () { return { then: function (f) { f({ ok: true, data: { daily: [], dims: [], plat: { pur: 4, rev: 40 }, numbers: 'store' } }); return { catch: function () {} }; } }; };
+      window.isCurrentLoad = function () { return true; };
+      window.dxBegin = function () { return true; };
+      window.dxDone = function (p, key, input) { got = input; };
       try {
-        dxState.sources.snapchat = { input: inp };
-        candidates.length = 0;
-        cands.forEach(function (c) { candidates.push(c); });
-        eq(withLang('ar', function () { return platCompare(['snapchat']); }).text, line, 'the tool shows the engine line');
+        DX_ON = true;
+        loadSnapchatDiagnosis('acc-x', { timezone: 'UTC', currency: 'SAR' }, 't');
+        eq([got && got.plat, got && got.numbers], [{ pur: 4, rev: 40 }, 'store'], 'Snapchat');
+        got = null;
+        loadGoogleDiagnosis('123', { timeZone: 'UTC', currency: 'SAR', name: 'G' }, 't');
+        eq([got && got.plat, got && got.numbers], [{ pur: 4, rev: 40 }, 'store'], 'Google');
       } finally {
-        dxState.sources.snapchat = saved.src;
-        candidates.length = 0;
-        saved.cands.forEach(function (c) { candidates.push(c); });
+        DX_ON = keepOn;
+        Object.keys(keep).forEach(function (k) { window[k] = keep[k]; });
       }
-      cands[1].period.plat = null;
-      eq(DX.platCompare(inp, 'snapchat', cands), null, 'an ad without a platform number = no line');
-      eq(DX.platCompare(inp, 'snapchat', [ad('a', 3, 3)]), null, 'the platform does not attribute more = no line');
     });
     // حساب حقيقي ١٨ أكتوبر: «رُفعت ميزانية المجموعة أمس من ١٠ لـ ٢٠ $، ونحتاج ٣ أيام كاملة» وجنبه فرصة «زيادة الميزانية» من أيام قبل التعديل
     test('تعديل حديث: فرصة «زيادة الميزانية» بتفضل فرصة بس اقتراحها «انتظر أثر التعديل»، والحكم زي ما هو ومعاه الوسم', function () {
@@ -8915,7 +9142,7 @@
       if (q.indexOf('segments.device') > -1 || q.indexOf('ad_network_type') > -1) return rows([]);
       return rows(conv
         ? [{ segments: seg({ conversionActionCategory: 'PURCHASE' }), metrics: { conversions: 4, allConversions: 5, conversionsValue: 400, allConversionsValue: 500 } },
-          { segments: seg({ conversionActionCategory: 'ADD_TO_CART' }), metrics: { conversions: 0, allConversions: 20 } },
+          { segments: seg({ conversionActionCategory: 'ADD_TO_CART' }), metrics: { conversions: 7, allConversions: 20 } },
           { segments: seg({ conversionActionCategory: 'BEGIN_CHECKOUT' }), metrics: { conversions: 0, allConversions: 9 } }]
         : [{ segments: seg(), metrics: { costMicros: '80000000', impressions: '900', clicks: '40' } }]);
     };
@@ -8942,7 +9169,10 @@
       eq(out.numbers, 'store');
       var convQ = queries.filter(function (x) { return x.indexOf('conversion_action_category') > -1; });
       var filtered = function (pred) { return convQ.filter(pred).every(function (x) { return x.indexOf("conversion_attribution_event_type = 'INTERACTION'") > -1; }); };
-      ok(filtered(function (x) { return x.indexOf('FROM customer') > -1 && x.indexOf('segments.device') < 0; }), 'account and network use the store filter');
+      // رقم Google نفسه للفترة: طلب واحد للحساب على مدى الفترة من غير فلتر المتجر (نفس تعريف الطلبات — الأساسي)
+      var platQ = convQ.filter(function (x) { return x.indexOf('FROM customer') > -1 && x.indexOf("BETWEEN '" + ws[0].since + "' AND '" + ws[0].until + "'") > -1 && x.indexOf('conversion_attribution_event_type') < 0; });
+      eq([platQ.length, out.plat], [1, { pur: 4, rev: 400 }], 'the platform number for the period, without the store filter');
+      ok(filtered(function (x) { return x.indexOf('FROM customer') > -1 && x.indexOf('segments.device') < 0 && platQ.indexOf(x) < 0; }), 'account and network use the store filter');
       ok(filtered(function (x) { return x.indexOf('campaign.id') > -1; }), 'campaigns use the store filter');
       ok(convQ.filter(function (x) { return x.indexOf('segments.device') > -1 || x.indexOf('user_location_view') > -1; })
         .every(function (x) { return x.indexOf('conversion_attribution_event_type') < 0; }), 'device and country without it');
@@ -10352,6 +10582,22 @@
       eq([none.pd.dates.length, sumArr(none.pd.spend), none.period.spend], [10, 0, 0], 'no spend in the period = zero days');
     });
 
+    test('Meta: فترة المقارنة بأساس الكارت نفسه — نوع نتيجة تاني فيها (هدف المجموعة اتغيّر) = الإنفاق بس من غير عدد', function () {
+      var base = { id: '1', name: 'A', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000',
+        adset: { id: 's', name: 'S', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c', name: 'C' }, creative: {} };
+      var pr = { since: shiftKey(TODAY, -20), until: shiftKey(TODAY, -11) };
+      var buy = function (d, spend, n, v) { return { date_start: d, spend: String(spend), actions: [{ action_type: 'omni_purchase', value: String(n) }], action_values: [{ action_type: 'omni_purchase', value: String(v) }] }; };
+      var c = transformRealAd(base, [], {}, DAYS_X, null, 'SAR', null, buy(pr.since, 50, 3, 240), pr);
+      eq([c.resultKey, !!c.metaCtx], ['purchase', true]);
+      var x = metaCmpPeriod(buy(pr.since, 30, 2, 100), c, pr);
+      eq([x.spend, x.results, x.sales], [30, 2, 100], 'the same result type');
+      var lead = { spend: '40', actions: [{ action_type: 'lead', value: '4' }], results: [{ indicator: 'actions:lead', values: [{ value: '4' }] }] };
+      var y = metaCmpPeriod(lead, c, pr);
+      eq([y.spend, y.results, y.otherType], [40, null, true], 'another result type: the spend only');
+      eq(metaCmpPeriod(undefined, c, pr), buildPeriod(0, 0, 0), 'no row = it did not run');
+      eq(metaCmpPeriod([buy(pr.since, 10, 1, 50)], c, pr).spend, 10, 'inside the week: from the daily rows');
+      eq(metaCmpPeriod(null, {}, pr), false, 'a card without its basis = not available');
+    });
     test('Snapchat: الفترة يوم بيوم — «الأقرب للمتجر» لكل يوم ورقم المنصة جنبه، والمجموع = مجموع الأيام', function () {
       var M = 1000000, pr = { since: shiftKey(TODAY, -9), until: shiftKey(TODAY, -2) };
       var ser = function (rows) {
@@ -10398,6 +10644,60 @@
       eq([pm.pd.dates.length, pm.pd.spend[3], pm.pd.results[3], pm.period.spend, pm.period.results], [4, 80, 4, 80, 4]);
     });
 
+    test('Google وTikTok: أرقام فترة المقارنة لكل إعلان من نفس طلب الإعلانات على مدى المقارنة ونفس التحويل', function () {
+      var keep = { apiPost: window.apiPost, isCurrentLoad: window.isCurrentLoad, render: window.render }, sent = [], reply = null, saved = { g: cmpStore['google:123'], t: cmpStore['tiktok:adv1'] };
+      window.apiPost = function (u, body) { sent.push(body); var r = reply(body); return { then: function (f) { f(r); return { catch: function () {} }; } }; };
+      window.isCurrentLoad = function () { return true; };
+      window.render = function () {};
+      try {
+        var w = cardCompareRange('UTC'), M = 1000000, pr = { since: shiftKey(TODAY, -5), until: shiftKey(TODAY, -2) };
+        var rows = [{ ad_id: '9', ad_name: 'T', campaign_id: '3', campaign_name: 'C', adgroup_id: '77', adgroup_name: 'AG', operation_status: 'ENABLE', ad_format: 'SINGLE_VIDEO' }];
+        var tt = transformTikTokAds(rows, [], DAYS_X, 'SAR', [{ dimensions: { ad_id: '9' }, metrics: { spend: '40.00', conversion: '5' } }], null, pr)[0];
+        tt.source = 'tiktok:adv1';
+        reply = function (b) { return { ok: true, data: { ads: rows, report: [], periodReport: [{ dimensions: { ad_id: '9' }, metrics: { spend: '31.00', conversion: '3' } }], periodDaily: null,
+          period: { since: b.period.since, until: b.period.until }, range: { since: KEYS[0], until: KEYS[6] }, advertiser: { currency: 'SAR', timezone: 'UTC' } } }; };
+        loadTikTokCompare('adv1', 'UTC', 't');
+        eq(sent[0].period, { preset: 'custom', since: w.since, until: w.until });
+        var x = cmpOf(tt);
+        eq([x.state, x.p.spend, x.p.results], ['ok', 31, 3], 'TikTok');
+        reply = function () { return { ok: true, data: { ads: rows, report: [], periodReport: null, period: { since: w.since, until: w.until }, range: { since: KEYS[0], until: KEYS[6] } } }; };
+        loadTikTokCompare('adv1', 'UTC', 't');
+        eq(cmpOf(tt).state, 'failed', 'its period numbers failed: not available');
+        var row = function (g, a) { return { adGroup: { id: g, name: 'AG', status: 'ENABLED' }, adGroupAd: { ad: { id: a, name: 'Ad ' + a }, status: 'ENABLED' }, campaign: { id: '3', name: 'S', status: 'ENABLED' } }; };
+        var tot = function (g, a, m) { return { adGroup: { id: g }, adGroupAd: { ad: { id: a } }, metrics: m }; };
+        var gg = googleWholeOrders(transformGoogleRows([row('7', '9')], [], DAYS_X, 'SAR', [tot('7', '9', { costMicros: String(100 * M), conversions: 4, conversionsValue: 400 })], [],
+          [tot('7', '9', { conversions: 3, conversionsValue: 300 })], null, null, pr))[0];
+        gg.source = 'google:123';
+        reply = function (b) { return { ok: true, data: { ads: [row('7', '9')], metrics: [], periodMetrics: [tot('7', '9', { costMicros: String(70 * M), conversions: 2, conversionsValue: 200 })],
+          storeMetrics: [], storePeriodMetrics: [tot('7', '9', { conversions: 2, conversionsValue: 180 })], periodDaily: null, storePeriodDaily: null, pmax: [], pmaxPeriod: [],
+          period: { since: b.period.since, until: b.period.until }, range: { since: KEYS[0], until: KEYS[6] } } }; };
+        sent.length = 0;
+        loadGoogleCompare('123', { timeZone: 'UTC', currency: 'SAR' }, 't');
+        eq(sent[0].period, { preset: 'custom', since: w.since, until: w.until });
+        var y = cmpOf(gg);
+        eq([y.state, y.p.spend, y.p.results, y.p.sales], ['ok', 70, 2, 180], 'Google: closest to the store with the platform cap, like the card');
+        // حملة Performance Max: أرقام PMax للمدى فشلت = مش متاحة (مش صفر)، حتى لو الحملة مش في الرد خالص
+        var camp = { id: '21', name: 'PMax', status: 'ENABLED', primaryStatus: 'ELIGIBLE' };
+        var pm = transformGooglePmax([], [{ campaign: camp, metrics: { costMicros: String(80 * M), conversions: 4, conversionsValue: 400 } }], DAYS_X, 'SAR', null, null, null, null, pr)[0];
+        pm.source = 'google:123';
+        var keepC = candidates.slice();
+        candidates.length = 0; candidates.push(gg, pm);
+        try {
+          reply = function (b) { return { ok: true, data: { ads: [row('7', '9')], metrics: [], periodMetrics: [tot('7', '9', { costMicros: String(70 * M), conversions: 2, conversionsValue: 200 })],
+            storeMetrics: [], storePeriodMetrics: [tot('7', '9', { conversions: 2, conversionsValue: 180 })], pmax: [], pmaxPeriod: null, pmaxError: 'boom',
+            period: { since: b.period.since, until: b.period.until }, range: { since: KEYS[0], until: KEYS[6] } } }; };
+          loadGoogleCompare('123', { timeZone: 'UTC', currency: 'SAR' }, 't');
+          eq([pm.campaignLevel, cmpOf(pm).state, cmpOf(gg).state], [true, 'failed', 'ok'], 'PMax numbers failed: those campaigns only');
+        } finally { candidates.length = 0; keepC.forEach(function (c) { candidates.push(c); }); }
+        reply = function (b) { return { ok: true, data: { ads: [], metrics: [], periodMetrics: [], period: { since: shiftKey(b.period.since, 1), until: b.period.until }, range: { since: KEYS[0], until: KEYS[6] } } }; };
+        loadGoogleCompare('123', { timeZone: 'UTC', currency: 'SAR' }, 't');
+        eq(cmpOf(gg).state, 'failed', 'the server cut the range: another range is not a comparison');
+      } finally {
+        Object.keys(keep).forEach(function (k) { window[k] = keep[k]; });
+        if (saved.g) cmpStore['google:123'] = saved.g; else delete cmpStore['google:123'];
+        if (saved.t) cmpStore['tiktok:adv1'] = saved.t; else delete cmpStore['tiktok:adv1'];
+      }
+    });
     test('TikTok: الفترة يوم بيوم لكل إعلان، والمجموع على الكارت من أيامها لو وصلت', function () {
       var pr = { since: shiftKey(TODAY, -4), until: shiftKey(TODAY, -2) };
       var rows = [{ ad_id: '9', ad_name: 'T', campaign_id: '3', campaign_name: 'C', adgroup_id: '77', adgroup_name: 'AG', operation_status: 'ENABLE', ad_format: 'SINGLE_VIDEO' }];
@@ -10415,7 +10715,7 @@
     // حساب Meta وهمي: طلبات الأيام (time_increment خارج نافذة الأسبوع) بتتمسك لحد ما الاختبار يردّ عليها
     var metaFake = function (id, o) {
       o = o || {};
-      var hadFB = 'FB' in window, prevFB = window.FB, held = [], f = { held: held, totals: 0, weeks: 0, ranges: [], camps: [], filters: [], adsCalls: 0, adsets: 0, acts: 0, reach: 0 };
+      var hadFB = 'FB' in window, prevFB = window.FB, held = [], f = { held: held, totals: 0, weeks: 0, ranges: [], camps: [], filters: [], cmps: [], adsCalls: 0, adsets: 0, acts: 0, reach: 0 };
       var buy = function (d, sp) { return { ad_id: 'm1', date_start: d, spend: String(sp), actions: [{ action_type: 'omni_purchase', value: '1' }], action_values: [{ action_type: 'omni_purchase', value: '100' }] }; };
       var week = last7Days(todayKeyInTz('UTC')).map(function (d) { return d.key; });
       window.FB = { api: function (path, params, cb) {
@@ -10433,7 +10733,14 @@
           return;
         }
         if (/insights$/.test(path) && /actions/.test(p.fields || '') && p.time_range) {
-          var r = JSON.parse(p.time_range);
+          var r = JSON.parse(p.time_range), cw = !p.time_increment && p.level === 'ad' && cardCompareRange('UTC');
+          // أرقام فترة المقارنة لكل إعلان (meta.js loadCompare): طلب واحد للمدى كله — بيتعدّ لوحده
+          if (cw && r.since === cw.since && r.until === cw.until) {
+            f.cmps.push({ r: r, filtering: p.filtering || null });
+            var noWin = o.cmpNoWindows && p.action_attribution_windows;
+            setTimeout(function () { cb(noWin ? { error: { code: 100, message: 'bad windows' } } : { data: [Object.assign(buy(r.since, 450), { date_start: undefined })] }); }, 0);
+            return;
+          }
           f.filters.push(p.filtering || null);
           if (o.rejectFilter && p.filtering) { setTimeout(function () { cb({ error: { code: 100, message: 'Invalid filtering' } }); }, 0); return; }
           if (!p.time_increment) { f.totals++; reply = { data: [Object.assign(buy(r.since, 900), { date_start: undefined })] }; }
@@ -10497,7 +10804,8 @@
       eq([st.field, st.operator, st.value.indexOf('ARCHIVED') > -1, st.value.indexOf('DELETED') > -1], ['ad.effective_status', 'IN', true, true], 'archived and deleted ads stay in');
       return sleep(80).then(function () {
         var r = resolvePeriodFor('UTC'), week = last7Days(todayKeyInTz('UTC')).map(function (d) { return d.key; });
-        eq(f.camps, [{ since: r.since, until: week[week.length - 1] }], 'one list for the period and the week together');
+        eq(f.camps, [{ since: cardCompareRange('UTC').since, until: week[week.length - 1] }], 'one list for the period, the week and the comparison period together');
+        eq([f.cmps.length, f.cmps[0].filtering === want], [1, true], 'the comparison period: one request, scoped by the same list');
         eq([f.filters.length, f.filters.every(function (x) { return x === want; })], [6, true], 'week + total + 4 batches, all scoped');
         return f.pump();
       }).then(function () {
@@ -10512,6 +10820,67 @@
       }, function (e) { f.restore(); throw e; });
     });
 
+    // «٣ أرقام في كل الأداة» (٧ نوفمبر ٢٠٢٦): أرقام فترة المقارنة لكل إعلان من غير ما تضاعف طلبات مستوى الإعلان (حد Meta للطلبات)
+    testAsync('Meta: أرقام فترة المقارنة لكل إعلان — طلب واحد للمدى كله، و«اليوم» قصاد «أمس» من أيام الأسبوع من غير طلب', function () {
+      period = { preset: 'last30' };
+      compare = { mode: 'prev' };
+      var f = metaFake('act_61');
+      loadAdsForAccount('act_61');
+      return sleep(80).then(function () {
+        var w = cardCompareRange('UTC');
+        eq([f.cmps.length, f.cmps[0].r, f.totals, f.camps.length], [1, { since: w.since, until: w.until }, 1, 1], 'one request for the whole range, no extra list');
+        var x = cmpOf(f.ad());
+        eq([x.state, x.p.spend, x.p.results, x.p.sales], ['ok', 450, 1, 100]);
+        return f.pump();
+      }).then(function () {
+        f.restore();
+        period = { preset: 'today' };
+        var g = metaFake('act_62');
+        loadAdsForAccount('act_62');
+        return sleep(80).then(function () {
+          var y = cmpOf(g.ad());
+          eq([g.cmps.length, y.state, y.p.spend, y.p.results], [0, 'ok', 10, 1], 'today vs yesterday: from the week rows');
+          g.restore();
+          // Meta رفضت النوافذ في طلب المقارنة: رقم المنصة نفسها أساس تاني غير أرقام الكارت — مش متاحة، مش أرقام بطريقة تانية
+          var h = metaFake('act_63', { cmpNoWindows: true });
+          period = { preset: 'last7' };
+          loadAdsForAccount('act_63');
+          return sleep(3500).then(function () {
+            eq([h.cmps.length, cmpOf(h.ad()).state, h.ad().period.spend], [3, 'failed', 900], 'windows refused twice, then plain: not compared; the card keeps its numbers');
+            h.restore();
+          }, function (e) { h.restore(); throw e; });
+        }, function (e) { g.restore(); throw e; });
+      }, function (e) { f.restore(); throw e; });
+    });
+    testAsync('Meta: مقارنة بالسنة السابقة من أول تحميل — قائمة حملات الفترة زي ما هي (مش سنة كاملة)، والمدى البعيد ليه قائمته', function () {
+      period = { preset: 'last7' };
+      compare = { mode: 'year' };
+      var f = metaFake('act_65');
+      loadAdsForAccount('act_65');
+      var done = function () { compare = { mode: 'prev' }; saveCompare(); f.restore(); };
+      return sleep(80).then(function () {
+        var r = resolvePeriodFor('UTC'), w = cardCompareRange('UTC');
+        eq([f.camps.length, f.camps[0].since, f.camps[1], f.cmps.length], [2, r.since, { since: w.since, until: w.until }, 1], 'the period list, then the far range on its own');
+      }).then(done, function (e) { done(); throw e; });
+    });
+    testAsync('Meta: تغيير المقارنة لوحدها بيجيب أرقام فترة المقارنة بس — الكروت زي ما هي، ومدى بعيد ليه قائمة حملاته', function () {
+      period = { preset: 'last7' };
+      compare = { mode: 'prev' };
+      var f = metaFake('act_64');
+      loadAdsForAccount('act_64');
+      var done = function () { compare = { mode: 'prev' }; saveCompare(); f.restore(); };
+      return sleep(80).then(function () {
+        var before = { weeks: f.weeks, ads: f.adsCalls, camps: f.camps.length, cmps: f.cmps.length };
+        applyCompare({ mode: 'year' });
+        var w = cardCompareRange('UTC');
+        eq(cmpOf(f.ad()).state, 'loading', 'waiting for the new range');
+        return sleep(80).then(function () {
+          eq([f.weeks, f.adsCalls], [before.weeks, before.ads], 'the cards are not reloaded');
+          eq([f.camps.length - before.camps, f.camps[f.camps.length - 1], f.cmps.length - before.cmps], [1, { since: w.since, until: w.until }, 1], 'a far range: its own list, then one request');
+          eq(cmpOf(f.ad()).state, 'ok');
+        });
+      }).then(done, function (e) { done(); throw e; });
+    });
     testAsync('Meta: قائمة الحملات — فشلها أو أكتر من الحد أو الصفحات اتقطعت أو فاضية = من غير تصفية', function () {
       var real = window.fbPagesPromise, reply = null;
       window.fbPagesPromise = function () { return Promise.resolve(reply); };

@@ -137,9 +137,27 @@ export default async function handler(req, res) {
     // الطلبات والسلة وبدء الدفع أعداد صحيحة — Google بيرجّعها كسور (_dx.js wholeCounts)
     const daily = dxDaily(toRows(dailyRes[0], dailyRes[1]));
     wholeCounts(daily, dims, ['pur', 'atc', 'ic']);
+    // رقم Google نفسه للفترة (الحساب كله) جنب «الأقرب للمتجر» في كل خانة من الملخص (js/diagnosis.js platTotals — «٣ أرقام في كل
+    // الأداة»، ٧ نوفمبر ٢٠٢٦): نفس تعريف الطلبات فوق (الشراء الأساسي، وإلا كل التحويلات) من غير شرط المتجر. الملخص نفسه بأرقام المنصة
+    // (numbers: 'platform') = الرقمين واحد. فشله = null والملخص بيكمّل من غيره
+    let plat = null;
+    if (store) {
+      try {
+        const rows = await conv('', 'customer', ranges.windows[0], false);
+        let pur = 0, rev = 0;
+        rows.forEach(function (r) {
+          if (!r.segments || r.segments.conversionActionCategory !== 'PURCHASE') return;
+          const m = r.metrics || {};
+          pur += usePrimary ? num(m.conversions) : num(m.allConversions);
+          rev += usePrimary ? num(m.conversionsValue) : num(m.allConversionsValue);
+        });
+        plat = { pur: Math.round(pur), rev: rev };
+      } catch (e) { plat = null; }
+    }
     res.status(200).json({
       daily: daily,
       dims: dims,
+      plat: plat,
       purchases: usePrimary ? 'primary' : (all > 0 ? 'all' : 'none'),
       numbers: store ? 'store' : 'platform',
       dimErrors: DIMS.map(function (d, i) { return Array.isArray(dimRes[i]) ? null : { id: d.id, error: dimRes[i].error }; }).filter(Boolean)

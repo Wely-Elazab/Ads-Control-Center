@@ -2091,12 +2091,17 @@ var DX = (function () {
         prev: fmtCompared(r.prevSince, r.prevUntil, r) }) };
     // تحت الأرقام مش في آخر الصفحة: الأرقام فعلية، وده السطر اللي بيقول إزاي تتقري لما الفترتين مش زي بعض
     o.kpiNote = lenNote(r);
+    // رقم المنصة للفترة (platTotals) — من غير مشتريات عندنا والمنصة بتنسب طلبات: البيكسل شغّال، فجملة «لا تصل إلى المنصة أي عمليات
+    // شراء» كانت هتبقى غلط
+    var pl = opts && opts.plat;
     if (r.status === 'noPurchases') {
-      o.tone = 'neutral'; o.title = t('dx.head.noPurchases');
-      o.blocks.push({ kind: 'note', title: t('dx.head.noPurchases'), lines: [t('dx.noPurchases')] });
+      var platOnly = !!pl && Math.round(pl.pur) > 0;
+      o.tone = 'neutral'; o.title = t(platOnly ? 'dx.head.noProven' : 'dx.head.noPurchases');
+      o.blocks.push({ kind: 'note', title: o.title, lines: [platOnly ? t('dx.noPurchases.plat', { orders: ordersText(Math.round(pl.pur)) }) : t('dx.noPurchases')] });
       return o;
     }
     o.kpis = kpiList(r, M);
+    if (pl) platKpis(o, r, pl);
     // «اليوم» لوحده: الأرقام والسطر اللي تحتها والعطل بس (analyze) — مفيش حكم قبل ما يكتمل
     if (r.status === 'open') {
       var oh = lenHead(r);
@@ -2313,32 +2318,46 @@ var DX = (function () {
     return b;
   }
 
-  // سطر «للمقارنة: تنسب Meta لهذه الفترة…» تحت أرقام الملخص — تعريف واحد للأداة (ui.js platCompare) والنص المنسوخ ورسالة البريد
-  // (runner.ts). من صفوف الملخص نفسها: ppur/prev = رقم المنصة لكل يوم (meta.js) — مجموع الإعلانات بيزيد لأن Meta بتشيل التكرار بينها.
-  // null = يوم من غير رقم منصة، أو المنصة مش بتنسب أكتر. (مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦: البريد كان بيقول «٥ طلبات» من غير السطر،
-  // ومدير الإعلانات بيقول ١٦ — فاللي بيقارن بيفتكر رقمنا غلط)
-  // غير Meta (Snapchat وغيرها): مجموع رقم المنصة لإعلانات الشراء في الفترة — cands = إعلانات الحساب بأرقام الفترة (core.js periodOf/platOf)،
-  // وكلها لازم يبقى ليها رقم منصة. اتنقل هنا من ui.js (٣١ أكتوبر ٢٠٢٦) عشان ملخص Snapchat بالبريد يقول نفس السطر (runner.ts snapSummary)
-  function platCompare(input, platform, cands) {
+  // رقم المنصة نفسها لفترة الملخص { pur, rev } — طلب صاحب المنتج ٧ نوفمبر ٢٠٢٦: «٣ ارقام في كل الاداة»: الأقرب للمتجر في الفترة،
+  // والأقرب للمتجر في فترة المقارنة، وأرقام المنصة في الفترة. Meta: من صفوف الملخص نفسها (ppur/prev لكل يوم — meta.js dxBundle؛ مجموع
+  // الإعلانات بيزيد لأن Meta بتشيل التكرار بين الإعلانات)، واليوم اللي رجع من غير نوافذ رقمه هو رقم المنصة أصلاً. Snapchat وGoogle: مجموع
+  // الحساب كله من السيرفر (input.plat — action=diagnosis وapi/google-diagnosis.js)، ولو الملخص نفسه بأرقام المنصة (numbers: 'platform' =
+  // المنصة رفضت نوافذ المتجر) الرقمين واحد. قبل كده غير Meta كان مجموع إعلانات الشراء بس، وإعلانات الزيارات ليها طلبات كمان.
+  // null = مفيش رقم (رد من سيرفر قديم)
+  function platTotals(input, platform) {
     if (!input) return null;
-    var plat = { pur: 0, rev: 0 }, spend = 0, store = 0, ok = true;
-    if (platform === 'meta') {
+    var inWin = function (r) { return r && r.date >= input.since && r.date <= input.until; };
+    if (platform === 'meta' || input.numbers === 'platform') {
+      var pur = 0, rev = 0;
       (input.daily || []).forEach(function (r) {
-        if (!r || !(r.date >= input.since && r.date <= input.until)) return;
-        spend += r.spend || 0;
-        if (r.ppur == null) ok = false;
-        plat.pur += r.ppur || 0; plat.rev += r.prev || 0; store += r.pur || 0;
+        if (!inWin(r)) return;
+        var own = platform === 'meta' && r.ppur != null;
+        pur += (own ? r.ppur : r.pur) || 0; rev += (own ? r.prev : r.rev) || 0;
       });
-    } else {
-      if (!cands) return null;
-      (input.daily || []).forEach(function (r) { if (r && r.date >= input.since && r.date <= input.until) spend += r.spend || 0; });
-      var src = cands.filter(function (c) { return c.resultKey === 'purchase'; });
-      ok = src.length > 0 && src.every(function (c) { return !!platOf(c); });
-      src.forEach(function (c) { var pp = platOf(c); if (pp) { plat.pur += pp.results || 0; plat.rev += pp.sales || 0; store += periodOf(c).results || 0; } });
+      return { pur: pur, rev: rev };
     }
-    if (!ok || !(Math.round(plat.pur) > Math.round(store))) return null;
-    return t('dx.platCmp', { plat: t('dx.plat.' + platform), orders: ordersText(Math.round(plat.pur)), sales: money(plat.rev, input.currency || null),
-      roas: spend > 0 ? roasStr(plat.rev / spend) : '—' });
+    var pl = input.plat, n = pl ? Number(pl.pur) : NaN, v = pl ? Number(pl.rev) : NaN;
+    return isFinite(n) && isFinite(v) ? { pur: n, rev: v } : null;
+  }
+  // سطر تحت أرقام الملخص لو المنصة بتنسب طلبات أكتر: ليه رقمها أعلى — الأرقام نفسها بقت جوه كل خانة (platKpis). قبل ٧ نوفمبر ٢٠٢٦
+  // السطر كان هو مكان رقم المنصة الوحيد في الملخص («للمقارنة: تنسب Meta لهذه الفترة…» — مراجعة المرحلة ٤، ١٨ أكتوبر ٢٠٢٦: البريد
+  // كان بيقول «٥ طلبات» ومدير الإعلانات ١٦). من غير «نقر» ولا «مشاهدة» (قاعدة صياغة المقارنة ٦ أكتوبر). تعريف واحد للأداة والنص المنسوخ
+  // ورسالة البريد (runner.ts)
+  function platCompare(input, platform) {
+    var pl = platTotals(input, platform), store = 0;
+    if (!pl) return null;
+    (input.daily || []).forEach(function (r) { if (r && r.date >= input.since && r.date <= input.until) store += r.pur || 0; });
+    return Math.round(pl.pur) > Math.round(store) ? t('dx.platWhy', { plat: t('dx.plat.' + platform) }) : null;
+  }
+  // رقم المنصة جنب كل رقم في الملخص (k.plat) — pl = { pur, rev } بعملة التقرير (platTotals، ومجموع المنصات بعد التحويل في ui.js).
+  // نفس الإنفاق: العائد وتكلفة الطلب على إنفاق الفترة كله زي أرقامنا بالظبط. الطلبات أعداد صحيحة
+  function platKpis(o, r, pl) {
+    if (!o || !o.kpis || !o.kpis.length || !pl || !r || !r.cur) return o;
+    var b = r.cur, M = function (v) { return money(v, r.currency); }, n = Math.round(pl.pur || 0), rev = pl.rev || 0;
+    var v = { spend: M(b.spend), orders: fmtNum(n), revenue: M(rev), aov: n > 0 && rev > 0 ? M(rev / n) : '—',
+      roas: b.spend > 0 && rev > 0 ? roasStr(rev / b.spend) : '—', cpa: n > 0 && b.spend > 0 ? M(b.spend / n) : '—' };
+    o.kpis.forEach(function (k) { if (v[k.id] != null) k.plat = v[k.id]; });
+    return o;
   }
   // سطر «التكلفة مقابل الحد الذي حددته» تحت أرقام الملخص — تعريف واحد للأداة (ui.js costVsMax) ورسالة البريد (runner.ts costLine)
   // (قرار صاحب المنتج ٢٥ أكتوبر: «ضيفه في البريد ايضاً» — كان في الأداة بس). ads = إعلانات حساب واحد بأرقام الفترة
@@ -2360,7 +2379,9 @@ var DX = (function () {
   function toText(o, accountName) {
     var L = ['📊 ' + t('dx.title') + (accountName ? ' — ' + accountName : ''), o.period, '', (TONE_ICON[o.tone] || '') + ' *' + o.title + '*'];
     if (o.basis) L.push(o.basis);
-    (o.kpis || []).forEach(function (k) { L.push('• ' + k.label + ': ' + k.value + ' (' + t('dx.kpi.prev', { v: k.prev }) + ')'); });
+    (o.kpis || []).forEach(function (k) {
+      L.push('• ' + k.label + ': ' + k.value + ' (' + t('dx.kpi.prev', { v: k.prev }) + (k.plat != null ? t('dx.kpi.sep') + t('dx.kpi.plat', { v: k.plat }) : '') + ')');
+    });
     if (o.kpiNote && o.kpis && o.kpis.length) L.push('ℹ️ ' + o.kpiNote);
     if (o.platCmp) L.push('ℹ️ ' + o.platCmp);
     if (o.costCmp) L.push('ℹ️ ' + o.costCmp);
@@ -2381,6 +2402,8 @@ var DX = (function () {
     segHas: segHas,
     ordersText: ordersText,
     platCompare: platCompare,
+    platTotals: platTotals,
+    platKpis: platKpis,
     costVsMax: costVsMax,
     toText: toText,
     blockText: blockText,

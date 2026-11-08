@@ -514,6 +514,62 @@
     if (!pl) return null;
     return buildPeriod(periodOf(c).spend, pl.results, pl.sales);
   }
+  // رقم المنصة نفسها للفترة دايماً: platOf لو المنصة رجّعت الرقمين، وإلا الرقم نفسه — في كل المنصات «مفيش رقم منصة» معناه إن الأقرب
+  // للمتجر هو رقم المنصة أصلاً (TikTok، وMeta من غير نوافذ، وSnapchat وGoogle لو طلب المتجر فشل أو الإعلان مش مبيعات)
+  function platNumOf(c) { return platOf(c) || periodOf(c); }
+
+  // ---------- فترة المقارنة لكل إعلان ----------
+  // طلب صاحب المنتج ٧ نوفمبر ٢٠٢٦: «٣ ارقام في كل الاداة» — الأقرب للمتجر في الفترة (periodOf)، والأقرب للمتجر في فترة المقارنة
+  // (cmpOf)، ورقم المنصة في الفترة (platNumOf). فترة المقارنة نفسها بتاعة الملخص (dxPeriodFor ← DX.compareWindow) بتوقيت الحساب.
+  // كل منصة بتجيب أرقامها بنفس طريقة أرقام الفترة بالظبط (كأن المستخدم اختار المدى ده فترةً)، وبتتحفظ هنا بمفتاح المدى مش جوه
+  // الكروت: الكروت بتتبني من جديد مع كل تحديث (mergeCandidates)، والمتوقفة بتنضاف بعدين
+  var cmpLoaders = {};   // منصة ← دالة بتجيب أرقام المقارنة تاني (تغيير المقارنة لوحدها — ui.js applyCompare)
+  var cmpStore = {};     // مصدر ← { key, tz, status: 'loading' | 'ok' | 'failed', byId, calc }
+  function cardCompareRange(tz) {
+    if (!window.DX || !DX.compareWindow) return null;
+    var d = dxPeriodFor(tz);
+    return DX.compareWindow(d.since, d.until, { unit: d.unit, cmp: d.cmp });
+  }
+  function cmpKeyOf(w) { return w ? w.since + ':' + w.until : ''; }
+  // بداية التحميل بتوقيت الحساب — بيرجّع المدى، وnull لو مفيش محرك (فمفيش مقارنة)
+  function cmpBegin(source, tz) {
+    var w = cardCompareRange(tz);
+    if (!w) return null;
+    cmpStore[source] = { key: cmpKeyOf(w), tz: tz, status: 'loading', byId: {}, calc: null };
+    return w;
+  }
+  // النهاية بتتحسب بس لو لسه نفس المدى (المستخدم مغيّرش الفترة أو المقارنة في النص). byId = أرقام كل إعلان، أو calc(c) بيحسبها؛
+  // false لإعلان = أرقامه مش متاحة (طلب فترته فشل)، ومش موجود = مصرفش في المدى ده (المنصات بترجّع اللي ليه أرقام بس)
+  function cmpDone(source, w, byId, calc) {
+    var e = cmpStore[source];
+    if (!e || e.key !== cmpKeyOf(w) || e.status !== 'loading') return false;
+    e.status = 'ok'; e.byId = byId || {}; e.calc = calc || null;
+    return true;
+  }
+  function cmpFail(source, w) {
+    var e = cmpStore[source];
+    if (!e || e.key !== cmpKeyOf(w) || e.status !== 'loading') return false;
+    e.status = 'failed';
+    return true;
+  }
+  // { state: 'loading' | 'failed' | 'ok', p } لإعلان. لسه مبدأش = loading (المنصة بتبدأه بعد ما الكروت تظهر). المدى اتغيّر من غير تحميل
+  // جديد لسه = loading كمان (التحميل الجديد في الطريق — applyPeriod/applyCompare)
+  function cmpOf(c) {
+    if (!window.DX || !DX.compareWindow) return { state: null, p: null };
+    // طلب الفترة نفسها فشل (الكارت بأرقام الأسبوع — note.periodFailed): مفيش فترة نقارنها
+    if (!c.period) return { state: 'failed', p: null };
+    var e = cmpStore[c.source];
+    if (!e || e.key !== cmpKeyOf(cardCompareRange(e.tz))) return { state: 'loading', p: null };
+    if (e.status !== 'ok') return { state: e.status, p: null };
+    var p = e.calc ? e.calc(c) : e.byId[c.id];
+    if (p === false) return { state: 'failed', p: null };
+    if (!p) return { state: 'ok', p: buildPeriod(0, periodOf(c).results != null ? 0 : null, 0) };
+    // أساس مختلف: الفترة بالأقرب للمتجر والمقارنة برقم المنصة (طلب المتجر فشل في واحدة بس — Snapchat وGoogle) — مش نفس الرقم،
+    // فمنقارنش. Meta (calc) الأساس واحد في الطلبين، وصف من غير نوافذ هناك = يوم من غير تحويلات أصلاً
+    if (!e.calc && (p.spend > 0 || p.results > 0) && !c.period.plat !== !p.plat) return { state: 'failed', p: null };
+    if (p.results == null && !p.otherType && periodOf(c).results != null) p = buildPeriod(p.spend, 0, p.sales);
+    return { state: 'ok', p: p };
+  }
 
   // ---------- ملخص المتجر (js/diagnosis.js) ----------
   // ظاهر للكل من ٢٩ سبتمبر ٢٠٢٦ (بقى الميزة الأساسية في الصفحة الرئيسية). ?dx=0 بيخفيه على الجهاز ده

@@ -477,6 +477,11 @@
     var pr = resolvePeriodFor(info.timeZone || BROWSER_TZ);
     // حملات الأسبوع والفترة في طلب واحد خفيف، وكل طلبات مستوى الإعلان متصفّية بيها (metaCampaignIds)
     var scopeSince = pr.since < days[0].key ? pr.since : days[0].key;
+    // ومدى المقارنة لو قريب (أقل من شهر فجوة — زي DX.spans) — أرقام فترة المقارنة لكل إعلان (loadCompare تحت): نفس القائمة بتغطيه، فمفيش
+    // طلب قائمة زيادة. البعيد (السنة السابقة) ليه قائمته لوحده: قائمة سنة كاملة ممكن تعدّي حد الحملات (SCOPE_MAX_CAMPAIGNS) فكل طلبات
+    // الفترة تتلغي تصفيتها
+    var cmpW = cardCompareRange(info.timeZone || BROWSER_TZ);
+    if (cmpW && cmpW.since < scopeSince && keyDiffDays(cmpW.until, scopeSince) <= 31) scopeSince = cmpW.since;
     // قائمة مدى أوسع بتنفع لأي مدى جوّاها (التصفية للسرعة بس: حملات زيادة مبتغيّرش رقم). وفشلها مبيتحفظش
     if (!base.campsP || scopeSince < base.campsSince) { base.campsSince = scopeSince; base.campsP = metaCampaignIds(accountId, scopeSince, days[days.length - 1].key); }
     var campsP = base.campsP;
@@ -699,6 +704,39 @@
       // ملخص المتجر بيبدأ بعد ما الأرقام تظهر (مش قبلها) — عشان طلباته متأخرش الكروت
       loadMetaDiagnosis(accountId, info, live);
       dxReloaders.meta = function () { if (live()) loadMetaDiagnosis(accountId, info, live); };
+      // أرقام فترة المقارنة لكل إعلان (core.js cmpOf — «٣ أرقام في كل الأداة»، ٧ نوفمبر ٢٠٢٦): صف لكل إعلان للمدى كله (طلب واحد مهما
+      // طال — زي مجموع الفترة قبل ما أيامها توصل) وmetaRowPeriod بأساس الكارت. مش يوم بيوم زي أيام الفترة: ده كان هيضاعف طلبات مستوى الإعلان
+      // (دفعة لكل ٧ أيام)، وحد Meta للطلبات اتوصله قبل كده من التبديل بس. الفرق بين الطريقتين: الحد على رقم المنصة يوم بيوم أو على المجموع —
+      // واحد لما المجموعة بتحسب النقر ٧ أيام والمشاهدة، أو النقر بس. قائمة الحملات نفسها لو بتغطي المدى (scopeSince فوق)، وإلا قائمة لمداه
+      // (تغيير المقارنة لوحدها لمدى أقدم)
+      var loadCompare = function () {
+        var w = cmpBegin(source, info.timeZone || BROWSER_TZ);
+        if (!w) return;
+        var gone = function () { if (live() && cmpFail(source, w)) render(); };
+        // مدى جوه نافذة الأسبوع («اليوم» قصاد «أمس»…): من أيام طلب الأسبوع نفسها يوم بيوم زي أيام الفترة — من غير أي طلب
+        if (w.since >= days[0].key) {
+          if (daily.err || daily.truncated || daily.noWindows) { gone(); return; }
+          var inWeek = byAdId(daily.data.filter(function (row) { return row.date_start >= w.since && row.date_start <= w.until; }), true);
+          if (cmpDone(source, w, null, function (c) { return metaCmpPeriod(inWeek[c.id] || [], c, w); })) render();
+          return;
+        }
+        var camps = base.campsP && base.campsSince <= w.since ? base.campsP : metaCampaignIds(accountId, w.since, w.until);
+        var params = { level: 'ad', time_range: JSON.stringify({ since: w.since, until: w.until }), fields: 'ad_id,spend,actions,action_values', limit: 500 };
+        camps.then(function (ids) {
+          if (noCampaigns(ids)) return { data: [] };
+          return insightsPromise(accountId, scopeToCampaigns(params, ids)).then(function (res) {
+            return res.err && ids && !isMetaAuthError(res.err) ? insightsPromise(accountId, params) : res;   // Meta رفضت الفلتر = من غير تصفية
+          });
+        }).then(function (res) {
+          if (!live()) return;
+          // noWindows = Meta رفضت النوافذ ورجعنا لرقمها هي (fbPagesPromise): أساس تاني غير أرقام الكارت، فمش مقارنة
+          if (!res || res.err || res.truncated || res.noWindows) { gone(); return; }
+          var byAd = byAdId(res.data);
+          if (cmpDone(source, w, null, function (c) { return metaCmpPeriod(byAd[c.id], c, w); })) render();
+        }, gone);
+      };
+      cmpLoaders.meta = function () { if (live()) loadCompare(); };
+      loadCompare();
       loadLifeFrequency(accountId, source, live);
       if (showStopped) stage3();
     }).catch(function (err) {
@@ -1083,39 +1121,11 @@
     // أرقام الفترة المختارة يوم بيوم (pd) — نفس منطق النتيجة (حسب هدف الإعلان) على كل يوم، والمجموع منها
     var periodData = null, pd = null;
     if (Array.isArray(periodRow) && pr) {
-      var pByDate = {}, pFirst = null;
-      periodRow.forEach(function (r) { pByDate[r.date_start] = r; });
-      periodRow.some(function (r) { pFirst = metaResults(r); return !!pFirst; });
-      if (pFirst && !firstMeta) { resultKey = pFirst.key; resultType = pFirst.type; }
-      var pKey = firstMeta || pFirst;
-      var pResOf = function (row) {
-        if (!pKey) return resultForGoal(row.actions, goal);
-        return metaResults(row) || { value: 0, platform: 0, key: pKey.key, type: pKey.type };
-      };
-      pd = { dates: [], spend: [], results: [], sales: [] };
-      var pRes = 0, pSpend = 0, pSalesSum = 0, pPlatR = 0, pPlatS = 0, pWin = false, anyRes = false;
-      for (var k = pr.since; k <= pr.until; k = shiftKey(k, 1)) {
-        var row = pByDate[k], sp = row ? r2(num(row.spend)) : 0, found = row ? pResOf(row) : null;
-        var type = (found && found.type) || resultType, sv = row && type ? valueForType(row.action_values, type) : null;
-        if (found) { anyRes = true; pRes += found.value; pPlatR += found.platform || 0; }
-        if (row && rowHasWindows(row)) { pWin = true; pPlatS += (type ? valueForType(row.action_values, type, true) : 0) || 0; }
-        pd.dates.push(k); pd.spend.push(sp); pd.results.push(found ? Math.round(found.value) : 0); pd.sales.push(sv != null ? r2(sv) : 0);
-        pSpend += sp; pSalesSum += sv || 0;
-      }
-      periodData = buildPeriod(r2(pSpend), anyRes || goal || firstMeta ? Math.round(pRes) : null, r2(pSalesSum));
-      if (pWin) periodData.plat = { results: Math.round(pPlatR), sales: r2(pPlatS) };
+      var dp = metaDaysPeriod(periodRow, pr, { first: firstMeta, goal: goal, key: resultKey, type: resultType });
+      periodData = dp.period; pd = dp.pd; resultKey = dp.key; resultType = dp.type;
     } else if (periodRow) {
-      // نفس القاعدة: رقم Meta لو موجود في الفترة أو في الأسبوع، وإلا طريقتنا
-      var pMeta = metaResults(periodRow);
-      var pFound = pMeta || (firstMeta ? { value: 0, platform: 0, key: firstMeta.key, type: firstMeta.type } : resultForGoal(periodRow.actions, goal));
-      var pType = (pFound && pFound.type) || resultType;
-      var pResults = pFound ? Math.round(pFound.value) : (goal ? 0 : null);
-      if (pMeta && !firstMeta) { resultKey = pMeta.key; resultType = pMeta.type; }
-      var pSales = pType ? valueForType(periodRow.action_values, pType) : null;
-      periodData = buildPeriod(num(periodRow.spend), pResults, pSales || 0);
-      if (rowHasWindows(periodRow)) {
-        periodData.plat = { results: pFound ? Math.round(pFound.platform || 0) : pResults, sales: r2((pType ? valueForType(periodRow.action_values, pType, true) : 0) || 0) };
-      }
+      var rp = metaRowPeriod(periodRow, { first: firstMeta, goal: goal, key: resultKey, type: resultType });
+      periodData = rp.period; resultKey = rp.key; resultType = rp.type;
     }
 
     var dest = destinationInfo(creative);
@@ -1189,8 +1199,62 @@
       pd: pd,
       // رقم المنصة للأسبوع، جنب «الأقرب للمتجر» (results وdailySales). null = Meta مرجّعتش نوافذ، فمفيش مقارنة
       plat: compared ? { results: results == null ? null : Math.round(platResults), sales: r2(platSales) } : null,
+      // أساس حساب النتيجة (رقم Meta في الأسبوع، وهدف المجموعة، ونوع النتيجة) — فترة المقارنة بتتحسب بيه (metaCmpPeriod)
+      metaCtx: { first: firstMeta, goal: goal, key: resultKey, type: resultType },
       fail: false
     };
+  }
+  // أرقام فترة لإعلان من صف واحد للفترة كلها — نفس القاعدة: رقم Meta لو موجود في الفترة أو في الأسبوع، وإلا طريقتنا. ctx = { first (رقم Meta
+  // في الأسبوع)، goal، key، type } بتاعة الإعلان. بيرجّع { period, key, type } — النوع ممكن يتحدد من الفترة نفسها لو الأسبوع مفيهوش رقم Meta.
+  // نفس الدالة لمجموع الفترة (قبل ما أيامها توصل) ولفترة المقارنة (metaCmpPeriod)
+  function metaRowPeriod(row, ctx) {
+    var firstMeta = ctx.first, goal = ctx.goal, resultKey = ctx.key, resultType = ctx.type;
+    var pMeta = metaResults(row);
+    var pFound = pMeta || (firstMeta ? { value: 0, platform: 0, key: firstMeta.key, type: firstMeta.type } : resultForGoal(row.actions, goal));
+    var pType = (pFound && pFound.type) || resultType;
+    var pResults = pFound ? Math.round(pFound.value) : (goal ? 0 : null);
+    if (pMeta && !firstMeta) { resultKey = pMeta.key; resultType = pMeta.type; }
+    var pSales = pType ? valueForType(row.action_values, pType) : null;
+    var period = buildPeriod(num(row.spend), pResults, pSales || 0);
+    if (rowHasWindows(row)) {
+      period.plat = { results: pFound ? Math.round(pFound.platform || 0) : pResults, sales: r2((pType ? valueForType(row.action_values, pType, true) : 0) || 0) };
+    }
+    return { period: period, key: resultKey, type: resultType };
+  }
+  // أرقام فترة لإعلان من صفوفه اليومية (صف لكل يوم) — نفس منطق النتيجة (حسب هدف الإعلان) على كل يوم، والمجموع منها. ctx زي metaRowPeriod،
+  // وبيرجّع كمان أيام الفترة (pd). نفس الدالة لأيام الفترة ولفترة مقارنة جوه نافذة الأسبوع (metaCmpPeriod)
+  function metaDaysPeriod(rows, pr, ctx) {
+    var firstMeta = ctx.first, goal = ctx.goal, resultKey = ctx.key, resultType = ctx.type;
+    var pByDate = {}, pFirst = null;
+    rows.forEach(function (r) { pByDate[r.date_start] = r; });
+    rows.some(function (r) { pFirst = metaResults(r); return !!pFirst; });
+    if (pFirst && !firstMeta) { resultKey = pFirst.key; resultType = pFirst.type; }
+    var pKey = firstMeta || pFirst;
+    var pResOf = function (row) {
+      if (!pKey) return resultForGoal(row.actions, goal);
+      return metaResults(row) || { value: 0, platform: 0, key: pKey.key, type: pKey.type };
+    };
+    var pd = { dates: [], spend: [], results: [], sales: [] };
+    var pRes = 0, pSpend = 0, pSalesSum = 0, pPlatR = 0, pPlatS = 0, pWin = false, anyRes = false;
+    for (var k = pr.since; k <= pr.until; k = shiftKey(k, 1)) {
+      var row = pByDate[k], sp = row ? r2(num(row.spend)) : 0, found = row ? pResOf(row) : null;
+      var type = (found && found.type) || resultType, sv = row && type ? valueForType(row.action_values, type) : null;
+      if (found) { anyRes = true; pRes += found.value; pPlatR += found.platform || 0; }
+      if (row && rowHasWindows(row)) { pWin = true; pPlatS += (type ? valueForType(row.action_values, type, true) : 0) || 0; }
+      pd.dates.push(k); pd.spend.push(sp); pd.results.push(found ? Math.round(found.value) : 0); pd.sales.push(sv != null ? r2(sv) : 0);
+      pSpend += sp; pSalesSum += sv || 0;
+    }
+    var period = buildPeriod(r2(pSpend), anyRes || goal || firstMeta ? Math.round(pRes) : null, r2(pSalesSum));
+    if (pWin) period.plat = { results: Math.round(pPlatR), sales: r2(pPlatS) };
+    return { period: period, pd: pd, key: resultKey, type: resultType };
+  }
+  // فترة المقارنة لإعلان (core.js cmpOf) بأساس الكارت نفسه: من أيامه لو المدى جوه نافذة الأسبوع (rows = قائمة)، وإلا من صفه للمدى كله.
+  // مفيش صفوف = مصرفش فيه (صفر). نوع نتيجة تاني في فترة المقارنة (هدف المجموعة اتغيّر بينهم) = العدد مش قابل للمقارنة، فالإنفاق بس
+  function metaCmpPeriod(rows, c, w) {
+    if (!c.metaCtx) return false;
+    var rp = Array.isArray(rows) ? metaDaysPeriod(rows, w, c.metaCtx) : metaRowPeriod(rows || {}, c.metaCtx);
+    if (rp.key !== c.resultKey) return { spend: rp.period.spend, results: null, sales: 0, cpr: null, roas: null, otherType: true };
+    return rp.period;
   }
 
   // ---------- حالة التشغيل الفعلية لإعلان Meta ----------
