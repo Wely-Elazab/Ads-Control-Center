@@ -613,7 +613,7 @@
     });
 
     testAsync('السيرفر: ملخص المتجر على «الأقرب للمتجر»، ولو Snapchat رفض النوافذ بيكمّل كله بنوافذ المنصة', function () {
-      // reject: '' = مفيش رفض، 'store' = نوافذ «الأقرب» بس، 'all' = أي نوافذ (حتى إعداد Ads Manager)
+      // reject: '' = مفيش رفض، 'store' = نوافذ «الأقرب» بس، 'all' = أي نوافذ (حتى إعداد Ads Manager)، 'country' = أي نوافذ مع الدول بس
       var realFetch = window.fetch, urls = [], reject = '';
       var st = { spend: 50000000, impressions: 1000, swipes: 30, conversion_purchases: 3, conversion_purchases_value: 300000000 };
       window.fetch = function (url) {
@@ -622,7 +622,9 @@
         if (/\/campaigns\?/.test(u)) return json({ campaigns: [] });
         if (/\/stats/.test(u)) {
           urls.push(u);
-          if ((reject === 'store' && /view_attribution_window=none/.test(u)) || (reject === 'all' && /swipe_up_attribution_window/.test(u))) {
+          if ((reject === 'store' && /view_attribution_window=none/.test(u)) || (reject === 'all' && /swipe_up_attribution_window/.test(u)) ||
+            (reject === 'country' && /report_dimension=country/.test(u) && /swipe_up_attribution_window/.test(u)) ||
+            (reject === 'campTotal' && /granularity=TOTAL/.test(u) && /breakdown=campaign/.test(u) && /view_attribution_window=none/.test(u))) {
             return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ request_status: 'ERROR', debug_message: 'bad param' }); } });
           }
           var from = decodeURIComponent((u.match(/start_time=([^&]+)/) || [])[1] || '').slice(0, 10);
@@ -661,9 +663,23 @@
         reject = 'all';
         return run();
       }).then(function (out) {
-        window.fetch = realFetch;
         eq([windowed(), platWin()], [1, 1], 'one try each, then the API default for everything');
         eq(out.daily.filter(function (d) { return d.date === '2026-09-25'; })[0].pur, 3, 'the summary still works');
+        // فحص حي ٨ نوفمبر ٢٠٢٦: طلب الدول بيرفض النوافذ — كان بيقلب الأساس لحملات فترات المقارنة اللي بعده
+        reject = 'country';
+        return run();
+      }).then(function (out) {
+        var camp = urls.filter(function (u) { return /breakdown=campaign/.test(u) && /granularity=TOTAL/.test(u) && !/action_report_time=impression/.test(u); });
+        ok(camp.length === 3 && camp.every(function (u) { return /swipe_up_attribution_window=7_DAY&view_attribution_window=none/.test(u); }), 'every period of campaigns stays on the store windows: ' + camp.length);
+        eq([out.numbers, out.plat, out.dims.some(function (d) { return d.id === 'country'; })], ['store', { pur: 7, rev: 600 }, false], 'countries on another basis are left out, not mixed in');
+        eq(urls.filter(function (u) { return /report_dimension=country/.test(u) && !/swipe_up_attribution_window/.test(u); }).length, 0, 'no retry of the countries without windows (or without purchases)');
+        // الحملات نفسها اترفضت: مفيش تقسيم حملات، مش حملات من غير طلبات
+        reject = 'campTotal';
+        return run();
+      }).then(function (out) {
+        window.fetch = realFetch;
+        var plain = urls.filter(function (u) { return /breakdown=campaign/.test(u) && /granularity=TOTAL/.test(u) && !/swipe_up_attribution_window/.test(u); });
+        eq([plain.length, out.dims.some(function (d) { return d.id === 'campaign'; }), out.numbers], [0, false, 'store'], 'campaigns on another basis or without purchases are left out');
       }, function (e) { window.fetch = realFetch; throw e; });
     });
   });

@@ -555,20 +555,32 @@ export default async function handler(req, res) {
       };
       // الملخص على «الأقرب للمتجر» زي الإعلانات (STORE_WINDOWS). لو Snapchat رفض النوافذ أو رجّع غيرها بنكمّل الملخص كله
       // بأرقام المنصة زي كروت الإعلانات (PLATFORM_WINDOWS، ولو اترفض كمان فبافتراضي الـ API) — قرار واحد لكل الطلبات عشان
-      // الأيام والتقسيمات تفضل من نفس المصدر
-      let windows = STORE_WINDOWS;
+      // الأيام والتقسيمات تفضل من نفس المصدر. القرار من أول طلب (أول دفعة أيام) وبعده مبيتغيّرش: قبل كده أي طلب يفشل بنوافذ المتجر
+      // بعد كده (طلب الدول) كان بيقلب الأساس للطلبات اللي بعده — فحص حي ٨ نوفمبر ٢٠٢٦: حملات الفترة بالأقرب للمتجر (٣٤ طلب = الأيام)
+      // وحملات فترة المقارنة بأرقام المنصة (٣١٩ قصاد ١٠٤ في الأيام)، فـ«لماذا تغيّرت مبيعاتك؟» كان بيقارن أساسين، وnumbers قال 'platform'
+      // فرقم المنصة في الملخص طلع رقم المتجر
+      let windows = STORE_WINDOWS, decided = false, basic = false;
       const getWindowed = function (query) {
+        if (decided) {
+          return get(query + windows).then(function (d) {
+            if (windows === STORE_WINDOWS && !storeWindowsOk(d)) throw new Error('windows');
+            return d;
+          });
+        }
         if (windows === STORE_WINDOWS) {
           return get(query + windows).then(function (d) {
-            if (storeWindowsOk(d)) return d;
+            if (storeWindowsOk(d)) { decided = true; return d; }
             throw new Error('windows');
           }).catch(function () { windows = PLATFORM_WINDOWS; return getWindowed(query); });
         }
-        if (windows) return get(query + windows).catch(function () { windows = ''; return get(query); });
+        if (windows) return get(query + windows).then(function (d) { decided = true; return d; }, function () { windows = ''; decided = true; return get(query); });
+        decided = true;
         return get(query);
       };
-      // حساب مش بيدعم التحويلات بيرفض الطلب كله — بنرجع للإنفاق والظهور والسوايب (والمحرك هيقول «لا تُسجَّل مشتريات»)
-      const getStats = function (query) { return getWindowed(query + '&fields=' + FULL).catch(function () { return get(query + '&fields=' + BASIC); }); };
+      // الأيام: حساب مش بيدعم التحويلات بيرفض الطلب كله — بنرجع للإنفاق والظهور والسوايب (والمحرك هيقول «لا تُسجَّل مشتريات»)
+      const getStats = function (query) { return getWindowed(query + '&fields=' + FULL).catch(function () { basic = true; return get(query + '&fields=' + BASIC); }); };
+      // التقسيمات (الحملات والدول) بأساس الأيام بالظبط أو مفيش: طلب فشل = التقسيم ده مش موجود — مش أرقام بأساس تاني ولا من غير طلبات
+      const getDim = function (query) { return basic ? get(query + '&fields=' + BASIC) : getWindowed(query + '&fields=' + FULL); };
       const row = function (st, extra) {
         st = st || {};
         return Object.assign({
@@ -617,7 +629,7 @@ export default async function handler(req, res) {
       for (let i = 0; i < 3; i++) {
         const w = ranges.windows[i];
         try {
-          const d = await getStats('granularity=TOTAL&breakdown=campaign' + span(w));
+          const d = await getDim('granularity=TOTAL&breakdown=campaign' + span(w));
           (d.total_stats || []).forEach(function (e) {
             const ts = e.total_stat || e;
             ((ts.breakdown_stats && ts.breakdown_stats.campaign) || []).forEach(function (b) {
@@ -626,7 +638,7 @@ export default async function handler(req, res) {
           });
         } catch (e) { campaignsOk = false; }
         try {
-          const d = await getStats('granularity=TOTAL&report_dimension=country' + span(w));
+          const d = await getDim('granularity=TOTAL&report_dimension=country' + span(w));
           (d.total_stats || []).forEach(function (e) {
             const ts = e.total_stat || e;
             (ts.dimension_stats || []).forEach(function (x) {
@@ -641,7 +653,7 @@ export default async function handler(req, res) {
       // رقم Snapchat نفسه للفترة (الحساب كله، بإعداد Ads Manager — PLATFORM_WINDOWS) جنب «الأقرب للمتجر» في كل خانة من الملخص
       // (js/diagnosis.js platTotals — «٣ أرقام في كل الأداة»، ٧ نوفمبر ٢٠٢٦). الملخص نفسه بأرقام المنصة (النوافذ اترفضت) = الرقمين واحد.
       // فشله = null والملخص بيكمّل من غيره
-      const numbers = windows === STORE_WINDOWS ? 'store' : 'platform';
+      const numbers = !basic && windows === STORE_WINDOWS ? 'store' : 'platform';
       let plat = null;
       if (numbers === 'store') {
         try {
