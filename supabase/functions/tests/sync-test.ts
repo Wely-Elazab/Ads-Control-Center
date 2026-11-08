@@ -11,7 +11,7 @@ import { bearer, cleanCode, newCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -779,7 +779,9 @@ function fakeQueueDb(st: { outbox: QRow[]; accounts: QRow[]; digest: QRow }) {
     const p = q(url);
     if (url.indexOf('/rest/v1/digest_outbox') > -1) {
       const kind = eqv(p, 'kind'), period = eqv(p, 'period'), user = eqv(p, 'user_id');
-      const match = (r: QRow) => (!kind || r.kind === kind) && (period == null || r.period === period) && (!user || r.user_id === user);
+      const pv = p.get('period'), notPeriod = pv && pv.indexOf('neq.') === 0 ? decodeURIComponent(pv.slice(4)) : null;
+      const match = (r: QRow) => (!kind || r.kind === kind) && (period == null || r.period === period) && (notPeriod == null || r.period !== notPeriod) &&
+        (!user || r.user_id === user);
       if (method === 'GET') return json(st.outbox.filter(match));
       if (method === 'DELETE') { const gone = st.outbox.filter(match); st.outbox = st.outbox.filter((r) => !match(r)); return json(gone); }
     }
@@ -851,6 +853,74 @@ Deno.test('الطابور — العاجل: رسالة واحدة بحسابات
   } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
 });
 
+// مراجعة ٨ نوفمبر ٢٠٢٦ (صاحب المنتج: «ليست كل التنبيهات العاجلة تصل للايميل»): أي رسالة عاجلة بتقول كل العاجل اللي لسه قائم في كل
+// الحسابات (زي صفحة التنبيهات)، والقائم لوحده (ctx) مبيبعتش رسالة ولا بيستنى الإرسال، والقديم منه (فحص وقف) متقريش
+Deno.test('الطابور — العاجل: الرسالة بتقول العاجل القائم في باقي الحسابات، والسياق لوحده مبيبعتش، والقديم منه متقريش', async () => {
+  const restoreEngine = fakeEngine();
+  try {
+    const ctx = (platform: string, id: string, name: string, minsAgo: number, items: any[]): QRow => ({ user_id: QA, platform, account_id: id, kind: 'urgent', period: 'ctx',
+      created_at: new Date(Date.now() - minsAgo * 60000).toISOString(), payload: { platform, account: id, name, fresh: [], remind: [], ongoing: items } });
+    const item = (title: string, name: string, first: string) => ({ title, name, first_at: first });
+    // سياق بس (مفيش جديد في أي حساب): مفيش رسالة، ومفيش «مستني إرسال»، والصف بيفضل
+    const st = { outbox: [ctx('snapchat', 'S1', 'Snap S1', 10, [item('OLD-WASTE', 'Ad w', '2026-10-31T16:10:16Z')])],
+      accounts: [qAcct('meta', 'act_1'), qAcct('snapchat', 'S1')], digest: {} };
+    let out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser()], noEngine, { stop: {}, us: {} }), {}, 'context alone is not a message');
+    assertEquals([out.mails.length, st.outbox.length], [0, 1], 'nothing sent, the context row stays');
+    restoreFetch();
+    // جديد في Meta، وفي Meta نفسها قائم قديم، وفي Snapchat قائم (سياق حديث) وسياق تاني قديم من حساب وقف فحصه
+    const fresh = qUrgent('meta', 'act_1', 'Meta one');
+    fresh.payload.ongoing = [item('OLD-COST', 'Ad c', '2026-11-03T04:00:46Z')];
+    st.outbox.push(fresh, ctx('snapchat', 'S2', 'Snap S2', 200, [item('STALE', 'Ad s', '2026-11-01T04:00:00Z')]));
+    out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser()], noEngine, { stop: {}, us: {} }), { 'urgent-sent': 1 });
+    const html = String(out.mails[0].html);
+    assertEquals(out.mails[0].subject, 'عاجل: TITLE-Meta one — Meta one', 'the subject is about the new alert only');
+    assert(html.indexOf('TITLE-Meta one') > -1, 'the new alert in full');
+    assert(html.indexOf('وما زالت هذه التنبيهات العاجلة قائمة منذ أبلغناك بها') > -1, 'a still-ongoing section');
+    assert(html.indexOf('OLD-COST') > -1 && html.indexOf('OLD-WASTE') > -1, 'ongoing alerts of this account and of the other account');
+    assert(html.indexOf('Snap S1') > -1, 'the other account is named');
+    assert(html.indexOf('STALE') < 0, 'a context older than 2 hours is not read (its account stopped being checked)');
+    assert(html.indexOf('OLD-COST') < html.indexOf('OLD-WASTE'), 'accounts in their order: the one with the new alert first');
+    assertEquals(st.outbox.filter((r) => r.period === 'ctx').length, 2, 'context rows are read, not deleted (each check rewrites its own)');
+    assertEquals(st.outbox.filter((r) => r.period === '').length, 0, 'the message rows are gone');
+    restoreFetch();
+    // حساب فيه ١٣ عاجل قائم: أول ١٠ (الأقدم) وسطر بعدد الباقي
+    const lots = qUrgent('meta', 'act_1', 'Meta one');
+    lots.payload.ongoing = Array.from({ length: 13 }, (_, i) => item('LOT-' + String(i).padStart(2, '0'), 'Ad', '2026-11-' + String(1 + i).padStart(2, '0') + 'T00:00:00Z'));
+    st.outbox = [lots];
+    out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser()], noEngine, { stop: {}, us: {} }), { 'urgent-sent': 1 });
+    const h2 = String(out.mails[0].html);
+    assert(h2.indexOf('LOT-00') > -1 && h2.indexOf('LOT-09') > -1 && h2.indexOf('LOT-10') < 0, 'the 10 oldest');
+    assert(h2.indexOf('و3 تنبيهات أخرى') > -1, 'and the count of the rest: ' + h2.slice(h2.indexOf('LOT-09'), h2.indexOf('LOT-09') + 400));
+  } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
+});
+Deno.test('الملخص: كل تنبيه عاجل لسه قائم بيظهر (الأقدم أول)، والقطع على اللي حُلّ بس — بعدده', () => {
+  const mk = (id: string, first: string, resolved: string | null) => ({ kind: 'perf', object_id: id, first_at: first, last_sent_at: first, last_seen_at: first,
+    times_sent: 2, resolved_at: resolved, last_code: 'loss' });
+  // حساب Snapchat حقيقي ٨ نوفمبر: ١١ بصمة، ٨ قائمة و٣ اتحلّت، و٦ منهم بنفس اللحظة عند حد القطع
+  const T = '2026-10-31T16:10:16.107Z';
+  const list = [mk('o1', '2026-11-08T04:52:18Z', null), mk('o2', '2026-11-06T04:00:19Z', null), mk('o3', '2026-11-06T04:00:19Z', null),
+    mk('o4', '2026-11-02T04:00:16Z', null), mk('o5', '2026-11-02T04:00:16Z', null), mk('o6', T, null), mk('o7', T, null), mk('o8', T, null),
+    mk('r1', T, '2026-11-05T14:24:18Z'), mk('r2', T, '2026-11-04T09:12:18Z'), mk('r3', T, '2026-11-04T08:20:19Z')];
+  for (const order of [list, list.slice().reverse()]) {
+    const p = statusPick(order);
+    assertEquals(p.pick.filter((m) => !m.resolved_at).length, 8, 'every ongoing alert, whatever the input order');
+    assertEquals([p.pick.length, p.more], [8, 3], 'the resolved ones are the ones cut, and counted');
+    assertEquals(p.pick.map((m) => m.object_id).slice(0, 3), ['o6', 'o7', 'o8'], 'the longest-standing first');
+  }
+  // مكان باقي: أحدث اللي اتحلّ يكمّل
+  const few = statusPick([mk('o1', T, null), mk('r1', T, '2026-11-05T14:24:18Z'), mk('r2', T, '2026-11-04T09:12:18Z')]);
+  assertEquals([few.pick.map((m) => m.object_id), few.more], [['o1', 'r1', 'r2'], 0]);
+  // أكتر من ٨ قائمين: كلهم يظهروا (مفيش قطع على القائم أبداً)
+  const many = Array.from({ length: 11 }, (_, i) => mk('o' + i, '2026-11-0' + (1 + (i % 7)) + 'T00:00:00Z', null));
+  assertEquals(statusPick(many).pick.length, 11);
+  // ترتيب القائم في رسالة العاجل: الحساب بحسابه، والأقدم أول
+  const sec = (name: string, items: any[]) => ({ platform: 'meta', account: name, name, fresh: [], remind: [], ongoing: items });
+  const all = ongoingAll([sec('A', [{ title: 'n', name: '', first_at: '2026-11-07' }, { title: 'o', name: '', first_at: '2026-11-01' }])], [sec('B', [{ title: 'b', name: '', first_at: '2026-11-03' }]), sec('C', [])]);
+  assertEquals(all.map((s) => s.name + ':' + s.items.map((x) => x.title).join('')), ['A:on', 'B:b'], 'oldest first, empty accounts left out');
+});
 Deno.test('الطابور — الملخص: بيستنى أقسام كل الحسابات، وبيتبعت مرة واحدة، وبعد ٣ ساعات بالموجود وأسماء اللي متقريتش', async () => {
   const restoreEngine = fakeEngine();
   try {

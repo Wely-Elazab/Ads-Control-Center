@@ -544,12 +544,27 @@ function appLink(platform: string, account: string, view = ''): string {
 }
 const PLAT_NAME: Record<string, string> = { meta: 'Meta', snapchat: 'Snapchat', google: 'Google', tiktok: 'TikTok' };
 // رسالة عاجلة واحدة للمستخدم في كل فحص، فيها تنبيهات كل حساباته (قسم لكل حساب). حساب واحد = نفس الرسالة القديمة بالظبط
-type Section = { platform: string; account: string; name: string; fresh: any[]; remind: { a: any; m: Mark }[] };
+type Section = { platform: string; account: string; name: string; fresh: any[]; remind: { a: any; m: Mark }[]; ongoing?: Ongoing[] };
+// تنبيه عاجل لسه قائم اتبعت قبل كده: عنوانه واسم الإعلان أو الحملة وأول يوم أبلغناه — سطر واحد مش صندوق كامل (مش تكرار للتنبيه)
+export type Ongoing = { title: string; name: string; first_at: string };
+const ONGOING_MAX = 10;   // سطور القائم لكل حساب في الرسالة العاجلة (الأقدم أول)، والباقي سطر بعدده
+export function ongoingItem(a: any, m: Mark): Ongoing {
+  return { title: String(a.title || ''), name: String(a.adName || ''), first_at: m.first_at };
+}
+// كل العاجل القائم في الرسالة: من أقسام الحسابات اللي فيها جديد، ومن الحسابات اللي فحص ساعتها ملقاش جديد (ctx) — الأقدم أول
+export function ongoingAll(sections: Section[], ctx: Section[]): { name: string; items: Ongoing[] }[] {
+  const out: { name: string; items: Ongoing[] }[] = [];
+  sections.concat(ctx).forEach((s) => {
+    const items = (s.ongoing || []).slice().sort((x, y) => (x.first_at < y.first_at ? -1 : x.first_at > y.first_at ? 1 : 0));
+    if (items.length) out.push({ name: s.name, items });
+  });
+  return out;
+}
 function accountsPhrase(n: number, en: boolean): string {
   if (en) return n + ' accounts';
   return n === 2 ? 'حسابين' : g.ar(n) + (n <= 10 ? ' حسابات' : ' حساباً');
 }
-function urgentMail(sections: Section[], tz: string, en: boolean, stop: string) {
+function urgentMail(sections: Section[], tz: string, en: boolean, stop: string, ctx: Section[] = []) {
   const fresh = sections.reduce((all: any[], s) => all.concat(s.fresh), []);
   const remind = sections.reduce((all: { a: any; m: Mark }[], s) => all.concat(s.remind), []);
   const one = sections.length === 1 ? sections[0] : null;
@@ -576,8 +591,21 @@ function urgentMail(sections: Section[], tz: string, en: boolean, stop: string) 
     if (!one) lines.push(en ? 'Details for this account are in ' + appLink(s.platform, s.account, 'alerts') + '.' : 'تفاصيل هذا الحساب في ' + appLink(s.platform, s.account, 'alerts') + '.');
   });
   if (one) lines.push(en ? 'Full details are in ' + appLink(one.platform, one.account, 'alerts') + '.' : 'التفاصيل الكاملة في ' + appLink(one.platform, one.account, 'alerts') + '.');
-  lines.push(en ? 'We don\'t repeat the same alert: we remind you once if it lasts two more days, and your next summary shows whether it was resolved.'
-    : 'لا نكرر التنبيه نفسه: نذكّرك به مرة واحدة إذا استمر يومين، ويبيّن ملخصك التالي هل حُلّ أم ما زال قائماً.');
+  // كل تنبيه عاجل لسه قائم اتبعت قبل كده — في كل حسابات المستخدم، فالرسالة بتقول كل العاجل دلوقتي زي صفحة التنبيهات
+  const still = ongoingAll(sections, ctx), many = still.length > 1 || (still.length === 1 && !one);
+  if (still.length) {
+    lines.push('<p style="margin:18px 0 8px;font-weight:700;line-height:1.7">' + (en ? 'Still ongoing since we first alerted you:' : 'وما زالت هذه التنبيهات العاجلة قائمة منذ أبلغناك بها:') + '</p>');
+    still.forEach((s) => {
+      if (many) lines.push('<p style="margin:8px 0 4px;color:#6b7280;font-size:14px">' + esc(s.name) + '</p>');
+      s.items.slice(0, ONGOING_MAX).forEach((x) => lines.push('<p style="margin:0 0 4px;line-height:1.8">• <strong>' + esc(x.title) + '</strong>' + (x.name ? ' — ' + esc(x.name) : '') +
+        ' <span style="color:#6b7280;font-size:14px">(' + esc(en ? 'since ' + dateText(x.first_at, tz, true) : 'منذ ' + dateText(x.first_at, tz, false)) + ')</span></p>'));
+      const rest = s.items.length - ONGOING_MAX;
+      if (rest > 0) lines.push('<p style="margin:0 0 4px;color:#6b7280;font-size:14px">' + esc(en ? 'And ' + rest + ' more — all of them are in Ads Center.'
+        : 'و' + g.ar(rest) + ' ' + (rest === 1 ? 'تنبيه آخر' : 'تنبيهات أخرى') + ' — كلها في Ads Center.') + '</p>');
+    });
+  }
+  lines.push(en ? 'We don\'t send a separate email for the same alert again: we remind you once if it lasts two more days, every urgent email lists what is still ongoing, and your summary shows whether it was resolved.'
+    : 'لا نرسل رسالة منفصلة عن التنبيه نفسه مرة أخرى: نذكّرك به مرة واحدة إذا استمر يومين، وكل رسالة عاجلة تذكر ما زال قائماً منها، ويبيّن ملخصك هل حُلّ.');
   lines.push(en ? 'To stop the summary and alerts: <a href="' + stop + '">Stop</a>' : 'لإيقاف الملخص والتنبيهات: <a href="' + stop + '">إيقاف</a>');
   return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
 }
@@ -745,12 +773,23 @@ const KIND_TITLE: Record<string, string> = {
 };
 // التعديل الكبير حدث لحظي مش مشكلة ليها «حُلّت/مستمرة» — مبيظهرش في الملخص
 const NO_STATUS: Record<string, boolean> = { expiry: true, 'big-edit': true };
-// التنبيهات العاجلة اللي اتبعتت من أول الفترة (أو لسه قائمة): «حُلّت» أو «مستمرة» — من البصمات، من غير أي أرقام
+// التنبيهات العاجلة اللي اتبعتت من أول الفترة (أو لسه قائمة): «حُلّت» أو «مستمرة» — من البصمات، من غير أي أرقام.
+// مراجعة ٨ نوفمبر ٢٠٢٦ (صاحب المنتج: «ليست كل التنبيهات العاجلة تصل للايميل»): القائمة كانت أحدث ٨ بصمات خليط بين «حُلّت»
+// و«مستمرة»، والمقارنة مبترجعش صفر للتساوي — حساب Snapchat حقيقي فيه ١١ بصمة منها ٨ مستمرة و٦ بنفس اللحظة عند حد القطع، فكان
+// ممكن يسقط تنبيه عاجل لسه قائم من الملخص (وهو المكان الوحيد اللي بيقول عنه بعد التذكير). دلوقتي كل المستمر بيظهر (الأقدم أول:
+// أطول مشكلة متسابة فوق)، واللي حُلّ بيكمّل لحد ٨ والزيادة سطر بعددها
+export function statusPick(list: Mark[], cap = 8): { pick: Mark[]; more: number } {
+  const by = (a: string | null, b: string | null) => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0);
+  const ongoing = list.filter((m) => !m.resolved_at).sort((a, b) => by(a.first_at, b.first_at) || by(a.object_id, b.object_id));
+  const resolved = list.filter((m) => m.resolved_at).sort((a, b) => by(b.resolved_at, a.resolved_at) || by(a.object_id, b.object_id));
+  const room = Math.max(0, cap - ongoing.length);
+  return { pick: ongoing.concat(resolved.slice(0, room)), more: Math.max(0, resolved.length - room) };
+}
 function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: string, tz: string, en: boolean, target: Target = null): string | null {
   const from = Date.parse(since + 'T00:00:00Z') - 86400000;
-  const list = Object.keys(marks).map((k) => marks[k]).filter((m) => !NO_STATUS[m.kind] &&
-    (Date.parse(m.first_at) >= from || !m.resolved_at || Date.parse(m.resolved_at as string) >= from))
-    .sort((a, b) => (a.first_at < b.first_at ? 1 : -1)).slice(0, 8);
+  const picked = statusPick(Object.keys(marks).map((k) => marks[k]).filter((m) => !NO_STATUS[m.kind] &&
+    (Date.parse(m.first_at) >= from || !m.resolved_at || Date.parse(m.resolved_at as string) >= from)));
+  const list = picked.pick;
   if (!list.length) return null;
   const t = g.I18N.t;
   const rows = list.map((m) => {
@@ -768,6 +807,7 @@ function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: strin
     const sent = en ? 'sent ' + dateText(m.first_at, tz, true) : 'أُرسل ' + dateText(m.first_at, tz, false);
     return P('<strong>' + esc(title) + '</strong>' + (name ? ' — ' + esc(name) : '') + ': ' + status + ' <span style="' + MUTED + '">(' + esc(sent) + ')</span>');
   });
+  if (picked.more) rows.push(P(esc(en ? 'And ' + picked.more + ' more resolved.' : 'و' + g.ar(picked.more) + ' ' + (picked.more === 1 ? 'تنبيه آخر حُلّ' : 'تنبيهات أخرى حُلّت') + '.'), MUTED));
   return '<div style="border-inline-start:4px solid #b91c1c;padding:2px 12px;margin:0 0 20px">' +
     P(esc(en ? 'Urgent alerts since the previous summary' : 'التنبيهات العاجلة منذ الملخص السابق'), 'font-weight:700') + rows.join('') + '</div>';
 }
@@ -870,7 +910,7 @@ const RETRY_OUTCOMES: Record<string, boolean> = { 'meta-retry': true, 'snap-retr
 
 // summaryRetry = قسم ملخص فشل بناؤه (والفحص العاجل نفسه تم): القسم بيستنى المحاولة الجاية، والتنبيهات اللي اتلاقت بتتبعت عادي
 type AcctResult = { platform: string; account: string; name: string; outcome: string; section: Section | null; keep: Mark[]; sentRows: Mark[];
-  summary: SumSection | null; monthly: SumSection | null; summaryRetry?: boolean };
+  summary: SumSection | null; monthly: SumSection | null; summaryRetry?: boolean; ongoing?: Ongoing[] };
 type CheckOpts = { doUrgent: boolean; due: { since: string; until: string } | null; monthly: { since: string; until: string } | null; stop: string };
 function blankResult(platform: string, account: string, name: string): AcctResult {
   return { platform, account, name, outcome: 'error', section: null, keep: [], sentRows: [], summary: null, monthly: null };
@@ -908,7 +948,7 @@ async function accessMarks(s: Settings, res: AcctResult, marks: Record<string, M
 // واللي مبقاش ظاهر بيتقفل «حُلّت» بقاعدة resolveNow
 function urgentPass(res: AcctResult, all: { urgent: any[]; alive: Record<string, boolean>; failed: Failed }, marks: Record<string, Mark>, keep: Mark[], sentRows: Mark[]): void {
   const now = Date.now(), iso = new Date(now).toISOString();
-  const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], seen: Record<string, boolean> = {};
+  const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], ongoing: Ongoing[] = [], seen: Record<string, boolean> = {};
   for (const al of all.urgent) {
     // البصمة بالعيلة (familyOf) — والنوع نفسه في last_code. التذكير بيعرض نص التنبيه الحالي، فلو المشكلة زادت («يومان» بقت
     // «أسبوع كامل») التذكير بيقولها
@@ -921,8 +961,13 @@ function urgentPass(res: AcctResult, all: { urgent: any[]; alive: Record<string,
     else if (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS) {
       remind.push({ a: al, m });
       sentRows.push({ ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1, last_code: code });
-    } else keep.push({ ...m, last_seen_at: iso, last_code: code });
+    } else {
+      keep.push({ ...m, last_seen_at: iso, last_code: code });
+      // لسه عاجل واتبعت قبل كده (أول مرة + التذكير): مش رسالة لوحده، بس أي رسالة عاجلة بتطلع بتقول إنه لسه قائم
+      ongoing.push(ongoingItem(al, m));
+    }
   }
+  res.ongoing = ongoing;
   for (const k in marks) {
     const m = marks[k];
     if (seen[k] || m.resolved_at || SYSTEM_KINDS[m.kind]) continue;
@@ -930,7 +975,7 @@ function urgentPass(res: AcctResult, all: { urgent: any[]; alive: Record<string,
     if (r === 'seen') keep.push({ ...m, last_seen_at: iso });
     else if (r === 'resolve') keep.push({ ...m, resolved_at: iso });
   }
-  if (fresh.length || remind.length) res.section = { platform: res.platform, account: res.account, name: res.name, fresh, remind };
+  if (fresh.length || remind.length) res.section = { platform: res.platform, account: res.account, name: res.name, fresh, remind, ongoing };
 }
 // الملخص (والشهري): «حُلّت/مستمرة» بحالة الساعة دي — اللي هيتبعت دلوقتي معدود كأنه اتبعت
 async function summarySections(res: AcctResult, marks: Record<string, Mark>, cands: any[], tz: string, en: boolean, target: Target, o: CheckOpts,
@@ -1242,6 +1287,13 @@ async function plan(users: Settings[]): Promise<void> {
   }
 }
 
+// صف «العاجل القائم» للحساب (مراجعة ٨ نوفمبر ٢٠٢٦): kind = urgent وperiod = ctx — مش رسالة، سياق لأي رسالة عاجلة. بيتقري لو اتكتب
+// خلال CTX_FRESH_MS بس (فحص ساعته): حساب وقف فحصه منقولش عنه قائم من أيام
+const CTX_PERIOD = 'ctx', CTX_FRESH_MS = 2 * 3600000;
+async function dropCtx(user: string, a: DAcct): Promise<void> {
+  await db('digest_outbox?user_id=eq.' + user + '&platform=eq.' + a.platform + '&account_id=eq.' + encodeURIComponent(a.account_id) +
+    '&kind=eq.urgent&period=eq.' + CTX_PERIOD, { method: 'DELETE' });
+}
 // نتيجة حساب لحد ما رسالة المستخدم تتبعت (وبعدها بتتمسح). نفس الحساب والنوع والفترة = صف واحد (الأحدث)
 async function outbox(user: string, a: DAcct, kind: string, period: string, payload: unknown, marks: Mark[] | null): Promise<void> {
   await db('digest_outbox?on_conflict=user_id,platform,account_id,kind,period', {
@@ -1265,6 +1317,18 @@ async function runJob(a: DAcct, s: Settings, ctx: RunCtx): Promise<string> {
   }
   await saveMarks(user, a.platform, a.account_id, r.keep);
   if (r.section) await outbox(user, a, 'urgent', '', r.section, r.sentRows);
+  // العاجل القائم من غير جديد في الحساب ده: صف سياق (period = ctx) بيتقري مع أي رسالة عاجلة للمستخدم ومبيبعتش لوحده. بيتحدّث مع كل
+  // فحص عاجل للحساب، وبيتمسح لو مبقاش فيه قائم أو بقى فيه جديد (القائم جوه قسمه). اللي اتساب بالغلط بيتمسح بعد يومين (purge)
+  if (a.urgent_due && r.outcome === 'ok') {
+    try {
+      if (!r.section && r.ongoing && r.ongoing.length) {
+        await outbox(user, a, 'urgent', CTX_PERIOD, { platform: a.platform, account: a.account_id, name: r.name, fresh: [], remind: [], ongoing: r.ongoing }, null);
+      } else await dropCtx(user, a);
+    } catch (e) {
+      // السياق تكميلي: فشله ميوقفش الفحص ولا تحديث الحساب تحت
+      console.error('urgent context failed', String((e as Error).message || e).slice(0, 160));
+    }
+  }
   const retry = !!RETRY_OUTCOMES[r.outcome] || !!r.summaryRetry, lost = r.outcome === 'lost' || r.outcome === 'decrypt-failed';
   // الحجز بيتفك دايماً (Snapchat: باقي حسابات المستخدم متستناش)، والعطل المؤقت ليه مهلته لوحدها
   const patch: Record<string, unknown> = { claimed_until: null, retry_after: retry ? new Date(Date.now() + RETRY_AFTER_MS).toISOString() : null };
@@ -1284,16 +1348,21 @@ async function runJob(a: DAcct, s: Settings, ctx: RunCtx): Promise<string> {
 async function sendUrgent(s: Settings, accts: DAcct[], oldestMs: number, ctx: RunCtx): Promise<string | null> {
   const user = s.user_id, tz = s.timezone || 'UTC', hour = hourIn(tz);
   if (!urgentReady(accts, oldestMs, !(hour >= QUIET_FROM || hour < QUIET_UNTIL), Date.now())) return 'urgent-waiting';
-  const r = await db('digest_outbox?user_id=eq.' + user + '&kind=eq.urgent', { method: 'DELETE', headers: { 'prefer': 'return=representation' } });
+  const r = await db('digest_outbox?user_id=eq.' + user + '&kind=eq.urgent&period=neq.' + CTX_PERIOD, { method: 'DELETE', headers: { 'prefer': 'return=representation' } });
   const rows = ((await r.json()) as any[]) || [];
   if (!rows.length) return null;
+  // العاجل القائم في باقي الحسابات (صفوف ctx من فحص ساعتها) — بيتقري بس، وكل فحص بيحدّث صفه
+  const cr = await db('digest_outbox?select=platform,account_id,payload,created_at&user_id=eq.' + user + '&kind=eq.urgent&period=eq.' + CTX_PERIOD, { method: 'GET' });
+  const ctxRows = (((await cr.json()) as any[]) || []).filter((x) => Date.now() - Date.parse(x.created_at) <= CTX_FRESH_MS &&
+    !rows.some((y) => y.platform === x.platform && y.account_id === x.account_id));
   const order = (x: any) => { const i = accts.findIndex((a) => a.platform === x.platform && a.account_id === x.account_id); return i < 0 ? 999 : i; };
   rows.sort((x, y) => order(x) - order(y));
   const sections = rows.map((x) => x.payload as Section);
   const en = s.lang === 'en', anyFresh = sections.some((x) => x.fresh && x.fresh.length > 0);
   g.I18N.setLang(en ? 'en' : 'ar');
   const stop = ctx.stop[user] || (ctx.stop[user] = await stopUrl(user));
-  const sent = await send(user, sections[0].account, anyFresh ? 'urgent' : 'reminder', s.email, urgentMail(sections, tz, en, stop));
+  ctxRows.sort((x, y) => order(x) - order(y));
+  const sent = await send(user, sections[0].account, anyFresh ? 'urgent' : 'reminder', s.email, urgentMail(sections, tz, en, stop, ctxRows.map((x) => x.payload as Section)));
   if (sent) for (const x of rows) await saveMarks(user, x.platform, x.account_id, (x.marks || []) as Mark[]);
   return sent ? (anyFresh ? 'urgent-sent' : 'urgent-reminded') : 'urgent-failed';
 }
@@ -1345,7 +1414,7 @@ async function sendSummary(s: Settings, kind: 'summary' | 'monthly', accts: DAcc
 // export للاختبارات (tests/sync-test.ts — قاعدة بيانات وهمية ومحرك بأقل الأسماء)
 export async function assemble(users: Settings[], ensureEngine: () => Promise<void>, ctx: RunCtx): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
-  const ur = await db('digest_outbox?select=user_id,created_at&kind=eq.urgent', { method: 'GET' });
+  const ur = await db('digest_outbox?select=user_id,created_at&kind=eq.urgent&period=neq.' + CTX_PERIOD, { method: 'GET' });
   const oldest: Record<string, number> = {};
   (((await ur.json()) as any[]) || []).forEach((x) => { const t = Date.parse(x.created_at); oldest[x.user_id] = Math.min(oldest[x.user_id] || t, t); });
   for (const s of users) {
