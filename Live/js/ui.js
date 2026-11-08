@@ -270,7 +270,7 @@
     Object.keys(accountInfo).forEach(function (k) { if (k.indexOf(platform + ':') === 0) delete accountInfo[k]; });
     Object.keys(sourceCache).forEach(function (k) { if (k.indexOf(platform + ':') === 0) delete sourceCache[k]; });
     // ومشكلات لوحة «قيمة الأداة» وسجل تعديلاتها بتاعة حسابات المنصة دي
-    [valueEpisodes, valueActions, valueState].forEach(function (m) { Object.keys(m).forEach(function (k) { if (k.indexOf(platform + ':') === 0) delete m[k]; }); });
+    [valueEpisodes, valueActions, valueState, extraInputs, extraAt].forEach(function (m) { Object.keys(m).forEach(function (k) { if (k.indexOf(platform + ':') === 0) delete m[k]; }); });
     setPlatformState(platform, null);
     forgetAccount(platform);
     setPlatformOptions(platform, []); // بيحفظ الجلسة كمان
@@ -667,6 +667,7 @@
     var bySource = {};
     candidates.forEach(function (c) { if (!bySource[c.source]) bySource[c.source] = settingsFor(c.source); });
     analysisNow = analysis = PauseProofAlerts.analyze(candidates, accountsMeta(), { bySource: bySource }, ALERT_FMT);
+    addExtraAlerts(analysisNow);
     if (period.preset === 'last7') return;
     // الإعلانات اللي أيام فترتها وصلت (c.pd) بيتحكم عليها بالفترة، والباقي (طلب الفترة فشل) بحكم «الآن» زي ما كان والحالة بتقول كده
     var withPd = candidates.filter(function (c) { return c.pd && c.pd.dates && c.pd.dates.length; });
@@ -687,6 +688,87 @@
     Object.keys(byAd).forEach(function (id) { if (byAd[id]) health[byAd[id].health]++; });
     analysis = { byAd: byAd, alerts: alerts, summary: { health: health, levels: pa.summary.levels, atRisk: pa.summary.atRisk },
       settings: pa.settings, settingsBySource: Object.assign({}, analysisNow.settingsBySource, pa.settingsBySource), period: true };
+  }
+  // ---------- تنبيهات البريد اللي محتاجة طلبات زيادة (مراجعة ٨ نوفمبر ٢٠٢٦) ----------
+  // صاحب المنتج: «ليست كل التنبيهات العاجلة تصل للايميل… وتأكد من عدم وجود ثغرات تكاملية مع باقي الأداة». العكس كان موجود:
+  // «تعديل كبير» (ميزانية اتضاعفت أو نزلت للنص، أو إيقاف عنصر نصيبه ١٠٪ فأكتر) و«التتبّع/الشراء متوقف» بيتبعتوا عاجل بالبريد
+  // (runner.ts extraAlerts) ومكانوش بيظهروا في الأداة خالص — والرسالة بتقول «التفاصيل الكاملة في Ads Center». دلوقتي نفس القواعد
+  // ونفس البيانات (alerts.js siteAlerts/editAlerts، meta.js metaSiteDays/metaObjectDaily) لـ Meta زي البريد بالظبط، بعد ما
+  // سجل التعديلات يوصل (valueActionsArrived). التعديل حدث مش حالة: بيظهر ٢٤ ساعة من وقته (عمر بصمته في البريد). الروابط المعطّلة
+  // بيفحصها السيرفر بس (المتصفح ميقدرش يفتح مواقع تانية)، وSnapchat مالوش القواعد دي في البريد لسه — فمش هنا كمان
+  var extraInputs = {}, extraAt = {};
+  var EXTRA_TTL_MS = 10 * 60000, EDIT_WINDOW_MS = 24 * 3600000;
+  var LEVEL_ORDER = { critical: 0, warning: 1, opportunity: 2, info: 3 };
+  function eventMs(when) {
+    var ms = Date.parse(String(when || '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+    return isFinite(ms) ? ms : 0;
+  }
+  // «٢٤ سبتمبر ١٦:١٥» بتوقيت الحساب — نفس runner.ts whenText
+  function whenText(when, tz) {
+    var d = new Date(eventMs(when));
+    try {
+      var p = {};
+      new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+        .formatToParts(d).forEach(function (x) { p[x.type] = x.value; });
+      return fmtKey(p.year + '-' + p.month + '-' + p.day) + ' ' + ar(p.hour + ':' + p.minute);
+    } catch (e) { return d.toISOString().slice(0, 16).replace('T', ' '); }
+  }
+  // بيتنادى لما سجل تعديلات حساب Meta يوصل (بعد ما الإعلانات تكمل): أيام الموقع، وإنفاق العناصر اللي اتعدّلت تعديل كبير في آخر ٢٤ ساعة
+  function loadExtraAlerts(source) {
+    if (String(source).indexOf('meta:') !== 0 || typeof metaSiteDays !== 'function') return;
+    if (extraAt[source] && Date.now() - extraAt[source] < EXTRA_TTL_MS) return;
+    extraAt[source] = Date.now();
+    var accountId = source.slice(5), info = accountInfo[source] || {}, meta = accountsMeta()[source] || {};
+    var tz = meta.timeZone || info.timeZone || BROWSER_TZ, cur = meta.currency || info.currency || null;
+    var accSpend = candidates.reduce(function (s, c) { return c.source === source ? s + (c.spend || 0) : s; }, 0);
+    var acts = valueActions[source], cutoff = Date.now() - EDIT_WINDOW_MS;
+    var edits = ((acts && acts.list) || []).filter(function (a) { return a && (a.kind === 'budget' || a.kind === 'pause') && eventMs(a.time) > cutoff; })
+      .map(function (a) { return Object.assign({}, a); });
+    var siteP = metaSiteDays(accountId, tz).then(function (d) { return d; }, function () { return null; });
+    var editP = !edits.length ? Promise.resolve([]) : (function () {
+      var groups = [], today = todayKeyInTz(tz);
+      ['campaign', 'adset', 'ad'].forEach(function (l) {
+        var ids = edits.filter(function (e) { return e.level === l; }).map(function (e) { return e.id; }).filter(function (id, i, all) { return all.indexOf(id) === i; });
+        if (ids.length) groups.push({ level: l, ids: ids });
+      });
+      return metaObjectDaily(accountId, groups, shiftKey(today, -6), today).then(function (objDaily) {
+        edits.forEach(function (e) { e.share = accSpend > 0 ? (objDaily[e.id] || []).reduce(function (s, r) { return s + (r.spend || 0); }, 0) / accSpend : 0; });
+        return edits;
+      });
+    })().catch(function () { return []; });
+    Promise.all([siteP, editP]).then(function (r) {
+      if (sourceOf('meta') !== source) return;   // الحساب اتغيّر وهي ماشية
+      extraInputs[source] = { days: r[0] || [], edits: r[1] || [], cur: cur, tz: tz, accSpend: accSpend, name: meta.label || '' };
+      runAnalysis();
+      render();
+    });
+  }
+  // التنبيهات نفسها بتتعمل مع كل تحليل (اللغة الحالية، ومن غير طلبات): «التعديل الكبير» على عنصر عليه «توقف أكبر مصدر» منكررهوش (زي
+  // runner.ts allUrgent)، والعدّادات والترتيب بالمستوى بيتظبطوا (العاجل الجديد مع العاجل، مش بعد «للعلم»)
+  function addExtraAlerts(an) {
+    var sources = Object.keys(extraInputs).filter(function (s) { return candidates.some(function (c) { return c.source === s; }); });
+    if (!sources.length) return;
+    var stopped = {};
+    an.alerts.forEach(function (a) { if (a.code === 'top-stopped') stopped[String(a.adId || String(a.objectId || '').replace(/^c:/, ''))] = true; });
+    var added = 0;
+    sources.forEach(function (source) {
+      var x = extraInputs[source], list = [];
+      try {
+        list = PauseProofAlerts.siteAlerts(x.days, ALERT_FMT);
+        if (x.edits.length) {
+          var edits = x.edits.map(function (e) { return Object.assign({}, e, { when: whenText(e.time, x.tz) }); });
+          list = list.concat(PauseProofAlerts.editAlerts(edits, ALERT_FMT, x.cur, x.accSpend / 7));
+        }
+      } catch (e) { list = []; }
+      list.forEach(function (a) {
+        if (a.code === 'big-edit' && stopped[String(a.objectId || '').split('@')[0]]) return;
+        a.source = source; a.platform = 'Meta'; a.accountName = x.name; a.currency = x.cur;
+        an.alerts.push(a);
+        if (an.summary && an.summary.levels && a.level in an.summary.levels) an.summary.levels[a.level]++;
+        added++;
+      });
+    });
+    if (added) an.alerts.sort(function (a, b) { return (LEVEL_ORDER[a.level] || 0) - (LEVEL_ORDER[b.level] || 0); });
   }
   // نافذة الفترة للمحرّك: أيام الفترة (c.pd) بنفس شكل النافذة اليومية. آخر خانة عند المحرّك «النهارده» (مبتدخلش الحكم):
   // فترة بتخلص أمس بتاخد النهارده الحقيقي بعدها (قواعد «الآن» بتشوفه زي الأسبوع)، و«اليوم» أو فترة خلصت قبل كده بتاخد خانة فاضية
@@ -2955,7 +3037,7 @@
     }, function () { st.deciding = false; });
   }
   // سجل التعديلات وصل (meta.js / snapchat.js) — المشكلات اللي مستنياه بيتقرر فيها
-  function valueActionsArrived(source) { if (valueEpisodes[source]) valueDecide(source); }
+  function valueActionsArrived(source) { if (valueEpisodes[source]) valueDecide(source); loadExtraAlerts(source); }
   // ما كان الإعلان بيهدره في اليوم وقت التنبيه (نفس المحرك — alerts.js withMoney: متوسط آخر ٣ أيام مكتملة قبل يوم التنبيه): الإنفاق كله
   // في «دون نتيجة»، والإنفاق ناقص المبيعات في الخسارة. من أرقام الكارت لو الأيام دي جوه أسبوعه، وإلا إنفاق المنصة (طلب واحد للحساب)
   function valueDays(ep, tz) {
@@ -4509,7 +4591,7 @@
 
   // إعادة تحميل كل الحسابات المحمّلة من كل المنصات (مش Meta بس)
   // «تحديث البيانات» بيجيب ملخص المتجر من جديد هو كمان (من غيرها كان بيفضل على نسخته القديمة لنفس الفترة)
-  function refreshAll() { dxReset(); clearMetaBase(); Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); }); }
+  function refreshAll() { dxReset(); clearMetaBase(); extraAt = {}; Object.keys(activeSources).forEach(function (p) { loadSource(p, activeSources[p]); }); }
   resetAllBtn.addEventListener('click', refreshAll);
 
   // ---------- آخر تحديث ----------

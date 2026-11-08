@@ -81,7 +81,7 @@
   // حساب متحدد ليه المستهدف ×٣ وحد الخسارة ×١ (مراجعة الإعدادات ٢٤ أكتوبر: مبقاش ليهم قيمة ابتدائية — حكم الربح بيستنى لحد ما
   // يتحددوا). الاختبارات القديمة مكتوبة على الحالة دي؛ وحالة «من غير مستهدف» ليها اختبارها لوحدها (noGoal: true)
   function engine(ads, meta, settings) {
-    var s = settings && settings.noGoal ? {} : Object.assign({ roasTarget: 3, roasBreakEven: 1 }, settings || {});
+    var s = settings && settings.noGoal ? {} : Object.assign({ roasTarget: 3 }, settings || {});
     return PauseProofAlerts.analyze(ads, meta || {}, s, ALERT_FMT);
   }
   // حساب فيه إعلانين كويسين عشان يبقى فيه متوسط تكلفة نتيجة
@@ -117,6 +117,7 @@
     useSettings({});
     migrating = false;
     settingsScope = ''; settingsPending = {}; settingsDirty = false; settingsSaving = false;
+    extraInputs = {}; extraAt = {};
     userSetBase = null; userSetGen = 0; userSetInFlight = 0; userSetRefreshing = false; userSetFails = 0;
     welcomeDone = false; welcomeOpen = false; welcomeOverlay.classList.add('hidden');
     period = { preset: 'last7' };
@@ -8609,6 +8610,88 @@
     });
   });
 
+  // مراجعة ٨ نوفمبر ٢٠٢٦ (صاحب المنتج: «تأكد من عدم وجود ثغرات تكاملية مع باقي الأداة»): «تعديل كبير» و«الشراء/التتبّع متوقف»
+  // كانوا بيتبعتوا عاجل بالبريد بس — دلوقتي بيظهروا في الأداة بنفس القواعد والبيانات لـ Meta
+  describe('تنبيهات البريد اللي محتاجة طلبات زيادة: في الأداة كمان', function () {
+    var SRC = 'meta:act_1';
+    function siteDaysBuyOff() {
+      var d = [], k = shiftKey(todayKeyInTz('Asia/Riyadh'), -7);
+      for (var i = 0; i < 8; i++) {
+        d.push(i < 6 ? { date: k, clicks: 100, lpv: 60, atc: 10, ic: 6, pur: 4 }
+          : (i === 6 ? { date: k, clicks: 50, lpv: 30, atc: 0, ic: 0, pur: 0 } : { date: k, clicks: 0, lpv: 0, atc: 0, ic: 0, pur: 0 }));
+        k = shiftKey(k, 1);
+      }
+      return d;
+    }
+    function stubMeta(days, objDaily) {
+      var keep = { site: window.metaSiteDays, obj: window.metaObjectDaily }, calls = { site: 0, obj: [] };
+      window.metaSiteDays = function () { calls.site++; return Promise.resolve(days); };
+      window.metaObjectDaily = function (acc, groups) { calls.obj.push(groups); return Promise.resolve(objDaily); };
+      calls.restore = function () { window.metaSiteDays = keep.site; window.metaObjectDaily = keep.obj; delete valueActions[SRC]; };
+      return calls;
+    }
+    function store() {
+      activeSources.meta = 'act_1';
+      accountInfo[SRC] = { currency: 'SAR', timeZone: 'Asia/Riyadh' };
+      setPlatformOptions('meta', [{ value: 'act_1', label: 'Meta — Store' }]);
+      candidates = [ad('m1', { cid: 'c1', daily: steady(50) }), ad('m2', { cid: 'c2', daily: steady(50) })];
+    }
+    testAsync('Meta: «تعديل كبير» في آخر ٢٤ ساعة و«الشراء متوقف» بيظهروا عاجل زي البريد، والقديم لأ، ومعدودين في العاجل', function () {
+      store();
+      var now = Date.now();
+      valueActions[SRC] = { since: 0, complete: true, list: [
+        { kind: 'budget', level: 'campaign', id: 'c1', name: 'Camp One', actor: 'Ali', time: new Date(now - 2 * 3600000).toISOString(), date: '', from: 10000, to: 30000, lifetime: false },
+        { kind: 'pause', level: 'campaign', id: 'c2', name: 'Camp Two', actor: 'Ali', time: new Date(now - 30 * 3600000).toISOString(), date: '' },
+        { kind: 'targeting', level: 'adset', id: 's1', name: 'Set', time: new Date(now - 3600000).toISOString(), date: '' }
+      ] };
+      var s = stubMeta(siteDaysBuyOff(), { c1: [{ spend: 300 }] });
+      runAnalysis();
+      var before = analysisNow.summary.levels.critical;
+      // البداية الحقيقية: سجل التعديلات وصل (meta.js loadAdEdits ← valueActionsArrived)
+      valueActionsArrived(SRC);
+      eq(s.site, 1, 'asked when the change log arrives');
+      return tick().then(function () {
+        var mine = analysisNow.alerts.filter(function (a) { return a.source === SRC && (a.code === 'big-edit' || a.code === 'checkout-off'); });
+        eq(mine.map(function (a) { return a.code + ':' + a.level; }).sort(), ['big-edit:critical', 'checkout-off:critical']);
+        eq(analysisNow.summary.levels.critical, before + 2, 'counted in the urgent number');
+        eq(s.obj, [[{ level: 'campaign', ids: ['c1'] }]], 'object spend asked once, for the recent budget or pause edit only');
+        var be = mine.filter(function (a) { return a.code === 'big-edit'; })[0];
+        ok(/Camp One/.test(be.detail) && /Ali/.test(be.detail), be.detail);
+        eq(be.accountName, 'Meta — Store');
+        var levels = analysisNow.alerts.map(function (a) { return a.level; });
+        ok(levels.lastIndexOf('critical') < (levels.indexOf('warning') < 0 ? Infinity : levels.indexOf('warning')) &&
+          levels.lastIndexOf('critical') < (levels.indexOf('info') < 0 ? Infinity : levels.indexOf('info')), 'urgent stays together: ' + levels.join(','));
+        renderAlerts();
+        ok(alertsListEl.textContent.indexOf(be.title) > -1, 'on the alerts page');
+        eq(alertsTabCount.textContent, ar(analysisNow.summary.levels.critical), 'the tab number includes them');
+        // بلغة العميل: التحليل بيبنيهم من جديد
+        withLang('en', function () { runAnalysis(); });
+        var en = analysisNow.alerts.filter(function (a) { return a.code === 'checkout-off'; })[0];
+        ok(en && !/[؀-ۿ]/.test(en.title), en ? en.title : 'none');
+        runAnalysis();
+        // ١٠ دقايق: مفيش طلب تاني
+        loadExtraAlerts(SRC);
+        eq(s.site, 1, 'cached for 10 minutes');
+      }).then(function () { s.restore(); }, function (e) { s.restore(); throw e; });
+    });
+    test('«تعديل كبير» على عنصر عليه «توقف أكبر مصدر» مبيتكررش (زي البريد)، وSnapchat مالوش الطلبات دي', function () {
+      store();
+      extraInputs[SRC] = { days: [], cur: 'SAR', tz: 'Asia/Riyadh', accSpend: 700, name: 'Meta — Store',
+        edits: [{ kind: 'pause', level: 'campaign', id: 'c1', name: 'Camp One', time: new Date().toISOString(), date: '', share: 0.4 }] };
+      var an = { alerts: [{ code: 'top-stopped', level: 'critical', objectId: 'c:c1' }], summary: { levels: { critical: 1, warning: 0, opportunity: 0, info: 0 } } };
+      addExtraAlerts(an);
+      eq([an.alerts.map(function (a) { return a.code; }), an.summary.levels.critical], [['top-stopped'], 1], 'no second alert on a stopped top source');
+      var an2 = { alerts: [], summary: { levels: { critical: 0, warning: 0, opportunity: 0, info: 0 } } };
+      addExtraAlerts(an2);
+      eq(an2.alerts.map(function (a) { return a.code; }), ['big-edit'], 'without it: the pause alert');
+      var s = stubMeta([], {});
+      try {
+        loadExtraAlerts('snapchat:abc-1');
+        eq([s.site, s.obj.length], [0, 0], 'Snapchat: nothing asked (the email has no such rules for it yet)');
+      } finally { s.restore(); }
+    });
+  });
+
   describe('ربط Meta المحفوظ على الجهاز (الهاتف كان بيفصل الحسابات كل مرة)', function () {
     var withFb = function (fn) {
       var prevFb = window.FB, calls = [];
@@ -10841,6 +10924,8 @@
         if (/\/adsets$/.test(path)) { f.adsets++; f.adsetsParams = p; if (o.adsetsDown) { setTimeout(function () { cb({ error: { code: 17, error_subcode: 2446079, message: 'User request limit reached' } }); }, 0); return; } reply = { data: [{ id: 's', effective_status: 'ACTIVE', campaign: { effective_status: 'ACTIVE' } }] }; }
         if (/\/activities$/.test(path)) f.acts++;
         if (/insights$/.test(path) && /frequency/.test(p.fields || '') && p.time_range) f.reach++;
+        // أيام الموقع لتنبيهات البريد (ui.js loadExtraAlerts — ٨ نوفمبر): طلب على مستوى الحساب (من غير level) بيتعدّ لوحده — مش من أرقام الإعلانات
+        if (/insights$/.test(path) && !p.level && /inline_link_clicks/.test(p.fields || '')) { f.site = (f.site || 0) + 1; setTimeout(function () { cb({ data: [] }); }, 0); return; }
         if (/\/ads$/.test(path) && o.holdStopped && /PAUSED/.test(p.effective_status || '')) { f.stopped = function () { cb({ data: [] }); return sleep(60); }; return; }
         if (/\/ads$/.test(path)) reply = { data: [{ id: 'm1', name: 'M', effective_status: 'ACTIVE', created_time: '2026-01-01T00:00:00+0000', adset: Object.assign({ id: 's', optimization_goal: 'OFFSITE_CONVERSIONS' }, o.nestedStatus ? { effective_status: 'ACTIVE' } : {}), campaign: { id: 'c', name: 'C' }, creative: {} }] };
         if (/insights$/.test(path) && p.level === 'campaign' && /^campaign_id/.test(p.fields || '')) {
