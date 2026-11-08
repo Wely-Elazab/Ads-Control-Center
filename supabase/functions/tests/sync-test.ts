@@ -882,7 +882,7 @@ Deno.test('الطابور — العاجل: الرسالة بتقول العاج
     assert(html.indexOf('Snap S1') > -1, 'the other account is named');
     assert(html.indexOf('STALE') < 0, 'a context older than 2 hours is not read (its account stopped being checked)');
     assert(html.indexOf('OLD-COST') < html.indexOf('OLD-WASTE'), 'accounts in their order: the one with the new alert first');
-    assertEquals(st.outbox.filter((r) => r.period === 'ctx').length, 2, 'context rows are read, not deleted (each check rewrites its own)');
+    assertEquals(st.outbox.filter((r) => r.period === 'ctx').length, 0, 'context rows go with the message (privacy policy: deleted once sent; the next check rewrites them)');
     assertEquals(st.outbox.filter((r) => r.period === '').length, 0, 'the message rows are gone');
     restoreFetch();
     // حساب فيه ١٣ عاجل قائم: أول ١٠ (الأقدم) وسطر بعدد الباقي

@@ -1287,8 +1287,8 @@ async function plan(users: Settings[]): Promise<void> {
   }
 }
 
-// صف «العاجل القائم» للحساب (مراجعة ٨ نوفمبر ٢٠٢٦): kind = urgent وperiod = ctx — مش رسالة، سياق لأي رسالة عاجلة. بيتقري لو اتكتب
-// خلال CTX_FRESH_MS بس (فحص ساعته): حساب وقف فحصه منقولش عنه قائم من أيام
+// صف «العاجل القائم» للحساب (مراجعة ٨ نوفمبر ٢٠٢٦): kind = urgent وperiod = ctx — مش رسالة، سياق لأي رسالة عاجلة، وبيتمسح معاها.
+// بيتقري لو اتكتب خلال CTX_FRESH_MS بس (فحص ساعته): حساب وقف فحصه منقولش عنه قائم من أيام
 const CTX_PERIOD = 'ctx', CTX_FRESH_MS = 2 * 3600000;
 async function dropCtx(user: string, a: DAcct): Promise<void> {
   await db('digest_outbox?user_id=eq.' + user + '&platform=eq.' + a.platform + '&account_id=eq.' + encodeURIComponent(a.account_id) +
@@ -1351,8 +1351,9 @@ async function sendUrgent(s: Settings, accts: DAcct[], oldestMs: number, ctx: Ru
   const r = await db('digest_outbox?user_id=eq.' + user + '&kind=eq.urgent&period=neq.' + CTX_PERIOD, { method: 'DELETE', headers: { 'prefer': 'return=representation' } });
   const rows = ((await r.json()) as any[]) || [];
   if (!rows.length) return null;
-  // العاجل القائم في باقي الحسابات (صفوف ctx من فحص ساعتها) — بيتقري بس، وكل فحص بيحدّث صفه
-  const cr = await db('digest_outbox?select=platform,account_id,payload,created_at&user_id=eq.' + user + '&kind=eq.urgent&period=eq.' + CTX_PERIOD, { method: 'GET' });
+  // العاجل القائم في باقي الحسابات (صفوف ctx من فحص ساعتها) — بيتقري ويتمسح مع الرسالة زي باقي نتيجة الفحص (سياسة الخصوصية:
+  // «تُرسل إليك في رسالة واحدة، ثم تُحذف فوراً»). الفحص الجاي بيكتبه تاني، والرسالة الجاية بتستنى فحص كل الحسابات (urgentReady)
+  const cr = await db('digest_outbox?user_id=eq.' + user + '&kind=eq.urgent&period=eq.' + CTX_PERIOD, { method: 'DELETE', headers: { 'prefer': 'return=representation' } });
   const ctxRows = (((await cr.json()) as any[]) || []).filter((x) => Date.now() - Date.parse(x.created_at) <= CTX_FRESH_MS &&
     !rows.some((y) => y.platform === x.platform && y.account_id === x.account_id));
   const order = (x: any) => { const i = accts.findIndex((a) => a.platform === x.platform && a.account_id === x.account_id); return i < 0 ? 999 : i; };
