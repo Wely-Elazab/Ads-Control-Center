@@ -5689,6 +5689,56 @@
     // iOS بيقرّب على أي حقل خطه أقل من ١٦px ومبيرجّعش التقريب. الإصلاح الأول كان جوه استعلام الموبايل، وقاعدة
     // .sort-select اللي بعده في الملف غلبته — قائمة الفترة فضلت ١٣px على الموقع (مقيس ٣ نوفمبر ٢٠٢٦). بنقيس الخط
     // الفعلي لكل حقل بالستايل الحقيقي، مش بنقرا القاعدة
+    // طلب صاحب المنتج ٨ نوفمبر ٢٠٢٦: «فقط يظهر اسم الاداة "Ads Center" ويتحرك… وبدون اي كلمات او جمل لحين انتهاء التحميل»، و«الدائرة
+    // الحالية تدور على الديسكتوب لكنها ثابتة في الموبايل» (قاعدة «تقليل الحركة» كانت بتوقف كل حركة)
+    testAsync('شاشة الانتظار: اسم الأداة بس بيتحرك من غير أي جملة، والخلفية مقفولة، وبتتحرك مع «تقليل الحركة» كمان (الأداة نفسها على الموبايل)', function () {
+      return toolFrame(375, 812).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        try {
+          w.setLoading('meta', true, w.msg('s.loadingAds', { platform: 'Meta' }));
+          w.renderPageLock();
+          var lock = d.getElementById('pageLock');
+          ok(!lock.hidden, 'shown while loading');
+          // اللي ظاهر: الاسم بس — من غير الجملة اللي في شريط الحالة ولا أي دايرة
+          var visible = Array.prototype.filter.call(lock.querySelectorAll('*'), function (el) { return !el.closest('.sr-only') && !el.children.length; })
+            .map(function (el) { return el.textContent; }).join('');
+          eq(visible, 'Ads Center', 'only the tool name is visible');
+          ok(lock.textContent.indexOf(d.getElementById('connectStatus').textContent) < 0, 'the progress sentence is not in the waiting screen');
+          ok(!lock.querySelector('.page-lock-spin, .spinner'), 'no circle');
+          ok(lock.querySelector('[role="status"] .sr-only'), 'screen readers still hear that it is loading');
+          // الخلفية مقفولة: مفيش كلام بيبان من وراها (شريط الحالة والكروت الفاضية)
+          // الشفافية بأي صيغة: rgba(…, a) أو color(srgb … / a) — color-mix بيطلع بالصيغة التانية
+          var bg = w.getComputedStyle(lock).backgroundColor, m1 = bg.match(/\/\s*([\d.]+)\s*\)$/), m2 = bg.match(/^rgba\(([^)]+)\)$/);
+          eq(m1 ? parseFloat(m1[1]) : (m2 ? parseFloat(m2[1].split(',')[3]) : 1), 1, 'opaque background: ' + bg);
+          // الحروف بتتحرك بالترتيب بحركة نقل وشفافية بس (معالج الرسوم)
+          var chs = lock.querySelectorAll('.bl-ch');
+          eq(chs.length, 10);
+          var cs = w.getComputedStyle(chs[0]);
+          eq([cs.animationName, cs.animationIterationCount], ['bl-wave', 'infinite']);
+          eq(w.getComputedStyle(chs[9]).animationDelay, '0.72s', 'a wave: each letter after the one before');
+          eq(w.getComputedStyle(lock.querySelector('.brand-load')).fontSize, '30px', 'the mobile size');
+          var box = lock.querySelector('.brand-load').getBoundingClientRect();
+          ok(box.left >= 0 && box.right <= 375, 'fits the phone screen');
+          // «تقليل الحركة» (iOS، و«إزالة الرسوم المتحركة» و«توفير الطاقة» في Android): قاعدة خاصة بتكمّل الحركة بتلاشي هادي
+          var rules = [], fade = '';
+          Array.prototype.forEach.call(d.styleSheets, function (sh) {
+            var list; try { list = sh.cssRules; } catch (e) { return; }
+            Array.prototype.forEach.call(list || [], function (r) {
+              if (r.media && /prefers-reduced-motion/.test(r.media.mediaText)) Array.prototype.forEach.call(r.cssRules, function (x) { rules.push(x.cssText); });
+              if (r.name === 'bl-fade') fade = r.cssText;
+            });
+          });
+          ok(rules.some(function (x) { return /\.brand-load \.bl-ch\s*\{/.test(x) && /bl-fade/.test(x) && /infinite/.test(x) && /!important/.test(x); }), 'letters keep moving with reduced motion');
+          ok(rules.some(function (x) { return /\.status-strip \.spinner/.test(x) && /bl-pulse/.test(x) && /infinite/.test(x); }), 'the small circle pulses with reduced motion');
+          ok(rules.every(function (x) { return !/\.brand-load/.test(x) || !/transform/.test(x); }), 'nothing moves from its place with reduced motion');
+          ok(fade && !/transform/.test(fade) && /opacity/.test(fade), 'the reduced-motion version only fades: ' + fade);
+          // التحميل خلص: الشاشة بتختفي والنتايج تظهر
+          w.setLoading('meta', false);
+          w.renderPageLock();
+          ok(lock.hidden, 'gone when loading ends');
+        } finally { f.remove(); }
+      });
+    });
     testAsync('كل حقل إدخال وقائمة في الأداة خطه ١٦px على الموبايل (عشان iOS ميقرّبش الشاشة)', function () {
       return toolFrame(375, 812).then(function (f) {
         var w = f.contentWindow, d = f.contentDocument;

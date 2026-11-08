@@ -2102,7 +2102,6 @@
     if (on) {
       var bar = document.querySelector('.appbar');
       el.style.top = Math.max(0, bar ? bar.getBoundingClientRect().bottom : 0) + 'px';
-      document.getElementById('pageLockSub').textContent = connectStatus.textContent;
     }
     el.hidden = !on;
     document.body.classList.toggle('page-locked', on);

@@ -735,14 +735,25 @@
   /* ---------- الموبايل: الشريط اللي فوق بيستخبى وإنت نازل ويرجع أول ما تطلع (ui.js) ---------- */
   .appbar { transition: transform .2s ease; }
   /* قفل الصفحة وهي بتتحمّل: تحت الشريط العلوي (z-index أقل منه) — renderPageLock في ui.js بيحدد top */
-  .page-lock { position: fixed; left: 0; right: 0; bottom: 0; top: 0; z-index: 35; display: flex; align-items: center; justify-content: center; padding: 16px; background: color-mix(in srgb, var(--paper) 90%, transparent); }
+  /* شاشة الانتظار: اسم الأداة بس بيتحرك (طلب صاحب المنتج ٨ نوفمبر ٢٠٢٦: «فقط يظهر اسم الاداة "Ads Center" ويتحرك بشكل انيميشن
+     لذيذ لا يجعل المستخدم يمل من الانتظار، وبدون اي كلمات او جمل لحين انتهاء التحميل»). قبل كده دايرة وعنوان وسطر بيتبدّل ٦ مرات
+     في ٧ ثواني. الخلفية مقفولة تماماً عشان مفيش كلام يبان من وراها (شريط الحالة والكروت الفاضية)، والكلام لقارئ الشاشة بس.
+     والحركة نقل وشفافية بس (transform/opacity): بتشتغل على معالج الرسوم، فمبتقفش والموبايل البطيء مشغول بالتحميل والحساب */
+  .page-lock { position: fixed; left: 0; right: 0; bottom: 0; top: 0; z-index: 35; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--paper); }
   .page-lock[hidden] { display: none; }
-  .page-lock-box { max-width: 360px; text-align: center; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px 20px; box-shadow: 0 8px 28px rgba(22,26,31,0.08); }
-  .page-lock-spin { display: block; width: 28px; height: 28px; margin: 0 auto 12px; border: 3px solid var(--line); border-top-color: var(--verified); border-radius: 50%; animation: spin 0.9s linear infinite; }
-  .page-lock-title { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
-  .page-lock-sub { margin: 0; font-size: 12.5px; line-height: 1.7; color: var(--ink-soft); }
-  .page-lock-sub:empty { display: none; }
+  .page-lock-box { text-align: center; padding-bottom: 8vh; }
   body.page-locked { overflow: hidden; }
+  /* موجة بتعدّي على الاسم: كل حرف بيطلع ويكبر شوية وينوّر بالأخضر وينزل، بالترتيب من A لـ r، وبعدها راحة صغيرة */
+  .brand-load { display: inline-flex; direction: ltr; font-size: 34px; font-weight: 700; letter-spacing: .5px; line-height: 1.3; color: var(--ink); }
+  .bl-ch { position: relative; display: inline-block; white-space: pre; opacity: .36; animation: bl-wave 1.9s cubic-bezier(.45, 0, .3, 1) infinite; animation-delay: var(--d, 0s); }
+  .bl-ch::after { content: attr(data-ch); position: absolute; left: 0; top: 0; color: var(--verified); opacity: 0; animation: bl-glow 1.9s cubic-bezier(.45, 0, .3, 1) infinite; animation-delay: var(--d, 0s); }
+  .bl-ch:nth-child(2) { --d: .08s; } .bl-ch:nth-child(3) { --d: .16s; } .bl-ch:nth-child(4) { --d: .24s; } .bl-ch:nth-child(5) { --d: .32s; }
+  .bl-ch:nth-child(6) { --d: .4s; } .bl-ch:nth-child(7) { --d: .48s; } .bl-ch:nth-child(8) { --d: .56s; } .bl-ch:nth-child(9) { --d: .64s; } .bl-ch:nth-child(10) { --d: .72s; }
+  @keyframes bl-wave { 0%, 46%, 100% { transform: translateY(0) scale(1); opacity: .36; } 14% { transform: translateY(-9px) scale(1.08); opacity: 1; } 28% { transform: translateY(0) scale(1); opacity: 1; } }
+  @keyframes bl-glow { 0%, 40%, 100% { opacity: 0; } 12%, 22% { opacity: 1; } }
+  @keyframes bl-fade { 0%, 46%, 100% { opacity: .36; } 14%, 28% { opacity: 1; } }
+  @keyframes bl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+  @media (max-width: 640px) { .brand-load { font-size: 30px; } }
   @media (max-width: 599.98px) { .appbar.appbar-hidden { transform: translateY(-100%); } }
 
   /* ---------- آخر تحديث: قديم = زرار «حدّث» ---------- */
@@ -1118,6 +1129,15 @@
   }
   /* «تقليل الحركة»: كل الحركة بتخلص على طول (من غير تأخير ولا تكرار) والمحتوى بيظهر في مكانه */
   @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0s !important; } }
+  /* إلا علامات التحميل: القاعدة اللي فوق كانت بتوقفها خالص، فالدايرة كانت بتلف على الكمبيوتر وثابتة على الموبايل (صاحب المنتج
+     ٨ نوفمبر) — الموبايل بيبعت «تقليل الحركة» كتير: الإعداد نفسه في iOS، و«إزالة الرسوم المتحركة» و«توفير الطاقة» في Android.
+     الثابت بيبان كأن الأداة واقفة، فهنا الحركة بتتبدّل بتلاشي هادي من غير ما حاجة تتنقل من مكانها (Apple HIG: Reduced Motion —
+     «استبدل الحركة بالتلاشي»): الحروف بتنوّر بالترتيب، والدايرة الصغيرة وزرار التحديث بينبضوا */
+  @media (prefers-reduced-motion: reduce) {
+    .brand-load .bl-ch { animation: bl-fade 1.9s ease-in-out infinite !important; animation-delay: var(--d, 0s) !important; }
+    .brand-load .bl-ch::after { animation: bl-glow 1.9s ease-in-out infinite !important; animation-delay: var(--d, 0s) !important; }
+    body.is-loading .status-strip .spinner, body.is-loading #resetAllBtn { animation: bl-pulse 1.2s ease-in-out infinite !important; }
+  }
 
   /* iOS Safari بيقرّب الصفحة تلقائياً على أي حقل خطه أقل من ١٦px، ومبيرجّعش التقريب بعد كده —
      فالشاشة بتفضل مكبّرة (شكوى صاحب المنتج ٢ نوفمبر ٢٠٢٦ على قائمة الحسابات). ١٦px بتمنع التقريب من أصله.
@@ -1196,12 +1216,12 @@
 </nav>
 
 <!-- قفل الصفحة وهي بتتحمّل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): قبل كده كانت بتكتب «لا شيء عاجل» وبعدين تظهر التنبيهات.
+     ومن ٨ نوفمبر: اسم الأداة بس بيتحرك، من غير دايرة ولا جمل (الكلام لقارئ الشاشة بس).
      تحت الشريط العلوي بس — اختيار الحساب والخروج بيفضلوا شغّالين لو التحميل علق. renderPageLock في ui.js -->
 <div class="page-lock" id="pageLock" hidden>
   <div class="page-lock-box" role="status" aria-live="polite">
-    <span class="page-lock-spin" aria-hidden="true"></span>
-    <p class="page-lock-title" data-i18n="lock.title">جارٍ تحميل إعلانات الحساب وتحليلها…</p>
-    <p class="page-lock-sub" id="pageLockSub"></p>
+    <div class="brand-load" aria-hidden="true"><span class="bl-ch" data-ch="A">A</span><span class="bl-ch" data-ch="d">d</span><span class="bl-ch" data-ch="s">s</span><span class="bl-ch" data-ch=" "> </span><span class="bl-ch" data-ch="C">C</span><span class="bl-ch" data-ch="e">e</span><span class="bl-ch" data-ch="n">n</span><span class="bl-ch" data-ch="t">t</span><span class="bl-ch" data-ch="e">e</span><span class="bl-ch" data-ch="r">r</span></div>
+    <p class="sr-only" data-i18n="lock.title">جارٍ تحميل إعلانات الحساب وتحليلها…</p>
   </div>
 </div>
 
