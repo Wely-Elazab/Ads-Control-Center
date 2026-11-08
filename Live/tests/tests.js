@@ -4521,6 +4521,30 @@
         eq(row('type:message').value, '9.38', '2.5 $ = 9.38 SAR, two decimals like the save');
       } finally { delete accountInfo['meta:act_1']; delete accountInfo['google:1']; settingsScope = ''; settingsOverlay.classList.add('hidden'); }
     });
+    // فحص بعد حفظ صاحب المنتج الحقيقي (٨ نوفمبر): حسابه بالريال وحدوده محفوظة بالدولار، وفيه حد لنوع نتيجة ملوش إعلانات في الحساب
+    // (رسائل في حساب مبيعات) — أول حفظ لازم يحتفظ بالحدّين بعملة الحساب، ميسقطش اللي مالوش إعلانات
+    testAsync('أول حفظ لحساب: الحدود الموروثة كلها بتتحفظ بعملته — حتى حد نوع نتيجة مالوش إعلانات في الحساب', function () {
+      var srv = fakeServer({ all: { roasTarget: 8, maxCost: { purchase: 20, message: 2.5 }, maxCostCur: 'USD' }, asked: true });
+      return withSync(srv.answer, function () {
+        activeSources.meta = 'act_1';
+        accountInfo['meta:act_1'] = { currency: 'SAR' };
+        useSettings(srv.rec.all);
+        candidates = [ad('p1', { key: 'purchase', cid: 'c1', camp: 'A', daily: steady(100), res: steady(2), sales: steady(400), source: 'meta:act_1' })];
+        openAlertSettings();
+        return tick().then(function () {
+          var cost = function (n) { return settingsForm.querySelector('[data-cost="' + n + '"]'); };
+          eq([cost('type:purchase').value, cost('type:message').value], ['75', '9.38'], 'both limits in the account currency (20 $ and 2.5 $ at the peg)');
+          typeIn(inp('roasTarget'), '6');
+          settingsSaveBtn.click();
+          return tick();
+        }).then(function () {
+          var s = srv.rec.acct['meta:act_1'];
+          eq([s.roasTarget, s.maxCost, s.maxCostCur], [6, { purchase: 75, message: 9.38 }, 'SAR'], 'nothing silently dropped');
+          eq(srv.rec.all.maxCost, { purchase: 20, message: 2.5 }, 'the old numbers stay as starting values for other accounts');
+          delete accountInfo['meta:act_1'];
+        });
+      });
+    });
     test('ملخص المتجر: التكلفة مقابل الحد لكل نوع نتيجة (أرقام من غير حكم)، والحملات بحدها الخاص برّه الرقم، و«كل المنصات» من غيره', function () {
       activeSources.meta = 'act_1';
       useSettings({ maxCost: { message: 12 } });
