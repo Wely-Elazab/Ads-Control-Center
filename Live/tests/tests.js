@@ -4514,6 +4514,11 @@
         renderSettingsForm();
         eq(row('type:message').value, '3.2', '12 SAR = 3.2 $ at the peg');
         ok(row('type:message').closest('.setting-row').textContent.indexOf(currencyLabel('USD')) > -1, 'in dollars');
+        // الحد المحوَّل بخانتين زي الحفظ (٢٫٥ $ = ٩٫٣٧٥ ر.س ← ٩٫٣٨) — الخانة والمحفوظ نفس الرقم
+        useSettings({ maxCost: { message: 2.5 }, maxCostCur: 'USD' });
+        settingsScope = 'meta:act_1';
+        renderSettingsForm();
+        eq(row('type:message').value, '9.38', '2.5 $ = 9.38 SAR, two decimals like the save');
       } finally { delete accountInfo['meta:act_1']; delete accountInfo['google:1']; settingsScope = ''; settingsOverlay.classList.add('hidden'); }
     });
     test('ملخص المتجر: التكلفة مقابل الحد لكل نوع نتيجة (أرقام من غير حكم)، والحملات بحدها الخاص برّه الرقم، و«كل المنصات» من غيره', function () {

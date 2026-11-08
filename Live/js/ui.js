@@ -4107,7 +4107,13 @@
     var out = JSON.parse(JSON.stringify(cur
       ? PauseProofAlerts.settingsForAccount(userSet, p, cur, DX.pegRate, scope.slice(p.length + 1))
       : (plat || userSet.all || {})));
-    if (cur && out.maxCost) out.maxCostCur = cur;
+    if (cur && out.maxCost) {
+      // الحد المحوَّل بخانتين زي ما الحفظ بيخزّنه بالظبط (readSettingsForm) — من غير كده الخانة بتعرض ٩٫٣٧٥ والحفظ بيخلّيها ٩٫٣٨
+      var conv = {};
+      Object.keys(out.maxCost).forEach(function (k) { conv[k] = Math.round(out.maxCost[k] * 100) / 100; });
+      out.maxCost = conv;
+      out.maxCostCur = cur;
+    }
     // حدود الحملات الموروثة: الحملات اللي ثابت إنها في الحساب ده (من إعلاناته المحمّلة) بس — الحملة بتبع حساب واحد، فتوريث حد لحملة
     // مش عارفين حسابها غلط، وكان هيظهر كصف «حملة رقم …» على كل التبويبات. بخلاف أقصى تكلفة الأنواع: دي للحساب كله فبتتورّث دايماً
     if (out.campaignMaxCost) {
