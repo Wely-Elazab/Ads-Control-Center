@@ -90,8 +90,8 @@
   }
 
   // إعدادات المستخدم في الاختبارات (قرار صاحب المنتج ٢٦ أكتوبر ٢٠٢٦ — سجل واحد للمستخدم): كأن سجله وصل من السيرفر
-  function useSettings(all, plat, asked) {
-    userSet = normUserSet({ all: all || {}, plat: plat || {}, asked: asked !== false });
+  function useSettings(all, plat, asked, acct) {
+    userSet = normUserSet({ all: all || {}, plat: plat || {}, acct: acct || {}, asked: asked !== false });
     userSetState = 'ready';
   }
   // الحفظ بيروح للسيرفر: الطلب بيتسجّل وبيفضل من غير رد (الاختبار العادي مبيستناش) — restore بيرجّع الدالة وزرار الحفظ
@@ -99,7 +99,12 @@
     var prev = window.syncCall, calls = [];
     window.syncCall = function (b) { calls.push(JSON.parse(JSON.stringify(b))); return new Promise(function () {}); };
     calls.restore = function () { window.syncCall = prev; setSaving(settingsSaveBtn, false, 'settings.save'); setSaving(welcomeSaveBtn, false, 'welcome.save'); settingsOverlay.classList.add('hidden'); };
-    calls.last = function () { var c = calls[calls.length - 1]; return c && c.changes ? c.changes.all : null; };
+    calls.last = function () {
+      var c = calls[calls.length - 1];
+      if (!c || !c.changes) return null;
+      if (c.changes.acct) { var k = Object.keys(c.changes.acct)[0]; return k ? c.changes.acct[k] : null; }
+      return c.changes.all || null;
+    };
     return calls;
   }
 
@@ -111,7 +116,7 @@
     // إعدادات المستخدم (٢٦ أكتوبر) — كل اختبار بسجل فاضي وصل خلاص (قيم البداية، ونافذة أول مرة اتسألت)، من غير طلبات للسيرفر
     useSettings({});
     migrating = false;
-    settingsScope = 'all'; settingsPending = {}; settingsDirty = false; settingsSaving = false;
+    settingsScope = ''; settingsPending = {}; settingsDirty = false; settingsSaving = false;
     userSetBase = null; userSetGen = 0; userSetInFlight = 0; userSetRefreshing = false; userSetFails = 0;
     welcomeDone = false; welcomeOpen = false; welcomeOverlay.classList.add('hidden');
     period = { preset: 'last7' };
@@ -1284,15 +1289,18 @@
     });
     // الحكم بحدودك (٢٥ أكتوبر): الأسبوع تحت المستهدف وآخر ٣ أيام تحت حد الخسارة = خسارة الـ٣ أيام — «عاجل» بعد ضعف التكلفة
     // المسموحة للطلب، و«مهم» بينها وبين ضعفها (كان باحتمال الصدفة: «مرجّح» = مهم و«مؤكد» = عاجل)
-    test('خسارة (العائد أقل من ١ في آخر ٣ أيام) والأسبوع تحت المستهدف: عاجل بعد ضعف أقصى التكلفة، و«مهم» قبلها بالمبلغ', function () {
+    // من ٨ نوفمبر ٢٠٢٦ الخط الوحيد هو العائد المستهدف على فترة الحكم كلها (قرار صاحب المنتج: «الغاء حد الخسارة والاكتفاء بالعائد
+    // المطلوب فقط») — وآخر ٣ أيام مالهاش حكم لوحدها (الوسم على الكارت بيقول التراجع)
+    test('العائد تحت المستهدف على فترة الحكم: عاجل بعد ضعف أقصى التكلفة، و«مهم» قبلها بالمبلغ', function () {
       var MAX = { maxCost: { purchase: 10 } };
       var ads = baseAccount().concat([ad('loss', { daily: [100, 100, 100, 100, 100, 100, 20], res: steady(10), sales: [400, 400, 400, 40, 40, 40, 0] })]);
       var r = engine(ads, {}, MAX);
       var i = issuesOf(r, 'loss').filter(function (x) { return x.code === 'loss'; })[0];
       ok(i && i.level === 'critical', 'loss alert: ' + (i && i.level));
-      ok(i.detail.indexOf('آخر ٣ أيام') > -1 && i.detail.indexOf(money(300, 'SAR')) > -1, i.detail);
-      // ٦٠ في آخر ٣ أيام وأقصى تكلفة ٤٠ (والطلب في الأسبوع بـ٣٠ تحت الحد): بين الحد وضعفه = «مهم» وسببه بيقول إمتى يبقى عاجل
-      var early = withLang('ar', function () { return engine(baseAccount().concat([ad('loss', { daily: [100, 100, 100, 20, 20, 20, 2], res: [3, 3, 3, 1, 1, 1, 0], sales: [200, 200, 200, 10, 10, 10, 0] })]), {}, { maxCost: { purchase: 40 } }); });
+      // أرقام الفترة كلها: ٦٠٠ إنفاق و١٬٣٢٠ مبيعات (×٢٫٢) مقابل المستهدف ×٣
+      ok(i.detail.indexOf(money(600, 'SAR')) > -1 && i.detail.indexOf(money(1320, 'SAR')) > -1, i.detail);
+      // ٦٠ إنفاق وأقصى تكلفة ٤٠: بين الحد وضعفه = «مهم» وسببه بيقول إمتى يبقى عاجل
+      var early = withLang('ar', function () { return engine(baseAccount().concat([ad('loss', { daily: [10, 10, 10, 10, 10, 10, 2], res: steady(1), sales: steady(20) })]), {}, { maxCost: { purchase: 40 } }); });
       var j = issuesOf(early, 'loss').filter(function (x) { return x.code === 'loss'; })[0];
       ok(j && j.level === 'warning' && /ويصبح عاجلاً إذا بلغ إنفاقه ٨٠ ر\.س، أي ضعف أقصى تكلفة حددتها لكل عملية شراء/.test(j.levelWhy), j ? j.level + ' ' + j.levelWhy : 'no loss');
       // من غير أقصى تكلفة: «مهم» حتى بعد إنفاق كبير، وسببه بيقول حدّدها — وبيفضل «خسارة» مش «أقل من المستهدف» (الخط الأحمر الأول)
@@ -1586,10 +1594,12 @@
       eq(r.alerts.filter(function (a) { return a.title === t('al.acctStopped.t'); }).length, 1);
     });
     // مراجعة الإعدادات (٢٤ أكتوبر): من غير أنماط — الحد الناقص بقيمة البداية، والمستهدف وحد الخسارة فاضيين، والتكلفة المقبولة أرقام موجبة بس
-    test('الإعدادات: الحد الناقص بقيمة البداية، والمستهدف وحد الخسارة مالهمش قيمة ابتدائية، و١٠ إعدادات بس (مضاعف «مراجعة» اتشال ٢٥ أكتوبر)', function () {
+    test('الإعدادات: الحد الناقص بقيمة البداية، والعائد المستهدف مالوش قيمة ابتدائية، و٩ إعدادات بس (حد الخسارة اتشال ٨ نوفمبر)', function () {
       var s = PauseProofAlerts.mergeSettings({ minSpendShare: 0.1, _preset: 'calm' });
-      eq([s.minSpendShare, s.cprWarnMultiple, s.roasTarget, s.roasBreakEven], [0.1, 1.5, null, null]);
-      eq(PauseProofAlerts.SETTINGS_META.length, 10);
+      eq([s.minSpendShare, s.cprWarnMultiple, s.roasTarget], [0.1, 1.5, null]);
+      eq(PauseProofAlerts.GOAL_KEYS, ['roasTarget'], 'the target is the only goal');
+      ok(!PauseProofAlerts.SETTINGS_META.some(function (m) { return m.key === 'roasBreakEven'; }), 'no loss limit');
+      eq(PauseProofAlerts.SETTINGS_META.length, 9);
       ok(!PauseProofAlerts.SETTINGS_META.some(function (m) { return m.key === 'cprCriticalMultiple'; }), 'no «review» multiple');
       ok(!('PRESETS' in PauseProofAlerts) && !('presetSettings' in PauseProofAlerts), 'no presets');
       var m = PauseProofAlerts.mergeSettings({ maxCost: { lead: 30, message: -5, x: 'a' }, campaignMaxCost: { c1: 12 } });
@@ -1775,13 +1785,15 @@
       });
       eq(small.byAd.m.health, 'good');
     });
-    test('خسارة من غير ولا مبيعات: «دون أي مبيعات» مش «مبيعات بقيمة ٠ … فقط»', function () {
+    test('آخر ٣ أيام من غير ولا بيعة في إعلان فترته فيها مبيعات: سطر صريح جوه تنبيه العائد', function () {
       var ads = [ad('g1', { daily: steady(100), res: steady(2), sales: steady(600) }), ad('g2', { daily: steady(100), res: steady(2), sales: steady(600) }),
-        // آخر ٣ أيام: ٩٠٠ إنفاق وطلبات من غير قيمة (الأسبوع ×١٫٥ فوق حد الخسارة) — الخسارة على الـ٣ أيام بدليل
-        ad('z', { daily: steady(300), res: [2, 2, 2, 1, 1, 1, 0], sales: [900, 900, 900, 0, 0, 0, 0] })];
-      var r = withLang('ar', function () { return engine(ads); });
-      var loss = r.byAd.z.issues.filter(function (i) { return i.code === 'loss'; })[0];
-      ok(loss && /دون أي مبيعات/.test(loss.detail) && !/٠ ر\.س فقط/.test(loss.detail), loss ? loss.detail : list(r, 'z'));
+        ad('z2', { daily: steady(300), res: [2, 2, 2, 1, 1, 1, 0], sales: [900, 900, 900, 0, 0, 0, 0] })];
+      var mix = withLang('ar', function () { return engine(ads); });
+      var l2 = mix.byAd.z2.issues.filter(function (i) { return i.code === 'loss'; })[0];
+      ok(l2 && /ولم يحقق أي مبيعات في آخر ٣ أيام رغم إنفاق ٩٠٠ ر\.س/.test(l2.detail), l2 ? l2.detail : list(mix, 'z2'));
+      // إعلان مالوش ولا بيعة في أي يوم مكتمل مش «إعلان مبيعات» أصلاً (anyDone) — بيتحكم عليه بتكلفة النتيجة
+      var none = withLang('ar', function () { return engine([ads[0], ads[1], ad('z', { daily: steady(300), res: steady(2), sales: steady(0) })]); });
+      ok(!none.byAd.z.issues.some(function (i) { return i.code === 'loss'; }), list(none, 'z'));
     });
     test('حملتين بنفس التكلفة (نفس المنتج مقسوم): المرجع الحساب كله بقوته الكاملة (تجميع جزئي)، مش الحملة لوحدها', function () {
       var ads = [ad('a1', { cid: 'c1', daily: steady(100), res: steady(5), key: 'lead' }), ad('a2', { cid: 'c1', daily: steady(100), res: steady(5), key: 'lead' }),
@@ -1869,31 +1881,33 @@
     var LEVEL_RANK_T = { none: 0, info: 1, warning: 2, critical: 3 };
     // صاحب المنتج ٢٥ أكتوبر (الجولة التالتة، كروت حساب حقيقي بإعداداته: المستهدف ×١٨، حد الخسارة ×١٥، أقصى تكلفة للطلب ٢٠): «كل هذه
     // الإعلانات عاجلة لأنها خاسرة: العائد أقل من المطلوب، أو تكلفة الطلب أعلى من الحد الأقصى، أو مر عليها ٣ أيام بدون أي مشتريات»
-    test('الحكم بحدودك — كروت صاحب المنتج: تحت حد الخسارة أو فوق أقصى تكلفة أو ٣ أيام دون مشتريات = عاجل بعد ضعف أقصى التكلفة، و«مهم» قبلها بالمبلغ', function () {
+    test('الحكم بحدودك — كروت صاحب المنتج: تحت العائد المستهدف أو فوق أقصى تكلفة أو ٣ أيام دون مشتريات = عاجل بعد ضعف أقصى التكلفة، و«مهم» قبلها بالمبلغ', function () {
       var r = withLang('ar', function () {
         return engine([
           ad('pc', { daily: [32, 32, 32, 32, 32, 32, 0], res: [1, 1, 1, 1, 1, 0, 0], sales: [117, 117, 117, 116, 116, 0, 0] }),     // ×٣
           ad('vga', { daily: [13, 13, 13, 13, 14, 14, 0], res: [1, 1, 1, 1, 1, 0, 0], sales: [77, 77, 77, 77, 76, 0, 0] }),         // ×٤٫٨ — كان «أقل من المستهدف»
           ad('emg', { daily: [12, 12, 12, 12, 11, 11, 0] }),                                                                          // ٧٠ دون أي طلب
           ad('mon', { daily: [8, 8, 8, 9, 9, 9, 0], res: [0, 0, 1, 0, 0, 0, 0], sales: [0, 0, 13, 0, 0, 0, 0] }),                    // ×٠٫٢٥
-          ad('cost', { daily: [20, 20, 20, 20, 20, 20, 0], res: [1, 1, 0, 1, 1, 0, 0], sales: [450, 450, 0, 450, 450, 0, 0] }),     // ×١٥ والطلب بـ٣٠
-          ad('near', { daily: [10, 10, 10, 10, 10, 10, 0], res: [0, 1, 0, 0, 1, 0, 0], sales: [0, 500, 0, 0, 500, 0, 0] }),         // الطلب بـ٣٠ بطلبين
+          ad('cost', { daily: [20, 20, 20, 20, 20, 20, 0], res: [1, 1, 0, 1, 1, 0, 0], sales: [600, 600, 0, 600, 600, 0, 0] }),     // ×٢٠ فوق المستهدف والطلب بـ٣٠
+          ad('near', { daily: [10, 10, 10, 10, 10, 10, 0], res: [0, 1, 0, 0, 1, 0, 0], sales: [0, 600, 0, 0, 600, 0, 0] }),         // ×٢٠ والطلب بـ٣٠ بطلبين
           ad('early', { daily: [5, 5, 5, 5, 5, 5, 0], res: [0, 0, 0, 1, 0, 0, 0], sales: [0, 0, 0, 200, 0, 0, 0] })                  // ×٦٫٧ بـ٣٠ بس
-        ], {}, { roasTarget: 18, roasBreakEven: 15, maxCost: { purchase: 20 } });
+        ], {}, { roasTarget: 18, maxCost: { purchase: 20 } });
       });
       var top = function (id) { return r.byAd[id].issues.filter(function (i) { return i.level === 'critical' || i.level === 'warning'; })[0] || {}; };
       eq([top('pc').code, top('pc').level], ['loss', 'critical'], list(r, 'pc'));
       eq([top('vga').code, top('vga').level], ['loss', 'critical'], list(r, 'vga'));
-      ok(!has(r, 'vga', 'low-roas'), '×4.8 under a ×15 loss limit is a loss, not "below target": ' + list(r, 'vga'));
+      ok(!has(r, 'vga', 'low-roas'), 'the target is the only line now: one «loss» issue, no separate «below target»: ' + list(r, 'vga'));
       eq([top('emg').code, top('emg').level], ['waste-week', 'critical'], list(r, 'emg'));
       eq(top('mon').level, 'critical', list(r, 'mon'));
-      // فوق حد الخسارة بس الطلب بـ٣٠ والحد ٢٠ بـ٤ طلبات: أقصى التكلفة عاجل (حتى طلب خامس يخليه ٢٤)، و«أقل من المستهدف» جملة جوّاه
-      ok(top('cost').code === 'cost-max' && top('cost').level === 'critical' && /أقل من المستهدف/.test(top('cost').detail), top('cost').code + ' ' + top('cost').level + ' ' + top('cost').detail);
+      // عائده ×٢٠ فوق المستهدف بس الطلب بـ٣٠ والحد ٢٠ بـ٤ طلبات: أقصى التكلفة لوحدها عاجل
+      ok(top('cost').code === 'cost-max' && top('cost').level === 'critical' && !/أقل من المستهدف/.test(top('cost').detail), top('cost').code + ' ' + top('cost').level + ' ' + top('cost').detail);
+      // والخطين مع بعض على إعلان واحد (pc: ×٣ تحت المستهدف وطلبه بـ٣٨): الخسارة هي المضيف وجملة التكلفة جوّاها
+      ok(top('pc').detail.indexOf('أعلى من أقصى تكلفة حددتها') > -1, top('pc').detail);
       // نفس التكلفة بطلبين بعد ٦٠ (ضعف الحد أو أكتر): عاجل — من غير استثناء «طلب تالت كان هينزّلها» (قرار صاحب المنتج، الجولة الرابعة)
       ok(top('near').code === 'cost-max' && top('near').level === 'critical', top('near').code + ' ' + top('near').level + ' ' + top('near').levelWhy);
       // ٣٠ بس (بين أقصى التكلفة وضعفها): «مهم» وسببه بيقول إمتى يبقى عاجل
       ok(top('early').code === 'loss' && top('early').level === 'warning' && /ويصبح عاجلاً إذا بلغ إنفاقه ٤٠ ر\.س/.test(top('early').levelWhy), top('early').level + ' ' + top('early').levelWhy);
-      eq(top('pc').levelWhy, 'عاجل لأن عائده ×٣ تحت حد الخسارة الذي حددته (×١٥) بعد إنفاق ١٩٢ ر.س، أي ضعف أقصى تكلفة حددتها لكل عملية شراء (٢٠ ر.س) أو أكثر.');
+      eq(top('pc').levelWhy, 'عاجل لأن عائده ×٣ تحت العائد المستهدف الذي حددته (×١٨) بعد إنفاق ١٩٢ ر.س، أي ضعف أقصى تكلفة حددتها لكل عملية شراء (٢٠ ر.س) أو أكثر.');
       ok(/^عاجل لأن تكلفة كل عملية شراء فيه ٣٠ ر\.س فوق أقصى تكلفة حددتها \(٢٠ ر\.س\)/.test(top('cost').levelWhy), top('cost').levelWhy);
       ok(/^عاجل لأنه أنفق ٧٠ ر\.س دون أي/.test(top('emg').levelWhy), top('emg').levelWhy);
       // ولا كلمة «صدفة» في أي سبب (قرار صاحب المنتج ١٠ أكتوبر)
@@ -1922,9 +1936,10 @@
       Object.keys(r.byAd).forEach(function (id) { r.byAd[id].issues.forEach(function (i) { if (i.level === 'critical' || i.level === 'warning') all.push(i); }); });
       ok(all.length >= 2, all.map(function (i) { return i.code; }).join(' '));
       ok(all.every(function (i) { return typeof i.levelWhy === 'string' && i.levelWhy.length > 10 && !/\{/.test(i.levelWhy); }), all.map(function (i) { return i.code + ':' + i.levelWhy; }).join(' | '));
-      var crit = all.filter(function (i) { return i.level === 'critical'; })[0], low = r.byAd.low.issues.filter(function (i) { return i.code === 'low-roas'; })[0];
+      var crit = all.filter(function (i) { return i.level === 'critical'; })[0], low = r.byAd.low.issues.filter(function (i) { return i.code === 'loss'; })[0];
       ok(crit && /^عاجل لأن/.test(crit.levelWhy) && !/صدفة/.test(crit.levelWhy), crit ? crit.levelWhy : 'no critical');
-      ok(low && /فوق حد الخسارة/.test(low.levelWhy), low ? low.levelWhy : list(r, 'low'));
+      // العائد ×٢ تحت المستهدف ×٣ بإنفاق ١٬٨٠٠ (ضعف أقصى التكلفة ٦٠ أو أكتر) = عاجل بالخط نفسه
+      ok(low && /^عاجل لأن عائده ×٢ تحت العائد المستهدف/.test(low.levelWhy), low ? low.levelWhy : list(r, 'low'));
       // في القائمة كمان (نسخة التنبيه)
       ok(r.alerts.filter(function (a) { return a.level === 'critical' || a.level === 'warning'; }).every(function (a) { return !a.adId || a.levelWhy; }));
     });
@@ -2024,12 +2039,12 @@
       eq([health(r, 'solo'), r.byAd.solo.pending], ['good', null]);
       ok(/أقصى التكلفة المقبولة/.test(r.byAd.solo.basis), r.byAd.solo.basis);
     });
-    test('إعدادات كل حساب إعلاني لوحده (bySource): متجرين بحدّين خسارة مختلفين بيتحكم عليهم كل واحد بحدّه', function () {
+    test('إعدادات كل حساب إعلاني لوحده (bySource): متجرين بمستهدفين مختلفين بيتحكم عليهم كل واحد بمستهدفه', function () {
       var A = ad('a', { daily: steady(100), res: steady(2), sales: steady(150), source: 'meta:act_A' });   // ×١٫٥
       var B = ad('b', { daily: steady(100), res: steady(2), sales: steady(150), source: 'meta:act_B' });   // نفس الأرقام
-      var r = PauseProofAlerts.analyze([A, B], {}, { bySource: { 'meta:act_A': { roasTarget: 6, roasBreakEven: 4 }, 'meta:act_B': { roasTarget: 1.2, roasBreakEven: 1 } } }, ALERT_FMT);
+      var r = PauseProofAlerts.analyze([A, B], {}, { bySource: { 'meta:act_A': { roasTarget: 6 }, 'meta:act_B': { roasTarget: 1.2 } } }, ALERT_FMT);
       ok(has(r, 'a', 'loss') && !has(r, 'b', 'loss'), list(r, 'a') + ' | ' + list(r, 'b'));
-      eq([r.settingsBySource['meta:act_A'].roasBreakEven, r.settingsBySource['meta:act_B'].roasBreakEven], [4, 1]);
+      eq([r.settingsBySource['meta:act_A'].roasTarget, r.settingsBySource['meta:act_B'].roasTarget], [6, 1.2]);
     });
     test('إعلان جديد = «لم يُحكم بعد» بسببه، وإنفاق كبير من غير نتائج وهو جديد = «مهم»', function () {
       var r = engine(baseAccount().concat([ad('n1', { daily: [0, 0, 0, 0, 0, 10, 5], age: 1 }), ad('n2', { daily: [0, 0, 0, 0, 0, 200, 100], age: 1 })]));
@@ -2071,29 +2086,33 @@
       // ×٢٫٨٣ والمستهدف ×٣: طلب زيادة بقيمة ٢٠٠ كان هيرجّعه ×٣٫١٧
       var x = ad('near', { daily: steady(100), res: [2, 2, 1, 1, 2, 1, 0], sales: [380, 380, 190, 190, 370, 190, 0], cid: 'kn' });
       var r = engine(salesBase().concat([x]));
-      ok(has(r, 'near', 'low-roas', 'warning'), list(r, 'near'));
+      ok(has(r, 'near', 'loss', 'warning'), list(r, 'near'));
     });
     // قرار صاحب المنتج ٢٥ أكتوبر: «لا تقارنها بمتوسط الحساب، فقط قارنها بالاعدادات المسجلة لتكون دقيقة» — كانت جملة «أفضل من متوسط
     // حسابك، فقد يكون السبب الفترة» ونصيحة مختلفة («ابدأ بالحساب كله») للإعلان الأحسن من متوسط حساب شامل الإعلان نفسه
     test('عائد أقل من المستهدف وأحسن من باقي إعلاناتك: الجملة والنصيحة بإعداداتك بس، من غير مقارنة بمتوسط الحساب', function () {
       var weak = [ad('w1', { daily: steady(300), res: steady(6), sales: steady(360), cid: 'k1' }), ad('w2', { daily: steady(300), res: steady(6), sales: steady(360), cid: 'k2' }),
         ad('mid', { daily: steady(300), res: steady(6), sales: steady(480), cid: 'k3' })];
-      var i = withLang('ar', function () { return engine(weak); }).byAd.mid.issues.filter(function (x) { return x.code === 'low-roas'; })[0];
-      ok(i && !/متوسط|حسابك/.test(i.detail), i ? i.detail : 'no low-roas');
+      var i = withLang('ar', function () { return engine(weak); }).byAd.mid.issues.filter(function (x) { return x.code === 'loss'; })[0];
+      ok(i && !/متوسط|حسابك/.test(i.detail), i ? i.detail : 'no loss');
       eq(i.advice, withLang('ar', function () { return t('al.lowRoas.a'); }));
       ['al.vsAcc', 'al.vsAccNoCur', 'al.vsAccBetter', 'basis.vsAcc', 'al.loss.aBetter', 'al.lowRoas.aBetter'].forEach(function (k) { eq(t(k), k, 'text removed: ' + k); });
     });
-    test('حد الخسارة أعلى من ١ (×٥): «أقل من حد الخسارة» مش «أقل من التكلفة»، والمبلغ الناقص عن الحد ومش هدر', function () {
-      // حساب حقيقي ١١ أكتوبر: «كل ١ ر.س عاد بـ ١٫٨ ر.س، أي أقل من التكلفة» — والحد ×٥ من إعدادات العميل
+    // من ٨ نوفمبر ٢٠٢٦: المستهدف هو الحد الوحيد، والمبلغ = اللي كان الإنفاق ده المفروض يجيبه بالمستهدف ناقص اللي جابه فعلاً.
+    // وبيدخل «المعرّض للهدر» (لوحة «ما حققته مع الأداة») لو المبيعات أقل من الإنفاق نفسه بس — الإعلان اللي بيكسب وتحت المستهدف لأ
+    test('العائد تحت المستهدف (×٢ والمستهدف ×٥): الجملة بالمستهدف، والمبلغ الناقص عنه — وهدر بس لو المبيعات أقل من الإنفاق', function () {
+      // حساب حقيقي ١١ أكتوبر: «كل ١ ر.س عاد بـ ١٫٨ ر.س، أي أقل من التكلفة» — والمستهدف ×٥ من إعدادات العميل
       var x = ad('be', { daily: steady(100), res: steady(2), sales: steady(200), cid: 'kx' });
-      var r = withLang('ar', function () { return engine(salesBase().concat([x]), {}, { roasBreakEven: 5, roasTarget: 5 }); });
+      var r = withLang('ar', function () { return engine(salesBase().concat([x]), {}, { roasTarget: 5 }); });
       var i = r.byAd.be.issues.filter(function (j) { return j.code === 'loss'; })[0];
-      ok(i && i.title === t('al.lossBE.t') && /×٥/.test(i.detail) && !/أقل من التكلفة/.test(i.detail), i ? i.title + ' | ' + i.detail : list(r, 'be'));
-      ok(i && i.money.kind === 'belowBE' && i.amount > 0 && !i.atRisk, i && JSON.stringify([i.money, i.amount, i.atRisk]));
-      // الحد ١ (الافتراضي): زي الأول — المبيعات أقل من الإنفاق فعلاً، وده هدر (٢٤ طلباً بعائد ×٠٫٤ — دليل يكفي «عاجل»)
+      ok(i && i.title === t('al.lowRoas.t') && /×٥/.test(i.detail) && !/أقل من التكلفة/.test(i.detail), i ? i.title + ' | ' + i.detail : list(r, 'be'));
+      // ٦٠٠ إنفاق و١٬٢٠٠ مبيعات بالمستهدف ×٥ = ناقص ١٬٨٠٠ — ومش هدر (المبيعات أكبر من الإنفاق)
+      ok(i && i.money.kind === 'short' && i.amount === 1800 && !i.atRisk, i && JSON.stringify([i.money, i.amount, i.atRisk]));
+      // المبيعات أقل من الإنفاق فعلاً (٢٤ طلباً بعائد ×٠٫٤): هدر — ومبلغه الناقص عن المستهدف برضه
       var y = ad('l1', { daily: steady(100), res: steady(4), sales: steady(40), cid: 'ky' });
       var j = engine(salesBase().concat([y]), {}, { maxCost: { purchase: 50 } }).byAd.l1.issues.filter(function (k) { return k.code === 'loss'; })[0];
-      ok(j && j.title === t('al.loss.t') && j.money.kind === 'loss' && j.atRisk, j ? j.title + ' ' + j.money.kind : 'no loss');
+      // ٦٠٠ إنفاق و٢٤٠ مبيعات: المبلغ هو الخسارة الحقيقية ٣٦٠ (مش النقص عن المستهدف ٢٬٧٦٠) — ده اللي بيدخل لوحة «ما حققته»
+      ok(j && j.title === t('al.lowRoas.t') && j.money.kind === 'loss' && j.amount === 360 && j.atRisk, j ? j.title + ' ' + j.money.kind + ' ' + j.amount : 'no loss');
     });
     test('أسبوع فيه مبيعات بس آخر ٣ أيام من غير ولا بيعة: سطر صريح بدل ما متوسط الأسبوع يخبّيه', function () {
       // ١٨ طلباً بعائد ×٠٫٢٥ في الأسبوع (خسارة بدليل)، وآخر ٣ أيام من غير ولا بيعة بإنفاق ٩٠٠
@@ -2127,7 +2146,7 @@
       ok(/×٨/.test(solo.byAd.solo.basis) && !/متوسط عائد إعلانات المبيعات في حسابك/.test(solo.byAd.solo.basis), solo.byAd.solo.basis);
       // عائد ضعيف لإعلان وحيد: كان بيقول «أفضل من متوسط حسابك، فالسبب ممكن الفترة» وهو بيقارن نفسه بنفسه
       var weakSolo = engine([ad('ws', { daily: steady(100), res: steady(2), sales: steady(150), cid: 'kw' })]);
-      var lw = weakSolo.byAd.ws.issues.filter(function (x) { return x.code === 'low-roas'; })[0];
+      var lw = weakSolo.byAd.ws.issues.filter(function (x) { return x.code === 'loss'; })[0];
       ok(lw && lw.detail.indexOf(t('al.vsAccBetter').trim().slice(0, 20)) === -1 && !/في الفترة نفسها/.test(lw.detail), lw ? lw.detail : list(weakSolo, 'ws'));
       // إعلانين بنص الإنفاق: ومن ٢٥ أكتوبر مفيش مقارنة بمتوسط الحساب أصلاً (الإعدادات بس)
       var two = engine([ad('p1', { daily: steady(100), res: steady(4), sales: steady(800), cid: 'k1' }), ad('p2', { daily: steady(100), res: steady(2), sales: steady(300), cid: 'k2' })]);
@@ -2140,11 +2159,15 @@
       ok(has(r, 'x', 'shift', 'info') && !has(r, 'x', 'no-spend-y'), list(r, 'x'));
       eq(health(r, 'x'), 'good');
     });
-    test('أسبوع قوي وآخر ٣ أيام بخسارة = «تراجع العائد» (مهم) مش «عاجل»', function () {
-      // آخر ٣ أيام: ١٨ طلباً بمبيعات ١٢٠ (×٠٫٤) — تراجع بدليل (بطلبين بس كان في حدود الصدفة بعد المرحلة ٥ ق١)
-      var r = engine(salesBase().concat([ad('dip', { daily: steady(100), res: [6, 6, 6, 6, 6, 6, 0], sales: [2400, 2400, 2400, 40, 40, 40, 0], cid: 'ke' })]));
-      ok(has(r, 'dip', 'roas-drop', 'warning') && !has(r, 'dip', 'loss'), list(r, 'dip'));
-      // تراجع بطلبين بس في آخر ٣ أيام (لسه متأكدش): مفيش «عائد ممتاز — زوّد الميزانية» وآخر ٣ أيام تحت حد الخسارة
+    // قرار صاحب المنتج ٣ نوفمبر ٢٠٢٦: «إعلان أداؤه جيد لفترة ثم انخفض بفرق كبير آخر يومين يظل الحكم على الفترة كاملة أنه جيد» —
+    // فآخر ٣ أيام مالهاش تنبيه لوحدها (وسم «▼ آخر ٣ أيام» على الكارت هو اللي بيقول التراجع)، والفترة كلها هي الحكم
+    test('أسبوع قوي وآخر ٣ أيام بخسارة: الحكم على الفترة كلها، والتراجع وسم مش تنبيه', function () {
+      // آخر ٣ أيام: ١٨ طلباً بمبيعات ١٢٠ (×٠٫٤)، والفترة كلها ×٤٫١ فوق المستهدف ×٣
+      var r = withLang('ar', function () { return engine(salesBase().concat([ad('dip', { daily: steady(100), res: [6, 6, 6, 6, 6, 6, 0], sales: [2400, 2400, 2400, 40, 40, 40, 0], cid: 'ke' })])); });
+      ok(!has(r, 'dip', 'loss') && !has(r, 'dip', 'roas-drop'), list(r, 'dip'));
+      eq(health(r, 'dip'), 'good', 'the whole period is the verdict');
+      ok(r.byAd.dip.trendTag && r.byAd.dip.trendTag.dir === 'down', JSON.stringify(r.byAd.dip.trendTag));
+      // ومفيش «عائد ممتاز — زوّد الميزانية» وآخر ٣ أيام تحت المستهدف: الفرصة محتاجة إشارات متسقة
       var r2 = engine(salesBase().concat([ad('dip', { daily: steady(100), res: [6, 6, 6, 1, 0, 1, 0], sales: [2400, 2400, 2400, 80, 0, 80, 0], cid: 'ke' })]));
       ok(!has(r2, 'dip', 'roas-great') && !has(r2, 'dip', 'loss'), list(r2, 'dip'));
     });
@@ -2626,6 +2649,30 @@
       expandOverlay.classList.add('hidden');
     });
     // الكارت برا = «الأقرب للمتجر» بس؛ والتفاصيل جوه = جدول المنصة مقابل الأقرب للمتجر والفرق وشرح الفايدة
+    // قرار صاحب المنتج ٨ نوفمبر ٢٠٢٦: «كلمة المقارنة غير واضحة، الأفضل تكون مقارنتها بالفترة الماضية او صياغة اوضح» — الاسم هو
+    // اختيار «قارن مع» نفسه، فاللي مكتوب تحت الرقم هو اللي المستخدم اختاره
+    test('اسم فترة المقارنة = اختيار «قارن مع» نفسه (الفترة السابقة/الأسبوع/الشهر/السنة)، والمخصصة بتواريخها', function () {
+      var keepP = period, keepC = compare;
+      try {
+        withLang('ar', function () {
+          period = { preset: 'last7' };
+          [['prev', 'period.cmpPrev'], ['week', 'period.cmpWeek'], ['month', 'period.cmpMonth'], ['year', 'period.cmpYear']].forEach(function (x) {
+            compare = { mode: x[0] };
+            eq([cmpName(), cmpLabel()], [t(x[1]), t(x[1])], 'compare mode ' + x[0]);
+          });
+          // الفترة نفسها بتحدد الافتراضي: «الشهر الماضي» مقارنته الافتراضية الشهر اللي قبله
+          period = { preset: 'lastMonth' }; compare = { mode: 'prev' };
+          eq(cmpLabel(), t('period.cmpMonth'), 'last month vs the month before it');
+          period = { preset: 'lastWeek' };
+          eq(cmpLabel(), t('period.cmpWeek'));
+          // مخصصة: تواريخها (مش كلمة عامة)
+          period = { preset: 'last7' }; compare = { mode: 'custom', since: '2026-10-01', until: '2026-10-07' };
+          eq(cmpName(), null, 'a custom range has no mode name');
+          var lbl = cmpLabel();
+          ok(lbl && lbl !== t('period.cmpPrev') && /\d|[٠-٩]/.test(lbl), lbl);
+        });
+      } finally { period = keepP; compare = keepC; }
+    });
     // الأرقام التلاتة (طلب صاحب المنتج ٧ نوفمبر ٢٠٢٦): الرقم الكبير «الأقرب للمتجر»، وتحته فترة المقارنة ورقم المنصة، والتفاصيل جدول بالتلاتة
     test('الأرقام التلاتة: تحت كل رقم في الكارت فترة المقارنة ورقم المنصة، والتفاصيل جدول بيهم', function () {
       var c = ad('cmp1', { daily: steady(100), res: [10, 10, 10, 10, 10, 10, 22], sales: steady(1000) });
@@ -2639,7 +2686,8 @@
         render();
         var main = Array.prototype.map.call(document.getElementById('card-cmp1').querySelectorAll('.card-stat-v'), function (x) { return x.textContent; }).join(' ');
         ok(main.indexOf(fmtNum(82)) > -1 && main.indexOf(fmtNum(100)) === -1, 'the big number is ours: ' + main);
-        eq(subs().slice(0, 4), [t('card.cmp', { v: '…' }), t('card.plat', { v: money(700, 'SAR') }), t('card.cmp', { v: '…' }), t('card.plat', { v: fmtNum(100) })], 'still loading; the platform under each');
+        var cmpV = function (v) { return t('card.cmp', { label: cmpLabel(), v: v }); };
+        eq(subs().slice(0, 4), [cmpV('…'), t('card.plat', { v: money(700, 'SAR') }), cmpV('…'), t('card.plat', { v: fmtNum(100) })], 'still loading; the platform under each');
         // التفاصيل مفتوحة وأرقام المقارنة وصلت: الجدول بيتحدّث من غير ما تتقفل وتتفتح
         openExpand(c);
         var cell = function () { return document.querySelectorAll('#expandMetrics tbody tr')[1].children[2].textContent.trim(); };
@@ -2652,14 +2700,15 @@
         cmpStore[c.source] = { key: cmpKeyOf(w), tz: tz, status: 'ok', byId: { cmp1: Object.assign(buildPeriod(500, 50, 4000), { plat: { results: 60, sales: 5000 } }) }, calc: null };
         render();
         var s = subs();
-        eq([s.length, s[0], s[2], s[4], s[6], s[7]], [8, t('card.cmp', { v: money(500, 'SAR') }), t('card.cmp', { v: fmtNum(50) }), t('card.cmp', { v: money(10, 'SAR') }),
-          t('card.cmp', { v: roasStr(8) }), t('card.plat', { v: roasStr(8750 / 700) })], 'the comparison period and the platform under every number');
+        eq([s.length, s[0], s[2], s[4], s[6], s[7]], [8, cmpV(money(500, 'SAR')), cmpV(fmtNum(50)), cmpV(money(10, 'SAR')),
+          cmpV(roasStr(8)), t('card.plat', { v: roasStr(8750 / 700) })], 'the comparison period and the platform under every number');
         openExpand(c);
         var box = document.querySelector('#expandMetrics .attr-compare');
         ok(box, 'comparison table');
         var rowText = function (i) { return Array.prototype.map.call(box.querySelectorAll('tbody tr')[i].children, function (x) { return x.textContent.trim(); }); };
         var head = Array.prototype.map.call(box.querySelectorAll('thead th'), function (x) { return x.textContent; });
-        eq(head.slice(1), [t('cmp.store') + periodLabel(), t('cmp.prev') + fmtRange(w.since, w.until), t('cmp.platformOf', { plat: 'Meta' }) + periodLabel()], 'ours, the comparison period, the platform');
+        // اسم فترة المقارنة زي «قارن مع» (٨ نوفمبر ٢٠٢٦: «الأفضل تكون مقارنتها بالفترة الماضية او صياغة اوضح»)
+        eq(head.slice(1), [t('cmp.store') + periodLabel(), cmpName() + fmtRange(w.since, w.until), t('cmp.platformOf', { plat: 'Meta' }) + periodLabel()], 'ours, the comparison period, the platform');
         eq(rowText(1), [resultLabelOf(c), fmtNum(82) + ' ↑ ' + dxPct(0.64), fmtNum(50), fmtNum(100)], 'orders: ours (and its change), the comparison period, the platform');
         eq(rowText(0), [t('x.spend'), money(700, 'SAR') + ' ↑ ' + dxPct(0.4), money(500, 'SAR'), money(700, 'SAR')], 'spend: the platform spends the same');
         eq(box.querySelector('.attr-note').textContent, t('cmp.note', { head: t('cmp.head.purchase'), kept: I18N.countPhrase(82, 'order', ar),
@@ -2667,7 +2716,7 @@
         expandOverlay.classList.add('hidden');
         cmpStore[c.source].status = 'failed';
         render();
-        eq(subs()[0], t('card.cmp', { v: '—' }), 'not available');
+        eq(subs()[0], cmpV('—'), 'not available');
         openExpand(c);
         eq(Array.prototype.map.call(document.querySelectorAll('#expandMetrics tbody tr')[1].children, function (x) { return x.textContent.trim(); })[2], '—');
         expandOverlay.classList.add('hidden');
@@ -2733,7 +2782,7 @@
         var box = document.createElement('div');
         box.innerHTML = campaignMarkup(g);
         var lines = Array.prototype.map.call(box.querySelectorAll('.card-stats .card-stat-s'), function (x) { return x.textContent; });
-        ok(lines.indexOf(t('card.cmp', { v: money(70, 'SAR') })) > -1 && lines.indexOf(t('card.plat', { v: fmtNum(16) })) > -1, 'the same grid as the ad card, with the three numbers: ' + lines.join(' | '));
+        ok(lines.indexOf(t('card.cmp', { label: cmpLabel(), v: money(70, 'SAR') })) > -1 && lines.indexOf(t('card.plat', { v: fmtNum(16) })) > -1, 'the same grid as the ad card, with the three numbers: ' + lines.join(' | '));
         ok(box.querySelectorAll('.card-stat-s .card-stat-n').length === lines.length, 'the number itself in its own element (never cut off)');
         cmpStore['meta:act_1'].byId.gb = false;
         eq(groupCmp(g).state, 'failed', 'one ad not available = the total is not (a partial total would be wrong)');
@@ -2776,18 +2825,16 @@
         activeSources.google = '1';
         renderSettingsForm();
         var inp = function (k) { return settingsForm.querySelector('[name="' + k + '"]'); };
-        inp('roasBreakEven').value = '5';
         inp('roasTarget').value = '3';
         inp('minSpendShare').value = '90';
         document.getElementById('settingsSave').click();
         eq(calls.length, 0, 'nothing saved');
-        eq(settingsForm.querySelectorAll('.setting-row.invalid').length, 2);
+        eq(settingsForm.querySelectorAll('.setting-row.invalid').length, 1);
         eq(document.getElementById('settingsError').textContent, t('set.err.fix'));
-        inp('roasBreakEven').value = '2';
         inp('minSpendShare').value = '3';
         document.getElementById('settingsSave').click();
         var s = calls.last();
-        eq([s.roasTarget, s.roasBreakEven, s.minSpendShare], [3, 2, 0.03]);
+        eq([s.roasTarget, s.minSpendShare], [3, 0.03]);
         eq(document.getElementById('settingsError').textContent, '');
       } finally { calls.restore(); }
     });
@@ -3850,29 +3897,29 @@
 
   // ---------- إعدادات التنبيهات بلغة صاحب المتجر + نافذة أول مرة (ui.js) ----------
   describe('إعدادات التنبيهات لصاحب المتجر', function () {
-    test('الشاشة الأساسية: سؤالين عن الفلوس وباقي الحدود في «المتقدمة» — من غير أنماط ولا «استعادة القيم الافتراضية» (مراجعة الإعدادات)', function () {
+    test('الشاشة الأساسية: سؤال الفلوس الواحد وباقي الحدود في «المتقدمة» — من غير أنماط ولا «استعادة القيم الافتراضية» (مراجعة الإعدادات)', function () {
       try {
         activeSources.google = '1';
         renderSettingsForm();
         var adv = settingsForm.querySelector('details.settings-advanced');
         var main = Array.prototype.filter.call(settingsForm.querySelectorAll('input[type="text"]'), function (i) { return !adv.contains(i); }).map(function (i) { return i.name; });
-        eq(main, ['roasTarget', 'roasBreakEven']);
+        eq(main, ['roasTarget'], 'the target alone (the loss limit was removed 8 Nov 2026)');
         ok(adv.querySelector('[name="learningDays"]'), 'learning period in advanced');
         eq(settingsForm.querySelectorAll('input[type="radio"]').length, 0, 'no presets');
         ok(!document.getElementById('settingsReset'), 'no «back to defaults» button');
-        // المستهدف وحد الخسارة فاضيين لحد ما يتحددوا (مش ×٣ و×١)
-        eq([settingsForm.querySelector('[name="roasTarget"]').value, settingsForm.querySelector('[name="roasBreakEven"]').value], ['', '']);
+        // المستهدف فاضي لحد ما يتحدد (مش ×٣)
+        eq(settingsForm.querySelector('[name="roasTarget"]').value, '');
         // الحدود المتقدمة التمانية بس — المحذوفة مبقتش في الشاشة (ومضاعف «مراجعة» اتشال ٢٥ أكتوبر)
         eq(adv.querySelectorAll('input[type="text"]').length, 8);
         ok(!adv.querySelector('[name="cprCriticalMultiple"]'), 'no «review» multiple');
         ok(!adv.querySelector('[name="wasteCprMultiple"]') && !adv.querySelector('[name="scaleCprRatio"]'), 'removed settings are gone');
         var text = settingsForm.textContent;
-        ok(text.indexOf(t('goal.roasTarget')) > -1 && text.indexOf(t('goal.roasBreakEven')) > -1, 'money questions, not the technical names');
+        ok(text.indexOf(t('goal.roasTarget')) > -1, 'a money question, not the technical name');
         ok(text.indexOf(t('set.roasTarget')) < 0, 'no technical label on the main screen');
-        // قيمة واحدة من الاتنين = خطأ (حكم الربح محتاج الاتنين)
+        // المستهدف لوحده بقى الهدف كله: بيتحفظ من غير خطأ
         settingsForm.querySelector('[name="roasTarget"]').value = '4';
         var r = readSettingsForm();
-        ok(r.errors.length === 1 && r.errors[0].input.name === 'roasBreakEven', 'one goal alone is an error');
+        eq([r.errors.length, r.values.roasTarget], [0, 4], 'the target alone is accepted');
       } finally { settingsOverlay.classList.add('hidden'); }
     });
     // نسخة الجهاز القديمة بتتقري بس وقت النقل لإعدادات المستخدم (٢٦ أكتوبر) — بقيم نمطها الصريحة
@@ -3911,7 +3958,13 @@
         var cur = srv.rec || copy(b.base) || { all: {} }, ch = b.changes || {};
         Object.keys(ch).forEach(function (k) {
           if (k === 'all') { if (ch.all) cur.all = copy(ch.all); }
-          else if (ch[k] === null) { if (cur.plat) delete cur.plat[k]; }
+          else if (k === 'acct') {
+            cur.acct = cur.acct || {};
+            Object.keys(ch.acct || {}).forEach(function (a) {
+              if (ch.acct[a] === null) delete cur.acct[a]; else cur.acct[a] = copy(ch.acct[a]);
+            });
+            if (!Object.keys(cur.acct).length) delete cur.acct;
+          } else if (ch[k] === null) { if (cur.plat) delete cur.plat[k]; }
           else { cur.plat = cur.plat || {}; cur.plat[k] = copy(ch[k]); }
         });
         if (b.goals) cur.all = Object.assign({}, cur.all, b.goals);
@@ -3929,15 +3982,22 @@
     var META_TOKEN = { token: 'TEST_meta_token_1234567890', expiresAt: Date.now() + 86400000 };
     var SNAP_TOKEN = { token: 'snap.test-token_1234567890', expiresAt: Date.now() + 86400000 };
     var actionsOf = function (calls) { return calls.map(function (c) { return c.action; }); };
-    test('المحرك: إعدادات الحساب من إعدادات المستخدم — المنصة المتخصّصة وإلا «كل الحسابات»، وحد النوع بعملة الحساب (مش مربوطة = من غيره)', function () {
-      var us = { all: { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR', campaignMaxCost: { c1: 40 } }, plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 } } };
-      var f = function (p, cur) { return PauseProofAlerts.settingsForAccount(us, p, cur, DX.pegRate); };
-      eq(f('meta', 'SAR'), { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 }, campaignMaxCost: { c1: 40 } }, 'same currency: as is, without the currency key');
+    test('المحرك: إعدادات الحساب من إعدادات المستخدم — سجل الحساب نفسه وإلا المنصة وإلا «كل الحسابات»، وحد النوع بعملة الحساب', function () {
+      var us = { all: { roasTarget: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR', campaignMaxCost: { c1: 40 } }, plat: { snapchat: { roasTarget: 2 } },
+        acct: { 'meta:act_9': { roasTarget: 9 } } };
+      var f = function (p, cur, id) { return PauseProofAlerts.settingsForAccount(us, p, cur, DX.pegRate, id); };
+      eq(f('meta', 'SAR'), { roasTarget: 5, maxCost: { lead: 30 }, campaignMaxCost: { c1: 40 } }, 'same currency: as is, without the currency key');
       eq(f('google', 'USD').maxCost, { lead: 8 }, '30 SAR = 8 $ at the peg');
       eq(f('google', 'USD').campaignMaxCost, { c1: 40 }, 'a campaign limit is in its own account currency: not converted');
       ok(!('maxCost' in f('meta', 'EGP')), 'no official peg: the type limit is left out (no wrong urgent alert)');
       ok(!('maxCost' in f('meta', null)), 'currency not known yet: left out too');
-      eq(f('snapchat', 'USD'), { roasTarget: 2, roasBreakEven: 1 }, 'a customized platform: its own set only');
+      eq(f('snapchat', 'USD'), { roasTarget: 2 }, 'a customized platform: its own set only');
+      // سجل الحساب الإعلاني نفسه (٨ نوفمبر ٢٠٢٦) بيسبق المنصة و«كل الحسابات»، والحسابات التانية في نفس المنصة بتفضل على القديم
+      eq(f('meta', 'SAR', 'act_9'), { roasTarget: 9 }, 'the account\'s own record wins');
+      eq(f('meta', 'SAR', 'act_1').roasTarget, 5, 'another account on the same platform keeps the old numbers');
+      eq(PauseProofAlerts.ownSettingsOf(us, 'meta', 'act_9'), { roasTarget: 9 });
+      eq([PauseProofAlerts.ownSettingsOf(us, 'meta', 'act_1'), PauseProofAlerts.ownSettingsOf(us, 'snapchat', 'act_9')], [null, null], 'no record for this account');
+      eq(PauseProofAlerts.acctKey('meta', 'act_9'), 'meta:act_9', 'the key is the tool\'s own source');
       eq(PauseProofAlerts.settingsForAccount(null, 'meta', 'SAR', DX.pegRate), {}, 'no record: start values');
       eq(PauseProofAlerts.settingsForAccount({ all: { maxCost: { lead: 30 } } }, 'meta', 'USD', DX.pegRate).maxCost, { lead: 30 }, 'an old record without a currency: as is');
     });
@@ -3950,26 +4010,31 @@
       eq(saveErrText({ code: 'too many' }), t('settings.err.tooMany'));
       eq(saveErrText(new Error('HTTP 502')), t('settings.err.save'));
     });
-    testAsync('إعدادات المستخدم من السيرفر بتحكم كل الحسابات في كل المنصات، والمنصة المتخصّصة بإعداداتها — طلب واحد في الجلسة من غير مفتاح منصة', function () {
+    testAsync('إعدادات المستخدم من السيرفر: سجل كل حساب إعلاني لوحده، وأرقامه القديمة قيم بداية للباقي — طلب واحد في الجلسة من غير مفتاح منصة', function () {
       return withSync(function (b) {
-        return Promise.resolve(b.action === 'usettings.get' ? { settings: { all: { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR' }, plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 } } } } : {});
+        return Promise.resolve(b.action === 'usettings.get' ? { settings: {
+          all: { roasTarget: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR' },
+          plat: { snapchat: { roasTarget: 2 } },
+          acct: { 'meta:act_1': { roasTarget: 9, maxCost: { lead: 8 }, maxCostCur: 'USD' } }
+        } } : {});
       }, function (calls) {
         userSet = null; userSetState = 'none';
-        alertSettings = { roasTarget: 3, roasBreakEven: 1 };   // نسخة جهاز قديمة (ممكن تكون لمستخدم تاني)
+        alertSettings = { roasTarget: 3 };   // نسخة جهاز قديمة (ممكن تكون لمستخدم تاني)
         activeSources.meta = 'act_1'; activeSources.snapchat = 'abc-1'; activeSources.google = '1';
         accountInfo['meta:act_1'] = { currency: 'USD' }; accountInfo['google:1'] = { currency: 'SAR' };
         candidates = [ad('m1', { source: 'meta:act_1' }), ad('s1', { source: 'snapchat:abc-1', platform: 'snapchat' }), ad('g1', { source: 'google:1', platform: 'google' })];
         runAnalysis();
-        eq(analysis.settingsBySource['meta:act_1'].roasBreakEven, null, 'before the record arrives: start values (profit waits) — not the device copy');
+        eq(analysis.settingsBySource['meta:act_1'].roasTarget, null, 'before the record arrives: start values (profit waits) — not the device copy');
         eq(calls.map(function (c) { return [c.action, 'platformToken' in c, 'accountId' in c]; }), [['usettings.get', false, false]], 'one read for the user, no account or platform token');
         return tick().then(function () {
           runAnalysis();
           var by = analysis.settingsBySource;
-          eq([by['meta:act_1'].roasBreakEven, by['google:1'].roasBreakEven, by['snapchat:abc-1'].roasBreakEven], [5, 5, 1], 'every account, except the customized platform');
-          eq([by['meta:act_1'].maxCost.lead, by['google:1'].maxCost.lead], [8, 30], 'the type limit in each account currency');
+          eq([by['meta:act_1'].roasTarget, by['google:1'].roasTarget, by['snapchat:abc-1'].roasTarget], [9, 5, 2],
+            'the account\'s own record, then the old platform numbers, then the old all-accounts numbers');
+          eq([by['meta:act_1'].maxCost.lead, by['google:1'].maxCost.lead], [8, 30], 'its own limit in its own currency, and the inherited one converted');
           eq(actionsOf(calls), ['usettings.get'], 'one read per session');
           disconnectPlatform('snapchat', true);
-          ok(settingsKnown() && userSet.plat.snapchat, 'disconnecting a platform keeps the user settings');
+          ok(settingsKnown() && userSet.acct['meta:act_1'], 'disconnecting a platform keeps the user settings');
         });
       });
     });
@@ -4056,14 +4121,14 @@
         return srv.answer(b);
       }, function (calls) {
         userSet = null; userSetState = 'none';
-        alertSettings = { roasTarget: 5, roasBreakEven: 5, cprWarnMultiple: 2 };
+        alertSettings = { roasTarget: 5, cprWarnMultiple: 2 };
         activeSources.meta = 'act_1';
         sessionTokens.meta = META_TOKEN;
         runAnalysis();
         return tick().then(function () {
           eq(actionsOf(calls), ['usettings.get', 'settings.get'], 'nothing saved by itself (the next session reads again)');
           ok(settingsKnown(), 'the tool works with what it has');
-          eq(settingsFor('meta:act_1').roasBreakEven, 5, 'this session: the device copy');
+          eq(settingsFor('meta:act_1').roasTarget, 5, 'this session: the device copy');
           eq(alertSettings.roasTarget, 5, 'the device copy is kept for the next try');
           openAlertSettings();
           return tick();
@@ -4074,109 +4139,103 @@
         }).then(function () {
           var c = srv.sets[0];
           ok(c.base && c.base.all.cprWarnMultiple === 2, 'the moved settings go with the first save');
-          eq([srv.rec.all.roasTarget, srv.rec.all.cprWarnMultiple], [6, 2], 'the record starts from them, then the change');
+          eq([srv.rec.all.roasTarget, srv.rec.all.cprWarnMultiple], [5, 2], 'the moved settings become the starting values');
+          eq([srv.rec.acct['meta:act_1'].roasTarget, srv.rec.acct['meta:act_1'].cprWarnMultiple], [6, 2], 'the account record starts from them, then the change');
           eq(userSetBase, null, 'sent once');
         });
       });
     });
-    testAsync('نافذة الإعدادات: «كل الحسابات» الافتراضي، وتخصيص منصة بزرار، والحفظ بالجزء اللي اتغيّر بس (تعديل جهاز تاني بيفضل)، وإلغاء التخصيص، والفشل بيظهر', function () {
-      var srv = fakeServer({ all: { roasTarget: 4, roasBreakEven: 2, maxCost: { lead: 30 }, maxCostCur: 'SAR' }, asked: true });
+    // قرار صاحب المنتج ٨ نوفمبر ٢٠٢٦: «تسجل الارقام لكل حساب اعلاني في كل منصة لكل مستخدم، بحيث عند تبديل الحساب الاعلاني يتغير
+    // معها العائد المطلوب وباقي اعدادات التنبيهات» — تبويب لكل حساب متصل، وأرقامه القديمة قيم بداية لحد أول حفظ
+    testAsync('نافذة الإعدادات: تبويب لكل حساب إعلاني، والأرقام القديمة قيم بداية، والحفظ بالحساب اللي اتغيّر بس (حساب جهاز تاني بيفضل)، والفشل بيظهر', function () {
+      var srv = fakeServer({ all: { roasTarget: 4, maxCost: { lead: 30 }, maxCostCur: 'SAR' }, asked: true });
       var fail = false;
       return withSync(function (b) {
         if (fail && b.action === 'usettings.set') { var e = new Error('HTTP 502'); e.status = 502; return Promise.reject(e); }
         return srv.answer(b);
       }, function () {
         activeSources.meta = 'act_1'; activeSources.snapchat = 'abc-1';
+        accountInfo['meta:act_1'] = { currency: 'SAR' }; accountInfo['snapchat:abc-1'] = { currency: 'SAR' };
         useSettings(srv.rec.all);
         openAlertSettings();
-        ok(tab('all') && tab('meta') && tab('snapchat') && !tab('google'), 'all accounts + a tab per connected platform');
-        ok(tab('all').classList.contains('active'), 'all accounts by default');
-        eq([inp('roasTarget').value, inp('roasBreakEven').value], ['4', '2']);
-        ok(settingsForm.textContent.indexOf(t('settings.scope.allNote')) > -1, 'says it covers every account and is saved for the user');
+        ok(tab('meta:act_1') && tab('snapchat:abc-1') && !tab('google:1'), 'a tab per connected ad account');
+        ok(tab('meta:act_1').classList.contains('active'), 'the account of the first connected platform by default');
+        eq(inp('roasTarget').value, '4', 'the previous numbers as starting values');
+        ok(settingsForm.textContent.indexOf(t('settings.scope.start')) > -1, 'says they are starting values until the first save');
+        ok(settingsForm.textContent.indexOf(t('settings.scope.acctNote', { account: 'act_1', platform: PLATFORM_NAMES.meta })) > -1, 'says these settings are for this account alone');
+        ok(!settingsForm.querySelector('[data-settings-custom]') && !settingsForm.querySelector('[data-settings-uncustom]'), 'no «customize» step any more');
         // رأس النافذة كان لسه «لهذا الحساب الإعلاني وحده» بعد ما الإعدادات بقت لكل مستخدم (اتشاف حياً ٣١ أكتوبر)
-        ok(document.querySelector('#settingsOverlay .expand-sub').textContent.indexOf('لهذا الحساب الإعلاني') < 0, 'the window header no longer says «this ad account only»');
-        tab('snapchat').click();
-        ok(!inp('roasTarget') && settingsSaveBtn.disabled, 'a platform follows all accounts: no fields until customized');
-        ok(settingsForm.textContent.indexOf(t('settings.scope.follows', { platform: 'Snapchat' })) > -1, 'says so');
-        settingsForm.querySelector('[data-settings-custom]').click();
-        eq([inp('roasTarget').value, inp('roasBreakEven').value], ['4', '2'], 'starts as a copy of all accounts');
-        ok(tab('snapchat').textContent.indexOf('•') > -1, 'not saved yet: marked');
-        eq(srv.sets.length, 0, 'customizing alone saves nothing');
-        typeIn(inp('roasTarget'), '3'); typeIn(inp('roasBreakEven'), '1.5');
+        ok(document.querySelector('#settingsOverlay .expand-sub').textContent.indexOf('لهذا الحساب الإعلاني') < 0, 'the window header does not claim it is only this account');
+        tab('snapchat:abc-1').click();
+        eq(inp('roasTarget').value, '4', 'the other account starts from the same numbers');
+        eq(srv.sets.length, 0, 'switching tabs saves nothing');
+        typeIn(inp('roasTarget'), '3');
         settingsSaveBtn.click();
         ok(settingsSaveBtn.disabled, 'busy while saving');
         return tick().then(function () {
           var c = srv.sets[0];
-          eq(Object.keys(c.changes), ['snapchat'], 'only the changed part is sent');
-          eq([c.changes.snapchat.roasTarget, c.changes.snapchat.roasBreakEven, c.asked], [3, 1.5, true]);
+          eq(Object.keys(c.changes), ['acct'], 'saved for the ad account itself');
+          eq(Object.keys(c.changes.acct), ['snapchat:abc-1'], 'only the changed account is sent');
+          eq([c.changes.acct['snapchat:abc-1'].roasTarget, c.asked], [3, true]);
           ok(!('settings' in c) && !('platformToken' in c) && !('accountId' in c), 'per user, and never the whole record');
           ok(settingsOverlay.classList.contains('hidden'), 'closed after the save');
-          eq([settingsFor('snapchat:abc-1').roasTarget, settingsFor('meta:act_1').roasTarget], [3, 4]);
+          eq([settingsFor('snapchat:abc-1').roasTarget, settingsFor('meta:act_1').roasTarget], [3, 4], 'switching the account switches the number');
           openAlertSettings();
           return tick();
         }).then(function () {
-          // جهاز تاني خصّص Meta بعد ما النافذة دي اتفتحت (الصفحة دي متعرفش)
-          srv.rec.plat.meta = { roasTarget: 9, roasBreakEven: 3 };
-          ok(tab('snapchat').textContent.indexOf(t('settings.scope.custom')) > -1, 'the customized tab says so');
-          ok(settingsForm.textContent.indexOf(t('settings.scope.except', { platforms: 'Snapchat' })) > -1, 'all accounts names the exception');
+          // جهاز تاني حفظ لحساب Snapchat بعد ما النافذة دي اتفتحت (الصفحة دي متعرفش)
+          srv.rec.acct['snapchat:abc-1'] = { roasTarget: 9 };
+          ok(settingsForm.textContent.indexOf(t('settings.scope.start')) > -1, 'Meta still on the starting values');
           typeIn(inp('roasTarget'), '6');
-          tab('meta').click();
-          ok(document.activeElement === tab('meta'), 'focus stays on the chosen tab');
-          tab('all').click();
+          tab('snapchat:abc-1').click();
+          ok(document.activeElement === tab('snapchat:abc-1'), 'focus stays on the chosen tab');
+          ok(settingsForm.textContent.indexOf(t('settings.scope.start')) < 0, 'an account with its own record: not called starting values');
+          tab('meta:act_1').click();
           eq(inp('roasTarget').value, '6', 'what was typed stays when switching tabs');
-          ok(tab('all').textContent.indexOf('•') > -1, 'and the tab is marked unsaved');
+          ok(tab('meta:act_1').textContent.indexOf('•') > -1, 'and the tab is marked unsaved');
           fail = true;
           settingsSaveBtn.click();
           return tick();
         }).then(function () {
           ok(!settingsOverlay.classList.contains('hidden'), 'failed save keeps the window open');
           eq(document.getElementById('settingsError').textContent, t('settings.err.save'));
-          eq(srv.rec.all.roasTarget, 4, 'nothing changed on the server');
+          ok(!srv.rec.acct['meta:act_1'], 'nothing changed on the server');
           fail = false;
           settingsSaveBtn.click();
           return tick();
         }).then(function () {
-          var c = srv.sets[srv.sets.length - 1];
-          eq(Object.keys(c.changes), ['all']);
-          eq([c.changes.all.roasTarget, c.changes.all.maxCost, c.changes.all.maxCostCur], [6, { lead: 30 }, 'SAR'], 'the max cost and its currency kept');
-          // قبل ٣١ أكتوبر الحفظ كان بالسجل كله من الصفحة دي، فكان بيمسح تخصيص Meta اللي اتعمل من الجهاز التاني
-          eq([srv.rec.plat.meta.roasTarget, srv.rec.plat.snapchat.roasTarget], [9, 3], 'the other device\'s Meta customization survives, Snapchat too');
-          eq(settingsFor('meta:act_1').roasTarget, 9, 'and this page now has it');
-          openAlertSettings();
-          return tick();
-        }).then(function () {
-          tab('snapchat').click();
-          settingsForm.querySelector('[data-settings-uncustom]').click();
-          return tick();
-        }).then(function () {
-          eq(srv.sets[srv.sets.length - 1].changes, { snapchat: null }, 'removing a customization sends only that');
-          ok(!srv.rec.plat.snapchat && srv.rec.plat.meta, 'Snapchat removed, Meta kept');
-          eq(settingsFor('snapchat:abc-1').roasTarget, 6, 'Snapchat follows all accounts again');
-          ok(settingsForm.querySelector('[data-settings-custom]'), 'back to «customize»');
+          var c = srv.sets[srv.sets.length - 1], mine = c.changes.acct['meta:act_1'];
+          eq(Object.keys(c.changes.acct), ['meta:act_1']);
+          eq([mine.roasTarget, mine.maxCost, mine.maxCostCur], [6, { lead: 30 }, 'SAR'], 'the max cost and its currency kept');
+          eq([srv.rec.acct['meta:act_1'].roasTarget, srv.rec.acct['snapchat:abc-1'].roasTarget], [6, 9], 'the other device\'s account record survives');
+          eq(settingsFor('snapchat:abc-1').roasTarget, 9, 'and this page now has it');
+          eq(srv.rec.all.roasTarget, 4, 'the old all-accounts numbers stay as starting values for any other account');
+          delete accountInfo['meta:act_1']; delete accountInfo['snapchat:abc-1'];
         });
       });
     });
     testAsync('«حفظ» بيحفظ تعديلات كل التبويبات في طلب واحد (قبل كده التبويب الظاهر بس، والتاني كان بيضيع)، والقيمة الغلط بتمنع ترك التبويب', function () {
-      var srv = fakeServer({ all: { roasTarget: 4, roasBreakEven: 2 }, plat: { snapchat: { roasTarget: 3, roasBreakEven: 1 } }, asked: true });
+      var srv = fakeServer({ all: { roasTarget: 4 }, acct: { 'snapchat:abc-1': { roasTarget: 3 } }, asked: true });
       return withSync(srv.answer, function () {
         activeSources.meta = 'act_1'; activeSources.snapchat = 'abc-1';
-        useSettings(srv.rec.all, srv.rec.plat);
+        useSettings(srv.rec.all, null, true, srv.rec.acct);
         openAlertSettings();
         return tick().then(function () {
           typeIn(inp('roasTarget'), 'abc');
-          tab('snapchat').click();
-          ok(tab('all').classList.contains('active') && settingsForm.querySelector('.setting-row.invalid [name="roasTarget"]'), 'a wrong value: stays on the tab, with the error next to it');
+          tab('snapchat:abc-1').click();
+          ok(tab('meta:act_1').classList.contains('active') && settingsForm.querySelector('.setting-row.invalid [name="roasTarget"]'), 'a wrong value: stays on the tab, with the error next to it');
           typeIn(inp('roasTarget'), '7');
-          tab('snapchat').click();
-          ok(tab('snapchat').classList.contains('active'), 'fixed: moves on');
-          eq(inp('roasTarget').value, '3', 'Snapchat shows its own');
-          typeIn(inp('roasBreakEven'), '2');
+          tab('snapchat:abc-1').click();
+          ok(tab('snapchat:abc-1').classList.contains('active'), 'fixed: moves on');
+          eq(inp('roasTarget').value, '3', 'the Snapchat account shows its own');
+          typeIn(inp('cprWarnMultiple'), '2');
           settingsSaveBtn.click();
           return tick();
         }).then(function () {
           eq(srv.sets.length, 1, 'one request');
-          eq(Object.keys(srv.sets[0].changes).sort(), ['all', 'snapchat'], 'both tabs');
-          eq([srv.rec.all.roasTarget, srv.rec.plat.snapchat.roasTarget, srv.rec.plat.snapchat.roasBreakEven], [7, 3, 2]);
+          eq(Object.keys(srv.sets[0].changes.acct).sort(), ['meta:act_1', 'snapchat:abc-1'], 'both tabs');
+          eq([srv.rec.acct['meta:act_1'].roasTarget, srv.rec.acct['snapchat:abc-1'].roasTarget, srv.rec.acct['snapchat:abc-1'].cprWarnMultiple], [7, 3, 2]);
+          eq(srv.rec.all.roasTarget, 4, 'the starting values are untouched');
           ok(settingsOverlay.classList.contains('hidden'));
         });
       });
@@ -4254,17 +4313,19 @@
         settingsForm.querySelector('[data-settings-retry]').click();
         eq([asked, userSetState], [1, 'loading'], 'retry asks again');
         ok(settingsForm.textContent.indexOf(t('settings.loading')) > -1);
-        // من غير أي حساب متصل: «كل الحسابات» بس (الإعدادات للمستخدم، مش للحساب)
+        // من غير أي حساب متصل: مفيش خانات خالص (الإعدادات بقت لكل حساب إعلاني — ٨ نوفمبر ٢٠٢٦)
         useSettings({});
         openAlertSettings();
-        ok(settingsForm.querySelector('[name="roasTarget"]') && !settingsSaveBtn.disabled && !settingsForm.querySelector('[data-settings-scope]'), 'no account: the all-accounts form, no tabs');
-        // مالوش سجل لسه والنقل مستني حساب: نفس الخانات على قيم البداية (الحفظ بيعمل السجل)
-        userSet = normUserSet({}); userSetState = 'migrate';
+        ok(!settingsForm.querySelector('[name="roasTarget"]') && settingsSaveBtn.disabled, 'no account: nothing to set');
+        ok(settingsForm.textContent.indexOf(t('settings.scope.none')) > -1, 'asks to connect an ad account first');
+        ok(!settingsForm.querySelector('[data-settings-scope]'), 'no tabs');
+        // ومع حساب متصل: خانات الحساب ده
+        activeSources.meta = 'act_1';
         openAlertSettings();
-        ok(settingsForm.querySelector('[name="roasTarget"]') && !settingsSaveBtn.disabled, 'no record, no account: the form on start values');
+        ok(settingsForm.querySelector('[name="roasTarget"]') && !settingsSaveBtn.disabled, 'with an account: its own fields');
       } finally { window.syncCall = prev; AuthLogin.read = prevRead; closeOverlays(); }
     });
-    testAsync('نافذة أول مرة للمستخدم: بتستنى سجله، والحفظ بالمستهدف وحد الخسارة بس (باقي «كل الحسابات» زي ما هو)، و«لاحقاً» أو Esc بيتسجّلوا في سجله', function () {
+    testAsync('نافذة أول مرة للمستخدم: بتستنى سجله، والحفظ بالعائد المستهدف بس كقيمة بداية لكل حساباته، و«لاحقاً» أو Esc بيتسجّلوا في سجله', function () {
       var srv = fakeServer(null), fail = false;
       var hidden = function () { return welcomeOverlay.classList.contains('hidden'); };
       // مستخدم من غير مستهدف، وعنده حد تكلفة محفوظ (من جهاز تاني) — نسخة الصفحة متعرفوش
@@ -4285,22 +4346,22 @@
         ok(hidden(), 'waits for the user record (no question before we know)');
         userSetState = 'ready';
         render();
-        ok(!hidden(), 'no goals for all accounts: the window opens');
-        ok(welcomeForm.textContent.indexOf(t('welcome.scope')) > -1, 'says it is for all accounts, per platform later');
+        ok(!hidden(), 'no target yet: the window opens');
+        ok(welcomeForm.textContent.indexOf(t('welcome.scope')) > -1, 'says it is a starting point for every ad account');
         eq(welcomeForm.querySelectorAll('input[type="radio"]').length, 0, 'no presets');
-        eq([welcomeForm.querySelector('[name="roasTarget"]').value, welcomeForm.querySelector('[name="roasBreakEven"]').value], ['', ''], 'goals start empty');
-        welcomeForm.querySelector('[name="roasBreakEven"]').value = '٤';
-        welcomeForm.querySelector('[name="roasTarget"]').value = '3';
+        eq(welcomeForm.querySelectorAll('input[type="text"]').length, 1, 'one money question (the loss limit was removed 8 Nov 2026)');
+        eq(welcomeForm.querySelector('[name="roasTarget"]').value, '', 'the goal starts empty');
+        welcomeForm.querySelector('[name="roasTarget"]').value = '0';
         document.getElementById('welcomeSave').click();
-        ok(!hidden() && welcomeForm.querySelector('.setting-row.invalid [name="roasTarget"]'), 'target below the loss point: error');
+        ok(!hidden() && welcomeForm.querySelector('.setting-row.invalid [name="roasTarget"]'), 'a number out of range: error');
         eq(srv.sets.length, 0, 'nothing sent');
         welcomeForm.querySelector('[name="roasTarget"]').value = '5';
         document.getElementById('welcomeSave').click();
         return tick().then(function () {
           eq(srv.sets.length, 1, 'one save');
-          eq(srv.sets[0].goals, { roasTarget: 5, roasBreakEven: 4 }, 'only the two goals');
+          eq(srv.sets[0].goals, { roasTarget: 5 }, 'only the goal');
           ok(srv.sets[0].asked && !srv.sets[0].changes, 'no whole set from this page');
-          eq(srv.rec.all, { maxCost: { purchase: 30 }, maxCostCur: 'USD', roasTarget: 5, roasBreakEven: 4 }, 'the cost limit saved from the other device stays');
+          eq(srv.rec.all, { maxCost: { purchase: 30 }, maxCostCur: 'USD', roasTarget: 5 }, 'the cost limit saved from the other device stays');
           ok(hidden(), 'closed');
           render();
           ok(hidden(), 'never again');
@@ -4324,7 +4385,6 @@
           fresh();
           render();
           welcomeForm.querySelector('[name="roasTarget"]').value = '5';
-          welcomeForm.querySelector('[name="roasBreakEven"]').value = '4';
           fail = true;
           document.getElementById('welcomeSave').click();
           return tick();
@@ -4334,7 +4394,7 @@
           eq(srv.rec.all.roasTarget, undefined, 'nothing changed');
           fail = false;
           closeOverlays();
-          fresh({ roasTarget: 4, roasBreakEven: 2 });
+          fresh({ roasTarget: 4 });
           render();
           ok(hidden(), 'goals set: not asked');
           useSettings({});
@@ -4344,21 +4404,26 @@
         });
       });
     });
-    test('ملخص المتجر: المستهدف المشترك بين المنصات المعروضة بس (منصة متخصّصة بهامش مختلف = من غير سطر مستهدف)', function () {
+    test('ملخص المتجر: المستهدف المشترك بين المنصات المعروضة بس (حساب بهامش مختلف = من غير سطر مستهدف)', function () {
       activeSources.meta = 'act_1'; activeSources.snapchat = 'abc-1';
-      useSettings({ roasTarget: 4, roasBreakEven: 2 }, { snapchat: { roasTarget: 3, roasBreakEven: 1 } });
+      useSettings({ roasTarget: 4 }, { snapchat: { roasTarget: 3 } });
       // منصات أرقام المبيعات في العرض المختار (dxState.sel.plats — dxSelection)
       var saved = dxState.sel;
       try {
         dxState.sel = { plats: ['meta'] };
-        eq(dxGoals(), { roas: 4, be: 2 });
+        eq(dxGoals(), { roas: 4 });
         dxState.sel = { plats: ['snapchat'] };
-        eq(dxGoals(), { roas: 3, be: 1 });
+        eq(dxGoals(), { roas: 3 });
         dxState.sel = { plats: ['meta', 'snapchat'] };
         eq(dxGoals(), null, 'different goals: no target line');
-        useSettings({ roasTarget: 4, roasBreakEven: 2 });
-        eq(dxGoals(), { roas: 4, be: 2 }, 'all accounts: shared');
-        useSettings({ roasTarget: 4, roasBreakEven: 2 }, { snapchat: {} });
+        useSettings({ roasTarget: 4 });
+        eq(dxGoals(), { roas: 4 }, 'all accounts: shared');
+        // الحساب نفسه بمستهدف مختلف (٨ نوفمبر): العرض بحسابين بمستهدفين = من غير سطر مستهدف
+        useSettings({ roasTarget: 4 }, null, true, { 'snapchat:abc-1': { roasTarget: 6 } });
+        eq(dxGoals(), null, 'one account has its own target: no shared target line');
+        dxState.sel = { plats: ['snapchat'] };
+        eq(dxGoals(), { roas: 6 }, 'that account alone: its own');
+        useSettings({ roasTarget: 4 }, { snapchat: {} });
         eq(dxGoals(), null, 'a platform without goals: no target line');
       } finally { dxState.sel = saved; }
     });
@@ -4373,12 +4438,14 @@
       ];
     }
     testAsync('نافذة الإعدادات: أقصى تكلفة لكل نوع نتيجة ولكل حملة — نفس إعلانات المحرك، والفاضي يشيل الحد، والمبلغ الغلط خطأ ظاهر', function () {
-      var srv = fakeServer({ all: { roasTarget: 4, roasBreakEven: 2, maxCost: { message: 12, lead: 30 }, campaignMaxCost: { 'c-gone': 50 } }, asked: true });
+      var own = { roasTarget: 4, maxCost: { message: 12, lead: 30 }, campaignMaxCost: { 'c-gone': 50 }, maxCostCur: 'SAR' };
+      var srv = fakeServer({ all: { roasTarget: 4 }, acct: { 'meta:act_1': own }, asked: true });
       return withSync(srv.answer, function () {
         activeSources.meta = 'act_1';
         sessionTokens.meta = META_TOKEN;
-        useSettings(srv.rec.all);
+        useSettings(srv.rec.all, null, true, srv.rec.acct);
         candidates = costAccount();
+        accountInfo['meta:act_1'] = { currency: 'SAR' };
         var cost = function (name) { return settingsForm.querySelector('[data-cost="' + name + '"]'); };
         openAlertSettings();
         var sec = settingsForm.querySelector('[data-cost-section]');
@@ -4389,7 +4456,7 @@
         ok(sec.textContent.indexOf(t('settings.cost.now', { cpr: money(1400 / 84, 'SAR'), one: t('res1.message') })) > -1, 'shows the current cost');
         ok(cost('camp:c-cheap') && cost('camp:c-prem') && cost('camp:c-shop'), 'every campaign with known results, sales too');
         eq(cost('camp:c-prem').placeholder, '12', 'empty campaign field shows the account limit it inherits');
-        ok(cost('camp:c-gone') && sec.textContent.indexOf(t('settings.cost.campId', { id: 'c-gone' })) > -1, 'a saved campaign that is not loaded: shown by its ID, so it can be removed');
+        ok(cost('camp:c-gone') && sec.textContent.indexOf(t('settings.cost.campId', { id: 'c-gone' })) > -1, 'a campaign saved in this account\'s own record but not loaded: shown by its ID, so it can be removed');
         ok(sec.querySelector('details.settings-camps').open, 'opened when a campaign has its own limit');
         cost('type:message').value = '-5';
         cost('camp:c-prem').value = 'abc';
@@ -4403,49 +4470,51 @@
         cost('camp:c-gone').value = '';
         settingsSaveBtn.click();
         return tick().then(function () {
-          var s = srv.sets[0].changes.all;
+          var s = srv.sets[0].changes.acct['meta:act_1'];
           eq([s.maxCost, s.campaignMaxCost, s.maxCostCur], [{ message: 12.5 }, { 'c-prem': 1500 }, 'SAR'], 'decimal comma, thousands separator, emptied = removed, the limits currency saved');
           openAlertSettings();
           settingsForm.querySelectorAll('[data-cost]').forEach(function (i) { i.value = ''; });
           settingsSaveBtn.click();
           return tick();
         }).then(function () {
-          var s = srv.sets[1].changes.all;
+          var s = srv.sets[1].changes.acct['meta:act_1'];
           ok(!('maxCost' in s) && !('campaignMaxCost' in s) && !('maxCostCur' in s), 'all emptied: no limits (or their currency) kept from the old record');
+          delete accountInfo['meta:act_1'];
           // المحرك بياخد حد الحملة قبل حد الحساب
-          useSettings({ roasTarget: 4, roasBreakEven: 2, maxCost: { message: 12 }, campaignMaxCost: { 'c-prem': 60 } });
+          useSettings({ roasTarget: 4, maxCost: { message: 12 }, campaignMaxCost: { 'c-prem': 60 } });
           runAnalysis();
           var b = analysis.byAd.m2 && analysis.byAd.m2.basis || '';
           ok(b.indexOf(money(60, 'SAR')) > -1 && b.indexOf(t('al.costMax.camp')) > -1, 'Premium judged against its own 60: ' + b);
         });
       });
     });
-    // إعدادات لكل مستخدم (٢٦ أكتوبر): حد النوع لـ«كل الحسابات» بعملة واحدة بيتحوّل لعملة كل حساب بسعر الربط الرسمي
-    test('قسم التكلفة لـ«كل الحسابات» بعملات مختلفة: الحد بعملته المحفوظة، ويقول إنه بيتحوّل، والعملة اللي مش مربوطة مبيتطبّقش عليها', function () {
+    // إعدادات لكل حساب إعلاني (٨ نوفمبر): أرقامه القديمة بتتحوّل لعملة الحساب بسعر الربط الرسمي — زي ما المحرك بيعمل بالظبط،
+    // فاللي معروض في النافذة هو اللي بيتحكم بيه فعلاً. وعملة مش مربوطة = الخانة فاضية (الحد القديم مش منطبّق عليه أصلاً)
+    test('قسم التكلفة لكل حساب: الحد الموروث بعملة الحساب نفسه، والعملة اللي مش مربوطة خانتها فاضية، وحد حملة حساب تاني مبيتورّثش', function () {
       activeSources.meta = 'act_1'; activeSources.google = '1';
       accountInfo['meta:act_1'] = { currency: 'SAR' }; accountInfo['google:1'] = { currency: 'EGP' };
       try {
-        useSettings({ maxCost: { message: 12 }, maxCostCur: 'SAR' });
-        candidates = [ad('m1', { key: 'message', cid: 'c1', camp: 'A', daily: steady(100), res: steady(10), source: 'meta:act_1' })];
+        useSettings({ maxCost: { message: 12 }, maxCostCur: 'SAR', campaignMaxCost: { c1: 20, 'c-gone': 50 } });
+        candidates = [ad('m1', { key: 'message', cid: 'c1', camp: 'A', daily: steady(100), res: steady(10), source: 'meta:act_1' }),
+          ad('g1', { key: 'message', cid: 'c2', camp: 'B', daily: steady(100), res: steady(10), source: 'google:1', platform: 'google' })];
         renderSettingsForm();
         var sec = settingsForm.querySelector('[data-cost-section]');
-        ok(sec.querySelector('[data-cost="type:message"]').closest('.setting-row').textContent.indexOf(currencyLabel('SAR')) > -1, 'the type limit in its saved currency');
-        ok(sec.textContent.indexOf(t('settings.cost.odd', { currencies: currencyLabel('EGP') || 'EGP', cur: currencyLabel('SAR') })) > -1, 'says the EGP account gets no type limit');
-        accountInfo['google:1'] = { currency: 'USD' };
+        var row = function (n) { return settingsForm.querySelector('[data-cost="' + n + '"]'); };
+        eq(row('type:message').value, '12', 'the account currency is the saved one: as is');
+        ok(row('type:message').closest('.setting-row').textContent.indexOf(currencyLabel('SAR')) > -1, 'in its own currency');
+        eq(row('camp:c1').value, '20', 'a campaign of this account: inherited');
+        ok(!row('camp:c-gone'), 'a campaign that is not this account\'s: not inherited (one campaign belongs to one account)');
+        // حساب بعملة غير مربوطة بالمحفوظة: الحد القديم مش منطبّق عليه (المحرك بيسقطه) فالخانة فاضية بعملته
+        settingsScope = 'google:1';
         renderSettingsForm();
         sec = settingsForm.querySelector('[data-cost-section]');
-        ok(sec.textContent.indexOf(t('settings.cost.conv', { cur: currencyLabel('SAR') })) > -1, 'a pegged currency: says it is converted');
-        ok(sec.textContent.indexOf(t('settings.cost.odd', { currencies: currencyLabel('EGP') || 'EGP', cur: currencyLabel('SAR') })) < 0, 'no EGP account any more: no note');
-        // حد محفوظ لحملة مش ظاهرة والنطاق فيه عملتين: من غير عملة (مراجعة ٣١ أكتوبر — كانت بتاخد عملة المجموعة حتى لو حسابها بعملة تانية)
-        useSettings({ maxCost: { message: 12 }, maxCostCur: 'SAR', campaignMaxCost: { 'c-gone': 50 } });
+        eq(row('type:message').value, '', 'no official peg: nothing inherited');
+        // عملة مربوطة: الحد بيتحوّل (١٢ ر.س = ٣٫٢ $)
+        accountInfo['google:1'] = { currency: 'USD' };
         renderSettingsForm();
-        var gone = settingsForm.querySelector('[data-cost="camp:c-gone"]');
-        eq([gone.closest('.setting-row').querySelector('.setting-unit').textContent, gone.placeholder], ['', ''], 'unknown campaign currency: no unit, no faded limit');
-        delete accountInfo['google:1'];
-        renderSettingsForm();
-        gone = settingsForm.querySelector('[data-cost="camp:c-gone"]');
-        eq(gone.closest('.setting-row').querySelector('.setting-unit').textContent, currencyLabel('SAR'), 'one currency in scope: that one');
-      } finally { delete accountInfo['meta:act_1']; delete accountInfo['google:1']; settingsOverlay.classList.add('hidden'); }
+        eq(row('type:message').value, '3.2', '12 SAR = 3.2 $ at the peg');
+        ok(row('type:message').closest('.setting-row').textContent.indexOf(currencyLabel('USD')) > -1, 'in dollars');
+      } finally { delete accountInfo['meta:act_1']; delete accountInfo['google:1']; settingsScope = ''; settingsOverlay.classList.add('hidden'); }
     });
     test('ملخص المتجر: التكلفة مقابل الحد لكل نوع نتيجة (أرقام من غير حكم)، والحملات بحدها الخاص برّه الرقم، و«كل المنصات» من غيره', function () {
       activeSources.meta = 'act_1';
@@ -5433,11 +5502,11 @@
       var calls = captureSaves();
       var inp = function (k) { return settingsForm.querySelector('[name="' + k + '"]'); };
       try {
+        activeSources.google = '1';
         ['٢٫٥', '2,5', ' 2.5 ', '۲٫۵'].forEach(function (typed) {
           settingsSaving = false;
           renderSettingsForm();
           inp('roasTarget').value = typed;
-          inp('roasBreakEven').value = '1';   // المستهدف وحد الخسارة مع بعض (مراجعة الإعدادات)
           document.getElementById('settingsSave').click();
           eq(calls.last().roasTarget, 2.5, 'typed "' + typed + '"');
         });
@@ -5458,6 +5527,7 @@
       var inp = function (k) { return settingsForm.querySelector('[name="' + k + '"]'); };
       var save = function (k, typed) { settingsSaving = false; renderSettingsForm(); inp(k).value = typed; document.getElementById('settingsSave').click(); };
       try {
+        activeSources.google = '1';
         [['12', 12], ['١٢', 12], ['7 ', 7]].forEach(function (x) {
           save('learningDays', x[0]);
           eq(calls.last().learningDays, x[1], 'typed "' + x[0] + '"');
@@ -5466,7 +5536,7 @@
         save('learningDays', '1,000');
         eq(calls.length, before, 'not saved as 1 day');
         ok(settingsForm.querySelector('.setting-row.invalid [name="learningDays"]'), 'out of range (30) is shown as an error');
-        settingsSaving = false; renderSettingsForm(); inp('roasTarget').value = '2,5'; inp('roasBreakEven').value = '1'; document.getElementById('settingsSave').click();
+        settingsSaving = false; renderSettingsForm(); inp('roasTarget').value = '2,5'; document.getElementById('settingsSave').click();
         eq(calls.last().roasTarget, 2.5, 'a multiplier keeps the decimal comma');
       } finally { calls.restore(); }
     });
@@ -6820,7 +6890,7 @@
       withLang('ar', function () {
         var o = DX.compose(r), sp = o.kpis[0];
         ok(sp.prev.indexOf(fmtNum(2000)) > -1, sp.prev);
-        ok(dxKpiHtml(sp).indexOf(t('dx.kpi.prev', { v: sp.prev })) > -1, 'the tile');
+        ok(dxKpiHtml(sp).indexOf(t('dx.kpi.prev', { label: cmpLabel(), v: sp.prev })) > -1, 'the tile');
         ok(o.notes.indexOf(o.kpiNote) < 0 && o.kpiNote.indexOf('١٠ أيام') > -1, o.kpiNote);
         ok(DX.toText(o).indexOf(o.kpiNote) > -1, 'in the copied text too');
         var ev = o.blocks.filter(function (x) { return x.evidence; })[0];
@@ -7232,11 +7302,11 @@
       var o = head({ pur: 26, rev: 3900 });
       ok(o.tone === 'mixed' && /المبيعات أقل بـ٣٥٪/.test(o.title) && /يستحق المراجعة/.test(o.title) && !/لا شيء يستدعي/.test(o.title), o.title);
     });
-    test('العائد مقارنةً بالمستهدف وحد الخسارة (إعدادات التنبيهات): سطر تحت العنوان، وتحت حد الخسارة = أحمر', function () {
-      var ok3 = head({}, { roas: 3, be: 1 });
+    test('العائد مقارنةً بالمستهدف (إعدادات التنبيهات): سطر تحت العنوان، وتحته = أحمر', function () {
+      var ok3 = head({}, { roas: 3 });
       ok(/أعلى من المستهدف \(×٣\)/.test(ok3.basis), ok3.basis);
-      var loss = head({}, { roas: 10, be: 8 });
-      ok(loss.tone === 'bad' && /أقل من حد الخسارة/.test(loss.basis), loss.basis);
+      var loss = head({}, { roas: 10 });
+      ok(loss.tone === 'bad' && /أقل من المستهدف \(×١٠\)/.test(loss.basis), loss.basis);
       ok(!head({}).basis, 'no target (email summary) = no line');
     });
     test('دولة ضعيفة في حساب مستقر: العنوان «مع أمور تحتاج قرارك أدناه» مش «لا تغيّر يستدعي تدخّلك» (٣٠ حساب بالمحاكاة)', function () {
@@ -7828,23 +7898,23 @@
       eq([a.sig, a.soft], [0, 1]);
     });
     test('سطر المستهدف: العائد بخانتين لو التقريب بيخلّيه زي الحد (×٤٫٩٦ مقابل ×٥)، و«إنفاق الحساب كله» لو فيه حملات أهداف تانية (ر٧٥، ر٧٣)', function () {
-      var inp = dxDays(1, 4.96 * 0.7), target = { target: { roas: 6, be: 5 } };
+      var inp = dxDays(1, 4.96 * 0.7), target = { target: { roas: 5 } };
       withLang('ar', function () {
         var o = DX.compose(DX.analyze(inp), target);
-        ok(o.basis.indexOf('×٤٫٩٦') > -1 && o.basis.indexOf('حد الخسارة (×٥)') > -1 && o.basis.indexOf('الحساب كله') === -1, o.basis);
+        ok(o.basis.indexOf('×٤٫٩٦') > -1 && o.basis.indexOf('المستهدف (×٥)') > -1 && o.basis.indexOf('الحساب كله') === -1, o.basis);
         inp.other = { w: DX.windows(inp.since, inp.until, false).map(function () { return { spend: 50, imp: 0, clicks: 0, atc: 0, ic: 0, pur: 0, rev: 0 }; }), goals: { awareness: 50 } };
         var o2 = DX.compose(DX.analyze(inp), target);
         ok(o2.basis.indexOf('العائد على إنفاق الحساب كله') === 0, o2.basis);
       });
     });
     // ملخص حقيقي ١٢–١٨ أكتوبر ٢٠٢٦: عائد ×٠٫٨ بـ٤ طلبات والحد ×٥ — السطر كان بيختفي تحت ٥ طلبات والعنوان برتقالي (المرحلة ٥ ه١١)
-    test('تحت ٥ طلبات: سطر حد الخسارة بيظهر لو الفرق مؤكد (×٠٫٨ والحد ×٥)، ومبيظهرش لو قريب من الحد (×٤٫٥)', function () {
+    test('تحت ٥ طلبات: سطر المستهدف بيظهر لو الفرق مؤكد (×٠٫٨ والمستهدف ×٥)، ومبيظهرش لو قريب منه (×٤٫٥)', function () {
       withLang('ar', function () {
-        var o = DX.compose(DX.analyze(dxDays(0.04, 0.56)), { target: { roas: 6, be: 5 } });
-        ok(o.basis && o.basis.indexOf('حد الخسارة (×٥)') > -1, o.basis || 'no line');
+        var o = DX.compose(DX.analyze(dxDays(0.04, 0.56)), { target: { roas: 5 } });
+        ok(o.basis && o.basis.indexOf('المستهدف (×٥)') > -1, o.basis || 'no line');
         eq(o.tone, 'bad');
-        // ٤ طلبات بعائد ×٤٫٥ والحد ×٥: الفرق ١٠٪ في حدود الصدفة بالعدد ده — مفيش سطر (زي قبل كده تحت ٥ طلبات)
-        var o2 = DX.compose(DX.analyze(dxDays(0.04, 3.15)), { target: { roas: 6, be: 5 } });
+        // ٤ طلبات بعائد ×٤٫٥ والمستهدف ×٥: الفرق ١٠٪ في حدود الصدفة بالعدد ده — مفيش سطر (زي قبل كده تحت ٥ طلبات)
+        var o2 = DX.compose(DX.analyze(dxDays(0.04, 3.15)), { target: { roas: 5 } });
         ok(!o2.basis, o2.basis);
       });
     });
@@ -8002,7 +8072,7 @@
         candidates.length = 0; keepC.forEach(function (c) { candidates.push(c); });
       }
       var html = dxKpiHtml({ label: 'L', value: 'V', prev: 'P', plat: 'X', pct: null, sig: 0, goodUp: null });
-      ok(html.indexOf(esc(t('dx.kpi.plat', { v: 'X' }))) > -1 && html.indexOf(esc(t('dx.kpi.prev', { v: 'P' }))) > -1, 'the summary box: the comparison and the platform under the number');
+      ok(html.indexOf(esc(t('dx.kpi.plat', { v: 'X' }))) > -1 && html.indexOf(esc(t('dx.kpi.prev', { label: cmpLabel(), v: 'P' }))) > -1, 'the summary box: the comparison and the platform under the number');
       ok(dxKpiHtml({ label: 'L', value: 'V', prev: 'P', pct: null, sig: 0, goodUp: null }).indexOf(esc(t('dx.kpi.plat', { v: '' }).split(':')[0])) < 0, 'no platform number = no line');
     });
     test('جدول الأيام في التفاصيل: الأيام المكتملة وآخرها «أمس»، وبعدها «الإجمالي» (bold) وبعده «اليوم» منفصل', function () {
@@ -8067,15 +8137,15 @@
       var a = r.alerts.filter(function (x) { return x.code === 'top-stopped'; })[0];
       ok(a && /٥٠٪/.test(a.detail) && a.detail.indexOf('بمتوسط تكلفته') > -1, a ? a.detail : 'no alert (14 leads of 364 results by count = 4%)');
     });
-    test('العائد جنب حد الخسارة: ×٤٫٩٦ مش «×٥، أقل من حد الخسارة (×٥)»', function () {
+    test('العائد جنب المستهدف: ×٤٫٩٦ مش «×٥، أقل من المستهدف (×٥)»', function () {
       var c = a8('rx', { daily: [100, 100, 100, 100, 100, 100, 100, 0], res: [2, 2, 2, 2, 2, 2, 2, 0], sales: [496, 496, 496, 496, 496, 496, 496, 0] });
-      var r = withLang('ar', function () { return engine([c], {}, { roasBreakEven: 5, roasTarget: 6 }); });
+      var r = withLang('ar', function () { return engine([c], {}, { roasTarget: 5 }); });
       // ×٤٫٩٦ تحت حد ×٥ = خسارة (الحكم بحدودك — ٢٥ أكتوبر: الرقم المقاس مقابل الخط)، والرقم في جملتها بخانتين مش «×٥، أقل من (×٥)»
       var li = r.byAd.rx.issues.filter(function (x) { return x.code === 'loss'; })[0];
       ok(li && li.detail.indexOf('٤٫٩٦') > -1 && !/×٥،/.test(li.detail), li ? li.detail : 'no loss alert at ×4.96 vs ×5');
       // بعيد عن الحد: خانة واحدة زي الأول (عائد ×٢ مقابل حد ×٥ بـ١٤ طلباً = خسارة بدليل)
       c.dailySales = [200, 200, 200, 200, 200, 200, 200, 0];
-      var j = withLang('ar', function () { return engine([c], {}, { roasBreakEven: 5, roasTarget: 6 }); }).byAd.rx.issues.filter(function (x) { return x.code === 'loss'; })[0];
+      var j = withLang('ar', function () { return engine([c], {}, { roasTarget: 5 }); }).byAd.rx.issues.filter(function (x) { return x.code === 'loss'; })[0];
       ok(j && j.detail.indexOf('٢') > -1 && j.detail.indexOf('٢٫٠٠') === -1, j ? j.detail : 'no alert');
     });
     test('حد الإنفاق: إنفاق ٧ أيام ÷ ٧ (مش ÷ ٨ خانات) — ٦٥٠ باقية و١٠٠ يومياً = «عاجل» ونحو ٦ أيام', function () {
@@ -8177,7 +8247,8 @@
       // إعلان خسران (×٠٫٣ بـ٢١ طلباً) واخد أغلب الإنفاق: جملة التركّز جوه تنبيه الخسارة نفسه، والإعلان مرة واحدة في «يحتاج انتباهك
       // الآن» (المراجعة الثانية للمرحلة ٥ — كان تنبيه «تركّز الميزانية» منفصل عن نفس الإعلان ونفس المشكلة)
       var L = a8('L', { daily: [150, 150, 150, 150, 150, 150, 150, 50], res: [3, 3, 3, 3, 3, 3, 3, 0], sales: [45, 45, 45, 45, 45, 45, 45, 0] });
-      var r2 = withLang('ar', function () { return engine([L, Y, Z]); });
+      // «انقل ميزانيته للأفضل أداءً» محتاج إعلان عند المستهدف أو فوقه (Y ×٢٫٥ وZ ×٢ بمستهدف ×٢)
+      var r2 = withLang('ar', function () { return engine([L, Y, Z], {}, { roasTarget: 2 }); });
       var loss = r2.alerts.filter(function (a) { return a.adId === 'L' && a.code === 'loss'; })[0];
       ok(loss && loss.advice.indexOf(conc) > -1, loss ? loss.advice : 'no loss alert');
       ok(!r2.alerts.some(function (a) { return a.code === 'concentration'; }), 'no separate concentration alert');
@@ -8297,22 +8368,22 @@
     var issueOf = function (r, id, code) { return r.byAd[id].issues.filter(function (x) { return x.code === code; })[0]; };
     // ومن ٢٥ أكتوبر (قرار صاحب المنتج: الإعدادات المسجلة بس، من غير «متوسط الحساب»): الجملة والنصيحة بحدودك، و«انقل ميزانيته
     // للإعلانات الأفضل أداءً» بس لو فيه إعلان تاني في خانة أحسن بحدودك (فوق حد الخسارة لإعلان خسران، وعند المستهدف لإعلان تحته)
-    test('تحت حد الخسارة: الجملة والنصيحة بحدودك من غير متوسط الحساب، و«التركّز» بس لو فيه إعلان أحسن بحدودك', function () {
-      var r = withLang('ar', function () { return engine(pair(), {}, { roasBreakEven: 5, roasTarget: 6 }); });
+    test('تحت المستهدف: الجملة والنصيحة بحدودك من غير متوسط الحساب، و«التركّز» بس لو فيه إعلان أحسن بحدودك', function () {
+      var r = withLang('ar', function () { return engine(pair(), {}, { roasTarget: 6 }); });
       var b = issueOf(r, 'best', 'loss'), w = issueOf(r, 'weak', 'loss');
-      var lossA = withLang('ar', function () { return t('al.loss.a'); });
+      var lossA = withLang('ar', function () { return t('al.lowRoas.a'); });
       ok(b && !/متوسط|حسابك/.test(b.detail) && b.advice === lossA, b ? b.detail + ' | ' + b.advice : issuesOf(r, 'best'));
       // الأضعف واخد ٧٤٪ من الإنفاق، والتاني خسران كمان بحدك (×١٫٩ والحد ×٥): مفيش «أفضل أداءً» ننقل ليه
       var conc = withLang('ar', function () { return t('al.conc.in', { pct: '' }).slice(0, 12); });
       ok(w && w.advice.indexOf(lossA) === 0 && w.advice.indexOf(conc) < 0, w ? w.advice : issuesOf(r, 'weak'));
-      // وحد الخسارة ×١٫٥: الأحسن (×١٫٩) فوق حدك، فجملة التركّز بتطلع على الأضعف الخسران
-      var r2 = withLang('ar', function () { return engine(pair(), {}, { roasBreakEven: 1.5, roasTarget: 6 }); });
+      // والمستهدف ×١٫٥: الأحسن (×١٫٩) فوق حدك، فجملة التركّز بتطلع على الأضعف الخسران
+      var r2 = withLang('ar', function () { return engine(pair(), {}, { roasTarget: 1.5 }); });
       var w2 = issueOf(r2, 'weak', 'loss');
       ok(w2 && w2.advice.indexOf(conc) > -1, w2 ? w2.advice : issuesOf(r2, 'weak'));
     });
     test('عائد أقل من المستهدف: النصيحة بحدودك زي أي إعلان، من غير «متوسط بقية إعلانات المبيعات أضعف منه»', function () {
-      var r = withLang('ar', function () { return engine(pair(), {}, { roasBreakEven: 1, roasTarget: 4 }); });
-      var b = issueOf(r, 'best', 'low-roas');
+      var r = withLang('ar', function () { return engine(pair(), {}, { roasTarget: 4 }); });
+      var b = issueOf(r, 'best', 'loss');
       ok(b && b.advice === withLang('ar', function () { return t('al.lowRoas.a'); }), b ? b.advice : issuesOf(r, 'best'));
       ok(issueOf(r, 'weak', 'loss'), issuesOf(r, 'weak'));
     });
@@ -8322,13 +8393,13 @@
       return [a8('Wst', { daily: [73, 73, 73, 73, 73, 72, 72, 0], res: [0, 0, 1, 0, 0, 0, 0, 0], sales: [0, 0, 329, 0, 0, 0, 0, 0] }),
         a8('Bst', { daily: [69, 69, 69, 68, 68, 68, 68, 0], res: [1, 0, 1, 0, 1, 0, 0, 0], sales: [332, 0, 332, 0, 332, 0, 0, 0] })];
     };
-    test('أسوأ إعلان بطلب واحد وإنفاق كبير تحت حد الخسارة = «عاجل» بالسببين (عائد الأسبوع و٣ أيام دون طلب) — وسبب حكمه مش «مبدئي»', function () {
-      var r = withLang('ar', function () { return engine(worstBest(), {}, { roasBreakEven: 5, roasTarget: 6, maxCost: { purchase: 100 } }); });
+    test('أسوأ إعلان بطلب واحد وإنفاق كبير تحت المستهدف = «عاجل» بالسببين (عائد الفترة و٣ أيام دون طلب) — وسبب حكمه مش «مبدئي»', function () {
+      var r = withLang('ar', function () { return engine(worstBest(), {}, { roasTarget: 6, maxCost: { purchase: 100 } }); });
       // تنبيه أداء واحد للإعلان (ISA-18.2): «٣ أيام دون مشتريات» والخسارة على الأسبوع جملة جوّاه — صاحب المنتج عايز يشوف كل سبب
       var w = r.byAd.Wst.issues.filter(function (i) { return i.level === 'critical'; })[0];
-      ok(w && /آخر ٣ أيام/.test(w.detail) && /أقل من حد الخسارة \(×٥\)/.test(w.detail), w ? w.title + ' | ' + w.detail : issuesOf(r, 'Wst'));
+      ok(w && /آخر ٣ أيام/.test(w.detail) && /أقل من المستهدف \(×٦\)/.test(w.detail), w ? w.title + ' | ' + w.detail : issuesOf(r, 'Wst'));
       ok(r.byAd.Wst.health === 'review' && !/مبدئي/.test(r.byAd.Wst.basis || ''), r.byAd.Wst.health + ' | ' + r.byAd.Wst.basis);
-      // الأحسن (٣ طلبات بعائد ×٢٫١ وحد الخسارة ×٥): تحت حد الخسارة بعد أكتر من ضعف التكلفة المسموحة = عاجل هو كمان (الحكم بحدودك —
+      // الأحسن (٣ طلبات بعائد ×٢٫١ والمستهدف ×٦): تحت المستهدف بعد أكتر من ضعف التكلفة المسموحة = عاجل هو كمان (الحكم بحدودك —
       // ٢٥ أكتوبر؛ كان «مش عاجل» باحتمال الصدفة)
       var b = issueOf(r, 'Bst', 'loss');
       ok(b && b.level === 'critical', b ? b.level : JSON.stringify(r.byAd.Bst.issues.map(function (i) { return i.code + ':' + i.level; })));
@@ -8341,7 +8412,7 @@
       var mid = a8('mid', { daily: [58, 57, 57, 57, 57, 57, 57, 0], res: [0, 0, 1, 0, 0, 0, 0, 0], sales: [0, 0, 330, 0, 0, 0, 0, 0] });
       // ١٠٠ وصفر طلبات: المتوقع على الحد ١٫٤ واحتمال الصفر ٢٥٪ — مفيش دليل
       var tiny = a8('tiny', { daily: [15, 15, 14, 14, 14, 14, 14, 0] });
-      var r = withLang('ar', function () { return engine(base.concat([mid, tiny]), {}, { roasBreakEven: 5, roasTarget: 6 }); });
+      var r = withLang('ar', function () { return engine(base.concat([mid, tiny]), {}, { roasTarget: 5 }); });
       // من المرحلة ٥ (ق١): طلب واحد بـ٣٣٠ وطلبات الحساب بـ١٬٨٠٠ — قيمة طلب الإعلان نفسه مش معروفة من طلب واحد (تتقرّب لقيمة الحساب)،
       // فالمتوقع على الحد نحو ١٫٧ طلب بس ومفيش دليل: مش «عاجل» ومش في المعرّض للهدر
       var m = issueOf(r, 'mid', 'loss');
@@ -8371,7 +8442,7 @@
         DX.platKpis(o, { currency: 'SAR', cur: { spend: 200, pur: 4, rev: 800 } }, { pur: 10, rev: 2000 });
         eq(o.kpis.map(function (k) { return k.plat; }), [money(200, 'SAR'), fmtNum(10), money(2000, 'SAR'), money(200, 'SAR'), roasStr(10), money(20, 'SAR')]);
         var text = DX.toText({ period: 'p', title: 'T', tone: 'bad', kpis: o.kpis, blocks: [], notes: [], platCmp: line }, 'Acc');
-        ok(text.indexOf(line) > -1 && text.indexOf('• orders: v (' + t('dx.kpi.prev', { v: 'p' }) + t('dx.kpi.sep') + t('dx.kpi.plat', { v: fmtNum(10) }) + ')') > -1, text);
+        ok(text.indexOf(line) > -1 && text.indexOf('• orders: v (' + t('dx.kpi.prev', { label: t('period.cmpPrev'), v: 'p' }) + t('dx.kpi.sep') + t('dx.kpi.plat', { v: fmtNum(10) }) + ')') > -1, text);
         eq(DX.platKpis({ kpis: [{ id: 'orders' }] }, { cur: { spend: 1 } }, { pur: 0, rev: 0 }).kpis[0].plat, fmtNum(0), 'zero is a number');
       });
       // من غير مشتريات عندنا والمنصة بتنسب طلبات: البيكسل شغّال — «لا تصل إلى المنصة أي عمليات شراء» كانت هتبقى غلط
@@ -8467,10 +8538,11 @@
     }
     // الحكم بحدودك (٢٥ أكتوبر، الجولة الرابعة — قرارات صاحب المنتج: الرقم المقاس مقابل الخط، و«عاجل» بأقصى تكلفة يكتبها، من غير
     // استثناء «طلب زيادة») — القياس اللي اتقال له: حساب سليم تماماً (طلبه الحقيقي بـ١٠٠ والعائد ×٤٫٥، و٢٠ إعلان من ٢٠ لـ٣٠٠ في اليوم)
-    // وأقصى تكلفة ١٥٠ (تكلفة الطلب المستهدفة): «عاجل» على نحو ١٤٪ من الإعلانات كل أسبوع، أغلبه «تكلفة الطلب فوق ١٥٠» على إعلانات
-    // طلباتها قليلة (تكلفة الطلب المقاسة بتتقلب). ده ثمن التطبيق الحرفي، والحد ده بيحرس إنه ميزيدش من غير قصد. «عاجل» بيجي من خطوطه
-    // بس (أقصى التكلفة، حد الخسارة، دون نتائج) — مفيش «عاجل» من المقارنة بالباقي ولا من التكرار
-    test('حساب مبيعات سليم تماماً بأقصى تكلفة ١٥٠: «عاجل» من خطوط صاحب الحساب بس، وعلى أقل من ١٧٪ من الإعلانات (الثمن المعروف للتطبيق الحرفي)', function () {
+    // وأقصى تكلفة ١٥٠ (تكلفة الطلب المستهدفة): «عاجل» بيجي من خطوطه بس (أقصى التكلفة، العائد المستهدف، دون نتائج) — مفيش «عاجل»
+    // من المقارنة بالباقي ولا من التكرار. ده ثمن التطبيق الحرفي، والحد هنا بيحرس إنه ميزيدش من غير قصد:
+    //  - لحد ٨ نوفمبر ٢٠٢٦ (مستهدف ×٣ وحد خسارة ×١): «عاجل» على نحو ١٤٪ من الإعلانات، أغلبه «تكلفة الطلب فوق ١٥٠»
+    //  - ومن ٨ نوفمبر (المستهدف هو الخط الوحيد — قرار صاحب المنتج): ٢٠٪، لأن المنطقة اللي كانت صفرا (بين ×١ و×٣) بقت حمرا
+    test('حساب مبيعات سليم تماماً بأقصى تكلفة ١٥٠: «عاجل» من خطوط صاحب الحساب بس، وعلى أقل من ٢٢٪ من الإعلانات (الثمن المقاس للتطبيق الحرفي)', function () {
       var r = rng(501), runs = 120, urgentRuns = 0, warnAds = 0, total = 0, urgentAds = 0, byCode = {};
       for (var k = 0; k < runs; k++) {
         var out = engine(account(r, 450, null), {}, { maxCost: { purchase: 150 } });
@@ -8482,7 +8554,7 @@
         });
       }
       var stats = 'runs with urgent ' + urgentRuns + '/' + runs + ', urgent ads ' + urgentAds + '/' + total + ', flagged ads ' + warnAds + '/' + total + ' ' + JSON.stringify(byCode);
-      ok(urgentAds / total < 0.17, stats);
+      ok(urgentAds / total < 0.22, stats);
       ok(Object.keys(byCode).filter(function (k) { return /:critical$/.test(k); }).every(function (k) { return /^(cost-max|loss|waste|waste-week):/.test(k); }), stats);
       ok(warnAds / total < 0.4, stats);
     });

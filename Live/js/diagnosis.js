@@ -2055,7 +2055,7 @@ var DX = (function () {
     if (L.diff) parts.push(t('dx.lenNote.days', { cur: daysPhrase(L.cur), prev: daysPhrase(L.prev) }));
     return parts.length ? parts.join(' ') : null;
   }
-  // العائد مقارنةً بالمستهدف وحد الخسارة (إعدادات التنبيهات — opts.target). الملخص بالبريد بيعرفهم من ٧ أكتوبر ٢٠٢٦
+  // العائد مقارنةً بالمستهدف (إعدادات التنبيهات — opts.target؛ حد الخسارة اتشال ٨ نوفمبر ٢٠٢٦). الملخص بالبريد بيعرفه من ٧ أكتوبر ٢٠٢٦
   // (digest_settings — runner.ts targetOf) لو العميل بعتهم من الأداة، وإلا مبيتبعتش فيه السطر ده
   // عائد الفترة نفسها مقارنةً بالحد = وصف لللي حصل (مش توقّع لأداء جاي زي حكم الإعلان)، فمن ٥ طلبات بيتقال زي ما هو. تحت ٥ طلبات
   // بيتقال بس لو الفرق صعب يكون صدفة — نفس اختبار العائد بتاع تنبيهات الإعلان (alerts.js roasP — بواسون مركّب مع جاما، المرحلة ٥ ق١).
@@ -2066,17 +2066,16 @@ var DX = (function () {
     if (!target || !(target.roas > 0) || !(b.spend > 0) || !(b.rev > 0) || !(b.pur > 0)) return null;
     // العائد بخانتين لو التقريب بيخلّيه زي الحد اللي بيتقارن بيه (ر٧٥)، و«إنفاق الحساب كله» لو فيه حملات أهداف تانية — نفس اسم
     // الرقم في شريط الأرقام فوقه («العائد على الإنفاق (الحساب كله)» — ر٧٣)
-    var ro = b.rev / b.spend, below = target.be > 0 && ro < target.be;
-    var roTxt = typeof roasVs === 'function' ? roasVs(ro, below ? target.be : target.roas) : roasStr(ro);
-    var v = { roas: roTxt, target: roasStr(target.roas), be: roasStr(target.be) }, W = r.other && r.other.spend > 0 ? 'W' : '';
+    var ro = b.rev / b.spend;
+    var roTxt = typeof roasVs === 'function' ? roasVs(ro, target.roas) : roasStr(ro);
+    var v = { roas: roTxt, target: roasStr(target.roas) }, W = r.other && r.other.spend > 0 ? 'W' : '';
     // قيمة الطلب المرجعية: الفترات اللي قبلها مع بعض (تاريخ الحساب نفسه)
     var hist = { rev: 0, pur: 0 };
     (r.windows || []).slice(1).forEach(function (w) { hist.rev += w.rev || 0; hist.pur += w.pur || 0; });
     var aovRef = hist.pur > 0 && hist.rev > 0 ? hist.rev / hist.pur : null;
     var P = typeof PauseProofAlerts !== 'undefined' && PauseProofAlerts.roasP;
     var sure = function (bar, dir) { return !!P && P(b.rev, b.spend, bar, b.pur, aovRef, r.len, dir) < 0.05; };
-    if (b.pur < 5 && !sure(below ? target.be : target.roas, ro < target.roas ? -1 : 1)) return null;
-    if (below) return { level: 'loss', text: t('dx.target.belowBE' + W, v) };
+    if (b.pur < 5 && !sure(target.roas, ro < target.roas ? -1 : 1)) return null;
     if (ro < target.roas) return { level: 'below', text: t('dx.target.below' + W, v) };
     return { level: 'above', text: t('dx.target.above' + W, v) };
   }
@@ -2091,6 +2090,10 @@ var DX = (function () {
         prev: fmtCompared(r.prevSince, r.prevUntil, r) }) };
     // تحت الأرقام مش في آخر الصفحة: الأرقام فعلية، وده السطر اللي بيقول إزاي تتقري لما الفترتين مش زي بعض
     o.kpiNote = lenNote(r);
+    // اسم فترة المقارنة جنب أرقامها («الفترة السابقة: …» — ٨ نوفمبر ٢٠٢٦، كانت «المقارنة: …»): من الأداة (اختيار «قارن مع»)، ومن غير
+    // كده (البريد) «الفترة السابقة» لو اللي قبلها على طول، وإلا تواريخها
+    o.cmpLabel = (opts && opts.cmpLabel) || (r.prevUntil && r.prevUntil === shiftKey(r.since, -1) ? t('period.cmpPrev')
+      : (r.prevSince ? fmtCompared(r.prevSince, r.prevUntil, { since: r.since, until: r.until }) : t('period.cmpPrev')));
     // رقم المنصة للفترة (platTotals) — من غير مشتريات عندنا والمنصة بتنسب طلبات: البيكسل شغّال، فجملة «لا تصل إلى المنصة أي عمليات
     // شراء» كانت هتبقى غلط
     var pl = opts && opts.plat;
@@ -2158,14 +2161,16 @@ var DX = (function () {
     var tl = targetLine(r, opts && opts.target);
     if (tl) {
       o.basis = tl.text;
-      if (tl.level === 'loss') { if (o.tone === 'good' || o.tone === 'neutral') o.title = t('dx.head.belowBE'); o.tone = 'bad'; }
-      else if (tl.level === 'below' && (o.tone === 'good' || o.tone === 'neutral')) o.tone = 'mixed';
-      // «لا تغيّر يستدعي تدخّلك» وتحته «أقل من المستهدف» (مراجعة المرحلة ٤): العنوان بيقول الاتنين
-      if (tl.level === 'below' && fh.key === 'stable') o.title = t('dx.head.stableBelow');
+      // تحت المستهدف = الخط الأحمر (٨ نوفمبر ٢٠٢٦ — مكان حد الخسارة): العنوان بيقوله لو كان «جيد» أو «مستقر»، واللون أحمر
+      if (tl.level === 'below') {
+        if (fh.key === 'stable') o.title = t('dx.head.stableBelow');
+        else if (o.tone === 'good' || o.tone === 'neutral') o.title = t('dx.head.belowTarget');
+        o.tone = 'bad';
+      }
     }
     if (calmBlock) {
       calmBlock.title = o.title;
-      // الخلاصة: «في مستواه المعتاد» بس لو مفيش حاجة تناقضها (تحت حد الخسارة أو المستهدف، أو المبيعات نزلت). خلاصة
+      // الخلاصة: «في مستواه المعتاد» بس لو مفيش حاجة تناقضها (تحت المستهدف، أو المبيعات نزلت). خلاصة
       // «مرجّح» و«ملحوظ» مبتدّعيش إن الحساب في مستواه، فبتظهر حتى لو العائد تحت المستهدف
       var calmOk = !tl || tl.level === 'above';
       if (/^len/.test(fh.key)) { if (calmOk && cpaOf(r.cur) && cpaOf(r.prev)) calmBlock.lines.push(t('dx.verdict.lenCalm')); }
@@ -2380,7 +2385,7 @@ var DX = (function () {
     var L = ['📊 ' + t('dx.title') + (accountName ? ' — ' + accountName : ''), o.period, '', (TONE_ICON[o.tone] || '') + ' *' + o.title + '*'];
     if (o.basis) L.push(o.basis);
     (o.kpis || []).forEach(function (k) {
-      L.push('• ' + k.label + ': ' + k.value + ' (' + t('dx.kpi.prev', { v: k.prev }) + (k.plat != null ? t('dx.kpi.sep') + t('dx.kpi.plat', { v: k.plat }) : '') + ')');
+      L.push('• ' + k.label + ': ' + k.value + ' (' + t('dx.kpi.prev', { label: o.cmpLabel || t('period.cmpPrev'), v: k.prev }) + (k.plat != null ? t('dx.kpi.sep') + t('dx.kpi.plat', { v: k.plat }) : '') + ')');
     });
     if (o.kpiNote && o.kpis && o.kpis.length) L.push('ℹ️ ' + o.kpiNote);
     if (o.platCmp) L.push('ℹ️ ' + o.platCmp);

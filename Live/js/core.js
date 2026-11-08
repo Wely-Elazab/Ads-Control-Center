@@ -63,7 +63,7 @@
   // بخانتين — لما رقم بيتقارن بحد في نفس الجملة والتقريب لخانة واحدة بيخلّيهم زي بعض (alerts.js rx، diagnosis.js targetLine)
   function numAr2(n) { var r = Math.round((n || 0) * 100) / 100; return ar(String(r).replace('.', decSep())); }
   function roasStr(r) { if (!r) return '—'; return '×' + numAr(r); }
-  // العائد جنب حد (المستهدف أو حد الخسارة): «×٤٫٩٦، أقل من حد الخسارة (×٥)» مش «×٥، أقل من حد الخسارة (×٥)» (مراجعة المرحلة ٤ ر٧٥)
+  // العائد جنب حد (العائد المستهدف): «×٤٫٩٦، أقل من المستهدف (×٥)» مش «×٥، أقل من المستهدف (×٥)» (مراجعة المرحلة ٤ ر٧٥)
   function roasVs(r, ref) { return r && ref && numAr(r) === numAr(ref) && Math.abs(r - ref) > 1e-9 ? '×' + numAr2(r) : roasStr(r); }
   function sinceLabel(n) {
     if (n == null) return '';
@@ -622,6 +622,18 @@
     else if (mode === 'year') cmp = { since: shiftMonths(since, -12), until: shiftMonths(until, -12) };
     else if (mode === 'custom') cmp = { since: cm.since, until: cm.until };
     return { since: since, until: until, unit: unit, cmp: cmp, today: todayKeyInTz(tz) };
+  }
+  // اسم فترة المقارنة جنب أرقامها (طلب صاحب المنتج ٨ نوفمبر ٢٠٢٦: «كلمة المقارنة غير واضحة، الأفضل تكون مقارنتها بالفترة الماضية او
+  // صياغة اوضح»): نفس أسماء «قارن مع» في منتقي الفترة — الاختيار الفعلي (cmpModeFor: الافتراضي حسب الفترة)، والمخصصة بتواريخها (cmpLabel)
+  var CMP_NAME_KEYS = { period: 'period.cmpPrev', week: 'period.cmpWeek', month: 'period.cmpMonth', year: 'period.cmpYear' };
+  function cmpName(tz) {
+    var k = CMP_NAME_KEYS[cmpModeFor(resolvePeriodFor(tz || BROWSER_TZ).preset, compare)];
+    return k ? t(k) : null;
+  }
+  function cmpLabel(tz) {
+    var n = cmpName(tz);
+    if (n) return n;
+    return compare.mode === 'custom' ? fmtCompared(compare.since, compare.until, resolvePeriodFor(tz || BROWSER_TZ)) : t('period.cmpCustom');
   }
   // تغيير المقارنة لوحدها بيعيد ملخص المتجر بس (مش أرقام الإعلانات): كل منصة بتسجّل هنا طريقة إعادة ملخصها وقت ما بتتحمّل
   var dxReloaders = {};

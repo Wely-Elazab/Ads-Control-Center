@@ -1,3 +1,6 @@
+// ومن ٨ نوفمبر ٢٠٢٦ لكل حساب إعلاني جوه سجل المستخدم (قرار صاحب المنتج: «تسجل الارقام لكل حساب اعلاني في كل منصة لكل مستخدم، بحيث
+// عند تبديل الحساب الاعلاني يتغير معها العائد المطلوب وباقي اعدادات التنبيهات»): acct = { "<منصة>:<رقم الحساب>": {…} }. all وplat
+// (القديمة) بتفضل قيم بداية لأي حساب مالوش سجل لسه (alerts.js settingsForAccount) — مبتتعدّلش من الأداة الجديدة
 // إعدادات التنبيهات لكل مستخدم (قرار صاحب المنتج ٢٦ أكتوبر ٢٠٢٦: «نعم اجعلها لكل مستخدم»، و«الوضع الافتراضي… لكل الحسابات
 // المتصلة، ويكون هناك خيار تخصيص التنبيه لكل منصة»). سجل واحد لحساب الدخول في الأداة (جدول user_settings) بيتقري من أي جهاز
 // يدخل بيه، والبريد بيقراه هو كمان لصاحب الملخص (runner.ts):
@@ -26,7 +29,7 @@ const CURRENCY = /^[A-Z]{3}$/;
 const SCALAR: Record<string, [number, number]> = {
   learningDays: [0, 30], minSpendShare: [0, 0.5], cprWarnMultiple: [1, 20], cprCriticalMultiple: [1, 20],
   lowDeliveryRatio: [0.01, 1], spikeMultiple: [1.1, 20], frequencyHigh: [1, 50], accountSpikeMultiple: [1.1, 20],
-  accountDropRatio: [0.01, 1], roasTarget: [0.1, 50], roasBreakEven: [0.1, 50]
+  accountDropRatio: [0.01, 1], roasTarget: [0.1, 50]
 };
 const MAP_KEY = /^[A-Za-z0-9_.:-]{1,64}$/;
 // أقصى عدد حدود في القائمة الواحدة (أنواع النتائج، أو الحملات). كان ٥٠٠ والزيادة بتتقطع في صمت؛ من ٣١ أكتوبر (مراجعة الإعدادات لكل
@@ -42,7 +45,7 @@ function cleanMap(v: unknown): Record<string, number> | null {
   });
   return Object.keys(out).length ? out : null;
 }
-// المفاتيح المعروفة بس وأرقام جوه حدودها؛ المستهدف وحد الخسارة مع بعض أو ولا واحد (حكم الربح محتاج الاتنين)
+// المفاتيح المعروفة بس وأرقام جوه حدودها. حد الخسارة (roasBreakEven) اتشال ٨ نوفمبر ٢٠٢٦ — المحفوظ منه بيتشال مع أول حفظ
 export function cleanAccountSettings(v: unknown): Record<string, unknown> | null {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
   const src = v as Record<string, unknown>, out: Record<string, unknown> = {};
@@ -50,8 +53,6 @@ export function cleanAccountSettings(v: unknown): Record<string, unknown> | null
     const n = src[k], [lo, hi] = SCALAR[k];
     if (typeof n === 'number' && isFinite(n) && n >= lo - 1e-9 && n <= hi + 1e-9) out[k] = Math.round(n * 10000) / 10000;
   });
-  if ((out.roasTarget == null) !== (out.roasBreakEven == null)) { delete out.roasTarget; delete out.roasBreakEven; }
-  if (out.roasTarget != null && (out.roasBreakEven as number) > (out.roasTarget as number)) { delete out.roasTarget; delete out.roasBreakEven; }
   const mc = cleanMap(src.maxCost), cc = cleanMap(src.campaignMaxCost);
   if (mc) out.maxCost = mc;
   if (cc) out.campaignMaxCost = cc;
@@ -60,6 +61,20 @@ export function cleanAccountSettings(v: unknown): Record<string, unknown> | null
   return out;
 }
 export const USER_PLATFORMS = ['meta', 'snapchat', 'google', 'tiktok'];
+// مفتاح الحساب الإعلاني: «منصة:رقم الحساب» زي مصدر الأداة بالظبط (ui.js sourceOf). الرقم بشكل كل منصة (Meta act_…، Snapchat UUID،
+// Google وTikTok أرقام) فبناخد أي رقم حساب معقول زي باقي الأفعال (digest.ts ACCOUNT_ID) — المفتاح مفتاح بحث وبس. لحد ٣٠٠ حساب للمستخدم
+export const ACCT_KEY = /^(meta|snapchat|google|tiktok):[A-Za-z0-9_.-]{1,64}$/;
+export const ACCT_MAX = 300;
+function cleanAcctMap(v: unknown): Record<string, unknown> | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const out: Record<string, unknown> = {};
+  Object.keys(v as Record<string, unknown>).slice(0, ACCT_MAX).forEach((k) => {
+    if (!ACCT_KEY.test(k)) return;
+    const one = cleanAccountSettings((v as Record<string, unknown>)[k]);
+    if (one) out[k] = one;
+  });
+  return Object.keys(out).length ? out : null;
+}
 // إعدادات المستخدم: «كل الحسابات» دايماً موجودة (ولو فاضية = قيم البداية)، والمنصات المعروفة بس
 export function cleanUserSettings(v: unknown): Record<string, unknown> | null {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
@@ -75,6 +90,8 @@ export function cleanUserSettings(v: unknown): Record<string, unknown> | null {
     if (one) plat[k] = one;
   });
   if (Object.keys(plat).length) out.plat = plat;
+  const acct = cleanAcctMap(src.acct);
+  if (acct) out.acct = acct;
   if (src.asked === true) out.asked = true;
   const prefs = cleanPrefs(src.prefs);
   if (prefs) out.prefs = prefs;
@@ -101,7 +118,8 @@ function tooManyIn(set: unknown): boolean {
 // طلب الحفظ (usettings.set) بالمجموعات اللي اتغيّرت بس (مراجعة الإعدادات لكل مستخدم ٣١ أكتوبر — الحفظ بالسجل كله كان بيمسح تعديل
 // جهاز تاني). الدمج في قاعدة البيانات وهو مقفول (الترحيل 20261031100000_user_settings_apply.sql):
 //   changes = { all?: {…}, meta?|snapchat?|google?|tiktok?: {…} | null }   مجموعة كاملة مكان القديمة، وnull = إلغاء تخصيص المنصة
-//   goals   = { roasTarget, roasBreakEven } بيتدمجوا في «كل الحسابات» (نافذة أول مرة — من غير ما تلمس باقي قيمها)
+//             acct?: { "<منصة>:<رقم الحساب>": {…} | null }   إعدادات حساب إعلاني كاملة مكان القديمة، وnull = مسحها (من ٨ نوفمبر ٢٠٢٦)
+//   goals   = { roasTarget } بيتدمج في «كل الحسابات» (نافذة أول مرة — من غير ما تلمس باقي قيمها)
 //   asked   = true (نافذة أول مرة اتعرضت)
 //   base    = السجل كله لو المستخدم لسه مالوش سجل (نقل الإعدادات القديمة) — بيتجاهل لو السجل موجود
 // أي جزء غلط = null (الطلب كله بيترفض — مبنحفظش نص طلب)، وقائمة أكبر من MAX_KEYS = 'too many'
@@ -115,6 +133,7 @@ export function cleanUserWrite(body: any): UserWrite | 'too many' | null {
     if (!base) return null;
     raw.push(body.base.all);
     if (body.base.plat && typeof body.base.plat === 'object') USER_PLATFORMS.forEach((k) => raw.push(body.base.plat[k]));
+    if (body.base.acct && typeof body.base.acct === 'object') Object.keys(body.base.acct).forEach((k) => raw.push(body.base.acct[k]));
   }
   const changes: Record<string, unknown> = {};
   if (body.changes != null) {
@@ -125,6 +144,24 @@ export function cleanUserWrite(body: any): UserWrite | 'too many' | null {
         const p = cleanPrefs(v);
         if (!p) return null;
         changes.prefs = p;
+        continue;
+      }
+      if (k === 'acct') {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+        const keys = Object.keys(v);
+        if (keys.length > ACCT_MAX) return 'too many';
+        const acct: Record<string, unknown> = {};
+        for (const key of keys) {
+          if (!ACCT_KEY.test(key)) return null;
+          const one = (v as Record<string, unknown>)[key];
+          if (one === null) { acct[key] = null; continue; }
+          const clean = cleanAccountSettings(one);
+          if (!clean) return null;
+          raw.push(one);
+          acct[key] = clean;
+        }
+        if (!keys.length) return null;
+        changes.acct = acct;
         continue;
       }
       if (k !== 'all' && USER_PLATFORMS.indexOf(k) < 0) return null;
@@ -142,9 +179,9 @@ export function cleanUserWrite(body: any): UserWrite | 'too many' | null {
   let goals: Record<string, unknown> | null = null;
   if (body.goals != null) {
     if (typeof body.goals !== 'object' || Array.isArray(body.goals)) return null;
-    const g = cleanAccountSettings({ roasTarget: body.goals.roasTarget, roasBreakEven: body.goals.roasBreakEven });
-    if (!g || g.roasTarget == null) return null;   // الاتنين مع بعض، وحد الخسارة مش فوق المستهدف
-    goals = { roasTarget: g.roasTarget, roasBreakEven: g.roasBreakEven };
+    const g = cleanAccountSettings({ roasTarget: body.goals.roasTarget });
+    if (!g || g.roasTarget == null) return null;
+    goals = { roasTarget: g.roasTarget };
   }
   const asked = body.asked === true;
   if (!base && !Object.keys(changes).length && !goals && !asked) return null;

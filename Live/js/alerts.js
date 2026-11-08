@@ -30,7 +30,7 @@
 
   // إعدادات الحساب الإعلاني (مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦ — audit/settings-review.md): ٩ حدود، دي قيمها اللي الحساب بيبدأ بيها
   // وبتبان مكتوبة في نموذج إعداداته لحد ما يحفظها. مفيش أنماط ولا «استعادة القيم الافتراضية» (قرار صاحب المنتج).
-  // المستهدف وحد الخسارة مالهمش قيمة ابتدائية خالص (GOAL_KEYS تحت): حكم الربح بيستنى لحد ما العميل يحددهم (قرار صاحب المنتج —
+  // العائد المستهدف مالوش قيمة ابتدائية خالص (GOAL_KEYS تحت): حكم الربح بيستنى لحد ما العميل يحدده (قرار صاحب المنتج —
   // حد خسارة ×١ مايناسبش أغلب المتاجر، فإعلان خسران فعلاً كان ممكن يطلع «جيد»)
   var DEFAULT_SETTINGS = {
     learningDays: 3,          // الإعلان الأحدث من كده في فترة تعلّم — منقيّمش أداءه لسه
@@ -44,7 +44,8 @@
     accountSpikeMultiple: 1.5,
     accountDropRatio: 0.5
   };
-  var GOAL_KEYS = ['roasTarget', 'roasBreakEven'];
+  // من ٨ نوفمبر ٢٠٢٦ المستهدف بس (قرار صاحب المنتج: «الغاء حد الخسارة والاكتفاء بالعائد المطلوب فقط») — حد الخسارة المحفوظ قبل كده بيتجاهل
+  var GOAL_KEYS = ['roasTarget'];
   // كانت إعدادات واتشالت من الشاشة (مراجعة الإعدادات): أربعة منهم قياسهم أثبت إنهم مالهمش أثر — اختبار الدليل (ق١) هو اللي بيقرّر
   // («إنفاق دون نتائج» من ×٠٫٥ لـ×٥ التنبيه بيبدأ دايماً عند ×٣٫٢٥)، وتلاتة زيادة (العمر مش جزء من تعريف Meta للإرهاق، والتركّز
   // جملة والحصة ظاهرة أصلاً). القيم دي نفس قيمها القديمة بالظبط، فسلوك المحرك متغيّرش
@@ -92,7 +93,7 @@
   var SETTINGS_META = [
     ['learningDays', 'days', 'general', 0, 30], ['minSpendShare', 'ratio', 'general', 0, 50],
     ['cprWarnMultiple', 'multiple', 'cost', 1, 20],
-    ['roasBreakEven', 'multiple', 'roas', 0.1, 50], ['roasTarget', 'multiple', 'roas', 0.1, 50],
+    ['roasTarget', 'multiple', 'roas', 0.1, 50],
     ['lowDeliveryRatio', 'ratio', 'spend', 1, 100], ['spikeMultiple', 'multiple', 'spend', 1.1, 20],
     ['frequencyHigh', 'times', 'audience', 1, 50],
     ['accountSpikeMultiple', 'multiple', 'account', 1.1, 20], ['accountDropRatio', 'ratio', 'account', 1, 100]
@@ -111,9 +112,7 @@
     SETTINGS_LIMITS[m.key] = { min: m.min * f, max: m.max * f };
   });
   // حدود لازم تكون مترتبة: [الأصغر، الأكبر، مفتاح الرسالة]
-  var SETTINGS_ORDER = [
-    ['roasBreakEven', 'roasTarget', 'set.err.roasOrder']
-  ];
+  var SETTINGS_ORDER = [];
 
   var LEVEL_RANK = { critical: 3, warning: 2, info: 1, opportunity: 0 };
 
@@ -305,7 +304,7 @@
   function salesAboveP(sales, spend, bar, orders, aovRef, days) { return roasP(sales, spend, bar, orders, aovRef, days, 1); }
   // عدد k أو أقل لو المتوقع lambda — بالتشتت (بديل poissonAtMost لأحكام الأداء)
   function countBelowP(k, lambda, days) { var phi = phiOf(lambda, days); return lambda > 0 && k < lambda ? gammq(k / phi + 1, lambda / phi) : 1; }
-  // إعدادات الحساب كاملة: القيمة المحفوظة لو صحيحة (جوه حدودها)، وإلا قيمة البداية. المستهدف وحد الخسارة null لو مش محفوظين
+  // إعدادات الحساب كاملة: القيمة المحفوظة لو صحيحة (جوه حدودها)، وإلا قيمة البداية. العائد المستهدف null لو مش محفوظ
   // (حكم الربح بيستنى). والتكلفة المقبولة لكل نتيجة (مراجعة الإعدادات — قرار صاحب المنتج): maxCost لكل نوع نتيجة في الحساب،
   // وcampaignMaxCost لكل حملة (متجر بفئات أسعار مختلفة: تكلفة الطلب أو المحادثة بتختلف من حملة لحملة). لحد ٢٬٠٠٠ في القائمة — نفس
   // حد السيرفر (settings.ts MAX_KEYS، مراجعة ٣١ أكتوبر: «كل الحسابات» فيها حدود حملات كل الحسابات مع بعض؛ كان ٥٠٠ والزيادة بتضيع)
@@ -336,9 +335,17 @@
   // لكل نوع نتيجة متسجّلة بعملتها (maxCostCur) وبتتحوّل لعملة الحساب بسعر الربط الرسمي (rate = DX.pegRate)؛ عملة مش مربوطة، أو
   // عملة الحساب لسه مش معروفة = الحد مبيتطبّقش على الحساب ده (رقم بعملة تانية مش هو نفس الحد — أأمن من تنبيه عاجل غلط).
   // أقصى تكلفة الحملة اتكتبت قدام الحملة بعملة حسابها، فمبتتحوّلش. الأداة (ui.js settingsFor) والبريد (runner.ts) بنفس الدالة
-  function settingsForAccount(us, platform, currency, rate) {
+  // ومن ٨ نوفمبر ٢٠٢٦ لكل حساب إعلاني (قرار صاحب المنتج: «تسجل الارقام لكل حساب اعلاني في كل منصة لكل مستخدم، بحيث عند تبديل الحساب
+  // الاعلاني يتغير معها العائد المطلوب وباقي اعدادات التنبيهات»): acct["<منصة>:<رقم الحساب>"] لو اتحفظ للحساب ده، وإلا الإعدادات القديمة
+  // (المنصة، وإلا «كل الحسابات») كقيم بداية — فمحدش بيتغيّر حكمه يوم التحديث، وأول حفظ للحساب بيخلّيه مستقل
+  function acctKey(platform, accountId) { return platform + ':' + accountId; }
+  function ownSettingsOf(us, platform, accountId) {
+    var a = accountId && us && us.acct && typeof us.acct === 'object' ? us.acct[acctKey(platform, accountId)] : null;
+    return a && typeof a === 'object' && !Array.isArray(a) ? a : null;
+  }
+  function settingsForAccount(us, platform, currency, rate, accountId) {
     var plat = us && us.plat && typeof us.plat === 'object' ? us.plat[platform] : null;
-    var set = plat && typeof plat === 'object' ? plat : (us && us.all && typeof us.all === 'object' ? us.all : {});
+    var set = ownSettingsOf(us, platform, accountId) || (plat && typeof plat === 'object' ? plat : (us && us.all && typeof us.all === 'object' ? us.all : {}));
     var out = {};
     Object.keys(set).forEach(function (k) { if (k !== 'maxCostCur') out[k] = set[k]; });
     var from = set.maxCostCur ? String(set.maxCostCur).toUpperCase() : null, to = currency ? String(currency).toUpperCase() : null;
@@ -541,13 +548,13 @@
     // بعد تعديل: المعتاد = الأيام اللي بعده بس (رفع الميزانية مش «صرف أعلى من المعتاد»)
     var historyDays = Math.min(age != null ? Math.max(1, Math.min(DAY_BEFORE + 1, age - 1)) : DAY_BEFORE + 1, Math.max(1, DAY_BEFORE + 1 - weekStart));
     var prevSpendAvg = sum(daily, weekStart, DAY_BEFORE) / historyDays;
-    // إعلان مبيعات بيسجّل قيمة الطلبات: الحكم بالربح الأول (العائد مقابل المستهدف وحد الخسارة)، والمقارنة بإعلانات
+    // إعلان مبيعات بيسجّل قيمة الطلبات: الحكم بالربح الأول (العائد مقابل العائد المستهدف)، والمقارنة بإعلانات
     // الحساب في الفترة نفسها شرح جنبه مش أساس الحكم (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦ — الفترات بتختلف: عروض، رواتب، موسم)
     var profitAd = acc.hasSales && anyDone(sales);
     var upperFunnel = !profitAd && !!UPPER_FUNNEL[c.resultKey || 'generic'];   // نتيجة أعلى المسار (فوق — UPPER_FUNNEL)
-    // المستهدف وحد الخسارة محددين للحساب؟ لو لأ: حكم الربح بيستنى (pend «noTarget») وتنبيهات الربح مبتطلعش، والباقي (هدر،
+    // العائد المستهدف محدد للحساب؟ لو لأ: حكم الربح بيستنى (pend «noTarget») وتنبيهات الربح مبتطلعش، والباقي (هدر،
     // توصيل، تكرار) شغّال (قرار صاحب المنتج ٢٤ أكتوبر). كل مقارنة بالمستهدف لازم تمر من هنا: «رقم ≥ قيمة فاضية» = صح في JavaScript
-    var hasGoal = s.roasTarget > 0 && s.roasBreakEven > 0;
+    var hasGoal = s.roasTarget > 0;
     // أقصى تكلفة مقبولة لكل نتيجة (قرار صاحب المنتج ٢٤ أكتوبر): حملته أولاً، وإلا نوع نتيجته في الحساب. ومن ٢٥ أكتوبر لإعلان المبيعات
     // كمان (صاحب المنتج: «عاجلة لأنها خاسرة… أو تكلفة الطلب أعلى من الحد الأقصى») — كان إعلان المبيعات بيتحكم عليه بالعائد بس، فإعلان
     // تكلفة طلبه ٣٨ $ والحد ٢٠ $ ملوش أي تنبيه تكلفة. الخطين بيتطبّقوا مع بعض، وأي واحد فيهم بيكفي
@@ -608,7 +615,7 @@
     // حد الخسارة (×٥)» كانت بتطلع لعائد ×٤٫٩٦ (مراجعة المرحلة ٤ ر٧٥). الحد = حد الخسارة لو تحته، وإلا المستهدف
     var num2 = fmt.num2 || fmt.num;
     var rx = function (x, ref) { return ref != null && x != null && fmt.num(x) === fmt.num(ref) && Math.abs(x - ref) > 1e-9 ? num2(x) : fmt.num(x); };
-    var rr = function (r) { return rx(r, r < s.roasBreakEven ? s.roasBreakEven : s.roasTarget); };
+    var rr = function (r) { return rx(r, s.roasTarget); };
     var roasLabel = function (r) {
       return fmt.currencyLabel(cur) ? t('al.roasText', { one: fmt.int(1), cur: fmt.currencyLabel(cur), roas: rr(r) }) : t('al.roasTextNoCur', { roas: rr(r) });
     };
@@ -628,7 +635,7 @@
     // «عاجل» للإعلان المؤثر الشغّال اللي خلّص التعلّم وصرف ضعف R على الأقل في أيام القاعدة، وتخطّى خط أحمر من خطوط الإعدادات —
     // بين R وضعفه «مهم» (قراءة مبكرة)، وقبل R «لم يُحكم بعد» بالمبلغ اللي محتاجه
     var urgentEligible = material && c.active && !learning && c.results != null;
-    // الخط الأحمر (تحت حد الخسارة، فوق أقصى تكلفة، أو من غير ولا نتيجة) = «عاجل» بعد إنفاق ضعف أقصى تكلفة حددتها، بالرقم المقاس زي ما
+    // الخط الأحمر (تحت العائد المستهدف، فوق أقصى تكلفة، أو من غير ولا نتيجة) = «عاجل» بعد إنفاق ضعف أقصى تكلفة حددتها، بالرقم المقاس زي ما
     // هو — قرار صاحب المنتج (٢٥ أكتوبر، الجولة الرابعة): من غير استثناء «طلب واحد زيادة كان هيرجّعه» (كان «مهم» — قاعدة لابلاس)،
     // ومن غير أقصى تكلفة محددة مفيش «عاجل» (المحاكاة: بريد عاجل على حساب مبيعات سليم تماماً ٢٫٩ في الأسبوع بالحد ده، وكشف إعلان تكلفته
     // ×٣ «عاجل» ٢١١ من ٣٠٠)
@@ -674,7 +681,7 @@
       };
       if (/^prelim/.test(key)) {
         var pv = { count: countText(resW, c.resultKey, fmt), need: needText(), one: one,
-          cmp: t('pend.cmp.' + key, { target: fmt.num(s.roasTarget), be: fmt.num(s.roasBreakEven) }) };
+          cmp: t('pend.cmp.' + key, { target: fmt.num(s.roasTarget) }) };
         if (profitAd) { pv.roas = rr(roasW); return t('pend.prelim.profit', pv); }
         pv.cpr = money(spendW / resW); pv.avg = money(refCpr);
         return t('pend.prelim.cpr', pv);
@@ -692,7 +699,7 @@
       if (key === 'costlier') return t('pend.costlier.d', { one: one, cpr: money(ownCpr), pct: fmt.int((ownCpr / refCpr - 1) * 100), avg: money(refCpr), warn: fmt.num(s.cprWarnMultiple) });
       return t('pend.' + key + '.d');
     }
-    // سطر «لماذا عاجل / لماذا مهم وليس عاجلاً» — من الخط اللي اتخطّى والإنفاق (ev فوق): «عاجل لأن عائده ×٣ تحت حد الخسارة الذي حددته
+    // سطر «لماذا عاجل / لماذا مهم وليس عاجلاً» — من الخط اللي اتخطّى والإنفاق (ev فوق): «عاجل لأن عائده ×٣ تحت العائد المستهدف الذي حددته
     // (×١٥) بعد إنفاق ١٩٢ $، وهو ضعف أقصى تكلفة حددتها لكل عملية شراء (٢٠ $) أو أكثر»
     function levelWhy(i) {
       var w = i.why;
@@ -703,7 +710,7 @@
         return i.level === 'warning' ? t('lv.why.cap.' + w.cap, base) : null;
       }
       if (!maxCost) return null;
-      // جملة لكل خط فيها رقمه نفسه (العائد، أو تكلفة الطلب) — «تخطّى حد الخسارة» مكانتش بتتقري طبيعي على العائد، و«أقصى تكلفة… وهو
+      // جملة لكل خط فيها رقمه نفسه (العائد، أو تكلفة الطلب) — «تخطّى الحد» مكانتش بتتقري طبيعي على العائد، و«أقصى تكلفة… وهو
       // ضعف أقصى تكلفة» كانت بتكرر نفسها (فحص كروت حساب حقيقي ٢٥ أكتوبر). «عاجل» بعد ضعف أقصى تكلفة حددتها، وقبله «مهم» بالمبلغ
       var v = { spend: money(w.sp), max: money(maxCost), need: moneyUp(2 * maxCost), label: label, one: one };
       Object.keys(w.v || {}).forEach(function (k) { v[k] = w.v[k]; });
@@ -824,61 +831,45 @@
           t('al.wasteEarly.a'), spendW, 'waste-early'), 'waste', spend3 / 3), { cap: 'noMax' }));
       }
 
-      // 5) الربح (إعلان بيسجّل قيمة مبيعات): العائد المقاس على أيام الحكم مقابل حد الخسارة (أحمر) والمستهدف (أصفر) — نفس أرقام
-      //    الكارت. وآخر ٣ أيام بيكشف التراجع الجديد. قبل ٢٥ أكتوبر باحتمال الصدفة: ×٤٫٨ وحد الخسارة ×١٥ كان «أقل من المستهدف»
-      //    (عنوان غلط كمان). ومن ٢٥ أكتوبر مفيش مقارنة بـ«متوسط عائد إعلانات المبيعات في حسابك» لا في الجملة ولا في النصيحة (قرار صاحب
-      //    المنتج: «لا تقارنها بمتوسط الحساب، فقط قارنها بالاعدادات المسجلة لتكون دقيقة») — المتوسط كان شامل الإعلان نفسه، فإعلان كبير
-      //    كان بيشد المتوسط ناحيته والفرق يبان أصغر من حقيقته
+      // 5) الربح (إعلان بيسجّل قيمة مبيعات): العائد المقاس على أيام الحكم مقابل العائد المستهدف — نفس أرقام الكارت. ومن ٨ نوفمبر ٢٠٢٦
+      //    المستهدف هو الخط الوحيد (قرار صاحب المنتج: «الغاء حد الخسارة والاكتفاء بالعائد المطلوب فقط وما يترتب عليها في تقييم الاعلانات»،
+      //    وكلامه نفسه ٢٥ أكتوبر: «كل هذه الإعلانات عاجلة لأنها خاسرة: العائد أقل من المطلوب…»): تحته «مهم» من R و«عاجل» من ضعفه بأقصى
+      //    تكلفة محددة — مكان حد الخسارة بالظبط. المنطقة الصفرا (تحت المستهدف وفوق حد الخسارة = «مهم» بس) اتشالت. ومن ٢٥ أكتوبر مفيش
+      //    مقارنة بـ«متوسط عائد إعلانات المبيعات في حسابك» لا في الجملة ولا في النصيحة (قرار صاحب المنتج: «لا تقارنها بمتوسط الحساب، فقط
+      //    قارنها بالاعدادات المسجلة لتكون دقيقة»)
       if (profitAd && hasGoal && R) {
         var roas3 = spend3 > 0 ? sales3 / spend3 : null;
         // الأسبوع فيه مبيعات بس آخر ٣ أيام مفيهاش ولا طلب: سطر لوحده — متوسط الأسبوع كان بيخبّي إن الإعلان وقف يبيع
         // (حساب حقيقي ١١ أكتوبر: «×١٫٨ خلال ٥ أيام» وآخر ٣ أيام صفر مبيعات بإنفاق ٢٦٠ ر.س)
         var zero3 = sales3 === 0 && spend3 > 0 && salesW > 0 ? t('al.zero3', { spend: money(spend3) }) : '';
-        var wkVars = { name: name, spend: money(spendW), sales: money(salesW), roasText: roasW != null ? roasLabel(roasW) : '', target: fmt.num(s.roasTarget),
-          be: fmt.num(s.roasBreakEven), cmp: zero3 };
-        // حد الخسارة أعلى من ١: العائد ×١٫٨ مش «أقل من التكلفة» (كل ريال رجّع ١٫٨) — أقل من حد الخسارة اللي العميل حطه.
-        // والمبلغ: الناقص عن حد الخسارة (الإنفاق أكبر من المبيعات بس لو الحد ١)
-        var beOver = s.roasBreakEven > 1, lossK = beOver ? 'BE' : '';
-        var lossAmt = function (sp, sa) { return beOver ? sp * s.roasBreakEven - sa : sp - sa; };
-        // تحت حد الخسارة مش «هدر»: مبيدخلش في المعرّض للهدر ولا لوحة الهدر. والخسارة «المهمة» (لسه متأكدتش) برّه المعرّض كمان
-        var lossMoney = function (i, sp, sa) { i.amount = lossAmt(sp, sa); i.atRisk = !beOver && i.level === 'critical'; return withMoney(i, beOver ? 'belowBE' : 'loss', beOver ? 0 : (spend3 - sales3) / 3); };
-        // تحت حد الخسارة (الخط الأحمر): «مهم» من R و«عاجل» من ضعفه. صفر طلبات قاعدته فوق (4أ)
-        var lossV = { be: fmt.num(s.roasBreakEven), aov: aovW ? money(aovW) : '' };
-        if (resW > 0 && roasW < s.roasBreakEven && spendW >= R) {
-          var lossIssue = makeIssue(redLv(spendW), ['roas', 'spend'], t('al.loss' + lossK + '.t'), t('al.lossWeek' + lossK + (salesW > 0 ? '' : 'Zero') + '.d', wkVars), t('al.loss.a'), 0, 'loss', true);
+        var wkVars = { name: name, spend: money(spendW), sales: money(salesW), roasText: roasW != null ? roasLabel(roasW) : '', target: fmt.num(s.roasTarget), cmp: zero3 };
+        // المبلغ (قرار صاحب المنتج ٣ نوفمبر: المبلغ مقاس، ولوحة «ما حققته مع الأداة» بتقيس الفلوس اللي اتوفرت فعلاً):
+        //  - المبيعات أقل من الإنفاق نفسه = خسارة حقيقية مقاسة (الإنفاق ناقص المبيعات)، ودي اللي بتدخل المعرّض للهدر
+        //  - بيكسب بس تحت المستهدف = النقص عن المستهدف (مش خسارة فعلية)، ومبيدخلش المعرّض للهدر
+        // الفرق ده في المبلغ والصياغة بس — الحكم نفسه خط واحد (المستهدف). قبل كده كان المبلغ دايماً النقص عن المستهدف، فالمعرّض
+        // للهدر كان بيتضخّم (إعلان صرف ١٬٤٠٠ وجاب ٧٥٠ بمستهدف ×٣ كان بيتحسب ٣٬٤٥٠ مكان ٦٥٠)
+        var lowMoney = function (i, sp, sa) {
+          var real = sa < sp;
+          i.amount = real ? sp - sa : sp * s.roasTarget - sa;
+          i.atRisk = real && i.level === 'critical';
+          return withMoney(i, real ? 'loss' : 'short', 0);
+        };
+        var lowV = { target: fmt.num(s.roasTarget), aov: aovW ? money(aovW) : '' };
+        if (resW > 0 && roasW < s.roasTarget && spendW >= R) {
+          var lowIssue = makeIssue(redLv(spendW), ['roas', 'spend'], t('al.lowRoas.t'),
+            t('al.lowRoasWeek' + (salesW > 0 ? '' : 'Zero') + '.d', wkVars), t('al.lowRoas.a'), 0, 'loss', true);
           // نفس المعلومة كجملة جوه تنبيه تاني على نفس الإعلان لو هو اللي بقى المضيف (الدمج تحت — 11): «٣ أيام دون مشتريات» وعائد الأسبوع
-          lossIssue.inline = t('al.loss.in', { roas: rr(roasW), be: fmt.num(s.roasBreakEven) });
-          issues.push(ev(lossMoney(lossIssue, spendW, salesW), redWhy('loss', spendW, Object.assign({ roas: rr(roasW) }, lossV))));
-        } else if (resW > 0 && roasW < s.roasTarget && judgedW) {
-          // تحت المستهدف وفوق حد الخسارة (الخط الأصفر): «مهم» — ما زال يربح بحدك. الأثر بالفلوس: المبيعات أقل قد إيه من اللي كان
-          // المفروض الإنفاق ده يجيبه بالعائد المستهدف
-          var lowIssue = makeIssue('warning', ['roas'], t('al.lowRoas.t'), t('al.lowRoasWeek.d', wkVars), t('al.lowRoas.a'), spendW * s.roasTarget - salesW, 'low-roas');
           lowIssue.inline = t('al.lowRoas.in', { roas: rr(roasW), target: fmt.num(s.roasTarget) });
-          issues.push(ev(withMoney(lowIssue, 'short', 0), { cap: 'belowTarget' }));
+          issues.push(ev(lowMoney(lowIssue, spendW, salesW), redWhy('loss', spendW, Object.assign({ roas: rr(roasW) }, lowV))));
         } else if (resW > 0 && judgedW && roasW >= s.roasTarget * 1.5 && salesAboveP(salesW, spendW, s.roasTarget, resW, aovW, judgedDays) < P_LIKELY &&
-            !(roas3 != null && roas3 < s.roasBreakEven)) {
-          // فوق المستهدف بدليل — الفرصة (زوّد الميزانية) بتفضل بالدليل: الصرف على حظ بيصرف فلوس حقيقية. ومش لو آخر ٣ أيام تحت حد
-          // الخسارة: «زوّد الميزانية» محتاج إشارات متسقة
+            !(roas3 != null && roas3 < s.roasTarget)) {
+          // فوق المستهدف بدليل — الفرصة (زوّد الميزانية) بتفضل بالدليل: الصرف على حظ بيصرف فلوس حقيقية. ومش لو آخر ٣ أيام تحت
+          // المستهدف: «زوّد الميزانية» محتاج إشارات متسقة
           issues.push(makeIssue('opportunity', ['roas'], t('al.greatRoas.t'), t('al.greatRoasWeek.d', wkVars), t('al.greatRoas.a'), 0, 'roas-great'));
         }
-        // آخر ٣ أيام تحت حد الخسارة بطلبات (الصفر قاعدته فوق — 4ب) والأسبوع نفسه فوقه:
-        //  - الأسبوع تحت المستهدف = الإعلان بيخسر دلوقتي وأسبوعه مش مغطّيه: خسارة على الـ٣ أيام («مهم» من R و«عاجل» من ضعفه)
-        //  - الأسبوع فوق المستهدف = تراجع يتابَع («مهم») — ممكن مبيعات اتأخر تسجيلها
-        if (RECENT_ON && resW > 0 && roasW >= s.roasBreakEven && res3 > 0 && spend3 >= R && roas3 < s.roasBreakEven) {
-          if (roasW < s.roasTarget) {
-            var loss3 = makeIssue(redLv(spend3), ['roas', 'spend'], t('al.loss' + lossK + '.t'),
-              t('al.loss' + lossK + (sales3 > 0 ? '' : 'Zero') + '.d', { name: name, spend: money(spend3), sales: money(sales3), roasText: roasLabel(roas3), be: wkVars.be }) +
-                t('al.weekCtx', { roas: fmt.num(roasW) }),
-              t('al.loss.a'), 0, 'loss', true);
-            // عائد الأسبوع مكتوب في الجملة نفسها — من غير ما «أقل من المستهدف» يكرّره جوّاه بعد الدمج
-            if (lowIssue) lowIssue.inline = null;
-            issues.push(ev(lossMoney(loss3, spend3, sales3), redWhy('loss', spend3, Object.assign({ roas: rr(roas3) }, lossV))));
-          } else {
-            issues.push(ev(withMoney(makeIssue('warning', ['roas'], t('al.roasDrop.t'),
-              t('al.roasDrop.d', { name: name, roasW: fmt.num(roasW), roas3: fmt.num(roas3), spend: money(spend3), sales: money(sales3) }),
-              t('al.roasDrop.a'), spend3 - sales3, 'roas-drop'), 'loss', 0), { cap: 'weekStrong' }));
-          }
-        }
+        // وآخر ٣ أيام مالهاش حكم لوحدها: الحكم على الفترة كلها (قرار صاحب المنتج ٣ نوفمبر: التحسّن أو التراجع وسم على الكارت والحكم
+        // يبقى على الأسبوع كله)، والإعلان اللي وقف يبيع خالص عنده قاعدته فوق (٤ب — ٣ أيام دون ولا نتيجة). القاعدة القديمة كانت على حد
+        // الخسارة، ولما بقى الخط الوحيد هو المستهدف طلعت على ١٠٪ من إعلانات حساب سليم تماماً (عائده الحقيقي ×٤٫٥) — إنذار كاذب
       }
 
       // 6) تكلفة النتيجة أعلى من متوسط باقي إعلاناتك (حملته أو حسابك) على فترة الكارت — للإعلانات اللي مفيهاش قيمة مبيعات (إعلان
@@ -1024,7 +1015,7 @@
     var PERF_ORDER = ['waste-week', 'waste', 'loss', 'cost-max', 'waste-view', 'cpr', 'waste-early', 'waste-new', 'roas-drop', 'low-roas', 'spike', 'drop', 'fatigue'];
     var perf = issues.filter(function (i) { return PERF_ORDER.indexOf(i.code) > -1 && (i.level === 'critical' || i.level === 'warning'); });
     if (perf.length > 1) {
-      // وفي نفس المستوى: الخط الأحمر اللي اتخطّى (تحت حد الخسارة، فوق أقصى تكلفة، دون نتائج) قبل الأصفر (تحت المستهدف) — «أقل من
+      // وفي نفس المستوى: اللي خطّه اتخطّى (تحت المستهدف، فوق أقصى تكلفة، دون نتائج) قبل اللي من غير خط — «أقل من
       // المستهدف» بمبلغ أكبر كان بيبلع «خسارة آخر ٣ أيام» (الحكم بحدودك — ٢٥ أكتوبر)
       var red = function (i) { return i.why && (i.why.line || i.why.red) ? 1 : 0; };
       var host = perf.filter(function (i) { return i.code !== 'fatigue'; }).sort(function (a, b) {
@@ -1053,14 +1044,14 @@
     }
 
     // «لم يُحكم بعد» بدل «جيد» لما البيانات متكفيش للحكم (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦) — «جيد» بقى حكم بدليل:
-    // إعلان المبيعات بعائد فوق حد الخسارة على أسبوع فيه دليل كفاية، والباقي بنتائج كفاية وتكلفة مش أعلى من الحساب
+    // إعلان المبيعات بعائد عند العائد المستهدف أو فوقه على أسبوع فيه دليل كفاية، والباقي بنتائج كفاية وتكلفة مش أعلى من الحساب
     // «لا يأخذ إنفاقاً كافياً» (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): إعلان نشط خلّص فترة التعلّم وإنفاقه في الأسبوع أقل من
     // تكلفة نتيجة واحدة بمتوسط الحساب = المنصة مش بتديله إنفاق. quiet: على الكارت وفي التفاصيل بس، مش في قائمة التنبيهات ولا
     // «يحتاج انتباهك الآن» (حسابات الميزانية على مستوى الحملة فيها إعلانات كتير بإنفاق صغير — كانت هتغرق القائمة).
     // من ١٩ أكتوبر ٢٠٢٦ (المرحلة ٥ ه٨، بموافقة صاحب المنتج): حالة محايدة «لم يُحكم بعد — يأخذ إنفاقاً قليلاً» مش «يحتاج إلى
     // تحسين» بالأصفر. Meta (Understand fluctuations — الأثر التفصيلي): النظام بيدي الإعلان إنفاق أقل لأن إخواته أكفأ عنده في
     // نفس الوقت، فده مش عيب في الإعلان نفسه — حساب حقيقي: ١٤ من ١٥ إعلان أصفر كانوا بالقاعدة دي لوحدها، ومفيش ولا إعلان «جيد»
-    // وبس لو مفيش خط اتخطّى (الحكم بحدودك): إعلان صرف ٣٥ $ والحد ٢٠ $ للطلب وعائده تحت حد الخسارة مش «يأخذ إنفاقاً قليلاً»
+    // وبس لو مفيش خط اتخطّى (الحكم بحدودك): إعلان صرف ٣٥ $ والحد ٢٠ $ للطلب وعائده تحت المستهدف مش «يأخذ إنفاقاً قليلاً»
     var lineCrossed = issues.some(function (i) { return (i.level === 'critical' || i.level === 'warning') && !i.quiet; });
     // وفي فترة أقصر من أسبوع مفيش حكم بكده: يوم واحد (وأول النهار بالذات) إنفاقه أقل من تكلفة نتيجة من غير ما المنصة تكون حرمته
     var underspend = !SHORT_ON && c.active && !learning && age != null && age > s.learningDays && c.results != null && !!avgCpr && spendW > 0 && spendW < avgCpr && !lineCrossed;
@@ -1094,7 +1085,7 @@
     else if (!raisedNow && (!judgedW || resW < 2)) pend = 'little';
     // نتيجة على الأقل وإنفاق ≥ R: حكم مبدئي بالمقارنة (مع المستهدف لإعلان المبيعات، ومع باقي إعلاناتك لغيره)
     if (pend === 'little' && resW > 0 && spendW >= R && (profitAd || refCpr)) {
-      if (profitAd) pend = roasW < s.roasBreakEven ? 'prelimLoss' : (roasW < s.roasTarget ? 'prelimBelow' : 'prelimAbove');
+      if (profitAd) pend = roasW < s.roasTarget ? 'prelimBelow' : 'prelimAbove';
       else { var rel = spendW / resW / refCpr; pend = rel <= 0.85 ? 'prelimBetter' : (rel >= 1.15 ? 'prelimWorse' : 'prelimSimilar'); }
     }
     // «جيد» لغير المبيعات = تكلفة مش أعلى من المرجع (قرار صاحب المنتج ٧ أكتوبر ٢٠٢٦). أغلى بـ١٥٪ أو أكتر بدليل (احتمال الصدفة أقل من
@@ -1155,7 +1146,7 @@
     }
     // تغيّر آخر الأيام (طلب صاحب المنتج ٣ نوفمبر ٢٠٢٦: «إعلان أداؤه جيد لفترة ثم انخفض بفرق كبير آخر يومين يظل الحكم على الفترة
     // كاملة أنه جيد»): الحكم على الأسبوع كله زي ما هو، ومعاه وسم على الكارت وجملة في أساس الحكم. ٣ أيام مكتملة مش يومين — نفس
-    // نافذة «آخر ٣ أيام» اللي المحرّك بيحكم بيها أصلاً (waste3 وroas-drop وloss3 وفرصة التوسيع) فمفيش وسم بيناقض تنبيه، ويومين =
+    // نافذة «آخر ٣ أيام» اللي المحرّك بيحكم بيها أصلاً (waste3 وفرصة التوسيع) فمفيش وسم بيناقض تنبيه، ويومين =
     // ٢٩٪ من بيانات الأسبوع مقابل ٤٣٪، والنتائج بتتسجّل متأخرة فالتراجع الكاذب أكتر. المقياس: العائد لإعلان المبيعات (الربح أولاً)
     // وتكلفة النتيجة لغيره، وكل جانب لازم يكون صرف تكلفة نتيجة واحدة (R) على الأقل — أقل من كده الفرق فلوسه مش مؤثرة
     // الوسم بيسكت للإعلان اللي عليه وسم «عُدّل» (أقل من ٣ أيام مكتملة بعد التعديل): الأداة بتقول خلاص «ننتظر أثر التعديل»،
@@ -1193,13 +1184,13 @@
       }
     }
     // ألوان أرقام الكارت (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦: «كل النص رمادي وأسود»): أخضر/أحمر خفيف على العائد مقارنةً
-    // بالمستهدف وحد الخسارة لإعلان المبيعات (الربح أولاً)، وعلى تكلفة النتيجة مقارنةً بمتوسط الحساب لغيره (±١٥٪) —
+    // بالعائد المستهدف لإعلان المبيعات (الربح أولاً)، وعلى تكلفة النتيجة مقارنةً بمتوسط الحساب لغيره (±١٥٪) —
     // بس للإعلان اللي اتحكم عليه فعلاً (مش «لم يُحكم بعد» ولا متوقف)
     // الإعلان المتعدَّل: أرقام الكارت للأسبوع كله والحكم على اللي بعد التعديل — لون على رقم مش هو اللي اتحكم عليه كان هيناقضه
     // (تكلفة ١٤٤ للأسبوع بالأخضر لأن تكلفته بعد التعديل ٥٠)، فمن غير ألوان خفيفة
     var tones = {};
     if (weekStart) { /* من غير ألوان */ }
-    else if (profitAd && hasGoal && R && spendW >= R && roasW != null) tones.roas = roasW >= s.roasTarget ? 1 : (roasW < s.roasBreakEven ? -1 : 0);
+    else if (profitAd && hasGoal && R && spendW >= R && roasW != null) tones.roas = roasW >= s.roasTarget ? 1 : -1;
     // أقصى التكلفة المقبولة محددة: اللون بالنسبة لها (خط العميل) — فوقها أحمر، وأقل منها بـ١٥٪ أو أكتر أخضر
     else if (!profitAd && maxCost && ownCpr) { tones.cpr = ownCpr > maxCost ? -1 : (ownCpr <= maxCost * 0.85 ? 1 : 0); tones.cprMax = true; }
     else if (!profitAd && avgCpr && ownCpr && othersHave) tones.cpr = ownCpr <= refCpr * 0.85 ? 1 : (ownCpr >= refCpr * 1.15 ? -1 : 0);
@@ -1461,10 +1452,10 @@
         })[0];
         if (!weak) return;
         // «توزيع ميزانيته على الإعلانات الأفضل أداءً» محتاج إعلان أفضل فعلاً — بإعداداتك (قرار صاحب المنتج ٢٥ أكتوبر: الحكم بالإعدادات
-        // المسجلة بس، من غير «متوسط الحساب»): لإعلان المبيعات = إعلان تاني شغّال في خانة أحسن بحدودك — فوق حد الخسارة لإعلان خسران،
-        // وعند المستهدف أو فوقه لإعلان تحت المستهدف. حساب حقيقي ١٨ أكتوبر: أفضل إعلان في الحساب (×١٫٩ وحد الخسارة ×٥) كان هيتنصح بنقل
+        // المسجلة بس، من غير «متوسط الحساب»): لإعلان المبيعات = إعلان تاني عند العائد المستهدف أو فوقه. حساب حقيقي ١٨ أكتوبر:
+        // أفضل إعلان في الحساب (×١٫٩ والمستهدف ×٥) كان هيتنصح بنقل
         // ميزانيته لإعلانات أضعف منه
-        var line = weak.code === 'loss' ? s.roasBreakEven : s.roasTarget;
+        var line = s.roasTarget;
         if (weak.metrics.indexOf('roas') > -1 && !ads.some(function (o) {
           return o !== c && o.active && o.spend > 0 && o.roas != null && o.roas >= line;
         })) return;
@@ -1700,6 +1691,8 @@
     SETTINGS_ORDER: SETTINGS_ORDER,
     mergeSettings: mergeSettings,
     settingsForAccount: settingsForAccount,
+    ownSettingsOf: ownSettingsOf,
+    acctKey: acctKey,
     MAX_COST_KEYS: MAX_COST_KEYS,
     analyze: analyze,
     // اختبار العائد مقابل حد (بواسون مركّب مع جاما) — الملخص بيستخدمه لسطر المستهدف (diagnosis.js targetLine)، معيار واحد للأداة

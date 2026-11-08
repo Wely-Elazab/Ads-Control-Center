@@ -433,11 +433,12 @@
   // ---------- إعدادات التنبيهات لكل مستخدم (قرار صاحب المنتج ٢٦ أكتوبر ٢٠٢٦: «نعم اجعلها لكل مستخدم»، و«الوضع الافتراضي… لكل
   // الحسابات المتصلة، ويكون هناك خيار تخصيص التنبيه لكل منصة») ----------
   // سجل واحد لحساب الدخول في الأداة (supabase/functions/sync/settings.ts): بيظهر على أي جهاز يدخل بيه، والبريد بيقراه لصاحب الملخص
-  // (runner.ts). { all, plat: { meta, … }, asked }: «كل الحسابات» لكل حساب في كل منصة، إلا منصة اتخصّصت. إعدادات الحساب نفسه (وأقصى
-  // تكلفة الأنواع بعملته) من المحرك (alerts.js settingsForAccount) — نفس الدالة في البريد. قبل ما السجل يوصل: قيم البداية (حكم الربح
-  // بيستنى) — مش نسخة الجهاز: الجهاز ممكن يكون عليه إعدادات مستخدم تاني دخل منه قبل كده.
-  // التمن (اتقال لصاحب المنتج قبل القرار): حسابين على نفس المنصة مبقاش ينفع يبقى لكل واحد مستهدف مختلف — أقصى تكلفة الحملة بس
-  // بتفرّق بينهم
+  // (runner.ts). { all, plat: { meta, … }, acct: { «منصة:رقم الحساب»: {…} }, asked }. من ٨ نوفمبر ٢٠٢٦ الأرقام لكل حساب إعلاني
+  // (قرار صاحب المنتج: «تسجل الارقام لكل حساب اعلاني في كل منصة لكل مستخدم، بحيث عند تبديل الحساب الاعلاني يتغير معها العائد المطلوب
+  // وباقي اعدادات التنبيهات») — فحسابين على نفس المنصة بقى لكل واحد مستهدفه (ده كان تمن القرار القديم). وall/plat القديمة بقت قيم
+  // بداية لأي حساب مالوش سجل لسه، فمحدش اتغيّر حكمه يوم التحديث، وأول حفظ للحساب بيخلّيه مستقل.
+  // إعدادات الحساب (وأقصى تكلفة الأنواع بعملته) من المحرك (alerts.js settingsForAccount) — نفس الدالة في البريد. قبل ما السجل يوصل:
+  // قيم البداية (حكم الربح بيستنى) — مش نسخة الجهاز: الجهاز ممكن يكون عليه إعدادات مستخدم تاني دخل منه قبل كده.
   var userSet = null;
   var userSetState = 'none';   // none / loading / migrate (مالوش سجل: بننقل القديم لما الحسابات تخلص تحميل) / ready / error
   var migrating = false;
@@ -456,7 +457,8 @@
   }
   function settingsFor(source) {
     if (!settingsKnown()) return {};
-    return PauseProofAlerts.settingsForAccount(userSet, platformOfSource(source || ''), sourceCurrency(source), DX.pegRate);
+    var p = platformOfSource(source || '');
+    return PauseProofAlerts.settingsForAccount(userSet, p, sourceCurrency(source), DX.pegRate, source ? source.slice(p.length + 1) : '');
   }
   function sourceOf(platform) { return activeSources[platform] ? platform + ':' + activeSources[platform] : null; }
   function platformTokenOf(platform) {
@@ -472,9 +474,14 @@
   }
   function plainObject(v) { return v && typeof v === 'object' && !Array.isArray(v) ? v : null; }
   function normUserSet(v) {
-    var o = plainObject(v) || {}, plat = {};
+    var o = plainObject(v) || {}, plat = {}, acct = {};
     Object.keys(plainObject(o.plat) || {}).forEach(function (p) { if (PLATFORMS.indexOf(p) > -1 && plainObject(o.plat[p])) plat[p] = o.plat[p]; });
-    return { all: plainObject(o.all) || {}, plat: plat, asked: o.asked === true, prefs: plainObject(o.prefs) || {} };
+    // مفتاح الحساب = «منصة:رقم الحساب» = نفس مصدر الأداة (sourceOf) — منصة معروفة ورقم مش فاضي
+    Object.keys(plainObject(o.acct) || {}).forEach(function (k) {
+      var i = k.indexOf(':');
+      if (i > 0 && PLATFORMS.indexOf(k.slice(0, i)) > -1 && k.length > i + 1 && plainObject(o.acct[k])) acct[k] = o.acct[k];
+    });
+    return { all: plainObject(o.all) || {}, plat: plat, acct: acct, asked: o.asked === true, prefs: plainObject(o.prefs) || {} };
   }
   function canonText(v) {
     if (!v || typeof v !== 'object') return JSON.stringify(v);
@@ -602,7 +609,7 @@
       writeUserSettings({}).then(function () { settingsRefreshed(); render(); }, function () { /* الجلسة دي بالمنقول، ويتبعت مع أول حفظ */ });
     });
   }
-  // الحفظ: المجموعات اللي اتغيّرت بس (changes)، أو المستهدف وحد الخسارة لـ«كل الحسابات» (goals)، أو asked — والسيرفر بيدمجها على
+  // الحفظ: المجموعات اللي اتغيّرت بس (changes)، أو العائد المستهدف لـ«كل الحسابات» كقيمة بداية (goals)، أو asked — والسيرفر بيدمجها على
   // السجل الحالي وهو مقفول، ويرجّع السجل كله (settings.ts cleanUserWrite). قبل ٣١ أكتوبر الحفظ كان بالسجل كله من نسخة الجهاز، فجهاز
   // فاتح من بدري كان بيمسح تعديل جهاز تاني من غير ما حد يعرف («التحديث المفقود»)
   function writeUserSettings(body) {
@@ -791,8 +798,8 @@
   }
   // cs = { state, p } (cmpOf أو مجموع حملة): … = لسه بيتحمّل، و— = مش متاح. pl = أرقام المنصة في الفترة. الرقم نفسه مبيتقصش أبداً: لو
   // الخلية ضيقة (كارت الحملة، والإنجليزي أطول) بينزل سطر تحت اسمه بدل «Comparison: …» (فحص بصري ٨ نوفمبر ٢٠٢٦)
-  function subLine(k, v, tip) {
-    var parts = t(k, { v: '\u0000' }).split('\u0000');
+  function subLine(k, v, tip, vars) {
+    var parts = t(k, Object.assign({ v: '\u0000' }, vars || {})).split('\u0000');
     return '<span class="card-stat-s" title="' + esc(tip) + '">' + esc(parts[0]) + '<b class="card-stat-n">' + esc(v) + '</b>' + esc(parts[1] || '') + '</span>';
   }
   function statSubs(key, cs, pl, cur, source, platName) {
@@ -800,7 +807,7 @@
     if (cs && cs.state) {
       var range = cmpRangeText(source);
       var tip = cs.state === 'failed' ? t('card.cmpFailed') : (range ? t('card.cmpTip', { range: range }) : t('card.cmpTipNone'));
-      out += subLine('card.cmp', cs.state === 'ok' ? NUM_FMT[key](cs.p, cur) : (cs.state === 'failed' ? '—' : '…'), tip);
+      out += subLine('card.cmp', cs.state === 'ok' ? NUM_FMT[key](cs.p, cur) : (cs.state === 'failed' ? '—' : '…'), tip, { label: cmpLabel() });
     }
     if (pl) out += subLine('card.plat', NUM_FMT[key](pl, cur), t('card.platTip', { plat: platName }));
     return out;
@@ -1254,7 +1261,7 @@
   // النص كله بيتركّب من التقرير وقت الرسم — فتغيير اللغة بيبان على طول من غير تحميل تاني
   var DX_KIND_LABEL = { urgent: 'dx.kind.urgent', decision: 'dx.kind.decision', watch: 'dx.kind.watch', opportunity: 'dx.kind.opportunity' };
   function dxPct(x) { return ar(Math.round(Math.abs(x) * 100)) + (isAr() ? '٪' : '%'); }
-  function dxKpiHtml(k) {
+  function dxKpiHtml(k, label) {
     // كل تحسّن أخضر وكل تراجع أحمر (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦، المرة التانية — الرمادي على تغيّر ٤٢٪ كان مضلل):
     // مؤكد = بخلفية، غير مؤكد = اللون من غير خلفية. الإنفاق من غير لون (زيادته أو نقصه مش تحسّن ولا تراجع في ذاتها)،
     // وأقل من ١٪ = مفيش تغيّر
@@ -1265,7 +1272,7 @@
       '<span class="dx-kpi-pct' + tone + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + '>' + (k.pct > 0 ? '↑ ' : '↓ ') + dxPct(k.pct) + '</span>';
     return '<div class="dx-kpi"><div class="dx-kpi-label">' + esc(k.label) + '</div>' +
       '<div class="dx-kpi-value">' + esc(k.value) + ' ' + pct + '</div>' +
-      '<div class="dx-kpi-sub">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</div>' +
+      '<div class="dx-kpi-sub">' + esc(t('dx.kpi.prev', { label: label || cmpLabel(), v: k.prev })) + '</div>' +
       (k.plat != null ? '<div class="dx-kpi-sub">' + esc(t('dx.kpi.plat', { v: k.plat })) + '</div>' : '') + '</div>';
   }
   // bare = جوه بند قابل للفتح (القائمة أو المطويات) — النوع والعنوان ظاهرين فوقه أصلاً
@@ -2028,9 +2035,9 @@
     var body = document.getElementById('dxBody'), period = document.getElementById('dxPeriod'), copy = document.getElementById('dxCopy');
     var loading = dxOn && dxState.status === 'loading', o = null;
     if (dxOn && dxState.status === 'ready' && dxState.report) {
-      // الهدف وحد الخسارة من إعدادات التنبيهات (نفس اللي بيتحكم بيهم على الإعلانات) — الربح أولاً في الملخص كمان
+      // العائد المستهدف من إعدادات التنبيهات (نفس اللي بيتحكم بيه على الإعلانات) — الربح أولاً في الملخص كمان
       // plat = رقم المنصة نفسها لكل خانة (٣ أرقام في كل الأداة — ٧ نوفمبر ٢٠٢٦)
-      o = DX.compose(dxState.report, { target: dxGoals(), plat: dxPlatTotals() });
+      o = DX.compose(dxState.report, { target: dxGoals(), plat: dxPlatTotals(), cmpLabel: cmpLabel() });
       // أكتر من حساب كلهم من غير مشتريات: العنوان بصيغة الجمع
       if (o && dxState.sel && dxState.sel.multi && dxState.report.status === 'noPurchases' && o.title === t('dx.head.noPurchases')) {
         var one = o.title;
@@ -2068,7 +2075,7 @@
     body.setAttribute('aria-busy', 'false');
     body.innerHTML = tabs + more + '<div class="dx-head ' + esc(o.tone) + '"><p class="dx-headline">' + esc(o.title) + '</p>' +
       (o.basis ? '<p class="dx-basis">' + esc(o.basis) + '</p>' : '') +
-      (nums ? '<div class="dx-kpis">' + o.kpis.map(dxKpiHtml).join('') + '</div>' : '') +
+      (nums ? '<div class="dx-kpis">' + o.kpis.map(function (k) { return dxKpiHtml(k, o.cmpLabel); }).join('') + '</div>' : '') +
       // شرح الألوان بيظهر بس لو فيه رقم ملوّن (على الهاتف مفيش تلميح بالماوس)
       (nums && o.kpis.some(function (k) { return k.goodUp != null && (k.sig || k.soft); }) ? '<p class="dx-kpi-legend">' + esc(t('dx.kpi.legend')) + '</p>' : '') +
       (nums && o.kpiNote ? '<p class="dx-kpi-legend">' + esc(o.kpiNote) + '</p>' : '') + '</div>';
@@ -2122,11 +2129,11 @@
     // منصات أرقام المبيعات بس (اللي مفيش مشتريات بتوصلها برّه — dxSelection)
     var goals = ((dxState.sel && dxState.sel.plats) || dxViewPlatforms() || []).map(function (p) {
       var s = PauseProofAlerts.mergeSettings(settingsFor(sourceOf(p) || ''));
-      return { roas: s.roasTarget, be: s.roasBreakEven };
+      return { roas: s.roasTarget };
     });
     var g = goals[0];
     if (!g || !(g.roas > 0)) return null;
-    return goals.every(function (x) { return x.roas === g.roas && x.be === g.be; }) ? g : null;
+    return goals.every(function (x) { return x.roas === g.roas; }) ? g : null;
   }
   // المنصات المختارة المتصلة (شريط الأرقام وسطر النهارده والتكلفة مقابل الحد) — null = كل الإعلانات
   function dxViewPlatforms() { return platSel ? platSel.slice() : null; }
@@ -3253,7 +3260,7 @@
     return '<div class="attr-compare">' +
       '<div class="attr-title">' + t('cmp.title') + '</div>' +
       '<div class="attr-table-wrap"><table class="attr-table"><thead><tr><th></th>' +
-      head(t('cmp.store'), periodLabel(), 'cmp-store') + head(t('cmp.prev'), range) + head(t('cmp.platformOf', { plat: c.platform }), periodLabel()) + '</tr></thead>' +
+      head(t('cmp.store'), periodLabel(), 'cmp-store') + head(cmpName() || t('cmp.prev'), range) + head(t('cmp.platformOf', { plat: c.platform }), periodLabel()) + '</tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>' +
       (note ? '<p class="attr-note">' + esc(note) + '</p>' : '') +
       // شرح الجدول بالتفصيل في صفحة الدليل (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦) — في تاب جديد عشان الإعلانات المحمّلة متضيعش
@@ -4034,16 +4041,17 @@
   // ---------- إعدادات التنبيهات ----------
   // الشاشة الأساسية بلغة صاحب المتجر: سؤالين عن الفلوس (كم تبيع مقابل كل ١ بتصرفه، وتحت أي قيمة بتخسر). باقي الحدود تحت «إعدادات
   // متقدمة لمسؤول الإعلانات» — قرار صاحب المنتج ٣ أكتوبر ٢٠٢٦. من مراجعة الإعدادات (٢٤ أكتوبر): من غير أنماط (هادئ/متوازن/صارم) ولا
-  // «استعادة القيم الافتراضية» (قرار صاحب المنتج)، والمستهدف وحد الخسارة فاضيين لحد ما العميل يحددهم.
+  // «استعادة القيم الافتراضية» (قرار صاحب المنتج)، والعائد المستهدف فاضي لحد ما العميل يحدده.
   // نفس الجزء الأساسي بيظهر في نافذة أول مرة (welcomeOverlay تحت)
   var settingsOverlay = document.getElementById('settingsOverlay');
   var settingsForm = document.getElementById('settingsForm');
   var SETTING_UNITS = i18nMap({ multiple: 'unit.multiple', ratio: 'unit.ratio', days: 'unit.days', times: 'unit.times', count: 'unit.count' });
-  var MAIN_SETTINGS = { roasTarget: true, roasBreakEven: true };
-  var MAIN_ORDER = ['roasTarget', 'roasBreakEven'];
+  // من ٨ نوفمبر ٢٠٢٦ المستهدف بس (حد الخسارة اتشال — قرار صاحب المنتج)
+  var MAIN_SETTINGS = { roasTarget: true };
+  var MAIN_ORDER = ['roasTarget'];
 
   // copyKey = نص الشاشة الأساسية بلغة صاحب المتجر (goal.*) بدل اسم الحد الفني (set.*) اللي في «المتقدمة»
-  // value = null (المستهدف أو حد الخسارة لسه مش محددين) = خانة فاضية
+  // value = null (العائد المستهدف لسه مش محدد) = خانة فاضية
   function settingRow(m, value, copyKey) {
     var shown = value == null ? '' : (m.kind === 'ratio' ? Math.round(value * 100) : value);
     var step = m.kind === 'multiple' ? '0.1' : '1';
@@ -4052,7 +4060,7 @@
     return '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(label) + '</span><span class="setting-help">' + esc(help) + '</span></span>' +
       '<span class="setting-input"><input type="text" inputmode="decimal" dir="ltr" autocomplete="off" spellcheck="false" data-step="' + step + '" name="' + m.key + '" value="' + shown + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
   }
-  // أهداف المتجر (المستهدف وحد الخسارة)
+  // هدف المتجر (العائد المستهدف)
   function settingsCoreHtml(current) {
     var byKey = {};
     PauseProofAlerts.SETTINGS_META.forEach(function (m) { byKey[m.key] = m; });
@@ -4061,57 +4069,76 @@
       '</fieldset>';
   }
 
-  // نطاق النافذة (قرار صاحب المنتج ٢٦ أكتوبر ٢٠٢٦: «الوضع الافتراضي… لكل الحسابات المتصلة، ويكون هناك خيار تخصيص التنبيه لكل
-  // منصة»): «كل الحسابات» هو الافتراضي، وكل منصة متصلة ليها تبويب بيتبع «كل الحسابات» لحد ما المستخدم يخصّصها (بتبدأ بنسخة منها)،
-  // والتخصيص المحفوظ بيتلغي بزرار.
+  // نطاق النافذة (قرار صاحب المنتج ٨ نوفمبر ٢٠٢٦: «تسجل الارقام لكل حساب اعلاني في كل منصة لكل مستخدم، بحيث عند تبديل الحساب
+  // الاعلاني يتغير معها العائد المطلوب وباقي اعدادات التنبيهات»): تبويب لكل حساب إعلاني متصل، والنطاق هو مفتاح الحساب نفسه
+  // («منصة:رقم الحساب» = sourceOf = alerts.js acctKey). الحساب اللي مالوش سجل بيعرض إعدادات المستخدم القديمة كقيم بداية، وأول حفظ
+  // بيخلّيه مستقل — فمفيش «كل الحسابات» ولا «تخصيص/إلغاء تخصيص» (كانوا قرار ٢٦ أكتوبر).
   // مراجعة ٣١ أكتوبر: تعديلات كل تبويب بتفضل لحد «حفظ» (settingsPending — التبويب اللي اتعدّل بيتحقق منه قبل ما تسيبه)، و«حفظ»
   // بيحفظها كلها مرة واحدة. قبل كده كان بيحفظ التبويب الظاهر بس ويقفل، فتعديل تبويب تاني كان بيضيع من غير ما حد يعرف («منع الخطأ»
   // — Nielsen Norman Group). التبويب اللي فيه تعديل متحفظش عليه «•». ✕ أو Esc = إلغاء التعديلات كلها
-  var settingsScope = 'all', settingsPending = {}, settingsDirty = false, settingsFormState = 'loading', settingsSaving = false, settingsCostCur = null;
+  var settingsScope = '', settingsPending = {}, settingsDirty = false, settingsFormState = 'loading', settingsSaving = false, settingsCostCur = null;
   var settingsSaveBtn = document.getElementById('settingsSave');
   function settingsSources() { return PLATFORMS.map(sourceOf).filter(Boolean); }
-  function customOf(p) { return userSet && userSet.plat && userSet.plat[p] ? userSet.plat[p] : null; }
-  // المنصة ليها إعدادات خاصة (محفوظة، أو بتتخصّص في النافذة دي)
-  function ownSet(p) { return !!(customOf(p) || settingsPending[p]); }
-  // تبويبات المنصات: المتصلة، واللي ليها تخصيص (عشان يتلغي حتى لو المنصة مش متصلة دلوقتي)
-  function scopePlatforms() { return PLATFORMS.filter(function (p) { return sourceOf(p) || ownSet(p); }); }
-  // المجموعة اللي النطاق بيعدّلها: تعديل متحفظش، وإلا المحفوظ («كل الحسابات» أو المنصة المتخصّصة)، وإلا null (= بتتبع «كل الحسابات»)
+  // سجل الحساب نفسه لو موجود (مفتاح الحساب = المصدر)
+  function ownAcct(scope) { return userSet && userSet.acct && userSet.acct[scope] ? userSet.acct[scope] : null; }
+  // عنده أرقام قديمة بتتورّث للحساب ده (إعدادات منصته، وإلا «كل حساباته») — عشان نقول إنها قيم بداية
+  function inheritedAny(scope) {
+    if (!userSet || !scope) return false;
+    var plat = userSet.plat ? userSet.plat[platformOfSource(scope)] : null;
+    var set = plat || userSet.all;
+    return !!(set && Object.keys(set).length);
+  }
+  // اسم الحساب في التبويب (الاسم اللي في قائمة الحسابات، وإلا رقمه)
+  function scopeName(scope) {
+    var p = platformOfSource(scope);
+    return accountLabel(p) || scope.slice(p.length + 1);
+  }
+  // أرقام الحساب اللي النافذة بتعدّلها: تعديل متحفظش، وإلا سجله زي ما هو، وإلا أرقامه الموروثة كبداية بعملة الحساب نفسه
+  // (settingsForAccount بيحوّل أقصى التكلفة بسعر الربط الرسمي زي ما المحرك بيعمل بالظبط، فاللي معروض هو اللي بيتحكم بيه فعلاً).
+  // وعملة الحساب لسه مجهولة (إعلاناته بتتحمّل): الموروث زي ما هو بعملته المحفوظة — التحويل بيحصل وقت الحكم، ومن غير كده كان
+  // الحفظ بيشيل حدود التكلفة الموروثة في صمت
   function scopeSet(scope) {
-    if (!userSet) return null;
+    if (!userSet || !scope) return null;
     if (settingsPending[scope]) return settingsPending[scope];
-    if (scope === 'all') return userSet.all || {};
-    return customOf(scope);
+    var own = ownAcct(scope);
+    if (own) return JSON.parse(JSON.stringify(own));
+    var p = platformOfSource(scope), cur = sourceCurrency(scope);
+    var plat = userSet.plat ? userSet.plat[p] : null;
+    var out = JSON.parse(JSON.stringify(cur
+      ? PauseProofAlerts.settingsForAccount(userSet, p, cur, DX.pegRate, scope.slice(p.length + 1))
+      : (plat || userSet.all || {})));
+    if (cur && out.maxCost) out.maxCostCur = cur;
+    // حدود الحملات الموروثة: الحملات اللي ثابت إنها في الحساب ده (من إعلاناته المحمّلة) بس — الحملة بتبع حساب واحد، فتوريث حد لحملة
+    // مش عارفين حسابها غلط، وكان هيظهر كصف «حملة رقم …» على كل التبويبات. بخلاف أقصى تكلفة الأنواع: دي للحساب كله فبتتورّث دايماً
+    if (out.campaignMaxCost) {
+      var mine = {};
+      candidates.forEach(function (c) { if (c.campaignId && c.source === scope) mine[String(c.campaignId)] = true; });
+      Object.keys(out.campaignMaxCost).forEach(function (id) { if (!mine[id]) delete out.campaignMaxCost[id]; });
+      if (!Object.keys(out.campaignMaxCost).length) delete out.campaignMaxCost;
+    }
+    return out;
   }
-  // الحسابات المفتوحة اللي النطاق بيتطبّق عليها (أنواع النتائج والحملات في قسم التكلفة)
-  function scopeSources(scope) {
-    return settingsSources().filter(function (s) { var p = platformOfSource(s); return scope === 'all' ? !ownSet(p) : p === scope; });
-  }
+  // الحساب اللي النطاق بيتطبّق عليه (أنواع النتائج والحملات في قسم التكلفة) — حساب واحد بالظبط
+  function scopeSources(scope) { return scope ? [scope] : []; }
   // مالوش سجل ولا حساب متصل (النقل مستني حساب): الخانات على قيم البداية، والحفظ بيعمل السجل
   function settingsStateNow() {
     if (userSetState === 'ready' || (userSetState === 'migrate' && !settingsSources().length)) return 'ready';
     return userSetState === 'error' ? 'error' : 'loading';
   }
   function scopeHtml(scope) {
-    var plats = scopePlatforms(), custom = plats.filter(ownSet);
-    var name = function (p) { return PLATFORM_NAMES[p]; };
-    var tabs = plats.length ? '<div class="settings-scope" role="group" aria-label="' + esc(t('settings.scope.aria')) + '">' +
-      ['all'].concat(plats).map(function (p) {
-        var label = p === 'all' ? t('settings.scope.all') : name(p) + (ownSet(p) ? ' · ' + t('settings.scope.custom') : '');
-        var unsaved = settingsPending[p] ? ' title="' + esc(t('settings.scope.unsaved')) + '"' : '';
-        return '<button type="button" class="chip' + (p === scope ? ' active' : '') + '" data-settings-scope="' + p + '" aria-pressed="' + (p === scope) + '"' + unsaved + '>' +
-          esc(label) + (settingsPending[p] ? ' •<span class="sr-only"> ' + esc(t('settings.scope.unsaved')) + '</span>' : '') + '</button>';
+    var srcs = settingsSources();
+    // مفيش حساب متصل: مفيش حساب نظبّط إعداداته (الإعدادات لكل حساب)
+    if (!srcs.length || !scope) return '<div class="settings-account"><p class="settings-where">' + esc(t('settings.scope.none')) + '</p></div>';
+    var tabs = srcs.length > 1 ? '<div class="settings-scope" role="group" aria-label="' + esc(t('settings.scope.aria')) + '">' +
+      srcs.map(function (s) {
+        var unsaved = settingsPending[s] ? ' title="' + esc(t('settings.scope.unsaved')) + '"' : '';
+        return '<button type="button" class="chip' + (s === scope ? ' active' : '') + '" data-settings-scope="' + esc(s) + '" aria-pressed="' + (s === scope) + '"' + unsaved + '>' +
+          esc(PLATFORM_NAMES[platformOfSource(s)] + ' — ' + scopeName(s)) + (settingsPending[s] ? ' •<span class="sr-only"> ' + esc(t('settings.scope.unsaved')) + '</span>' : '') + '</button>';
       }).join('') + '</div>' : '';
-    var note, action = '';
-    if (scope === 'all') {
-      note = t('settings.scope.allNote') + (custom.length ? ' ' + t('settings.scope.except', { platforms: DX.listText(custom.map(name)) }) : '');
-    } else if (scopeSet(scope)) {
-      note = t('settings.scope.platNote', { platform: name(scope) });
-      action = '<button type="button" class="ghost-btn" data-settings-uncustom>' + esc(t('settings.scope.uncustom')) + '</button>';
-    } else {
-      note = t('settings.scope.follows', { platform: name(scope) });
-      action = '<button type="button" class="ghost-btn" data-settings-custom>' + esc(t('settings.scope.customize', { platform: name(scope) })) + '</button>';
-    }
-    return '<div class="settings-account">' + tabs + '<p class="settings-where">' + esc(note) + '</p>' + (action ? '<div class="settings-retry">' + action + '</div>' : '') + '</div>';
+    var note = t('settings.scope.acctNote', { account: scopeName(scope), platform: PLATFORM_NAMES[platformOfSource(scope)] });
+    // قيم بداية موروثة: بنقولها صريح عشان مايفتكرش إنها محفوظة للحساب ده
+    var start = !ownAcct(scope) && inheritedAny(scope) ? '<p class="settings-where">' + esc(t('settings.scope.start')) + '</p>' : '';
+    return '<div class="settings-account">' + tabs + '<p class="settings-where">' + esc(note) + '</p>' + start + '</div>';
   }
 
   // ---------- أقصى تكلفة مقبولة لكل نتيجة (مراجعة الإعدادات ٢٤ أكتوبر ٢٠٢٦ — قرار صاحب المنتج) ----------
@@ -4217,9 +4244,10 @@
           '<div class="settings-retry"><button type="button" class="ghost-btn" data-settings-retry>' + esc(t('settings.retry')) + '</button></div>';
       return;
     }
-    if (settingsScope !== 'all' && scopePlatforms().indexOf(settingsScope) < 0) settingsScope = 'all';
+    var srcs = settingsSources();
+    if (srcs.indexOf(settingsScope) < 0) settingsScope = srcs[0] || '';
     var set = scopeSet(settingsScope);
-    settingsSaveBtn.disabled = settingsSaving || (!set && !Object.keys(settingsPending).length);
+    settingsSaveBtn.disabled = settingsSaving || !set;
     if (!set) { settingsForm.innerHTML = scopeHtml(settingsScope); return; }
     var current = PauseProofAlerts.mergeSettings(set);
     var groups = {};
@@ -4245,17 +4273,6 @@
     if (settingsOverlay.classList.contains('hidden') || settingsSaving || settingsDirty) return;
     renderSettingsForm();
   }
-  // نسخة «كل الحسابات» للمنصة: حدود حملات المنصات التانية (المعروفة من الإعلانات المحمّلة) مبتتنسخش
-  function draftFrom(p) {
-    var base = JSON.parse(JSON.stringify(scopeSet('all') || {}));
-    if (base.campaignMaxCost) {
-      var other = {};
-      candidates.forEach(function (c) { if (c.campaignId && platformOfSource(c.source) !== p) other[String(c.campaignId)] = true; });
-      Object.keys(base.campaignMaxCost).forEach(function (id) { if (other[id]) delete base.campaignMaxCost[id]; });
-      if (!Object.keys(base.campaignMaxCost).length) delete base.campaignMaxCost;
-    }
-    return base;
-  }
   // قيم التبويب الظاهر بعد التحقق — null لو فيها خطأ (بيظهر جنب الخانة)
   function scopeFromForm() {
     clearSettingsErrors();
@@ -4273,24 +4290,6 @@
     settingsPending[settingsScope] = set;
     return true;
   }
-  // إلغاء التخصيص: اللي لسه متحفظش بيتشال وبس، والمحفوظ بيتلغي على السيرفر على طول (المنصة بترجع لـ«كل الحسابات») — تعديلات
-  // التبويبات التانية بتفضل مستنية «حفظ»
-  function uncustomize(p) {
-    if (settingsSaving) return;
-    if (!customOf(p)) { delete settingsPending[p]; renderSettingsForm(); return; }
-    var changes = {};
-    changes[p] = null;
-    setSaving(settingsSaveBtn, true, 'settings.save');
-    writeUserSettings({ changes: changes }).then(function () {
-      setSaving(settingsSaveBtn, false, 'settings.save');
-      delete settingsPending[p];
-      renderSettingsForm();
-      render();
-    }, function (e) {
-      setSaving(settingsSaveBtn, false, 'settings.save');
-      settingsErrorEl.textContent = saveErrText(e);
-    });
-  }
   settingsForm.addEventListener('click', function (e) {
     var tab = e.target.closest('[data-settings-scope]');
     if (tab) {
@@ -4302,20 +4301,18 @@
       if (chip) chip.focus();
       return;
     }
-    if (e.target.closest('[data-settings-custom]')) { settingsPending[settingsScope] = draftFrom(settingsScope); renderSettingsForm(); return; }
-    if (e.target.closest('[data-settings-uncustom]')) { uncustomize(settingsScope); return; }
     if (e.target.closest('[data-settings-retry]')) { userSetState = 'none'; userSetFails = 0; pullUserSettings(); renderSettingsForm(); }
   });
 
   // فتح النافذة: أحدث نسخة من السيرفر (تعديل من جهاز تاني — مراجعة ٣١ أكتوبر)، وإعادة الطلب لو المحاولة الأولى فشلت (مش بنعرض خانات
-  // قبل ما نعرف اللي محفوظ). بتفتح على «كل الحسابات»، إلا لو الفلتر على منصة واحدة متخصّصة
+  // قبل ما نعرف اللي محفوظ). بتفتح على حساب المنصة المختارة في الفلتر، وإلا أول حساب متصل
   function openAlertSettings() {
     if (userSetState === 'error') { userSetState = 'none'; userSetFails = 0; }
     pullUserSettings();
     refreshUserSettings();
     settingsPending = {};
-    var one = platSel && platSel.length === 1 ? platSel[0] : null;
-    settingsScope = one && customOf(one) ? one : 'all';
+    var one = platSel && platSel.length === 1 ? sourceOf(platSel[0]) : null;
+    settingsScope = one || settingsSources()[0] || '';
     renderSettingsForm();
     settingsOverlay.classList.remove('hidden');
   }
@@ -4370,7 +4367,7 @@
       var input = inputOf(m.key);
       if (!input) return;
       var txt = settingNumberText(input.value, m.kind === 'count' || m.kind === 'days');
-      if (txt === '') return; // فاضي: الحد بقيمة البداية، والمستهدف وحد الخسارة مش محددين (حكم الربح بيستنى)
+      if (txt === '') return; // فاضي: الحد بقيمة البداية، والعائد المستهدف مش محدد (حكم الربح بيستنى)
       var raw = /^\d*\.?\d+$/.test(txt) ? parseFloat(txt) : NaN;
       if (!isFinite(raw) || raw < m.min || raw > m.max) {
         errors.push({ input: input, text: t('set.err.range', { min: numAr(m.min), max: numAr(m.max) }) });
@@ -4378,12 +4375,6 @@
       }
       next[m.key] = m.kind === 'ratio' ? raw / 100 : raw;
     });
-    // المستهدف وحد الخسارة مع بعض أو ولا واحد: حكم الربح محتاج الاتنين، وواحد لوحده كان هيتحفظ من غير أي أثر
-    var goalsIn = PauseProofAlerts.GOAL_KEYS.filter(function (k) { return next[k] != null; });
-    if (goalsIn.length === 1) {
-      var missing = PauseProofAlerts.GOAL_KEYS.filter(function (k) { return next[k] == null; })[0];
-      if (inputOf(missing)) errors.push({ input: inputOf(missing), text: t('set.err.goalPair') });
-    }
     var eff = PauseProofAlerts.mergeSettings(next);
     PauseProofAlerts.SETTINGS_ORDER.forEach(function (o) {
       if (eff[o[0]] != null && eff[o[1]] != null && eff[o[0]] > eff[o[1]] && inputOf(o[1])) errors.push({ input: inputOf(o[1]), text: t(o[2]) });
@@ -4429,12 +4420,12 @@
       if (!set) return;
       settingsPending[settingsScope] = set;
     }
-    var scopes = Object.keys(settingsPending), changes = {};
+    var scopes = Object.keys(settingsPending), acct = {};
     if (!scopes.length) return;
-    scopes.forEach(function (s) { changes[s] = settingsPending[s]; });
+    scopes.forEach(function (s) { acct[s] = settingsPending[s]; });
     setSaving(settingsSaveBtn, true, 'settings.save');
-    // شاف سؤال المستهدف هنا وساب الخانتين فاضيين بقصد — نافذة أول مرة متسألهوش تاني على أي جهاز
-    writeUserSettings({ changes: changes, asked: true }).then(function () {
+    // شاف سؤال المستهدف هنا وسابه فاضي بقصد — نافذة أول مرة متسألهوش تاني على أي جهاز
+    writeUserSettings({ changes: { acct: acct }, asked: true }).then(function () {
       setSaving(settingsSaveBtn, false, 'settings.save');
       settingsPending = {};
       settingsOverlay.classList.add('hidden');
@@ -4449,7 +4440,7 @@
   // أول ما المستخدم يفتح حساب وإعداداته مفيهاش مستهدف وحد خسارة لـ«كل الحسابات» (وسجله وصل من السيرفر)، بتظهر مرة واحدة للمستخدم
   // (asked في سجله — مش لكل جهاز): السؤالين عن الفلوس لكل حساباته، مع توضيح إنها بتتعدّل وبتتخصّص لكل منصة من «الإعدادات» ←
   // «إعدادات التنبيهات». «لاحقاً» أو ✕ أو Esc = حكم الربح بيستنى، ومبتظهرش تاني.
-  // من ٣١ أكتوبر الحفظ بالمستهدف وحد الخسارة بس (goals — بيتدمجوا في «كل الحسابات» على السيرفر)، مش بنسخة الجهاز كلها
+  // من ٣١ أكتوبر الحفظ بالعائد المستهدف بس (goals — بيتدمج في «كل الحسابات» على السيرفر كقيمة بداية لكل حساب)، مش بنسخة الجهاز كلها
   var welcomeOverlay = document.getElementById('welcomeOverlay');
   var welcomeForm = document.getElementById('welcomeForm');
   var welcomeErrorEl = document.getElementById('welcomeError');
@@ -4488,7 +4479,7 @@
     var r = readSettingsForm(welcomeForm);
     if (showSettingsErrors(r, welcomeErrorEl)) return;
     // الخانتين فاضيين = «لاحقاً» بس (حكم الربح بيستنى)
-    var goals = r.values.roasTarget != null ? { roasTarget: r.values.roasTarget, roasBreakEven: r.values.roasBreakEven } : null;
+    var goals = r.values.roasTarget != null ? { roasTarget: r.values.roasTarget } : null;
     setSaving(welcomeSaveBtn, true, 'welcome.save');
     writeUserSettings(goals ? { goals: goals, asked: true } : { asked: true }).then(function () {
       setSaving(welcomeSaveBtn, false, 'welcome.save');

@@ -302,7 +302,7 @@
   .metric-chip.mv-critical { color: var(--alert); background: var(--alert-bg); border-color: var(--alert); }
   .metric-chip.mv-warning { color: var(--pending); background: var(--pending-bg); border-color: var(--pending); }
   .metric-chip.mv-opportunity { color: var(--verified); background: var(--verified-bg); border-color: var(--verified); }
-  /* لون خفيف من غير خلفية: أرخص/أغلى من متوسط الحساب، أو العائد فوق المستهدف/تحت حد الخسارة */
+  /* لون خفيف من غير خلفية: أرخص/أغلى من متوسط الحساب، أو العائد فوق/تحت المستهدف */
   .metric-chip.tone-good { color: var(--verified); border-color: color-mix(in srgb, var(--verified) 45%, var(--line)); }
   .metric-chip.tone-bad { color: var(--alert); border-color: color-mix(in srgb, var(--alert) 45%, var(--line)); }
   .status-text { font-size: 11.5px; font-weight: 600; color: var(--ink-faint); }
@@ -995,7 +995,7 @@
   .dx-head.bad { border-inline-start-color: var(--alert); }
   .dx-head.mixed { border-inline-start-color: var(--pending); }
   .dx-headline { margin: 0 0 12px; font-size: 16px; font-weight: 700; line-height: 1.5; }
-  /* العائد مقارنةً بالمستهدف وحد الخسارة (الربح أولاً) — تحت العنوان مباشرةً */
+  /* العائد مقارنةً بالمستهدف (الربح أولاً) — تحت العنوان مباشرةً */
   .dx-basis { margin: -6px 0 12px; font-size: 13px; line-height: 1.7; color: var(--ink-soft); }
   /* سبب الحكم: خلفية بلون الحكم عشان يبان إنه الكلام المهم */
   .dx-verdict { margin-top: 12px; border-radius: var(--radius); padding: 14px 18px; background: var(--sending-bg); border-inline-start: 4px solid var(--ink-faint); }
@@ -1438,7 +1438,7 @@
       </div>
       <div class="set-card">
         <h3 class="set-card-title" data-i18n="set.page.alerts">التنبيهات</h3>
-        <p class="set-card-text" data-i18n="set.page.alertsText">هدف الربح وحد الخسارة وحساسية التنبيهات.</p>
+        <p class="set-card-text" data-i18n="set.page.alertsText">هدف الربح وحساسية التنبيهات.</p>
         <button type="button" class="ghost-btn" data-open-settings data-i18n="alerts.settingsBtn">⚙ إعدادات التنبيهات</button>
       </div>
       <div class="set-card">
@@ -1636,7 +1636,7 @@
     <button class="expand-close" id="settingsClose" aria-label="إغلاق" data-i18n-aria="btn.close">✕</button>
     <div class="expand-body" style="padding-top:24px;">
       <div class="expand-title" id="settingsTitle" data-i18n="settings.title">إعدادات التنبيهات</div>
-      <div class="expand-sub" data-i18n="settings.sub">الحدود تُقاس بأداء كل حساب إعلاني نفسه فتناسب أي حجم ميزانية، أما المستهدف وحد الخسارة فمن هامش ربح متجرك، ولا نحكم على الربح قبل أن تحددهما.</div>
+      <div class="expand-sub" data-i18n="settings.sub">الحدود تُقاس بأداء كل حساب إعلاني نفسه فتناسب أي حجم ميزانية، أما العائد المستهدف فمن هامش ربح متجرك، ولا نحكم على الربح قبل أن تحدده.</div>
       <div id="settingsForm"></div>
       <div class="settings-error" id="settingsError" role="alert"></div>
       <div class="settings-actions">
@@ -1652,7 +1652,7 @@
     <button class="expand-close" id="welcomeClose" aria-label="إغلاق" data-i18n-aria="btn.close">✕</button>
     <div class="expand-body" style="padding-top:24px;">
       <div class="expand-title" id="welcomeTitle" data-i18n="welcome.title">لنضبط التنبيهات على أهداف متجرك</div>
-      <div class="expand-sub" data-i18n="welcome.sub">سؤالان عن هامش ربحك يكفيان لنحكم على ربح إعلاناتك، ويمكنك تعديلهما أو تخصيصهما لكل منصة في أي وقت من «الإعدادات» ← «إعدادات التنبيهات». وقبل أن تحددهما لا نحكم على الربح، وتعمل بقية التنبيهات.</div>
+      <div class="expand-sub" data-i18n="welcome.sub">سؤال واحد عن هامش ربحك يكفي لنحكم على ربح إعلاناتك، ويمكنك تعديله أو تحديد رقم خاص لكل حساب إعلاني في أي وقت من «الإعدادات» ← «إعدادات التنبيهات». وقبل أن تحدده لا نحكم على الربح، وتعمل بقية التنبيهات.</div>
       <div id="welcomeForm"></div>
       <div class="settings-error" id="welcomeError" role="alert"></div>
       <div class="settings-actions">

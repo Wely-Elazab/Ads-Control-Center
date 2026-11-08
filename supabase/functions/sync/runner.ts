@@ -287,7 +287,7 @@ async function costLine(accountId: string, cands: any[] | null, since: string, u
 }
 
 // المستهدف وحد الخسارة (null = مش محددين: الملخص من غير سطر الهدف، وحكم الربح في التنبيهات بيستنى — زي الأداة)، وباقي الإعدادات
-type Target = { roas: number; be: number } | null;
+type Target = { roas: number } | null;
 type Sens = Record<string, unknown> | null;
 // إعدادات المستخدم (settings.ts — «لكل مستخدم» من ٢٦ أكتوبر ٢٠٢٦، والملخص نفسه لكل مستخدم من ٣١ أكتوبر): إعداداته لكل حساب بنفس دالة
 // الأداة (alerts.js settingsForAccount: إعدادات المنصة الخاصة لو اتخصّصت وإلا «كل الحسابات»، وأقصى تكلفة الأنواع متحوّلة لعملة الحساب
@@ -308,11 +308,13 @@ async function userSettingsOf(user: string): Promise<Record<string, unknown> | n
 // الملخص (digest_settings) مبقتش بتتقري: كانت من آخر متصفح فتح الأداة (اتشاف حياً ٢٤ أكتوبر)
 export function settingsChoice(acs: Record<string, unknown> | null): { target: Target; sens: Sens } {
   if (!acs) return { target: null, sens: null };
-  const r = Number(acs.roasTarget), b = Number(acs.roasBreakEven);
-  return { target: r > 0 && b > 0 ? { roas: r, be: b } : null, sens: acs };
+  // المستهدف بس من ٨ نوفمبر ٢٠٢٦ (حد الخسارة اتشال — قرار صاحب المنتج)
+  const r = Number(acs.roasTarget);
+  return { target: r > 0 ? { roas: r } : null, sens: acs };
 }
-function effectiveFor(us: Record<string, unknown> | null, platform: string, currency: string | null): { target: Target; sens: Sens } {
-  return settingsChoice(us ? g.PauseProofAlerts.settingsForAccount(us, platform, currency, g.DX.pegRate) : null);
+// إعدادات الحساب الإعلاني نفسه لو المستخدم حفظها له (من ٨ نوفمبر ٢٠٢٦ — لكل حساب)، وإلا إعداداته القديمة لكل الحسابات (alerts.js)
+function effectiveFor(us: Record<string, unknown> | null, platform: string, currency: string | null, accountId: string): { target: Target; sens: Sens } {
+  return settingsChoice(us ? g.PauseProofAlerts.settingsForAccount(us, platform, currency, g.DX.pegRate, accountId) : null);
 }
 // محرك الأداة بحساسية العميل (ق٥ — قبل كده الإعدادات الافتراضية هنا وحساسية العميل في متصفحه بس، فالبريد كان بيطلع بحساسية
 // «متوازن» لعميل اختار «هادي»)، والمستهدف وحد الخسارة لو بعتهم. العاجل بس. mergeSettings في المحرك بيتحقق من حدود كل قيمة
@@ -328,7 +330,7 @@ function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Targe
 }
 // info = بيانات الحساب زي ما الأداة بتديها للمحرك (ui.js accountsMeta)
 function analyzeUrgent(source: string, info: Record<string, unknown>, cands: any[], target: Target, sens: Sens): { urgent: any[]; alive: Record<string, boolean> } {
-  const custom = Object.assign({}, sens || {}, target ? { roasTarget: target.roas, roasBreakEven: target.be } : {});
+  const custom = Object.assign({}, sens || {}, target ? { roasTarget: target.roas } : {});
   const res = g.PauseProofAlerts.analyze(cands, { [source]: info }, custom, alertFmt());
   const alive: Record<string, boolean> = {};
   res.alerts.forEach((a: any) => {
@@ -735,7 +737,7 @@ function blockHtml(b: any): string {
 // عنوان سطر الملخص من آخر نوع ظهر (last_code). المراجعة الثانية للمرحلة ٥: تنبيه الأداء على الإعلان ممكن يبقى أي نوع من عيلته
 // (والإرهاق بيعلّي مستوى «انخفاض النتائج» أو «إنفاق أعلى من المعتاد» لـ«عاجل») — كانوا بيقعوا على «توقف الإعلان» لأنهم مش هنا
 const KIND_TITLE: Record<string, string> = {
-  waste: 'al.waste3.t', 'waste-week': 'al.wasteWeek.t', 'waste-early': 'al.wasteEarly.t', loss: 'al.loss.t', 'cost-max': 'al.costMax.t', stopped: 'al.stopped.t', cpr: 'al.cpr.t', fatigue: 'al.fatigue.t',
+  waste: 'al.waste3.t', 'waste-week': 'al.wasteWeek.t', 'waste-early': 'al.wasteEarly.t', loss: 'al.lowRoas.t', 'cost-max': 'al.costMax.t', stopped: 'al.stopped.t', cpr: 'al.cpr.t', fatigue: 'al.fatigue.t',
   'waste-view': 'al.wasteView.t', 'waste-new': 'al.wasteNew.t', 'roas-drop': 'al.roasDrop.t', 'low-roas': 'al.lowRoas.t', spike: 'al.spike.t', drop: 'al.drop.t',
   'acct-status': 'al.acct.t', 'spend-cap': 'al.cap.t', 'acct-stopped': 'al.acctStopped.t', 'acct-zero': 'al.acctZero.t', 'acct-drop': 'al.acctDrop.t',
   'top-stopped': 'al.topStopped.t', 'spend-cap-near': 'al.capNear.t', 'tracking-off': 'al.trackOff.t', 'lpv-drop': 'al.lpvDrop.t',
@@ -757,7 +759,7 @@ function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: strin
     const c = m.object_id && !camp && m.object_id.indexOf('u:') !== 0 ? cands.find((x) => x.id === m.object_id) : null;
     const key = (c && c.resultKey) || 'purchase', code = m.last_code || m.kind;
     const title = m.kind === 'connection' ? (en ? 'We lost access to the account' : 'توقف وصولنا إلى الحساب')
-      : t(code === 'loss' && target && target.be > 1 ? 'al.lossBE.t' : (KIND_TITLE[code] || 'al.stopped.t'), { label: g.I18N.resultAny(key), one1: t('res1.' + key) });   // حد خسارة فوق ١ = «أقل من حد الخسارة» مش «أقل من التكلفة»
+      : t(KIND_TITLE[code] || 'al.stopped.t', { label: g.I18N.resultAny(key), one1: t('res1.' + key) });   // تنبيه العائد = «أقل من المستهدف» (حد الخسارة اتشال ٨ نوفمبر ٢٠٢٦)
     const name = !m.object_id || m.object_id.indexOf('u:') === 0 ? ''
       : (camp ? t('al.topStopped.camp', { name: camp.campaignName || '' })
         : (c ? (c.offer || c.headline || '') : (en ? 'an ad that is no longer running' : 'إعلان لم يعد يعمل')));
@@ -781,7 +783,7 @@ function summaryParts(sec: SumSection): string[] {
     // عمود رقم المنصة لو موجود (k.plat — diagnosis.js platKpis)
     parts.push('<div style="margin:0 0 20px"><table role="presentation" style="border-collapse:collapse;width:100%">' +
       o.kpis.map((k: any) => '<tr><td style="' + td + '">' + esc(k.label) + '</td><td style="' + td + ';padding-inline:8px;font-weight:700">' + esc(k.value) +
-        '</td><td style="' + td + ';' + MUTED + '">' + esc(t('dx.kpi.prev', { v: k.prev })) + '</td>' +
+        '</td><td style="' + td + ';' + MUTED + '">' + esc(t('dx.kpi.prev', { label: o.cmpLabel || t('period.cmpPrev'), v: k.prev })) + '</td>' +
         (k.plat != null ? '<td style="' + td + ';padding-inline-start:8px;' + MUTED + '">' + esc(t('dx.kpi.plat', { v: k.plat })) + '</td>' : '') + '</tr>').join('') + '</table></div>');
   }
   // الشهر بالشهر: عدد أيام الفترتين مختلف، والجملة دي بتقول إزاي الأرقام تتقري (النص المنسوخ فيه نفس السطر — DX.toText)
@@ -986,7 +988,7 @@ async function checkMetaAccount(s: Settings, a: DAcct, us: Record<string, unknow
     }
     if (!cands) { res.keep = keep; res.outcome = 'meta-retry'; return res; }
     // إعدادات المستخدم لحساب Meta ده — نفس اللي الأداة بتحكم بيه
-    const eff = effectiveFor(us, 'meta', acct.currency || null);
+    const eff = effectiveFor(us, 'meta', acct.currency || null, account);
 
     const sentRows: Mark[] = [];
     if (o.doUrgent) {
@@ -1153,7 +1155,7 @@ async function checkSnapAccount(s: Settings, a: DAcct, us: Record<string, unknow
   const info = week.account || {}, tz = info.timezone || s.timezone || 'UTC', cur = info.currency || null, cands = week.cands;
   const keep = await accessMarks(s, res, marks, t.expires_at, tz, o);
   // إعدادات المستخدم لحساب Snapchat ده — نفس اللي الأداة بتحكم بيه
-  const eff = effectiveFor(us, 'snapchat', cur);
+  const eff = effectiveFor(us, 'snapchat', cur, account);
   const sentRows: Mark[] = [];
   if (o.doUrgent) {
     await snapEdits(ctx, cands, tz);
@@ -1451,7 +1453,7 @@ export async function previewSummary(token: string, accountId: string, lang: str
       if (!win) return { error: 'window' };
       const s: Settings = { user_id: user, email: '', lang: en ? 'en' : 'ar', timezone: tz, summary_days: [0, 3], summary_hour: 9, last_summary_until: null };
       const cands = (await loadCandidates(accountId, acct)) || [];
-      const eff = effectiveFor(user ? await userSettingsOf(user) : null, 'meta', acct.currency || null);
+      const eff = effectiveFor(user ? await userSettingsOf(user) : null, 'meta', acct.currency || null, accountId);
       const sum = await buildSummary(user, accountId, acct, win.since, win.until, eff.target, cands, eff.sens);
       const alerts = alertStatusHtml(user ? await marksOf(user, 'meta', accountId) : {}, cands, win.since, tz, en, eff.target);
       const mail = summaryMail([{ platform: 'meta', account: accountId, name: acct.name || accountId, sum, alerts }], win.since, win.until, s, en, await stopUrl(user), monthly);
@@ -1477,7 +1479,7 @@ export async function preview(token: string, accountId: string, lang: string, us
       const cands = await loadCandidates(accountId, acct);
       if (!cands) return { error: 'retry' };
       // المعاينة: التعديلات الكبيرة من آخر ٢٤ ساعة (عشان تبان أمثلة)
-      const eff = effectiveFor(user ? await userSettingsOf(user) : null, 'meta', acct.currency || null);
+      const eff = effectiveFor(user ? await userSettingsOf(user) : null, 'meta', acct.currency || null, accountId);
       const urgent = (await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, eff.target, eff.sens)).urgent;
       const mail = urgentMail([{ platform: 'meta', account: accountId, name: acct.name || accountId, fresh: urgent, remind: [] }], acct.timezone_name || 'UTC', en, await stopUrl(user));
       return {

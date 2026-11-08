@@ -13,7 +13,7 @@ import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
   summaryWindow, urgentReady, windowComplete, windowKey
 } from '../sync/runner.ts';
-import { MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
+import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
@@ -309,12 +309,12 @@ Deno.test('«حُلّت» بس لما المشكلة تختفي فعلاً: «م
 });
 
 // ---------- إعدادات التنبيهات لكل حساب إعلاني (مراجعة الإعدادات ٢٤ أكتوبر) ----------
-Deno.test('إعدادات الحساب: المفاتيح المعروفة بس جوه حدودها، والمستهدف وحد الخسارة مع بعض، والتكلفة المقبولة أرقام موجبة', () => {
-  assertEquals(cleanAccountSettings({ cprWarnMultiple: 2, minSpendShare: 0.9, evil: 1, roasTarget: 5, roasBreakEven: 5,
+Deno.test('إعدادات الحساب: المفاتيح المعروفة بس جوه حدودها، والعائد المستهدف وحده، والتكلفة المقبولة أرقام موجبة', () => {
+  assertEquals(cleanAccountSettings({ cprWarnMultiple: 2, minSpendShare: 0.9, evil: 1, roasTarget: 5,
     maxCost: { lead: 30, message: -1, 'bad key!': 3 }, campaignMaxCost: { '123': 12 } }),
-    { cprWarnMultiple: 2, roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 }, campaignMaxCost: { '123': 12 } });
-  assertEquals(cleanAccountSettings({ roasTarget: 5 }), {}, 'a target alone is dropped');
-  assertEquals(cleanAccountSettings({ roasTarget: 2, roasBreakEven: 4 }), {}, 'a loss limit above the target is dropped');
+    { cprWarnMultiple: 2, roasTarget: 5, maxCost: { lead: 30 }, campaignMaxCost: { '123': 12 } });
+  assertEquals(cleanAccountSettings({ roasTarget: 5 }), { roasTarget: 5 }, 'the target alone is the whole goal now');
+  assertEquals(cleanAccountSettings({ roasTarget: 2, roasBreakEven: 4 }), { roasTarget: 2 }, 'a stored loss limit is dropped (8 Nov 2026)');
   assertEquals(cleanAccountSettings([1]), null);
 });
 Deno.test('سجل الحساب القديم: قراءة بس (للنقل لإعدادات المستخدم)، ومن غير إثبات الوصول للحساب في منصته مفيش قراءة', async () => {
@@ -324,7 +324,7 @@ Deno.test('سجل الحساب القديم: قراءة بس (للنقل لإع�
     if (url.indexOf('adsapi.snapchat.com') > -1) return snapOk ? json({ adaccounts: [{ adaccount: { id: 'aaaa-1111' } }] }) : json({ request_status: 'ERROR' }, 403);
     if (url.indexOf('/rest/v1/account_settings') > -1) {
       if (init && init.method && init.method !== 'GET') { writes++; return new Response(null, { status: 204 }); }
-      return json([{ settings: { roasTarget: 5, roasBreakEven: 5 }, updated_at: '2026-10-24T00:00:00Z' }]);
+      return json([{ settings: { roasTarget: 5, cprWarnMultiple: 2 }, updated_at: '2026-10-24T00:00:00Z' }]);
     }
     throw new Error('unexpected fetch ' + url);
   });
@@ -332,9 +332,9 @@ Deno.test('سجل الحساب القديم: قراءة بس (للنقل لإع�
     const T = 'TOKEN_abcdefghijklmnopqrstuvwxyz';
     const get = await handleSettings('settings.get', { platform: 'meta', accountId: 'act_123', platformToken: T }, null);
     assertEquals(get.status, 200);
-    assertEquals((await get.json()).settings, { roasTarget: 5, roasBreakEven: 5 });
+    assertEquals((await get.json()).settings, { roasTarget: 5, cprWarnMultiple: 2 });
     assertEquals(writes, 0, 'reading writes nothing');
-    const set = await handleSettings('settings.set', { platform: 'meta', accountId: 'act_123', platformToken: T, settings: { roasTarget: 1, roasBreakEven: 1 } }, null);
+    const set = await handleSettings('settings.set', { platform: 'meta', accountId: 'act_123', platformToken: T, settings: { roasTarget: 1 } }, null);
     assertEquals([set.status, writes], [400, 0], 'saving to the account record is gone');
     metaOk = false;
     assertEquals((await handleSettings('settings.get', { platform: 'meta', accountId: 'act_123', platformToken: T }, null)).status, 403, 'no access on Meta');
@@ -345,10 +345,17 @@ Deno.test('سجل الحساب القديم: قراءة بس (للنقل لإع�
   } finally { restoreFetch(); }
 });
 // إعدادات التنبيهات لكل مستخدم (قرار صاحب المنتج ٢٦ أكتوبر ٢٠٢٦): «كل الحسابات» ومجموعة لكل منصة اتخصّصت
-Deno.test('إعدادات المستخدم: «كل الحسابات» دايماً، والمنصات المعروفة بس، وعملة حد النوع معاه بس', () => {
-  assertEquals(cleanUserSettings({ all: { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR', evil: 1 },
-    plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 }, myspace: { roasTarget: 9, roasBreakEven: 1 }, tiktok: [1] }, asked: true, other: 1 }),
-    { all: { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR' }, plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 } }, asked: true });
+Deno.test('إعدادات المستخدم: «كل الحسابات» دايماً، والمنصات والحسابات المعروفة بس، وعملة حد النوع معاه بس', () => {
+  assertEquals(cleanUserSettings({ all: { roasTarget: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR', evil: 1 },
+    plat: { snapchat: { roasTarget: 2 }, myspace: { roasTarget: 9 }, tiktok: [1] }, asked: true, other: 1 }),
+    { all: { roasTarget: 5, maxCost: { lead: 30 }, maxCostCur: 'SAR' }, plat: { snapchat: { roasTarget: 2 } }, asked: true });
+  // إعدادات الحساب الإعلاني نفسه (٨ نوفمبر ٢٠٢٦): «منصة:رقم الحساب» بس، والباقي بيتشال
+  assertEquals(cleanUserSettings({ all: {}, acct: { 'meta:act_1': { roasTarget: 3 }, 'snapchat:aaaa-1111': { roasTarget: 4, evil: 1 },
+    'myspace:1': { roasTarget: 9 }, 'meta:act bad!': { roasTarget: 9 }, 'meta:act_2': [1], 'meta:act_3': {} } }),
+    { all: {}, acct: { 'meta:act_1': { roasTarget: 3 }, 'snapchat:aaaa-1111': { roasTarget: 4 }, 'meta:act_3': {} } },
+    'known keys and real sets only — and an empty set means the account starts fresh instead of inheriting');
+  assertEquals(cleanUserSettings({ all: {}, acct: { 'myspace:1': {} } }), { all: {} }, 'nothing usable: no acct key at all');
+  assertEquals(cleanUserSettings({ all: {}, acct: [1] }), { all: {} }, 'a bad acct map is dropped, the record is kept');
   assertEquals(cleanUserSettings({}), { all: {} }, 'empty = start values for all accounts');
   assertEquals(cleanUserSettings({ all: { maxCostCur: 'SAR' } }), { all: {} }, 'a currency without a limit is dropped');
   assertEquals(cleanUserSettings({ all: { maxCost: { lead: 30 }, maxCostCur: 'sar1' } }), { all: { maxCost: { lead: 30 } } }, 'a bad currency code is dropped');
@@ -365,14 +372,14 @@ Deno.test('إعدادات المستخدم: سجل صاحب الدخول بس �
     if (url.indexOf('/rest/v1/user_settings') > -1) {
       const method = (init && init.method) || 'GET';
       calls.push({ method, url, body: init && init.body ? JSON.parse(String(init.body)) : null });
-      if (method === 'GET') return json([{ settings: { all: { roasTarget: 5, roasBreakEven: 5 } }, updated_at: '2026-10-26T00:00:00Z', used_at: usedAt }]);
+      if (method === 'GET') return json([{ settings: { all: { roasTarget: 5 } }, updated_at: '2026-10-26T00:00:00Z', used_at: usedAt }]);
       return new Response(null, { status: 204 });
     }
     throw new Error('unexpected fetch ' + url);
   });
   try {
     const get = await handleUserSettings('usettings.get', {}, U, null);
-    assertEquals((await get.json()).settings, { all: { roasTarget: 5, roasBreakEven: 5 } });
+    assertEquals((await get.json()).settings, { all: { roasTarget: 5 } });
     assert(calls.every((c) => c.url.indexOf('user_id=eq.' + U) > -1), 'only this user record');
     assertEquals(calls.filter((c) => c.method === 'PATCH').length, 1, 'old last-use: touched (12-month retention)');
     calls.length = 0;
@@ -386,20 +393,31 @@ Deno.test('إعدادات المستخدم: سجل صاحب الدخول بس �
 });
 // مراجعة ٣١ أكتوبر («دقق جيداً»): الحفظ بالسجل كله من نسخة الجهاز كان بيمسح تعديل جهاز تاني — دلوقتي المجموعات اللي اتغيّرت بس،
 // والدمج في قاعدة البيانات وهو مقفول (user_settings_apply — اتجرّبت على Postgres نفسه)
-Deno.test('حفظ إعدادات المستخدم: المجموعات اللي اتغيّرت بس متنضّفة، وnull = إلغاء تخصيص، والمستهدف لـ«كل الحسابات» مع بعض، وأي جزء غلط = رفض الطلب كله', () => {
-  assertEquals(cleanUserWrite({ changes: { all: { roasTarget: 4, roasBreakEven: 2, evil: 1 }, snapchat: null }, asked: true }),
-    { base: null, changes: { all: { roasTarget: 4, roasBreakEven: 2 }, snapchat: null }, goals: null, asked: true });
-  assertEquals(cleanUserWrite({ goals: { roasTarget: 5, roasBreakEven: 4, cprWarnMultiple: 3 }, asked: true }),
-    { base: null, changes: {}, goals: { roasTarget: 5, roasBreakEven: 4 }, asked: true }, 'goals = the two goals only');
-  assertEquals(cleanUserWrite({ base: { all: { roasTarget: 5, roasBreakEven: 5 }, plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 } } } }),
-    { base: { all: { roasTarget: 5, roasBreakEven: 5 }, plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 } } }, changes: {}, goals: null, asked: false }, 'base alone = «create if missing»');
+Deno.test('حفظ إعدادات المستخدم: المجموعات اللي اتغيّرت بس متنضّفة، وسجل كل حساب إعلاني، وnull = مسح، وأي جزء غلط = رفض الطلب كله', () => {
+  assertEquals(cleanUserWrite({ changes: { all: { roasTarget: 4, evil: 1 }, snapchat: null }, asked: true }),
+    { base: null, changes: { all: { roasTarget: 4 }, snapchat: null }, goals: null, asked: true });
+  assertEquals(cleanUserWrite({ goals: { roasTarget: 5, cprWarnMultiple: 3 }, asked: true }),
+    { base: null, changes: {}, goals: { roasTarget: 5 }, asked: true }, 'goals = the target only');
+  assertEquals(cleanUserWrite({ base: { all: { roasTarget: 5 }, plat: { snapchat: { roasTarget: 2 } } } }),
+    { base: { all: { roasTarget: 5 }, plat: { snapchat: { roasTarget: 2 } } }, changes: {}, goals: null, asked: false }, 'base alone = «create if missing»');
+  // إعدادات الحساب الإعلاني نفسه (٨ نوفمبر ٢٠٢٦): مجموعة كاملة مكان القديمة، وnull = مسح سجل الحساب
+  assertEquals(cleanUserWrite({ changes: { acct: { 'meta:act_1': { roasTarget: 3, evil: 1 }, 'snapchat:aaaa-1111': null } } }),
+    { base: null, changes: { acct: { 'meta:act_1': { roasTarget: 3 }, 'snapchat:aaaa-1111': null } }, goals: null, asked: false });
+  assertEquals(cleanUserWrite({ changes: { acct: { 'myspace:1': { roasTarget: 3 } } } }), null, 'unknown platform in the account key');
+  assertEquals(cleanUserWrite({ changes: { acct: { 'meta:act 1': { roasTarget: 3 } } } }), null, 'a bad account id');
+  assertEquals(cleanUserWrite({ changes: { acct: { 'meta:act_1': [1] } } }), null, 'a bad set refuses the whole request');
+  assertEquals(cleanUserWrite({ changes: { acct: {} } }), null, 'an empty account map saves nothing');
+  assertEquals(cleanUserWrite({ changes: { acct: [1] } }), null);
+  const many: Record<string, unknown> = {};
+  for (let i = 0; i <= ACCT_MAX; i++) many['meta:act_' + i] = { roasTarget: 3 };
+  assertEquals(cleanUserWrite({ changes: { acct: many } }), 'too many', 'over the account cap: refused, not cut silently');
   assertEquals(cleanUserWrite({ asked: true }), { base: null, changes: {}, goals: null, asked: true });
   assertEquals(cleanUserWrite({ changes: { all: null } }), null, 'all accounts cannot be removed');
   assertEquals(cleanUserWrite({ changes: { myspace: {} } }), null, 'unknown platform');
   assertEquals(cleanUserWrite({ changes: { meta: [1] } }), null, 'a bad set refuses the whole request');
   assertEquals(cleanUserWrite({ changes: [] }), null);
-  assertEquals(cleanUserWrite({ goals: { roasTarget: 5 } }), null, 'a target alone');
-  assertEquals(cleanUserWrite({ goals: { roasTarget: 2, roasBreakEven: 4 } }), null, 'loss limit above the target');
+  assertEquals(cleanUserWrite({ goals: { cprWarnMultiple: 3 } }), null, 'goals without a target');
+  assertEquals(cleanUserWrite({ goals: { roasTarget: 0 } }), null, 'a target out of range');
   assertEquals(cleanUserWrite({ base: [1] }), null);
   assertEquals(cleanUserWrite({}), null, 'nothing to save');
   assertEquals(cleanUserWrite({ asked: 'yes' }), null);
@@ -418,18 +436,18 @@ Deno.test('حفظ إعدادات المستخدم: دالة الدمج المق�
     if (url.indexOf('/rest/v1/rpc/user_settings_apply') > -1) {
       const args = JSON.parse(String(init && init.body));
       rpcs.push(args);
-      return json({ all: { roasTarget: 4, roasBreakEven: 2 }, plat: { meta: { roasTarget: 9, roasBreakEven: 3 } }, asked: true });
+      return json({ all: { roasTarget: 4 }, acct: { 'meta:act_1': { roasTarget: 9 } }, asked: true });
     }
     throw new Error('unexpected fetch ' + url);
   });
   try {
-    const set = await handleUserSettings('usettings.set', { changes: { all: { roasTarget: 4, roasBreakEven: 2, evil: 9 } }, asked: true, userId: 'someone-else' }, U, null);
+    const set = await handleUserSettings('usettings.set', { changes: { acct: { 'meta:act_1': { roasTarget: 9, evil: 9 } } }, asked: true, userId: 'someone-else' }, U, null);
     assertEquals(set.status, 200);
-    assertEquals(rpcs[0], { p_user: U, p_base: null, p_changes: { all: { roasTarget: 4, roasBreakEven: 2 } }, p_goals: null, p_asked: true }, 'cleaned, and only for this user');
-    assertEquals((await set.json()).settings, { all: { roasTarget: 4, roasBreakEven: 2 }, plat: { meta: { roasTarget: 9, roasBreakEven: 3 } }, asked: true }, 'the whole merged record back');
+    assertEquals(rpcs[0], { p_user: U, p_base: null, p_changes: { acct: { 'meta:act_1': { roasTarget: 9 } } }, p_goals: null, p_asked: true }, 'cleaned, and only for this user');
+    assertEquals((await set.json()).settings, { all: { roasTarget: 4 }, acct: { 'meta:act_1': { roasTarget: 9 } }, asked: true }, 'the whole merged record back');
     // صفحة اتفتحت قبل ٣١ أكتوبر (السجل كله): بيتحوّل لتعديل «كل الحسابات» والمنصات اللي فيه — من غير إلغاء تخصيص مش فيه
-    await handleUserSettings('usettings.set', { settings: { all: { roasTarget: 6, roasBreakEven: 2 }, plat: { snapchat: { roasTarget: 2, roasBreakEven: 1 }, myspace: {} }, asked: true } }, U, null);
-    assertEquals(rpcs[1].p_changes, { all: { roasTarget: 6, roasBreakEven: 2 }, snapchat: { roasTarget: 2, roasBreakEven: 1 } });
+    await handleUserSettings('usettings.set', { settings: { all: { roasTarget: 6 }, plat: { snapchat: { roasTarget: 2 }, myspace: {} }, asked: true } }, U, null);
+    assertEquals(rpcs[1].p_changes, { all: { roasTarget: 6 }, snapchat: { roasTarget: 2 } });
     assertEquals(rpcs[1].p_asked, true);
     assert(!('meta' in rpcs[1].p_changes), 'Meta (customized from another device) is not removed');
     const before = rpcs.length;
@@ -524,8 +542,8 @@ Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم
 // البريد بسجل الحساب بس: من غيره حكم الربح بيستنى زي الأداة (النسخة القديمة اللي كانت مع الملخص كانت ×٣/×١ غلط — اتشاف حياً)
 Deno.test('البريد بيقرا سجل الحساب بس — من غيره أو من غير مستهدف فيه حكم الربح بيستنى زي الأداة', () => {
   assertEquals(settingsChoice(null), { target: null, sens: null });
-  const acs = { roasTarget: 5, roasBreakEven: 5, maxCost: { lead: 30 } };
-  assertEquals(settingsChoice(acs), { target: { roas: 5, be: 5 }, sens: acs });
+  const acs = { roasTarget: 5, maxCost: { lead: 30 } };
+  assertEquals(settingsChoice(acs), { target: { roas: 5 }, sens: acs });
   assertEquals(settingsChoice({ cprWarnMultiple: 2 }).target, null, 'a record without goals: profit waits');
 });
 // الملخص التلقائي لكل مستخدم (قرار صاحب المنتج ٣١ أكتوبر ٢٠٢٦: «اجعلها لكل مستخدم ملخص خاص به»): ملخصه هو بس، بحساباته (حتى ٥)،
