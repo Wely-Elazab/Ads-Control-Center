@@ -559,7 +559,7 @@ export default async function handler(req, res) {
       // بعد كده (طلب الدول) كان بيقلب الأساس للطلبات اللي بعده — فحص حي ٨ نوفمبر ٢٠٢٦: حملات الفترة بالأقرب للمتجر (٣٤ طلب = الأيام)
       // وحملات فترة المقارنة بأرقام المنصة (٣١٩ قصاد ١٠٤ في الأيام)، فـ«لماذا تغيّرت مبيعاتك؟» كان بيقارن أساسين، وnumbers قال 'platform'
       // فرقم المنصة في الملخص طلع رقم المتجر
-      let windows = STORE_WINDOWS, decided = false, basic = false;
+      let windows = STORE_WINDOWS, decided = false, basic = false, retried = false;
       const getWindowed = function (query) {
         if (decided) {
           return get(query + windows).then(function (d) {
@@ -571,7 +571,14 @@ export default async function handler(req, res) {
           return get(query + windows).then(function (d) {
             if (storeWindowsOk(d)) { decided = true; return d; }
             throw new Error('windows');
-          }).catch(function () { windows = PLATFORM_WINDOWS; return getWindowed(query); });
+          }).catch(function (e) {
+            // عطل عابر (شبكة، حد السرعة 429، خطأ خادم) مش رفض للنوافذ: محاولة تانية واحدة قبل ما الملخص كله يتقلب لأرقام المنصة
+            // (التدقيق الشامل ١١ نوفمبر ٢٠٢٦ — كان أي فشل في أول طلب بيقلب الأساس). رفض الطلب نفسه (400) أو نوافذ غير المطلوبة = زي الأول
+            const transient = !!e && e.message !== 'windows' && (!e.status || e.status === 429 || e.status >= 500);
+            if (transient && !retried) { retried = true; return pause(CHANGE_TIMING.retry).then(function () { return getWindowed(query); }); }
+            windows = PLATFORM_WINDOWS;
+            return getWindowed(query);
+          });
         }
         if (windows) return get(query + windows).then(function (d) { decided = true; return d; }, function () { windows = ''; decided = true; return get(query); });
         decided = true;

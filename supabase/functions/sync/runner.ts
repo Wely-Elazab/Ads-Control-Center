@@ -31,13 +31,13 @@ const QUIET_FROM = 23, QUIET_UNTIL = 7;   // مفيش رسائل بالليل ب
 const REMIND_AFTER_MS = 48 * 3600000;     // تذكير واحد بس، لو المشكلة استمرت يومين بعد أول رسالة
 const RESOLVE_AFTER_MS = 24 * 3600000;    // «اتحلّت» = مظهرتش ٢٤ ساعة كاملة (اختفاء ساعة ورجوع = نفس المشكلة)
 const EXPIRY_WARN_MS = 5 * 86400000;      // صلاحية Meta هتخلص خلال ٥ أيام → رسالة واحدة تطلب فتح الأداة
-const TIME_BUDGET_MS = 110000;            // حد الدالة ١٥٠ ثانية — منبدأش حساب بعد كده، والباقي في التشغيل الجاي (بعد ١٠ دقايق)
 // مهلة لكل طلب Meta، ونهاية للتشغيل كله (مراجعة المرحلة ٢، ١٧ أكتوبر — Google SRE، فصل ٢٢: «Deadlines» و«Queries of death»).
 // من غيرهم طلب واحد معلّق كان بيخلّي Supabase تقطع التشغيل كله عند ١٥٠ ثانية من غير «نبض»، ولو نفس الحساب علّق كل مرة
 // كان هيفضل أول القايمة (checked_at مبيتسجّلش) فيوقف رسايل كل الحسابات. الطلب اللي مهلته خلصت بيفشل زي عطل الشبكة = «حاول تاني»
 const GRAPH_TIMEOUT_MS = 40000;            // الطلب العادي ثواني (قياس ١٢ أكتوبر): ٤٠ هامش واسع عشان الحسابات التقيلة متفشلش، ونهاية التشغيل هي الحماية
 const RUN_DEADLINE_MS = 140000;           // ١٠ ثواني قبل حد الدالة لتسجيل اللي حصل و«النبض»
-const URGENT_EVERY_MS = 50 * 60000;       // الفحص العاجل مرة في الساعة تقريباً لكل حساب (التشغيل نفسه كل ١٠ دقايق)
+const URGENT_EVERY_MS = 50 * 60000;       // الفحص العاجل مرة في الساعة تقريباً لكل حساب (التشغيل نفسه كل دقيقتين)
+const EDITS_LOOKBACK_MS = 24 * 3600000;   // سجل التعديلات بيتقري من آخر قراءة ناجحة ليه (edits_at)، وبحد أقصى ٢٤ ساعة لورا
 const SYSTEM_KINDS: Record<string, boolean> = { connection: true, expiry: true };
 
 // ---------- عيلة البصمة (المراجعة الثانية للمرحلة ٥) ----------
@@ -286,7 +286,7 @@ async function costLine(accountId: string, cands: any[] | null, since: string, u
   return g.DX.costVsMax(ads, s, g.fmtRange(since, until));
 }
 
-// المستهدف وحد الخسارة (null = مش محددين: الملخص من غير سطر الهدف، وحكم الربح في التنبيهات بيستنى — زي الأداة)، وباقي الإعدادات
+// العائد المستهدف (null = مش محدد: الملخص من غير سطر الهدف، وحكم الربح في التنبيهات بيستنى — زي الأداة)، وباقي الإعدادات
 type Target = { roas: number } | null;
 type Sens = Record<string, unknown> | null;
 // إعدادات المستخدم (settings.ts — «لكل مستخدم» من ٢٦ أكتوبر ٢٠٢٦، والملخص نفسه لكل مستخدم من ٣١ أكتوبر): إعداداته لكل حساب بنفس دالة
@@ -304,7 +304,7 @@ async function userSettingsOf(user: string): Promise<Record<string, unknown> | n
   const row = await firstRow('user_settings?select=settings&user_id=eq.' + user);
   return objectOrNull(row && row.settings);
 }
-// من غير مستهدف وحد خسارة حكم الربح بيستنى في البريد زي الأداة بالظبط (قرار صاحب المنتج). النسخة القديمة اللي كانت بتتحفظ مع
+// من غير عائد مستهدف حكم الربح بيستنى في البريد زي الأداة بالظبط (قرار صاحب المنتج). النسخة القديمة اللي كانت بتتحفظ مع
 // الملخص (digest_settings) مبقتش بتتقري: كانت من آخر متصفح فتح الأداة (اتشاف حياً ٢٤ أكتوبر)
 export function settingsChoice(acs: Record<string, unknown> | null): { target: Target; sens: Sens } {
   if (!acs) return { target: null, sens: null };
@@ -317,7 +317,7 @@ function effectiveFor(us: Record<string, unknown> | null, platform: string, curr
   return settingsChoice(us ? g.PauseProofAlerts.settingsForAccount(us, platform, currency, g.DX.pegRate, accountId) : null);
 }
 // محرك الأداة بحساسية العميل (ق٥ — قبل كده الإعدادات الافتراضية هنا وحساسية العميل في متصفحه بس، فالبريد كان بيطلع بحساسية
-// «متوازن» لعميل اختار «هادي»)، والمستهدف وحد الخسارة لو بعتهم. العاجل بس. mergeSettings في المحرك بيتحقق من حدود كل قيمة
+// «متوازن» لعميل اختار «هادي»)، والعائد المستهدف لو حدده. العاجل بس. mergeSettings في المحرك بيتحقق من حدود كل قيمة
 // alive = مفاتيح (العيلة|العنصر) للتنبيهات «المهمة» — مبتتبعتش، بس بتقول إن المشكلة لسه قائمة (resolveNow)
 function alertKey(a: any): string { return familyOf(String(a.code || 'other')) + '|' + String(a.adId || a.objectId || ''); }
 function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Target, sens: Sens = null): { urgent: any[]; alive: Record<string, boolean> } {
@@ -403,12 +403,28 @@ function linkAllowed(u: URL): boolean {
   return (u.protocol === 'https:' || u.protocol === 'http:') && h.indexOf('.') > 0 && !/^[\d.]+$/.test(h) && h.indexOf(':') < 0 &&
     !/(^|\.)(localhost|local|internal|lan|home|corp)$/.test(h);
 }
-async function probe(url: string): Promise<{ status: number; blocked: boolean }> {
+// التحويلات بنتبعها بنفسنا، وكل قفزة بتتراجع بنفس linkAllowed (OWASP SSRF Prevention Cheat Sheet — التدقيق الشامل ١١ نوفمبر ٢٠٢٦):
+// كان fetch بيتبعها لوحده، فرابط إعلان مسموح يقدر يحوّل لعنوان IP أو اسم داخلي والدالة تفتحه. قفزة لعنوان مش مسموح = مش عطل
+// (منقولش «معطّل» على حاجة مفتحناهاش)، وأكتر من LINK_HOPS قفزات = عدم استجابة. المهلة للقفزات كلها مع بعض
+const LINK_HOPS = 10;
+export async function probe(url: string): Promise<{ status: number; blocked: boolean }> {
   try {
-    const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(LINK_TIMEOUT_MS), headers: { 'user-agent': LINK_UA, 'accept': 'text/html,*/*' } });
-    try { await r.body?.cancel(); } catch (_) { /* مش مهم */ }
-    const blocked = !!r.headers.get('cf-mitigated') || (r.status === 503 && /cloudflare/i.test(r.headers.get('server') || ''));
-    return { status: r.status, blocked };
+    const deadline = AbortSignal.timeout(LINK_TIMEOUT_MS);
+    let at = url;
+    for (let hop = 0; hop <= LINK_HOPS; hop++) {
+      const r = await fetch(at, { redirect: 'manual', signal: deadline, headers: { 'user-agent': LINK_UA, 'accept': 'text/html,*/*' } });
+      try { await r.body?.cancel(); } catch (_) { /* مش مهم */ }
+      const to = r.status >= 300 && r.status < 400 ? r.headers.get('location') : null;
+      if (!to) {
+        const blocked = !!r.headers.get('cf-mitigated') || (r.status === 503 && /cloudflare/i.test(r.headers.get('server') || ''));
+        return { status: r.status, blocked };
+      }
+      let next: URL;
+      try { next = new URL(to, at); } catch (_) { return { status: r.status, blocked: true }; }
+      if (!linkAllowed(next)) return { status: r.status, blocked: true };
+      at = next.href;
+    }
+    return { status: 0, blocked: false };
   } catch (_) {
     return { status: 0, blocked: false };
   }
@@ -516,8 +532,11 @@ function dateText(iso: string, tz: string, en: boolean): string {
   return en ? months[month - 1] + ' ' + day : g.ar(day) + ' ' + months[month - 1];
 }
 // فكّ الهروب بالعكس: الأمبرساند آخر واحد، وإلا «&amp;lt;» اللي أصلها نص مكتوب بترجع «<». لازم يطابق esc في lib.ts
+// رابط الأداة بيتكتب جنب اسمها («Ads Center (https://…)»): الوسوم كلها بتتشال، فالنسخة النصية كانت بتقول «التفاصيل الكاملة في Ads Center»
+// من غير أي عنوان (التدقيق الشامل ١١ نوفمبر ٢٠٢٦). رابط الإيقاف بيتكتب في آخر الرسالة زي الأول
+const APP_LINK = new RegExp('<a href="(' + SITE.replace(/\./g, '\\.') + '/app[^"]*)">([^<]*)</a>', 'g');
 function plain(title: string, lines: string[]): string {
-  return title + '\n\n' + lines.map((l) => l.replace(/<[^>]+>/g, '')
+  return title + '\n\n' + lines.map((l) => l.replace(APP_LINK, '$2 ($1)').replace(/<[^>]+>/g, '')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')).join('\n\n');
 }
 function alertBox(a: any, note: string | null): string {
@@ -712,7 +731,7 @@ async function buildSummary(user: string, accountId: string, acct: Acct, since: 
   input.currency = acct.currency || null;
   input.timezone = tz;
   input.feedback = await feedbackOf(user, accountId);
-  // سطر «العائد أعلى/أقل من المستهدف» زي اللي في الأداة — بس لو العميل بعت المستهدف وحد الخسارة. plat = رقم Meta نفسه جنب كل رقم
+  // سطر «العائد أعلى/أقل من المستهدف» زي اللي في الأداة — بس لو العميل حدد العائد المستهدف. plat = رقم Meta نفسه جنب كل رقم
   // (diagnosis.js platTotals — «٣ أرقام في كل الأداة»، ٧ نوفمبر ٢٠٢٦: البريد زي الأداة)
   const plat = typeof g.DX.platTotals === 'function' ? g.DX.platTotals(input, 'meta') : null;
   const composed = g.DX.compose(g.DX.analyze(input), { mail: true, target, plat });
@@ -903,14 +922,21 @@ export function needsAttention(sec: { sum: { composed: { tone?: string } } }): b
 type Settings = { user_id: string; email: string; lang: string; timezone: string; summary_days: number[]; summary_hour: number; last_summary_until: string | null;
   last_monthly?: string | null; summary_pending?: string | null; summary_pending_at?: string | null; monthly_pending?: string | null; monthly_pending_at?: string | null };
 type DAcct = { user_id: string; platform: string; account_id: string; name?: string | null; checked_at: string | null; claimed_until?: string | null;
-  need_summary?: string | null; need_monthly?: string | null; urgent_due?: boolean };
+  need_summary?: string | null; need_monthly?: string | null; urgent_due?: boolean; edits_at?: string | null };
+// التعديلات تتقري من إمتى؟ من آخر قراءة ناجحة لسجل التعديلات (edits_at — ولو لسه مفيش: آخر فحص)، وبحد أقصى EDITS_LOOKBACK_MS لورا؛
+// أول فحص خالص: آخر ساعتين. التدقيق الشامل ١١ نوفمبر ٢٠٢٦: كانت من «آخر فحص» (checked_at)، والفحص اللي فشل مؤقتاً — أو نجح وسجل
+// التعديلات نفسه مرجعش — بيحرّك checked_at، فالتعديلات اللي قبله مكانتش بتتقيّم أبداً («تعديل كبير» بيضيع من البريد)
+export function editsSince(a: { edits_at?: string | null; checked_at: string | null }, now: number): number {
+  const last = Date.parse(a.edits_at || a.checked_at || '');
+  return isFinite(last) ? Math.max(last, now - EDITS_LOOKBACK_MS) : now - 2 * 3600000;
+}
 const RUN_CANDS = new Map<string, any[]>();
 // نتايج «حاول تاني» (عطل مؤقت): الحساب بيرجع بعد RETRY_AFTER_MS، وقسم ملخصه بيستناه
 const RETRY_OUTCOMES: Record<string, boolean> = { 'meta-retry': true, 'snap-retry': true, error: true };
 
 // summaryRetry = قسم ملخص فشل بناؤه (والفحص العاجل نفسه تم): القسم بيستنى المحاولة الجاية، والتنبيهات اللي اتلاقت بتتبعت عادي
 type AcctResult = { platform: string; account: string; name: string; outcome: string; section: Section | null; keep: Mark[]; sentRows: Mark[];
-  summary: SumSection | null; monthly: SumSection | null; summaryRetry?: boolean; ongoing?: Ongoing[] };
+  summary: SumSection | null; monthly: SumSection | null; summaryRetry?: boolean; ongoing?: Ongoing[]; editsAt?: string };
 type CheckOpts = { doUrgent: boolean; due: { since: string; until: string } | null; monthly: { since: string; until: string } | null; stop: string };
 function blankResult(platform: string, account: string, name: string): AcctResult {
   return { platform, account, name, outcome: 'error', section: null, keep: [], sentRows: [], summary: null, monthly: null };
@@ -1025,6 +1051,15 @@ async function checkMetaAccount(s: Settings, a: DAcct, us: Record<string, unknow
     }
     res.name = acct.name || account;
     const keep = await accessMarks(s, res, marks, t.expires_at, acct.timezone_name || tz, o);
+    // مفيش فحص عاجل، وكل أقسام الملخص المطلوبة آخر يوم فيها لسه مخلصش بتوقيت الحساب: مفيش حاجة تتعمل دلوقتي، فالقسم بيستنى من غير
+    // ما الإعلانات تتحمّل (كانت بتتحمّل كاملة كل ١٠ دقايق وبعدها الشرط يتفحص في summarySections — طلبات مهدرة من حد Meta المشترك)
+    const tzA = acct.timezone_name || tz;
+    if (!o.doUrgent && (o.due || o.monthly) && [o.due, o.monthly].every((w) => !w || !windowComplete(w, tzA))) {
+      res.keep = keep;
+      res.summaryRetry = true;
+      res.outcome = 'ok';
+      return res;
+    }
 
     let cands = RUN_CANDS.get(account) || null;
     if (!cands) {
@@ -1037,9 +1072,11 @@ async function checkMetaAccount(s: Settings, a: DAcct, us: Record<string, unknow
 
     const sentRows: Mark[] = [];
     if (o.doUrgent) {
-      // التعديلات من آخر فحص (أو آخر ساعتين لأول فحص)
-      const editsSince = a.checked_at ? Date.parse(a.checked_at) : Date.now() - 2 * 3600000;
-      urgentPass(res, await allUrgent(account, acct, cands, editsSince, eff.target, eff.sens), marks, keep, sentRows);
+      // التعديلات من آخر قراءة ناجحة لسجل التعديلات (editsSince فوق). العلامة بتتحرك لوقت بداية الفحص ده بس لو السجل اتقرا فعلاً
+      const startedAt = Date.now();
+      const all = await allUrgent(account, acct, cands, editsSince(a, startedAt), eff.target, eff.sens);
+      if (!all.failed.edits) res.editsAt = new Date(startedAt).toISOString();
+      urgentPass(res, all, marks, keep, sentRows);
     }
     res.keep = keep;
     res.sentRows = sentRows;
@@ -1227,6 +1264,7 @@ const CLAIM_UNTIL_MS = 90000;                 // منحجزش حساب جديد 
 const RETRY_AFTER_MS = 10 * 60000;            // عطل مؤقت: الحساب يرجع بعد ١٠ دقايق مش في التشغيل الجاي على طول
 const URGENT_WAIT_MS = 15 * 60000;            // العاجل بيستنى باقي حسابات المستخدم بحد أقصى ربع ساعة
 const SUMMARY_PARTIAL_AFTER_MS = 3 * 3600000; // الملخص بيستنى الأقسام ٣ ساعات، وبعدها بيتبعت بالموجود وأسماء اللي متقريتش
+const SUMMARY_GIVEUP_MS = 24 * 3600000;       // من غير ولا قسم مقروء (عطل مؤقت): بيستنى لحد هنا، وبعدها الفترة بتتقفل من غير ما تتسجّل «اتبعتت»
 const META_APP_STOP_PCT = 75;                 // استهلاك حد Meta للتطبيق كله: من هنا باقي حسابات Meta في تشغيلات جاية
 const RUN_PLATFORM_LIST = ['meta', 'snapchat'];
 
@@ -1339,7 +1377,10 @@ async function runJob(a: DAcct, s: Settings, ctx: RunCtx): Promise<string> {
     if (sec) { await outbox(user, a, kind, need, sec, null); patch['need_' + kind] = null; }
     else if (lost) { await outbox(user, a, kind, need, { missing: true, name: r.name }, null); patch['need_' + kind] = null; }
   }
-  await db('user_digest_accounts?user_id=eq.' + user + '&platform=eq.' + a.platform + '&account_id=eq.' + encodeURIComponent(a.account_id), patchJson(patch));
+  const acctPath = 'user_digest_accounts?user_id=eq.' + user + '&platform=eq.' + a.platform + '&account_id=eq.' + encodeURIComponent(a.account_id);
+  await db(acctPath, patchJson(patch));
+  // علامة سجل التعديلات لوحدها وبعد التحديث الأساسي: لو العمود لسه مش موجود (الدالة اتنشرت قبل قاعدة البيانات) الحجز بيتفك عادي
+  if (r.outcome === 'ok' && r.editsAt) await db(acctPath, patchJson({ edits_at: r.editsAt })).catch(() => {});
   return r.outcome;
 }
 
@@ -1381,13 +1422,15 @@ async function sendSummary(s: Settings, kind: 'summary' | 'monthly', accts: DAcc
     '&or=(sending_until.is.null,sending_until.lt."' + nowIso + '")', { method: 'PATCH', headers: { 'prefer': 'return=representation' },
     body: JSON.stringify({ sending_until: new Date(Date.now() + 5 * 60000).toISOString() }) });
   if (!(((await claim.json()) as any[]) || []).length) return null;
-  const done = async (sentOk: boolean) => {
+  // drop = الفترة بتتقفل من غير ما تتسجّل «اتبعتت» (ولا قسم اتقرا لحد SUMMARY_GIVEUP_MS): الملخص الجاي بيبدأ من آخر ملخص اتبعت فعلاً
+  const done = async (sentOk: boolean, drop = false) => {
+    const close = sentOk || !win || drop;
     // الإرسال فشل (خدمة البريد واقعة): المحاولة الجاية بعد ١٠ دقايق مش كل تشغيل
-    const patch: Record<string, unknown> = { sending_until: sentOk || !win ? null : new Date(Date.now() + 10 * 60000).toISOString() };
-    if (sentOk || !win) {
+    const patch: Record<string, unknown> = { sending_until: close ? null : new Date(Date.now() + 10 * 60000).toISOString() };
+    if (close) {
       patch[kind + '_pending'] = null;
       patch[kind + '_pending_at'] = null;
-      if (win) patch[kind === 'summary' ? 'last_summary_until' : 'last_monthly'] = kind === 'summary' ? win.until : key;
+      if (win && !drop) patch[kind === 'summary' ? 'last_summary_until' : 'last_monthly'] = kind === 'summary' ? win.until : key;
       await db('digest_outbox?user_id=eq.' + user + '&kind=eq.' + kind + '&period=eq.' + encodeURIComponent(key), { method: 'DELETE' });
       await db('user_digest_accounts?user_id=eq.' + user + '&need_' + kind + '=eq.' + encodeURIComponent(key), patchJson({ ['need_' + kind]: null }));
     }
@@ -1400,10 +1443,25 @@ async function sendSummary(s: Settings, kind: 'summary' | 'monthly', accts: DAcc
   rows.sort((x, y) => order(x) - order(y));
   const secs = rows.filter((x) => x.payload && !x.payload.missing).map((x) => x.payload as SumSection);
   const missing = rows.filter((x) => x.payload && x.payload.missing).map((x) => String(x.payload.name || x.account_id));
+  // مفيش ولا قسم مقروء:
+  //  - وحسابات لسه مستنية (عطل مؤقت في المنصة أو عندنا): بنستنى لحد SUMMARY_GIVEUP_MS، وبعدها الفترة بتتقفل من غير ما تتسجّل «اتبعتت»
+  //    فالملخص الجاي بيغطي أيامها. التدقيق الشامل ١١ نوفمبر ٢٠٢٦: كانت بتتسجّل «اتبعتت» بعد ٣ ساعات من غير أي رسالة، وأيامها مبتظهرش
+  //    في أي ملخص بعد كده — وده بيحصل كمان في أول تشغيل بعد أي انقطاع أطول من ٣ ساعات (الإرسال بيشتغل قبل فحص الحسابات)
+  //  - والحسابات كلها الوصول ليها ضاع (رسائل «توقف وصولنا» اتبعتت لكل حساب): الفترة بتتقفل من غير رسالة فاضية زي الأول
+  if (!secs.length) {
+    if (waiting.length) {
+      if (!(pendingAt && Date.now() - Date.parse(pendingAt) >= SUMMARY_GIVEUP_MS)) {
+        await db('user_digests?user_id=eq.' + user, patchJson({ sending_until: null }));
+        return kind + '-waiting';
+      }
+      await done(false, true);
+      return kind + '-dropped';
+    }
+    await done(true);
+    return kind + '-empty';
+  }
   // اللي لسه متقريش بعد ٣ ساعات: باسمه (Meta من ad_accounts، والباقي اللي اتحفظ مع الحساب)
   for (const a of waiting) missing.push((a.platform === 'meta' ? await accountName(a.account_id) : a.name) || a.account_id);
-  // مفيش ولا قسم (الحسابات كلها الوصول ليها ضاع — رسائل «توقف وصولنا» اتبعتت لكل حساب): الفترة بتتقفل من غير رسالة فاضية
-  if (!secs.length) { await done(true); return kind + '-empty'; }
   const en = s.lang === 'en';
   g.I18N.setLang(en ? 'en' : 'ar');
   const stop = ctx.stop[user] || (ctx.stop[user] = await stopUrl(user));
@@ -1432,8 +1490,16 @@ export async function assemble(users: Settings[], ensureEngine: () => Promise<vo
         if (!key) continue;
         // لسه فيه أقسام مستنية والوقت مخلصش — من غير المحرك ولا أي طلب زيادة
         const at = kind === 'summary' ? s.summary_pending_at : s.monthly_pending_at;
-        if (accts.some((a) => (kind === 'summary' ? a.need_summary : a.need_monthly) === key) &&
-          !(at && Date.now() - Date.parse(at) >= SUMMARY_PARTIAL_AFTER_MS)) { results.push(kind + '-waiting'); continue; }
+        const age = at ? Date.now() - Date.parse(at) : 0;
+        const waitingNow = accts.some((a) => (kind === 'summary' ? a.need_summary : a.need_monthly) === key);
+        if (waitingNow && !(age >= SUMMARY_PARTIAL_AFTER_MS)) { results.push(kind + '-waiting'); continue; }
+        // بعد ٣ ساعات ولسه مفيش ولا قسم مقروء (عطل مؤقت — الحسابات لسه بتتعاد): بنستنى لحد SUMMARY_GIVEUP_MS بدل ما الفترة تتقفل من
+        // غير رسالة (sendSummary). سؤال واحد لقاعدة البيانات، من غير المحرك
+        if (waitingNow && !(age >= SUMMARY_GIVEUP_MS)) {
+          const got = await db('digest_outbox?select=payload&user_id=eq.' + s.user_id + '&kind=eq.' + kind + '&period=eq.' + encodeURIComponent(key), { method: 'GET' });
+          const have = ((await got.json()) as any[]) || [];
+          if (!have.some((x) => x.payload && !x.payload.missing)) { results.push(kind + '-waiting'); continue; }
+        }
         await ensureEngine();
         results.push(await exclusive(() => sendSummary(s, kind, accts, ctx)));
       }

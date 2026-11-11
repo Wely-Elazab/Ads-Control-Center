@@ -18,16 +18,16 @@
 // سجل الحساب الإعلاني القديم (account_settings — من ٢٤ أكتوبر لحد التحديث ده) بيتقري بس (settings.get): الأداة بتنقله مرة واحدة
 // لإعدادات المستخدم، والبريد بيرجعله لو الملخص لسه مالوش صاحب. نفس شرطه القديم: مفتاح المنصة بيثبت إن صاحبه شايف الحساب
 //   settings.get ← { platform, accountId, platformToken }  → { settings | null }
-import { META_ID, db, rpc, reply, metaAccount } from './lib.ts';
+import { META_ID, UUID_SHAPE, USER_ID, db, rpc, reply, metaAccount } from './lib.ts';
 
 const SNAP_API = 'https://adsapi.snapchat.com/v1';
-const SNAP_ID = /^[A-Za-z0-9-]{1,64}$/;
+const SNAP_ID = new RegExp('^' + UUID_SHAPE + '$', 'i');   // نفس digest.ts — رقم حساب Snapchat معرّف UUID
 const PLATFORM_TOKEN = /^[A-Za-z0-9._~+\/=|-]{20,4096}$/;
 const CURRENCY = /^[A-Z]{3}$/;
 
 // نفس حدود محرك الأداة (alerts.js SETTINGS_META — النسب ٠–١). المحرك نفسه بيتحقق تاني وقت الاستخدام (mergeSettings)
 const SCALAR: Record<string, [number, number]> = {
-  learningDays: [0, 30], minSpendShare: [0, 0.5], cprWarnMultiple: [1, 20], cprCriticalMultiple: [1, 20],
+  learningDays: [0, 30], minSpendShare: [0, 0.5], cprWarnMultiple: [1, 20],
   lowDeliveryRatio: [0.01, 1], spikeMultiple: [1.1, 20], frequencyHigh: [1, 50], accountSpikeMultiple: [1.1, 20],
   accountDropRatio: [0.01, 1], roasTarget: [0.1, 50]
 };
@@ -190,7 +190,7 @@ export function cleanUserWrite(body: any): UserWrite | 'too many' | null {
 }
 
 export async function handleUserSettings(action: string, body: any, userId: string, origin: string | null): Promise<Response> {
-  if (!/^[0-9a-f-]{36}$/.test(userId)) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
+  if (typeof userId !== 'string' || !USER_ID.test(userId)) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
   const where = 'user_settings?user_id=eq.' + userId;
   const now = new Date().toISOString();
   if (action === 'usettings.get') {

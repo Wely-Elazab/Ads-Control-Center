@@ -15,7 +15,7 @@
 // فيسبوك مبيبعتش إشعار بدعوة المختبِر (ومفيش طريقة نخليه يبعت)، والرابط بيفتح صفحة الدعوات على الكمبيوتر بس —
 // على الموبايل بيفتح إعدادات عامة، فرسالة التفعيل فيها خطوات الموبايل من جوه تطبيق فيسبوك (اتجرّب ١ أكتوبر ٢٠٢٦)
 
-import { META_APP_ID, SITE, MAIL_REPLY_TO, db, reply, esc, sendEmail, mailHtml, stripHidden } from './lib.ts';
+import { META_APP_ID, SITE, MAIL_REPLY_TO, db, rpc, reply, esc, sendEmail, mailHtml, stripHidden } from './lib.ts';
 import { linkSig, sameString, cleanEmail } from './digest.ts';
 
 // نسخة الشروط وسياسة الخصوصية اللي وافق عليها مقدّم الطلب — ٢٥ أكتوبر ٢٠٢٦: سجل التنبيهات العاجلة (episodes.ts)، و٢٦ أكتوبر: بريد Snapchat
@@ -28,6 +28,9 @@ const ROLES: Record<string, string> = {
   owner_self: 'صاحب متجر يدير إعلاناته بنفسه', owner_managed: 'صاحب متجر يدير إعلاناته مسؤول إعلانات أو وكالة'
 };
 const HOURLY_MAX = 30;                 // أكتر من كده في الساعة = حد بيغرقنا — بنرفض لحد ما الساعة تعدّي
+// سقف يومي لرسائل الإدارة اللي النموذج العام بيطلّعها — إشعارات الطلبات والتذكيرات معاً (التدقيق الشامل ١١ نوفمبر ٢٠٢٦): النموذج من غير
+// دخول، و٣٠ طلب في الساعة = مئات الرسائل في اليوم، تكفي لاستنزاف حصة خدمة البريد فتقف رموز الدخول والتنبيهات العاجلة عند كل المستخدمين
+const JOIN_MAIL_DAILY = 40;
 const MIN_FILL_MS = 2500;              // أسرع من كده = برنامج مش إنسان: بنرد «تم» من غير ما نحفظ
 const REPEAT_QUIET_MS = 10 * 60000;    // نفس البريد بعت تاني خلال ١٠ دقايق: بنحدّث الطلب من غير إشعار جديد
 const PROMISE_MS = 24 * 3600000;       // الوعد في صفحة الطلب: التفعيل خلال ٢٤ ساعة من إرساله
@@ -236,6 +239,25 @@ function activationMail(r: Req) {
 }
 
 // ---------- العمليات ----------
+// لسه فيه مكان في سقف اليوم؟ (mail_budget_take — عدّاد ذرّي في قاعدة البيانات). الطلب نفسه بيتحفظ دايماً؛ لما السقف يتوصل بتتبعت رسالة
+// واحدة تقول كده (الطلبات في الجدول). فشل العدّاد نفسه = نبعت زي الأول (منخسرش إشعار طلب حقيقي بسبب عطل عندنا)
+async function joinMailAllowed(): Promise<boolean> {
+  let ok: unknown;
+  try { ok = await rpc('mail_budget_take', { p_kind: 'join', p_max: JOIN_MAIL_DAILY }); } catch (_) { return true; }
+  if (ok !== false) return true;
+  try {
+    if ((await rpc('mail_budget_take', { p_kind: 'join-capped', p_max: 1 })) === true) {
+      const subject = 'طلبات الانضمام: توقفت رسائل اليوم عند ' + JOIN_MAIL_DAILY;
+      const line = 'وصل عدد إشعارات طلبات الانضمام وتذكيراتها اليوم إلى ' + JOIN_MAIL_DAILY + '، فتوقفت حتى الغد حتى لا تُستنزف حصة البريد ' +
+        '(رموز الدخول والتنبيهات العاجلة). الطلبات الجديدة محفوظة في جدول pilot_requests، فراجعها من هناك.';
+      await sendEmail(MAIL_REPLY_TO, subject, mailHtml(esc(subject), [esc(line)]), subject + '\n\n' + line);
+    }
+  } catch (e) {
+    console.error('join cap notice failed', String((e as Error).message || e).slice(0, 160));
+  }
+  return false;
+}
+
 export async function handleJoin(action: string, body: any, origin: string | null): Promise<Response> {
   if (action === 'join') return await submit(body, origin);
 
@@ -302,7 +324,7 @@ async function submit(b: any, origin: string | null): Promise<Response> {
     row = (await r.json())[0];
   }
   // الطلب اتحفظ: لو الإشعار فشل منقولش للعميل إن طلبه فشل (هنلاقيه في الجدول — supabase/README.md)، بنسجّل السبب بس
-  if (!prev || Date.now() - Date.parse(prev.updated_at) >= REPEAT_QUIET_MS) {
+  if ((!prev || Date.now() - Date.parse(prev.updated_at) >= REPEAT_QUIET_MS) && (await joinMailAllowed())) {
     try {
       const mail = await adminMail(row, !!prev);
       await sendEmail(MAIL_REPLY_TO, mail.subject, mail.html, mail.text, email);
@@ -323,6 +345,8 @@ export async function joinReminders(): Promise<number> {
     '&created_at=gte.' + encodeURIComponent(oldest) + '&order=created_at.asc&limit=20', { method: 'GET' })).json();
   let sent = 0;
   for (const r of (Array.isArray(rows) ? rows : []) as Req[]) {
+    // سقف اليوم اتوصل: الباقي في تشغيل بكرة (الطلبات لسه من غير تذكير، فهتتاخد تاني)
+    if (!(await joinMailAllowed())) break;
     const claim = await (await db('pilot_requests?id=eq.' + r.id + '&reminded_at=is.null', { method: 'PATCH',
       headers: { 'prefer': 'return=representation' }, body: JSON.stringify({ reminded_at: new Date().toISOString() }) })).json();
     if (!Array.isArray(claim) || !claim.length) continue;

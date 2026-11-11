@@ -5,6 +5,11 @@ export const ORIGINS = ['https://adscenter.online'];
 export const GRAPH = 'https://graph.facebook.com/v26.0';
 export const META_APP_ID = '2950488078638871';   // نفس js/meta.js — رقم التطبيق عام، السر بس اللي في Secrets
 export const META_ID = /^act_\d{1,30}$/;
+// شكل معرّف UUID بالظبط: ٨-٤-٤-٤-١٢ بالشرطات في أماكنها (مراجعة ١ نوفمبر ٢٠٢٦، ح٣ — المتساهل القديم /^[0-9a-f-]{36}$/ كان بيقبل
+// ٣٦ شرطة ورا بعض). هنا عشان كل الملفات تستعمل نفس الشكل (التدقيق الشامل ١١ نوفمبر ٢٠٢٦: episodes.ts وsettings.ts كانوا لسه
+// بالمتساهل، ورقم حساب Snapchat بتعريفين). نفس الشكل اللي في Live/api/_input.js
+export const UUID_SHAPE = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+export const USER_ID = new RegExp('^' + UUID_SHAPE + '$', 'i');
 export const TOKEN = /^[A-Za-z0-9._|-]{20,2048}$/;
 export const SITE = 'https://adscenter.online';
 

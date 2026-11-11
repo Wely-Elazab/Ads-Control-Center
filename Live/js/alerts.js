@@ -1353,7 +1353,10 @@
           var raiseTxt = '';
           if (lastRaise) {
             var ago = TODAY - lastRaise.idx, le = lastRaise.e;
-            raiseTxt = t('al.acctSpike.edit', { what: t('edit.budget.up', { lvl: t('edit.lvl.' + le.level), from: fmt.money(le.from / unitOf(cur), cur), to: fmt.money(le.to / unitOf(cur), cur) }),
+            // الوحدة زي editText (وسم الكارت): Meta بأصغر وحدة في العملة، وسناب شات بالمايكرو (le.unit) — من غيرها مبلغ سناب شات كان
+            // بيتقسم على ١٠٠ ويطلع ×١٠٬٠٠٠ (التدقيق الشامل ١١ نوفمبر ٢٠٢٦)
+            var lu = le.unit || unitOf(cur);
+            raiseTxt = t('al.acctSpike.edit', { what: t('edit.budget.up', { lvl: t('edit.lvl.' + le.level), from: fmt.money(le.from / lu, cur), to: fmt.money(le.to / lu, cur) }),
               when: ago === 0 ? t('edit.when.0') : (ago === 1 ? t('edit.when.1') : t('edit.when.n', { days: daysText(ago, fmt) })) });
           }
           alerts.push(makeIssue('warning', ['account'], t('al.acctSpike.t'),

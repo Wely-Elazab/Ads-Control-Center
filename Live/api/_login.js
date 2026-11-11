@@ -12,7 +12,8 @@ export const PUBLISHABLE_KEY = 'sb_publishable_rrAe735nWhuBQRJxt7lxiw_4DP37wo0';
 const ISSUER = PROJECT + '/auth/v1';
 const OK_TTL_MS = 5 * 60000;
 
-let keysP = null, keysAt = 0;
+let keysP = null, keysAt = 0, forcedAt = 0;
+const FORCE_GAP_MS = 60000;   // جلب مفاتيح التوقيع بالقوة (رقم مفتاح مش معروف) مرة في الدقيقة بالكتير
 const okUntil = new Map();
 
 function b64url(s) {
@@ -50,7 +51,12 @@ export async function verifyJwt(token) {
   } catch (e) { return null; }
   if (!header || header.alg !== 'ES256' || !header.kid) return null;
   let key = (await signingKeys())[header.kid];
-  if (!key) key = (await signingKeys(true))[header.kid];   // المفتاح اتغيّر عند Supabase
+  // المفتاح اتغيّر عند Supabase: نجيب القائمة تاني — مرة في الدقيقة بالكتير. قبل كده أي مفتاح دخول مزوّر برقم مفتاح عشوائي كان بيخلّي كل
+  // طلب يجيب القائمة من جديد (التدقيق الشامل ١١ نوفمبر ٢٠٢٦)
+  if (!key && Date.now() - forcedAt > FORCE_GAP_MS) {
+    forcedAt = Date.now();
+    key = (await signingKeys(true))[header.kid];
+  }
   if (!key) return null;
   const ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, b64url(parts[2]), new TextEncoder().encode(parts[0] + '.' + parts[1]));
   if (!ok || !payload) return null;
@@ -110,4 +116,4 @@ export async function runnerKeyOk(key) {
 }
 
 // للاختبارات: يبدأ من غير مفاتيح ولا إجابات محفوظة
-export function resetLoginCache() { keysP = null; keysAt = 0; okUntil.clear(); runnerOkUntil.clear(); }
+export function resetLoginCache() { keysP = null; keysAt = 0; forcedAt = 0; okUntil.clear(); runnerOkUntil.clear(); }

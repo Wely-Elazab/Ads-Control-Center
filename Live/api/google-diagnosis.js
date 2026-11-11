@@ -163,6 +163,9 @@ export default async function handler(req, res) {
       dimErrors: DIMS.map(function (d, i) { return Array.isArray(dimRes[i]) ? null : { id: d.id, error: dimRes[i].error }; }).filter(Boolean)
     });
   } catch (err) {
-    res.status(err && err.status ? err.status : 500).json({ error: String(err && err.message ? err.message : err), code: (err && err.code) || null });
+    // خطأ من Google نفسها (gaql بيحط حالته ورمزه) بيرجع بنصه عشان الأداة تشرحه؛ أي خطأ تاني غير متوقع من غير نصه الداخلي في الرد —
+    // زي باقي ملفات الخادم (OWASP ASVS 7.4.1، التدقيق الشامل ١١ نوفمبر ٢٠٢٦)
+    if (err && err.status) res.status(err.status).json({ error: String(err.message || err), code: err.code || null });
+    else res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم.', code: 'SERVER' });
   }
 }

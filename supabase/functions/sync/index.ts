@@ -7,7 +7,7 @@
 //   digest.* و stop ← الملخص والتنبيهات التلقائية بالبريد (digest.ts)
 //   selfcheck ← { token } لمدير تطبيق Meta بس: الأسرار موجودة وسليمة؟ (حالة بس — عمره ما بيرجّع قيمة سر)
 //   testmail  ← { token } لمدير التطبيق بس: رسالة تجريبية لـ support@adscenter.online (العنوان ثابت — مش بياخد مستلم)
-//   run       ← pg_cron كل ١٠ دقايق (الفحص العاجل لكل حساب مرة في الساعة تقريباً)، بهيدر x-runner-key (مفتاح عشوائي في Vault): فحص التنبيهات العاجلة (runner.ts)
+//   run       ← pg_cron كل دقيقتين (الفحص العاجل لكل حساب مرة في الساعة تقريباً)، بهيدر x-runner-key (مفتاح عشوائي في Vault): فحص التنبيهات العاجلة (runner.ts)
 //   digest.preview ← { token, accountId, lang } لمدير التطبيق بس: الرسالة العاجلة اللي كانت هتتبعت دلوقتي، من غير إرسال
 //   digest.previewSummary ← { token, accountId, lang, since?, until?, monthly? } لمدير التطبيق بس: رسالة الملخص (أو الشهري)، من غير إرسال
 //   join و join.peek و join.activate ← طلبات الانضمام للتجربة من نموذج /join، وزرار «أرسلت الدعوة» في إشعارنا (join.ts)
@@ -132,7 +132,8 @@ Deno.serve(async (req: Request) => {
     // المُشغّل: بنرد فوراً ونكمّل في الخلفية (pg_net مش محتاج يستنى)
     if (action === 'run') {
       const key = req.headers.get('x-runner-key') || '';
-      if (!(await rpc('runner_key_ok', { p_key: key }))) return reply(403, { error: 'key' }, origin);
+      // نفس سؤال الـ Worker (Live/api/_login.js): runner_key_check بتقارن بصمة SHA-256 للمفتاح — كانت هنا دالة تانية بتقارن النص نفسه
+      if (!(await rpc('runner_key_check', { p_key: key }))) return reply(403, { error: 'key' }, origin);
       // المفتاح نفسه بيروح للـ Worker مع طلبات Snapchat (runner.ts snapCall ← Live/api/digest-fetch.js)
       const job = runAll(key).then((r) => console.log('runner', JSON.stringify(r)))
         .catch((e) => console.error('runner failed', String(e && (e as Error).message || e).slice(0, 200)));

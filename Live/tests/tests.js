@@ -618,6 +618,48 @@
       }, function (e) { window.fetch = realFetch; throw e; });
     });
 
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (ن٣٠): عطل عابر في أول طلب (503، شبكة، حد السرعة) كان بيقلب الملخص كله لأرقام المنصة كأن Snapchat
+    // رفض نوافذ «الأقرب للمتجر»
+    testAsync('السيرفر: عطل عابر في أول طلب لملخص Snapchat بيتعاد مرة، والملخص بيفضل على «الأقرب للمتجر»', function () {
+      var realFetch = window.fetch, urls = [], failed = 0;
+      var st = { spend: 50000000, impressions: 1000, swipes: 30, conversion_purchases: 3, conversion_purchases_value: 300000000 };
+      window.fetch = function (url) {
+        var u = String(url);
+        if (/\/adaccounts\/[^/?]+$/.test(u)) return json({ adaccounts: [{ adaccount: { timezone: 'Asia/Riyadh', currency: 'SAR' } }] });
+        if (/\/campaigns\?/.test(u)) return json({ campaigns: [] });
+        if (/\/stats/.test(u)) {
+          urls.push(u);
+          if (!failed && /view_attribution_window=none/.test(u)) {
+            failed++;
+            return Promise.resolve({ ok: false, status: 503, json: function () { return Promise.resolve({ request_status: 'ERROR', debug_message: 'try later' }); } });
+          }
+          if (/granularity=TOTAL/.test(u)) return json({ total_stats: [{ total_stat: { breakdown_stats: { campaign: [{ id: 'c1', stats: st }] }, dimension_stats: [] } }] });
+          var from = decodeURIComponent((u.match(/start_time=([^&]+)/) || [])[1] || '').slice(0, 10);
+          var to = decodeURIComponent((u.match(/end_time=([^&]+)/) || [])[1] || '').slice(0, 10);
+          var inRange = '2026-09-25' >= from && '2026-09-25' < to;
+          return json({ timeseries_stats: [{ timeseries_stat: { breakdown_stats: { campaign: [{ id: 'c1', timeseries: inRange ? [{ start_time: '2026-09-25T00:00:00.000+03:00', stats: st }] : [] }] } } }] });
+        }
+        return json({});
+      };
+      var out = null, keep = null;
+      var res = { setHeader: function () {}, status: function () { return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      var ws = DX.windows('2026-09-21', '2026-09-27');
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        keep = m.CHANGE_TIMING.retry;
+        m.CHANGE_TIMING.retry = 0;
+        var back = function () { m.CHANGE_TIMING.retry = keep; };
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'diagnosis', adAccountId: 'acc1',
+          daily: { since: ws[ws.length - 1].since, until: '2026-09-27' }, windows: ws.slice(0, 3).map(function (w) { return { since: w.since, until: w.until }; }) } }, res)
+          .then(back, function (e) { back(); throw e; });
+      }).then(function () {
+        window.fetch = realFetch;
+        eq(failed, 1, 'the first request failed once');
+        eq(out.numbers, 'store', 'still the closest-to-store numbers');
+        eq(urls.filter(function (u) { return /action_report_time=impression/.test(u) && /granularity=DAY/.test(u); }).length, 0, 'no day request with the platform windows');
+        eq(out.daily.filter(function (d) { return d.date === '2026-09-25'; })[0].pur, 3);
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+
     testAsync('السيرفر: ملخص المتجر على «الأقرب للمتجر»، ولو Snapchat رفض النوافذ بيكمّل كله بنوافذ المنصة', function () {
       // reject: '' = مفيش رفض، 'store' = نوافذ «الأقرب» بس، 'all' = أي نوافذ (حتى إعداد Ads Manager)، 'country' = أي نوافذ مع الدول بس
       var realFetch = window.fetch, urls = [], reject = '';
@@ -894,6 +936,49 @@
         restore();
         eq([out.ads.length, out.storeMetrics, out.storePmax], [1, null, null], 'ads still load, no comparison');
       }, function (e) { restore(); throw e; });
+    });
+
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (ن٢٩): خطأ Google نفسه بيرجع بنصه ورمزه (الأداة بتشرحه)، وأي خطأ داخلي غير متوقع من غير نصه في الرد —
+    // الملفين دول كانوا بيرجّعوا نص الخطأ الداخلي، وباقي ملفات الخادم رسالة عامة (OWASP ASVS 7.4.1)
+    testAsync('السيرفر — Google: خطأ Google بيرجع بنصه وحالته، والخطأ الداخلي غير المتوقع رسالة عامة من غير تفاصيل', function () {
+      var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process, mode = 'google';
+      window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
+      window.fetch = function (url) {
+        var u = String(url);
+        if (u.indexOf('tokeninfo') > -1) return json({ aud: 'cid', scope: 'https://www.googleapis.com/auth/adwords' });
+        if (mode === 'google') {
+          return Promise.resolve({ ok: false, status: 403, json: function () {
+            return Promise.resolve({ error: { message: 'The caller does not have permission', details: [{ errors: [{ message: 'no access to customer', errorCode: { authorizationError: 'USER_PERMISSION_DENIED' } }] }] } });
+          } });
+        }
+        // رد غريب من غير json(): الدالة نفسها بتقع (خطأ داخلي مش من Google)
+        return Promise.resolve({ ok: true, status: 200 });
+      };
+      var restore = function () { window.fetch = realFetch; if (hadProcess) window.process = prevProcess; else delete window.process; };
+      var call = function (path, body) {
+        var out = null, code = null;
+        var res = { setHeader: function () {}, status: function (s) { code = s; return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+        return import(path).then(function (m) { return m.default({ method: 'POST', headers: {}, body: body }, res); }).then(function () { return { code: code, out: out }; });
+      };
+      var ws = DX.windows('2026-09-21', '2026-09-27');
+      var dxBody = { accessToken: 'tok-err', customerId: '1234567890', daily: { since: ws[ws.length - 1].since, until: '2026-09-27' },
+        windows: ws.slice(0, 3).map(function (w) { return { since: w.since, until: w.until }; }) };
+      var internal = /json|function|undefined|TypeError|not a/i;
+      return call('/api/google-ads-fetch.js', { accessToken: 'tok-err', customerId: '1234567890' }).then(function (r) {
+        eq([r.code, r.out.error, r.out.code], [403, 'no access to customer', 'USER_PERMISSION_DENIED'], 'a Google error keeps its text and code');
+        return call('/api/google-diagnosis.js', dxBody);
+      }).then(function (r) {
+        eq([r.code, r.out.code], [403, 'USER_PERMISSION_DENIED']);
+        mode = 'crash';
+        return call('/api/google-ads-fetch.js', { accessToken: 'tok-err', customerId: '1234567890' });
+      }).then(function (r) {
+        eq([r.code, r.out.code], [500, 'SERVER'], 'an unexpected failure');
+        ok(!internal.test(r.out.error), 'no internal text: ' + r.out.error);
+        return call('/api/google-diagnosis.js', dxBody);
+      }).then(function (r) {
+        eq([r.code, r.out.code], [500, 'SERVER']);
+        ok(!internal.test(r.out.error), 'no internal text: ' + r.out.error);
+      }).then(restore, function (e) { restore(); throw e; });
     });
 
     // فترة مقارنة بعيدة (السنة السابقة) بتتطلب على مديين من غير الأيام اللي بينهم، وحد الطلب اليومي على مجموع الأيام
@@ -1828,6 +1913,16 @@
       var r2 = withLang('ar', function () { return engine(ads); });
       var sp2 = r2.alerts.filter(function (a) { return a.code === 'acct-spike'; })[0];
       ok(sp2 && !/رفع ميزانية/.test(sp2.detail), sp2 ? sp2.detail : 'none');
+    });
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (ن٣٣): تعديلات سناب شات بالمايكرو (e.unit — snapchat.js snapEditsOf)، والجملة دي كانت بتقسم على
+    // ١٠٠ دايماً (وحدة Meta)، فرفع ميزانية من ١٠٠ لـ٣٠٠ كان بيتكتب «من ١٬٠٠٠٬٠٠٠ إلى ٣٬٠٠٠٬٠٠٠»
+    test('«ارتفاع مفاجئ في إنفاق الحساب» لحساب سناب شات رفع ميزانيته: المبلغ بوحدة سناب شات (مايكرو) مش ×١٠٬٠٠٠', function () {
+      var raise = [{ date: KEYS[5], kind: 'budget', level: 'campaign', from: 100e6, to: 300e6, unit: 1e6 }];
+      var ads = [ad('a1', { daily: [100, 100, 100, 100, 100, 300, 100], res: steady(5), key: 'lead', edits: raise }), ad('a2', { daily: [100, 100, 100, 100, 100, 300, 100], res: steady(5), key: 'lead' })];
+      ads[0].edits = raise;
+      var r = withLang('ar', function () { return engine(ads); });
+      var sp = r.alerts.filter(function (a) { return a.code === 'acct-spike'; })[0];
+      ok(sp && /رفع ميزانية الحملة من ١٠٠ ر\.س إلى ٣٠٠ ر\.س/.test(sp.detail), sp ? sp.detail : 'none');
     });
     // الحكم بحدودك (٢٥ أكتوبر): صفر نتائج بإنفاق ضعف التكلفة المعتادة = عاجل (كان «لم يُحكم بعد» لأن الصفر «ممكن يكون صدفة»)، وقبل
     // التكلفة نفسها «لم يُحكم بعد» بالمبلغ — ومش «جيد» من غير سبب في الحالتين
@@ -2801,6 +2896,8 @@
       eq(apiErrorText({ status: 429, data: { error: 'Too Many Requests' } })(), t('err.rateLimit'));
       eq(apiErrorText({ status: 403, data: { error: 'x', code: 'WRONG_APP' } })(), t('err.wrongApp'));
       eq(apiErrorText({ status: 500, data: { error: 'Boom from platform' } })(), 'Boom from platform');
+      // رمز الخطأ العام من الخادم (SERVER) بيتكتب بلغة الواجهة — نص الخادم نفسه عربي بس (التدقيق الشامل ١١ نوفمبر ٢٠٢٦)
+      eq(apiErrorText({ status: 500, data: { error: 'حدث خطأ غير متوقع في الخادم.', code: 'SERVER' } })(), t('s.unexpected'));
       withLang('en', function () {
         eq(apiErrorText({ status: 400, data: { error: 'رسالة عربي', code: 'BAD_REQUEST' } })(), t('err.badRequest'));
       });
@@ -4709,6 +4806,30 @@
       }, function (e) { restore(); throw e; });
     });
 
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (ن٤): مفتاح دخول برقم مفتاح توقيع مش معروف كان بيخلّي كل طلب يجيب قائمة المفاتيح من Supabase من جديد
+    testAsync('مفتاح دخول برقم مفتاح توقيع مش معروف: قائمة المفاتيح بتتجاب تاني مرة واحدة بس، مش مع كل طلب', function () {
+      var realFetch = window.fetch, jwksCalls = 0, mod;
+      var restore = function () { window.fetch = realFetch; };
+      return setupLogin().then(function () { return import('/api/_login.js'); }).then(function (m) {
+        mod = m;
+        var inner = loginFetch(realFetch);
+        window.fetch = function (url) { if (String(url).indexOf('/.well-known/jwks.json') > -1) jwksCalls++; return inner.apply(window, arguments); };
+        return signJwt(TEST_LOGIN.key, { alg: 'ES256', kid: 'rotated-1', typ: 'JWT' }, loginClaims());
+      }).then(function (t1) {
+        return mod.verifyJwt(t1);
+      }).then(function (p) {
+        eq([p, jwksCalls], [null, 1], 'unknown key id: refused after one refresh');
+        return signJwt(TEST_LOGIN.key, { alg: 'ES256', kid: 'rotated-2', typ: 'JWT' }, loginClaims());
+      }).then(function (t2) {
+        return mod.verifyJwt(t2);
+      }).then(function (p) {
+        eq([p, jwksCalls], [null, 1], 'a second unknown key id within a minute: no new download');
+        return mod.verifyJwt(TEST_LOGIN.token);
+      }).then(function (p) {
+        ok(p && p.sub === 'u-test', 'the real key still works');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
     test('الرجوع بعد الدخول للأداة بس (مش أي رابط برّه الموقع)', function () {
       eq(['/app', '/app?code=1&state=snapchat', 'https://evil.example/app', '//evil.example', '/appx', null].map(AuthLogin.safeNext),
         ['/app', '/app?code=1&state=snapchat', '/app', '/app', '/app', '/app']);
@@ -5328,6 +5449,22 @@
       }).then(cleanEnv, function (e) { cleanEnv(); throw e; });
     });
 
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (ن١٠): ترويسة دخول الأداة لازم تبقى مسموحة في رد OPTIONS، وإلا طلب أي نطاق مضاف في ALLOWED_ORIGINS
+    // بيترفض في المتصفح قبل ما يتبعت
+    testAsync('نطاق مضاف في ALLOWED_ORIGINS: رد OPTIONS بيسمح بترويسة الدخول Authorization', function () {
+      var hadProcess = 'process' in window, prevProcess = window.process;
+      window.process = { env: { ALLOWED_ORIGINS: 'https://partner.example' } };
+      var restore = function () { if (hadProcess) window.process = prevProcess; else delete window.process; };
+      return import('/api/_cors.js').then(function (c) {
+        var set = {}, code = null;
+        var res = { setHeader: function (k, v) { set[k] = v; }, status: function (s) { code = s; return this; }, json: function () { return this; }, end: function () { return this; } };
+        var go = c.guardRequest({ method: 'OPTIONS', headers: { origin: 'https://partner.example', host: 'adscenter.online' } }, res);
+        eq([go, code, set['Access-Control-Allow-Origin']], [false, 204, 'https://partner.example']);
+        var allow = String(set['Access-Control-Allow-Headers']).split(',').map(function (x) { return x.trim(); });
+        ok(allow.indexOf('Authorization') > -1 && allow.indexOf('Content-Type') > -1, set['Access-Control-Allow-Headers']);
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
     testAsync('X-Forwarded-Host المزوّر مبيوصلش للدوال، وموقع تاني مرفوض حتى لو زوّره', function () {
       var seen = null;
       return worker().then(function (w) {
@@ -5356,6 +5493,36 @@
         eq([r.preset, r.isDefault, r.until], ['last7', false, shiftKey(todayKeyInTz('UTC'), -1)]);
         var ok2 = d.resolvePeriod({ preset: 'custom', since: '2026-02-01', until: '2026-02-28' }, 'UTC');
         eq([ok2.since, ok2.until], ['2026-02-01', '2026-02-28'], 'a real custom range still works');
+      });
+    });
+
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (ن١٢): الفرق كان بيتاخد عند ظهر UTC، وفي يوم تغيير التوقيت الصيفي بداية اليوم المحلي بفرق تاني —
+    // Snapchat بيرفض أي وقت مش على بداية يوم بتوقيت الحساب، فالتحميل كان هيفشل في الأيام اللي يوم التغيير على حد نطاقها
+    testAsync('بداية اليوم بتوقيت الحساب صح في كل يوم من السنة، حتى يوم تغيير التوقيت الصيفي (Snapchat start_time)', function () {
+      return import('/api/_dates.js').then(function (d) {
+        var keyAt = function (ms, tz) {
+          var p = {};
+          new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(ms)).forEach(function (x) { p[x.type] = x.value; });
+          return p.year + '-' + p.month + '-' + p.day;
+        };
+        var zones = ['Asia/Riyadh', 'Africa/Cairo', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles', 'Australia/Sydney', 'Pacific/Auckland',
+          'America/Santiago', 'Atlantic/Azores', 'Asia/Kolkata', 'Asia/Kathmandu', 'America/St_Johns', 'Pacific/Kiritimati', 'UTC'];
+        var bad = [];
+        zones.forEach(function (tz) {
+          for (var k = '2026-01-01'; k <= '2026-12-31'; k = shiftKey(k, 1)) {
+            var off = d.tzOffsetString(k, tz), ms = Date.parse(k + 'T00:00:00.000' + off);
+            // اللحظة دي أول لحظة في اليوم المحلي: تاريخها هو اليوم، واللي قبلها بثانية في اليوم اللي قبله
+            if (!/^[+-]\d{2}:\d{2}$/.test(off) || keyAt(ms, tz) !== k || keyAt(ms - 1000, tz) !== shiftKey(k, -1)) bad.push(tz + ' ' + k + ' ' + off);
+          }
+        });
+        eq(bad, []);
+        // أمثلة بالاسم: الرياض ثابت، وبرلين يوم التقديم ويوم التأخير، والقاهرة (التقديم عند منتصف الليل نفسه)
+        eq(d.tzOffsetString('2026-06-15', 'Asia/Riyadh'), '+03:00');
+        eq([d.tzOffsetString('2026-03-29', 'Europe/Berlin'), d.tzOffsetString('2026-03-30', 'Europe/Berlin')], ['+01:00', '+02:00']);
+        eq([d.tzOffsetString('2026-10-25', 'Europe/Berlin'), d.tzOffsetString('2026-10-26', 'Europe/Berlin')], ['+02:00', '+01:00']);
+        eq([d.tzOffsetString('2026-04-24', 'Africa/Cairo'), d.tzOffsetString('2026-04-25', 'Africa/Cairo')], ['+02:00', '+03:00']);
+        // توقيت مش معروف = UTC زي الأول
+        eq(d.tzOffsetString('2026-06-15', 'Not/AZone'), '+00:00');
       });
     });
 

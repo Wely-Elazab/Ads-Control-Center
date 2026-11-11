@@ -10,7 +10,7 @@
 //                      بتتبعها — قرار صاحب المنتج ٢٥ أكتوبر)، بيوم زيادة لفرق التوقيت ولحد مدة الحفظ (٩٠ يوم)؛ من غيره آخر ٤٥ يوم
 //   episodes.decide ← { platform, accountId, platformToken, decisions: [{ id, handledAt | null, action | null }] } → { ok, saved }
 //                      مرة واحدة لكل مشكلة: اتعالجت (وقت التعديل ونوعه، خلال ٢٤ ساعة من التنبيه) أو لا (بعد ما الـ ٢٤ ساعة تعدّي)
-import { db, reply } from './lib.ts';
+import { USER_ID, db, reply } from './lib.ts';
 import { verifyAccount } from './settings.ts';
 
 const AD_ID: Record<string, RegExp> = { meta: /^\d{1,30}$/, snapchat: /^[A-Za-z0-9-]{1,64}$/ };
@@ -68,7 +68,7 @@ function chunks<T>(list: T[]): T[][] {
 }
 
 export async function handleEpisodes(action: string, body: any, userId: string, origin: string | null): Promise<Response> {
-  if (!/^[0-9a-f-]{36}$/.test(userId)) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
+  if (typeof userId !== 'string' || !USER_ID.test(userId)) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
   const acc = await verifyAccount(body, origin);
   if (acc instanceof Response) return acc;
   const base = 'alert_episodes?user_id=eq.' + userId + '&platform=eq.' + acc.platform + '&account_id=eq.' + encodeURIComponent(acc.id);

@@ -20,6 +20,12 @@ const CODE_TTL_MS = 10 * 60000;      // الرمز صالح ١٠ دقايق
 const RESEND_MS = 60000;             // رمز جديد بعد دقيقة على الأقل
 const MAX_SENDS = 5;                 // لكل جلسة دخول
 const MAX_TRIES = 5;                 // لكل رمز — بعدها لازم رمز جديد
+// حد لكل مستخدم في ٢٤ ساعة عبر كل جلساته (التدقيق الشامل ١١ نوفمبر ٢٠٢٦ — NIST SP 800-63B §5.2.2، OWASP ASVS 2.2.1): الحدّين اللي
+// فوق لكل جلسة بس، وجلسة جديدة بكلمة المرور كانت عدّاد جديد — فاللي معاه كلمة المرور يقدر يخمّن الرمز بلا حد ويغرّق بريد صاحب الحساب.
+// ٣٠ محاولة من مليون رمز = ٣ في المئة ألف في اليوم. العدّ والخصم في قاعدة البيانات (login_send وlogin_try — ذرّي)
+const DAY_SENDS = 15;
+const DAY_TRIES = 30;
+const JWKS_REFRESH_MS = 60000;       // جلب مفاتيح التوقيع بالقوة (رقم مفتاح مش معروف) مرة في الدقيقة بالكتير
 const MAIL_GAP_MS = 2 * 60000;       // رابط كلمة المرور: مرة كل دقيقتين لنفس البريد
 const MAIL_PER_DAY = 5;
 const VERIFIED_DAYS = 30;            // نفس session_ok في قاعدة البيانات
@@ -32,7 +38,7 @@ function b64url(s: string): Uint8Array<ArrayBuffer> {   // نفس سبب digest.
   for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i);
   return out;
 }
-let jwks: Promise<Record<string, CryptoKey>> | null = null, jwksAt = 0;
+let jwks: Promise<Record<string, CryptoKey>> | null = null, jwksAt = 0, jwksForcedAt = 0;
 function signingKeys(force = false): Promise<Record<string, CryptoKey>> {
   if (!jwks || force || Date.now() - jwksAt > 3600000) {
     jwksAt = Date.now();
@@ -58,7 +64,12 @@ export async function verifyJwt(token: string | null): Promise<any | null> {
   try { header = JSON.parse(dec.decode(b64url(parts[0]))); payload = JSON.parse(dec.decode(b64url(parts[1]))); } catch (_) { return null; }
   if (!header || header.alg !== 'ES256' || !header.kid) return null;
   let key = (await signingKeys())[header.kid];
-  if (!key) key = (await signingKeys(true))[header.kid];   // المفتاح اتغيّر عند Supabase
+  // المفتاح اتغيّر عند Supabase: نجيب القائمة تاني — مرة في الدقيقة بالكتير. قبل كده أي مفتاح دخول مزوّر برقم مفتاح عشوائي كان بيخلّي
+  // كل طلب يجيب القائمة من جديد (التدقيق الشامل ١١ نوفمبر ٢٠٢٦)
+  if (!key && Date.now() - jwksForcedAt > JWKS_REFRESH_MS) {
+    jwksForcedAt = Date.now();
+    key = (await signingKeys(true))[header.kid];
+  }
   if (!key) return null;
   const ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, b64url(parts[2]), new TextEncoder().encode(parts[0] + '.' + parts[1]));
   if (!ok) return null;
@@ -153,6 +164,30 @@ async function saveSession(fields: Record<string, unknown>): Promise<void> {
     headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(fields) });
 }
 
+// رابط «إنشاء/تغيير كلمة المرور» لبريد مسموح له — كل شغل login.forgot بعد الرد
+async function forgotMail(email: string, en: boolean): Promise<void> {
+  if (!(await accessOf(email))) return;
+  const since = new Date(Date.now() - 86400000).toISOString();
+  const log = await (await db('auth_mail_log?select=sent_at&email=eq.' + encodeURIComponent(email) + '&sent_at=gte.' + encodeURIComponent(since) +
+    '&order=sent_at.desc&limit=' + MAIL_PER_DAY, { method: 'GET' })).json();
+  if (Array.isArray(log) && (log.length >= MAIL_PER_DAY || (log[0] && Date.now() - Date.parse(log[0].sent_at) < MAIL_GAP_MS))) return;
+  // أول مرة: الحساب بيتعمل دلوقتي (البريد مأكَّد — هو اللي هيستقبل الرابط)
+  if (!(await rpc('auth_user_id', { p_email: email }))) {
+    await authAdmin('admin/users', { method: 'POST', body: JSON.stringify({ email, email_confirm: true }) });
+  }
+  const link = await authAdmin('admin/generate_link', { method: 'POST', body: JSON.stringify({ type: 'recovery', email }) });
+  const hashed = link && ((link.properties && link.properties.hashed_token) || link.hashed_token);
+  if (typeof hashed !== 'string' || !/^[A-Za-z0-9_-]{10,200}$/.test(hashed)) throw new Error('generate_link');
+  const mail = passwordMail(SITE + '/login?reset=' + hashed + (en ? '&lang=en' : ''), en);
+  await sendEmail(email, mail.subject, mail.html, mail.text);
+  await db('auth_mail_log', { method: 'POST', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ email, kind: 'password' }) });
+}
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
+
+// قاعدة البيانات لسه من غير دالتي العدّ (الترحيل 20261111120000_full_audit.sql لسه ماتطبّقش): PostgREST بيرد ٤٠٤ على الدالة. ساعتها
+// بنكمّل بالعدّ القديم (قراءة ثم كتابة) بدل ما الدخول يقف عند كل المستخدمين، وبيتسجّل عشان يبان. الترتيب الصح: الترحيل قبل نشر الدالة
+export function counterMissing(e: unknown): boolean { return /^db 404 /.test(String((e as Error).message || e)); }
+
 // ---------- العمليات ----------
 export async function handleLogin(action: string, body: any, req: Request, origin: string | null): Promise<Response> {
   const en = body && body.lang === 'en';
@@ -160,23 +195,12 @@ export async function handleLogin(action: string, body: any, req: Request, origi
   if (action === 'login.forgot') {
     const email = cleanEmail(body && body.email);
     if (!email) return reply(400, { error: 'email' }, origin);
-    const done = reply(200, { ok: true }, origin);
-    if (!(await accessOf(email))) return done;
-    const since = new Date(Date.now() - 86400000).toISOString();
-    const log = await (await db('auth_mail_log?select=sent_at&email=eq.' + encodeURIComponent(email) + '&sent_at=gte.' + encodeURIComponent(since) +
-      '&order=sent_at.desc&limit=' + MAIL_PER_DAY, { method: 'GET' })).json();
-    if (Array.isArray(log) && (log.length >= MAIL_PER_DAY || (log[0] && Date.now() - Date.parse(log[0].sent_at) < MAIL_GAP_MS))) return done;
-    // أول مرة: الحساب بيتعمل دلوقتي (البريد مأكَّد — هو اللي هيستقبل الرابط)
-    if (!(await rpc('auth_user_id', { p_email: email }))) {
-      await authAdmin('admin/users', { method: 'POST', body: JSON.stringify({ email, email_confirm: true }) });
-    }
-    const link = await authAdmin('admin/generate_link', { method: 'POST', body: JSON.stringify({ type: 'recovery', email }) });
-    const hashed = link && ((link.properties && link.properties.hashed_token) || link.hashed_token);
-    if (typeof hashed !== 'string' || !/^[A-Za-z0-9_-]{10,200}$/.test(hashed)) throw new Error('generate_link');
-    const mail = passwordMail(SITE + '/login?reset=' + hashed + (en ? '&lang=en' : ''), en);
-    await sendEmail(email, mail.subject, mail.html, mail.text);
-    await db('auth_mail_log', { method: 'POST', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ email, kind: 'password' }) });
-    return done;
+    // الرد «تم» فوراً والشغل في الخلفية (التدقيق الشامل ١١ نوفمبر ٢٠٢٦ — OWASP Authentication Cheat Sheet: رد واحد وزمن واحد): الرد كان
+    // بيستنى البحث وإنشاء الرابط والإرسال، فالبريد المسجّل ردّه أبطأ بوضوح من غير المسجّل — والفرق ده بيقول مين مسجّل. أي فشل بيتسجّل
+    // عندنا بس (الرد «تم» في كل الحالات زي ما هو)
+    const work = forgotMail(email, en).catch((e) => console.error('login.forgot failed', String((e as Error).message || e).slice(0, 160)));
+    if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime) EdgeRuntime.waitUntil(work); else await work;
+    return reply(200, { ok: true }, origin);
   }
 
   const p = await verifyJwt(bearer(req)).catch(() => null);
@@ -199,11 +223,34 @@ export async function handleLogin(action: string, body: any, req: Request, origi
       return reply(429, { error: 'wait', retryIn: Math.ceil((RESEND_MS - (Date.now() - Date.parse(row.last_sent_at))) / 1000) }, origin);
     }
     if (row && row.sends >= MAX_SENDS) return reply(429, { error: 'sends' }, origin);
+    // الإرسال بيتحجز في قاعدة البيانات قبل ما الرمز يتبعت (login_send — ذرّي): طلبين في نفس اللحظة كانوا بيعدّوا الفحصين اللي فوق ويبعتوا
+    // رمزين. -1 = حد اليوم للمستخدم عبر كل جلساته، ومش رقم = طلب تاني سبق (المهلة أو حد الجلسة)
+    const gapSecs = Math.round(RESEND_MS / 1000);
+    let took: unknown, legacy = false;
+    try {
+      took = await rpc('login_send', { p_session: p.session_id, p_user: p.sub, p_max: MAX_SENDS, p_gap_secs: gapSecs, p_day_max: DAY_SENDS });
+    } catch (e) {
+      if (!counterMissing(e)) throw e;
+      console.error('login_send is missing in the database — counting the old way');
+      legacy = true;
+      took = (row ? row.sends : 0) + 1;
+    }
+    if (took === -1) return reply(429, { error: 'locked' }, origin);
+    if (typeof took !== 'number') return reply(429, { error: 'wait', retryIn: gapSecs }, origin);
     const code = newCode(), now = new Date();
     const mail = codeMail(code, en);
-    await sendEmail(email, mail.subject, mail.html, mail.text);
-    await saveSession({ session_id: p.session_id, user_id: p.sub, code_hash: await codeHash(p.session_id, code),
-      code_expires_at: new Date(now.getTime() + CODE_TTL_MS).toISOString(), attempts: 0, sends: (row ? row.sends : 0) + 1, last_sent_at: now.toISOString() });
+    try { await sendEmail(email, mail.subject, mail.html, mail.text); } catch (e) {
+      // الرمز ماتبعتش: الحجز بيرجع زي ما كان، فالعميل يقدر يطلب تاني على طول (زي الأول)
+      if (!legacy) {
+        await db('login_sessions?session_id=eq.' + encodeURIComponent(p.session_id), { method: 'PATCH', headers: { 'prefer': 'return=minimal' },
+          body: JSON.stringify({ sends: Math.max(0, took - 1), last_sent_at: row ? row.last_sent_at : null }) }).catch(() => {});
+      }
+      throw e;
+    }
+    const fields: Record<string, unknown> = { session_id: p.session_id, user_id: p.sub, code_hash: await codeHash(p.session_id, code),
+      code_expires_at: new Date(now.getTime() + CODE_TTL_MS).toISOString(), attempts: 0 };
+    if (legacy) { fields.sends = took; fields.last_sent_at = now.toISOString(); }
+    await saveSession(fields);
     return reply(200, { ok: true, sent: true }, origin);
   }
 
@@ -213,9 +260,21 @@ export async function handleLogin(action: string, body: any, req: Request, origi
     if (!code) return reply(400, { error: 'code' }, origin);
     if (!row || !row.code_hash || !row.code_expires_at || Date.parse(row.code_expires_at) < Date.now()) return reply(400, { error: 'expired' }, origin);
     if (row.attempts >= MAX_TRIES) return reply(429, { error: 'tries' }, origin);
+    // المحاولة بتتخصم في قاعدة البيانات قبل المقارنة (login_try — ذرّي): طلبات في نفس اللحظة كانت كلها بتقرا نفس العدّاد قبل ما حد يزوّده،
+    // فتعدّي حد الخمس محاولات. -1 = حد اليوم للمستخدم عبر كل جلساته، ومش رقم = محاولات الرمز خلصت
+    let used: unknown;
+    try {
+      used = await rpc('login_try', { p_session: p.session_id, p_user: p.sub, p_max: MAX_TRIES, p_day_max: DAY_TRIES });
+    } catch (e) {
+      if (!counterMissing(e)) throw e;
+      console.error('login_try is missing in the database — counting the old way');
+      used = row.attempts + 1;
+      await saveSession({ session_id: p.session_id, user_id: p.sub, attempts: used });
+    }
+    if (used === -1) return reply(429, { error: 'locked' }, origin);
+    if (typeof used !== 'number') return reply(429, { error: 'tries' }, origin);
     if (!sameString(await codeHash(p.session_id, code), row.code_hash)) {
-      await saveSession({ session_id: p.session_id, user_id: p.sub, attempts: row.attempts + 1 });
-      return reply(400, { error: 'code', left: Math.max(0, MAX_TRIES - row.attempts - 1) }, origin);
+      return reply(400, { error: 'code', left: Math.max(0, MAX_TRIES - used) }, origin);
     }
     await saveSession({ session_id: p.session_id, user_id: p.sub, code_hash: null, code_expires_at: null, verified_at: new Date().toISOString() });
     return reply(200, { ok: true, verified: true }, origin);

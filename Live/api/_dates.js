@@ -87,11 +87,31 @@ function isValidTz(tz) {
   try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch (e) { return false; }
 }
 
-// فرق التوقيت بصيغة +03:00 لتاريخ معيّن (Snapchat بيطلبه صريح في start_time/end_time)
+// فرق التوقيت بالدقايق في لحظة معيّنة (GMT+03:00 ← ١٨٠، وGMT ← ٠)
+function offsetMinutesAt(ms, tz) {
+  const name = pick(partsInTz(new Date(ms), tz, { timeZoneName: 'longOffset' }), 'timeZoneName');
+  const m = /GMT([+-])(\d{2}):?(\d{2})?/.exec(name);
+  return m ? (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] || 0)) : 0;
+}
+function keyAt(ms, tz) {
+  const parts = partsInTz(new Date(ms), tz);
+  return pick(parts, 'year') + '-' + pick(parts, 'month') + '-' + pick(parts, 'day');
+}
+// فرق التوقيت بصيغة +03:00 عند **بداية اليوم المحلي** لتاريخ معيّن (Snapchat بيطلبه صريح في start_time/end_time، وبيرفض أي وقت
+// مش على بداية يوم بتوقيت الحساب). التدقيق الشامل ١١ نوفمبر ٢٠٢٦: كان بيتاخد عند ظهر UTC، وفي يوم تغيير التوقيت الصيفي بداية اليوم
+// بالفرق اللي قبل التغيير (القاهرة ٢٤ أبريل ٢٠٢٦: «+03:00» والصح «+02:00») — فأي نطاق حدّه يوم التغيير كان بيتبعت بساعة غلط.
+// اليوم العادي: الفرق قبل وبعد واحد، ونفس النتيجة القديمة بالظبط. يوم التغيير: أول لحظة تاريخها المحلي هو اليوم ده (منتصف الليل
+// ممكن ميكونش موجود أصلاً — القاهرة وسانتياجو بيقدّموا الساعة عنده — أو يتكرر مرتين)
 export function tzOffsetString(dateKey, tz) {
-  const p = dateKey.split('-').map(Number);
-  const noonUtc = new Date(Date.UTC(p[0], p[1] - 1, p[2], 12));
-  const name = pick(partsInTz(noonUtc, tz, { timeZoneName: 'longOffset' }), 'timeZoneName'); // مثال: GMT+03:00 أو GMT
-  const m = /GMT([+-]\d{2}):?(\d{2})?/.exec(name);
-  return m ? (m[1] + ':' + (m[2] || '00')) : '+00:00';
+  const p = dateKey.split('-').map(Number), mid = Date.UTC(p[0], p[1] - 1, p[2]);
+  const before = offsetMinutesAt(mid - 12 * 3600000, tz), after = offsetMinutesAt(mid + 12 * 3600000, tz);
+  let off = after;
+  if (before !== after) {
+    const hit = [before, after].map(function (o) { return { o: o, t: mid - o * 60000 }; })
+      .sort(function (x, y) { return x.t - y.t; })
+      .filter(function (c) { return keyAt(c.t, tz) === dateKey; })[0];
+    if (hit) off = hit.o;
+  }
+  const abs = Math.abs(off), two = function (n) { return (n < 10 ? '0' : '') + n; };
+  return (off < 0 ? '-' : '+') + two(Math.floor(abs / 60)) + ':' + two(abs % 60);
 }

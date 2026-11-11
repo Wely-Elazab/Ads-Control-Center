@@ -298,7 +298,7 @@
   // قبل كده رسايل السيرفر كانت بالعربي بس، فالعميل اللي مختار إنجليزي كان بيشوفها بالعربي
   var SERVER_ERROR_KEYS = {
     ORIGIN: 'err.origin', WRONG_APP: 'err.wrongApp', NO_SCOPE: 'err.noScope', BAD_REQUEST: 'err.badRequest', CONFIG: 'err.config',
-    TIMEOUT: 's.timeout', NETWORK: 's.network', TOO_LARGE: 'err.badRequest',
+    TIMEOUT: 's.timeout', NETWORK: 's.network', TOO_LARGE: 'err.badRequest', SERVER: 's.unexpected',
     RESOURCE_EXHAUSTED: 'err.rateLimit', RATE_EXCEEDED: 'err.rateLimit', USER_PERMISSION_DENIED: 'err.permission', PERMISSION_DENIED: 'err.permission'
   };
   function apiErrorText(res) {

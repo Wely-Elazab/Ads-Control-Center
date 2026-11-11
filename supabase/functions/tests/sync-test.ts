@@ -7,11 +7,11 @@
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
 import { corsHeaders, esc, reply, str, stripHidden } from '../sync/lib.ts';
 import { MAX_PER_PLATFORM, SNAP_ID, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
-import { bearer, cleanCode, newCode, verifyJwt } from '../sync/auth.ts';
+import { bearer, cleanCode, counterMissing, handleLogin, newCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -178,6 +178,52 @@ Deno.test('مفتاح الدخول: بيتقبل بس لو توقيعه ومُص
     const before = jwksCalls;
     assertEquals(await verifyJwt(await jwt(good(), { alg: 'ES256', kid: 'unknown' })), null, 'unknown kid');
     assertEquals(jwksCalls, before + 1, 'refetched the keys once');
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: رقم مفتاح تاني مش معروف خلال دقيقة = مفيش جلب جديد (كان كل طلب مزوّر بيجيب القائمة)
+    assertEquals(await verifyJwt(await jwt(good(), { alg: 'ES256', kid: 'unknown-2' })), null, 'another unknown kid');
+    assertEquals(jwksCalls, before + 1, 'not fetched again within a minute');
+    assertEquals(((await verifyJwt(await jwt(good()))) || {}).sub, 'user-1', 'the real key still works');
+  } finally { restoreFetch(); }
+});
+
+// التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (NIST SP 800-63B §5.2.2): عدّاد المحاولات كان بيتقري وبعدين يتكتب، فطلبات في نفس اللحظة تعدّي الحد،
+// ومفيش حد لكل مستخدم عبر جلساته. دلوقتي الخصم في قاعدة البيانات قبل المقارنة (login_try)
+Deno.test('رمز الدخول: المحاولة بتتخصم في قاعدة البيانات قبل المقارنة، وحد اليوم بيقفل، وقاعدة بيانات من غير الدالة بتكمّل بالعدّ القديم', async () => {
+  const hash = await linkSig('ads-center/login-code/v1:', 'session-1:123456');
+  let tryReply: unknown = 3, tryStatus = 200, saved: any[] = [], tries = 0;
+  stubFetch((url, init) => {
+    if (url === ISSUER + '/.well-known/jwks.json') return json({ keys: [{ ...publicJwk, kid: 'k1' }] });
+    if (url.indexOf('/rest/v1/app_access') > -1) return json([{ role: 'pilot' }]);
+    if (url.indexOf('/rest/v1/login_sessions') > -1) {
+      if (init && init.method === 'POST') { saved.push(JSON.parse(String(init.body))); return new Response(null, { status: 201 }); }
+      return json([{ session_id: 'session-1', user_id: 'user-1', code_hash: hash, code_expires_at: new Date(Date.now() + 60000).toISOString(),
+        attempts: 2, sends: 1, verified_at: null }]);
+    }
+    if (url.indexOf('/rest/v1/rpc/login_try') > -1) { tries++; return tryStatus === 200 ? json(tryReply) : json({ code: 'PGRST202' }, tryStatus); }
+    throw new Error('unexpected fetch ' + url);
+  });
+  const call = async (code: string) => {
+    const req = new Request('https://x.test/', { method: 'POST', headers: { authorization: 'Bearer ' + (await jwt(good())) } });
+    const r = await handleLogin('login.verify', { code }, req, null);
+    return { status: r.status, body: await r.json() };
+  };
+  try {
+    // رمز غلط: المحاولة اتخصمت الأول (التالتة من خمسة)، والباقي من العدّاد اللي رجع من قاعدة البيانات — مش من القراءة اللي قبلها
+    assertEquals(await call('000000'), { status: 400, body: { error: 'code', left: 2 } });
+    assertEquals([tries, saved.length], [1, 0], 'counted in the database, no read-then-write');
+    // الرمز الصح: الجلسة بتتأكد
+    const ok = await call('123456');
+    assertEquals([ok.status, ok.body.verified, saved.length, !!saved[0].verified_at], [200, true, 1, true]);
+    // محاولات الرمز خلصت (الدالة مرجّعتش رقم)، وحد اليوم للمستخدم (-1): مفيش تأكيد حتى بالرمز الصح
+    tryReply = null;
+    assertEquals(await call('123456'), { status: 429, body: { error: 'tries' } });
+    tryReply = -1;
+    assertEquals(await call('123456'), { status: 429, body: { error: 'locked' } });
+    assertEquals(saved.length, 1, 'nothing verified past the limits');
+    // قاعدة بيانات لسه من غير الدالة (٤٠٤ — الترحيل ماتطبّقش): العدّ القديم بيكمّل والدخول مبيقفش
+    tryStatus = 404; saved = [];
+    assertEquals(await call('000000'), { status: 400, body: { error: 'code', left: 2 } });
+    assertEquals(saved.map((x) => x.attempts), [3], 'the old counter');
+    assertEquals([counterMissing(new Error('db 404 {}')), counterMissing(new Error('db 500 boom'))], [true, false]);
   } finally { restoreFetch(); }
 });
 
@@ -339,7 +385,9 @@ Deno.test('سجل الحساب القديم: قراءة بس (للنقل لإع�
     metaOk = false;
     assertEquals((await handleSettings('settings.get', { platform: 'meta', accountId: 'act_123', platformToken: T }, null)).status, 403, 'no access on Meta');
     snapOk = false;
-    assertEquals((await handleSettings('settings.get', { platform: 'snapchat', accountId: 'aaaa-1111', platformToken: T }, null)).status, 403);
+    assertEquals((await handleSettings('settings.get', { platform: 'snapchat', accountId: 'cd3b3bfe-4361-484c-9985-51c2d1264860', platformToken: T }, null)).status, 403);
+    // رقم حساب Snapchat معرّف UUID بالظبط زي digest.ts (التدقيق الشامل ١١ نوفمبر ٢٠٢٦: كان هنا شكل متساهل)
+    assertEquals((await handleSettings('settings.get', { platform: 'snapchat', accountId: 'aaaa-1111', platformToken: T }, null)).status, 400);
     assertEquals((await handleSettings('settings.get', { platform: 'google', accountId: '1', platformToken: T }, null)).status, 400);
     assertEquals((await handleSettings('settings.get', { platform: 'meta', accountId: '123', platformToken: T }, null)).status, 400);
   } finally { restoreFetch(); }
@@ -579,6 +627,8 @@ function fakeDigestDb() {
       return json(store.tokens.filter((t) => t.user === body.p_user).map((t) => ({ account_id: t.account, expires_at: t.expires_at, updated_at: null, last_error: null })));
     }
     if (url.indexOf('/rest/v1/rpc/vault_user_get') > -1) return json([]);
+    // tz_ok: قاعدة البيانات عارفة المنطقة دي؟ (AET اسم قديم Intl بيقبله وPostgreSQL لأ)
+    if (url.indexOf('/rest/v1/rpc/tz_ok') > -1) return json(body.p_tz !== 'AET');
     // نسخ Snapchat المقفولة (vault_sealed_*): بنحفظ اللي اتبعت (المشفّر) عشان الاختبار يتأكد إنه مش النسخة نفسها
     if (url.indexOf('/rest/v1/rpc/vault_sealed_put') > -1) {
       store.sealed = store.sealed.filter((t) => !(t.user === body.p_user && t.platform === body.p_platform && t.account === body.p_account))
@@ -702,6 +752,35 @@ Deno.test('«فصل» Meta: حسابات Meta بتخرج من ملخص المس�
     await handleDigest('digest.enable', { token: T, accountId: 'act_1', email: 'a@store.com', lang: 'ar', consent: true }, null, A);
     const r = await handleDigest('digest.disconnect', {}, null, A);
     assertEquals([(await r.json()).removed, store.accounts.length, store.tokens.length, store.digests.length], [1, 0, 0, 0]);
+  } finally { restoreDigestEnv(); }
+});
+// التدقيق الشامل ١١ نوفمبر ٢٠٢٦: منطقة زمنية Intl بيقبلها وقاعدة البيانات مبتعرفهاش كانت بتوقّع طابور البريد لكل المستخدمين
+Deno.test('الملخص: منطقة زمنية قاعدة البيانات مبتعرفهاش متتحفظش — بيتحط الافتراضي', async () => {
+  const A = '11111111-2222-3333-4444-555555555555';
+  const SNAP = 'cd3b3bfe-4361-484c-9985-51c2d1264860', SEALED = 'v2.' + 'A'.repeat(16) + '.' + 'B'.repeat(40);
+  const store = fakeDigestDb();
+  try {
+    const r = await handleDigest('digest.enable', { platform: 'snapchat', accountId: SNAP, sealed: SEALED, name: 'S', timezone: 'AET', email: 'a@store.com', consent: true }, null, A);
+    assertEquals(r.status, 200);
+    assertEquals(store.digests[0].timezone, 'Asia/Riyadh');
+  } finally { restoreDigestEnv(); }
+});
+// التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (OWASP ASVS 2.5.5): صاحب الحساب يعرف لما وجهة رسائله تتغيّر
+Deno.test('الملخص: تغيير البريد بيبلّغ العنوان القديم الأول، وبعده تأكيد للعنوان الجديد', async () => {
+  const A = '11111111-2222-3333-4444-555555555555', T = 'TOKEN_abcdefghijklmnopqrstuvwxyz';
+  const store = fakeDigestDb();
+  try {
+    assertEquals((await handleDigest('digest.enable', { token: T, accountId: 'act_1', email: 'old@store.com', lang: 'ar', consent: true }, null, A)).status, 200);
+    const before = store.mails.length;
+    assertEquals((await handleDigest('digest.update', { email: 'new@store.com' }, null, A)).status, 200);
+    const sent = store.mails.slice(before);
+    assertEquals(sent.map((m: any) => m.to[0]), ['old@store.com', 'new@store.com']);
+    assertEquals(sent[0].subject, 'تم تغيير بريد الملخص التلقائي');
+    assert(String(sent[0].html).indexOf('new@store.com') < 0, 'the new address is not disclosed to the old one');
+    // نفس البريد تاني = مفيش رسائل
+    const again = store.mails.length;
+    assertEquals((await handleDigest('digest.update', { email: 'new@store.com' }, null, A)).status, 200);
+    assertEquals(store.mails.length, again);
   } finally { restoreDigestEnv(); }
 });
 // المرحلة ٢ (٣١ أكتوبر ٢٠٢٦ — «واجعل الملخص لكل المنصات»): حساب Snapchat بنسخته المقفولة من الأداة، مشفّرة تاني عندنا
@@ -843,6 +922,8 @@ Deno.test('الطابور — العاجل: رسالة واحدة بحسابات
     assertEquals(m.subject, 'عاجل: أمران يحتاجان إلى إجراء — حسابين');
     assert(String(m.html).indexOf('TITLE-Meta one') > -1 && String(m.html).indexOf('TITLE-Snap S1') > -1, 'both accounts in one email');
     assert(String(m.html).indexOf('snapchat=S1') > -1 && String(m.html).indexOf('meta=act_1') > -1, 'each account links to its own page');
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: النسخة النصية كانت بتقول «Ads Center» من غير أي عنوان
+    assert(String(m.text).indexOf('Ads Center (https://adscenter.online/app?meta=act_1&view=alerts)') > -1, 'the plain-text part carries the tool link: ' + String(m.text).slice(0, 600));
     assertEquals(out.marks.map((r: any) => r.platform + ':' + r.account_id), ['meta:act_1', 'snapchat:S1']);
     assertEquals(st.outbox.length, 0);
     restoreFetch();
@@ -950,6 +1031,74 @@ Deno.test('الطابور — الملخص: بيستنى أقسام كل الح�
     assertEquals([st.digest.summary_pending, st.digest.last_summary_until, st.digest.sending_until, st.outbox.length, st.accounts[0].need_summary],
       [null, '2026-10-31', null, 0, null], 'closed: next window starts after it, contents deleted');
   } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
+});
+
+// التدقيق الشامل ١١ نوفمبر ٢٠٢٦: الفترة كانت بتتسجّل «اتبعتت» بعد ٣ ساعات من غير أي رسالة لو ولا حساب اتقرا (عطل مؤقت، أو أول تشغيل
+// بعد انقطاع أطول من ٣ ساعات)، فأيامها مبتظهرش في أي ملخص بعد كده
+Deno.test('الطابور — الملخص: من غير أي قسم مقروء بيستنى ومبيتقفلش بصمت، وبعد ٢٤ ساعة بيتقفل من غير ما يتسجّل إنه اتبعت', async () => {
+  const restoreEngine = fakeEngine();
+  try {
+    const late = new Date(Date.now() - 4 * 3600000).toISOString();
+    const st = { outbox: [] as QRow[], accounts: [qAcct('meta', 'act_2', { need_summary: QKEY })],
+      digest: { summary_pending: QKEY, summary_pending_at: late, sending_until: null, last_summary_until: '2026-10-27' } as QRow };
+    let out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser({ summary_pending: QKEY, summary_pending_at: late })], noEngine, { stop: {}, us: {} }), { 'summary-waiting': 1 });
+    assertEquals([out.mails.length, st.digest.summary_pending, st.digest.last_summary_until, st.accounts[0].need_summary], [0, QKEY, '2026-10-27', QKEY],
+      'after 3 hours with nothing read: still waiting, nothing closed');
+    restoreFetch();
+    // حساب وصوله ضاع (قسم «لم نستطع قراءة أرقامه») مش قسم مقروء: لسه بيستنى الحساب التاني
+    st.outbox = [{ user_id: QA, platform: 'snapchat', account_id: 'S9', kind: 'summary', period: QKEY, created_at: late, payload: { missing: true, name: 'Lost' } }];
+    out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser({ summary_pending: QKEY, summary_pending_at: late })], noEngine, { stop: {}, us: {} }), { 'summary-waiting': 1 });
+    assertEquals(out.mails.length, 0);
+    restoreFetch();
+    // بعد ٢٤ ساعة: الفترة بتتقفل من غير رسالة ومن غير ما آخر ملخص يتحرّك — الملخص الجاي بيغطي أيامها
+    const dead = new Date(Date.now() - 25 * 3600000).toISOString();
+    st.outbox = [];
+    st.digest.summary_pending_at = dead;
+    out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser({ summary_pending: QKEY, summary_pending_at: dead })], noEngine, { stop: {}, us: {} }), { 'summary-dropped': 1 });
+    assertEquals([out.mails.length, st.digest.summary_pending, st.digest.last_summary_until, st.digest.sending_until, st.accounts[0].need_summary],
+      [0, null, '2026-10-27', null, null], 'closed without marking the days as sent');
+  } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
+});
+// التدقيق الشامل ١١ نوفمبر ٢٠٢٦: «تعديل كبير» كان بيضيع لو فحص الساعة فشل مؤقتاً — الفحص الجاي كان بيبدأ من وقت الفحص الفاشل
+Deno.test('سجل التعديلات بيتقري من آخر قراءة ناجحة ليه، مش من آخر فحص', () => {
+  const now = Date.parse('2026-11-11T12:00:00Z'), iso = (h: number) => new Date(now - h * 3600000).toISOString();
+  // فحص من ساعة فشل (checked_at اتحرّك)، وآخر قراءة ناجحة للسجل من ساعتين: التعديلات من ساعتين
+  assertEquals(editsSince({ edits_at: iso(2), checked_at: iso(1) }, now), now - 2 * 3600000);
+  // من غير علامة (حساب من قبل التحديث): آخر فحص زي الأول
+  assertEquals(editsSince({ edits_at: null, checked_at: iso(1) }, now), now - 3600000);
+  assertEquals(editsSince({ checked_at: iso(1) }, now), now - 3600000);
+  // أول فحص خالص: آخر ساعتين
+  assertEquals(editsSince({ edits_at: null, checked_at: null }, now), now - 2 * 3600000);
+  // انقطاع طويل: ٢٤ ساعة لورا بالكتير
+  assertEquals(editsSince({ edits_at: iso(72), checked_at: iso(1) }, now), now - 24 * 3600000);
+});
+// التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (OWASP SSRF Prevention Cheat Sheet): التحويل كان بيتتبع تلقائياً من غير مراجعة العنوان الجديد
+Deno.test('فحص الروابط: التحويلات بتتتبع قفزة قفزة، والتحويل لعنوان IP أو اسم داخلي مبيتفتحش', async () => {
+  const seen: string[] = [];
+  stubFetch((url, init) => {
+    seen.push(url);
+    assertEquals((init as RequestInit).redirect, 'manual');
+    if (url === 'https://shop.example/a') return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } });
+    if (url === 'https://shop.example/b') return new Response(null, { status: 301, headers: { location: '/gone' } });
+    if (url === 'https://shop.example/gone') return new Response('x', { status: 404 });
+    if (url === 'https://shop.example/c') return new Response(null, { status: 302, headers: { location: 'https://localhost/admin' } });
+    if (url === 'https://shop.example/loop') return new Response(null, { status: 302, headers: { location: 'https://shop.example/loop' } });
+    return new Response('ok', { status: 200 });
+  });
+  try {
+    assertEquals(await probe('https://shop.example/a'), { status: 302, blocked: true }, 'a redirect to an IP address is not followed');
+    assertEquals(seen.filter((u) => u.indexOf('169.254') > -1).length, 0);
+    assertEquals(await probe('https://shop.example/b'), { status: 404, blocked: false }, 'a relative redirect is followed to its end');
+    assertEquals(await probe('https://shop.example/c'), { status: 302, blocked: true }, 'nor to an internal name');
+    assertEquals(seen.filter((u) => u.indexOf('localhost') > -1).length, 0);
+    assertEquals(await probe('https://shop.example/ok'), { status: 200, blocked: false });
+    const before = seen.length;
+    assertEquals(await probe('https://shop.example/loop'), { status: 0, blocked: false }, 'an endless redirect = no answer');
+    assert(seen.length - before <= 11, 'a bounded number of hops');
+  } finally { restoreFetch(); }
 });
 
 Deno.test('الطابور — ملخص بحسابات كتير: سطر لكل حساب بحكمه، والتفاصيل للي محتاج انتباه بس، والرسالة تحت حد قصّ Gmail', async () => {

@@ -1,20 +1,17 @@
 // الملخص والتنبيهات التلقائية بالبريد (اختيارية) — لكل مستخدم من ٣١ أكتوبر ٢٠٢٦ (قرار صاحب المنتج: «اجعلها لكل مستخدم ملخص خاص به»):
 // ملخص واحد لحساب الدخول (بريده ومواعيده ولغته وتوقيته — جدول user_digests) فيه الحسابات اللي اختارها (user_digest_accounts — لحد
 // MAX_PER_PLATFORM لكل منصة)، وبيتبعت بإعدادات التنبيهات بتاعته هو (settings.ts). العمليات تحت handleDigest.
-// إعدادات التنبيهات (المستهدف وحد الخسارة والحدود) مش هنا: إعدادات المستخدم (settings.ts)
+// إعدادات التنبيهات (العائد المستهدف والحدود) مش هنا: إعدادات المستخدم (settings.ts)
 //
 // صلاحية Meta: بنبدّل المفتاح القصير (ساعة أو اتنين) بمفتاح طويل (نحو ٦٠ يوم) بسر التطبيق، ونشفّره AES-256-GCM بـ TOKEN_ENC_KEY
 // ومربوط برقم الحساب، ونحفظه للمستخدم عن طريق دوال vault_user_* بس. Snapchat (من ٣١ أكتوبر): النسخة المقفولة من مفتاح التجديد،
 // مشفّرة تاني بنفس المفتاح، عن طريق دوال vault_sealed_* (storeSealed تحت).
 // الإيقاف (أو «فصل» أو رابط الإيقاف) = الصلاحيات والإعدادات بيتمسحوا فوراً. سياسة الخصوصية، البندين ٣ و٧
 
-import { GRAPH, META_APP_ID, META_ID, SITE, TOKEN, db, rpc, metaAccount, reply, sendEmail, mailHtml, esc } from './lib.ts';
+import { GRAPH, META_APP_ID, META_ID, SITE, TOKEN, UUID_SHAPE, USER_ID, db, rpc, metaAccount, reply, sendEmail, mailHtml, esc, stripHidden } from './lib.ts';
 
 const CONSENT_VERSION = '2026-10-31-snapchat';   // سياسة الخصوصية: ملخص لكل مستخدم بإعداداته وحساباته، وحسابات Snapchat فيه
-// شكل المعرّف بالظبط: ٨-٤-٤-٤-١٢ بالشرطات في أماكنها (مراجعة ١ نوفمبر ٢٠٢٦، ح٣ — المتساهل القديم
-// /^[0-9a-f-]{36}$/ كان بيقبل ٣٦ شرطة ورا بعض). نفس الشكل اللي في Live/api/_input.js
-const UUID_SHAPE = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const USER_ID = new RegExp('^' + UUID_SHAPE + '$', 'i');
+// شكل المعرّف (UUID_SHAPE وUSER_ID) في lib.ts — تعريف واحد لكل الملفات
 const PLATFORMS = ['meta', 'snapchat', 'google', 'tiktok'];
 const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const DEFAULT_DAYS = [0, 3];   // الأحد والأربعاء
@@ -123,15 +120,22 @@ async function storeSealed(user: string, platform: string, account: string, seal
   await rpc('vault_sealed_put', { p_user: user, p_platform: platform, p_account: account, p_cipher: c.ct, p_iv: c.iv, p_expires: expiresAt });
   return expiresAt;
 }
-// اسم الحساب زي ما ظاهر في الأداة (للقائمة والرسائل بس) — من غير رموز تحكم
+// اسم الحساب زي ما ظاهر في الأداة (للقائمة والرسائل بس) — من غير أي محارف مخفية (stripHidden الموحّد في lib.ts). التدقيق الشامل ١١ نوفمبر
+// ٢٠٢٦: كان بيشيل رموز التحكم بس، فمحارف الاتجاه وصفرية العرض كانت بتعدّي لاسم الحساب في عنوان الرسالة ونصها
 function cleanName(v: unknown): string | null {
   if (typeof v !== 'string') return null;
-  const s = v.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 200);
+  const s = stripHidden(v).replace(/\s+/g, ' ').trim().slice(0, 200);
   return s || null;
 }
 function cleanTz(v: unknown): string | null {
   if (typeof v !== 'string' || v.length > 64 || !/^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(v)) return null;
   try { new Intl.DateTimeFormat('en-US', { timeZone: v }); return v; } catch (_) { return null; }
+}
+// المنطقة معروفة لقاعدة البيانات نفسها؟ Intl (V8) بيقبل أسماء قديمة PostgreSQL مبيعرفهاش (AET، CTT، US/Pacific-New…)، وطابور البريد
+// بيحسب ساعة المستخدم في قاعدة البيانات (digest_claim) — اسم زي ده كان بيوقّع الطابور لكل المستخدمين (التدقيق الشامل ١١ نوفمبر ٢٠٢٦).
+// الطابور نفسه بقى محمي (tz_hour)، وده التحقق وقت الحفظ. فشل السؤال نفسه = نكمّل بالاسم (الحماية التانية شغّالة)
+async function tzKnown(tz: string): Promise<boolean> {
+  try { return (await rpc('tz_ok', { p_tz: tz })) !== false; } catch (_) { return true; }
 }
 
 // ---------- الإعدادات ----------
@@ -253,6 +257,26 @@ async function mailEnabled(user: string, names: string[], s: any): Promise<void>
     await logSend(user, '', 'enabled', 'sent', id, null);
   } catch (e) {
     await logSend(user, '', 'enabled', 'failed', null, String((e as Error).message || e));
+  }
+}
+// بريد الملخص اتغيّر: سطرين للعنوان القديم — من غير العنوان الجديد ولا أي بيانات حساب
+async function mailMoved(user: string, s: any): Promise<void> {
+  const en = s.lang === 'en';
+  const subject = en ? 'Your summary email address was changed' : 'تم تغيير بريد الملخص التلقائي';
+  const lines = en ? [
+    'Hello,',
+    'The automatic summary and urgent alerts of your Ads Center account will now be sent to another email address, so you will no longer receive them here.',
+    'If you did not make this change: open the tool, then "Settings", then "Automatic summary by email" to review it, and change your sign-in password from the sign-in page with "Forgot your password?".'
+  ] : [
+    'مرحباً،',
+    'سيُرسَل الملخص التلقائي والتنبيهات العاجلة لحسابك في Ads Center إلى بريد آخر من الآن، ولن تصلك على هذا العنوان.',
+    'إذا لم تُجرِ هذا التغيير بنفسك: افتح الأداة، ثم «الإعدادات»، ثم «الملخص التلقائي بالبريد» لمراجعته، وغيّر كلمة مرور الدخول من صفحة الدخول عبر «نسيت كلمة المرور؟».'
+  ];
+  try {
+    const id = await sendEmail(s.email, subject, mailHtml(esc(subject), lines, en ? 'en' : 'ar'), subject + '\n\n' + lines.join('\n'));
+    await logSend(user, '', 'moved', 'sent', id, null);
+  } catch (e) {
+    await logSend(user, '', 'moved', 'failed', null, String((e as Error).message || e));
   }
 }
 async function mailDisabled(user: string, s: any): Promise<void> {
@@ -383,7 +407,10 @@ export async function handleDigest(action: string, body: any, origin: string | n
     if (body.lang === 'ar' || body.lang === 'en') patch.lang = body.lang;
     await db('user_digests?user_id=eq.' + user, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify(patch) });
     const next = { ...s, ...patch };
-    if (patch.email && patch.email !== s.email) {   // تأكيد للعنوان الجديد
+    if (patch.email && patch.email !== s.email) {
+      // إشعار للعنوان القديم الأول (التدقيق الشامل ١١ نوفمبر ٢٠٢٦ — OWASP ASVS 2.5.5: صاحب الحساب يعرف لما وجهة رسائله تتغيّر؛ لو
+      // حد غيره غيّرها من جلسته، الرسالة دي هي اللي بتنبّهه)، وبعده التأكيد للعنوان الجديد
+      await mailMoved(user, s);
       const names = [];
       for (const a of await accountsOf(user)) names.push(await nameOf(a));
       await mailEnabled(user, names, next);
@@ -468,7 +495,8 @@ export async function handleDigest(action: string, body: any, origin: string | n
     const expiresAt = await store();
     if (!expiresAt) return reply(502, { error: 'meta exchange' }, origin);
     // توقيت الملخص: توقيت الحساب اللي اتفعّل بيه (Meta من Meta نفسها، وSnapchat زي ما الأداة شايفاه)
-    const tz = (platform === 'meta' ? acc.timezone_name : cleanTz(body.timezone)) || 'Asia/Riyadh';
+    const askedTz = platform === 'meta' ? acc.timezone_name : cleanTz(body.timezone);
+    const tz = typeof askedTz === 'string' && askedTz && (await tzKnown(askedTz)) ? askedTz : 'Asia/Riyadh';
     const row = { user_id: user, email, enabled: true, summary_days: days, summary_hour: hour, timezone: tz, lang: body.lang === 'en' ? 'en' : 'ar',
       consent_at: now, consent_version: CONSENT_VERSION, updated_at: now, last_summary_until: yesterdayIn(tz) };
     await db('user_digests?on_conflict=user_id', { method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(row) });

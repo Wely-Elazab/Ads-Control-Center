@@ -30,7 +30,8 @@ export function guardRequest(req, res) {
   if (origin && ok) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // Authorization = ترويسة دخول الأداة (js/auth.js): من غيرها طلب أي نطاق مضاف في ALLOWED_ORIGINS بيترفض في المتصفح قبل ما يتبعت
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   }
 
   if (!ok) { res.status(403).json({ error: 'ورد الطلب من نطاق غير مسموح به.', code: 'ORIGIN' }); return false; }

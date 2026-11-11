@@ -24,6 +24,7 @@
     expired: { ar: 'انتهت صلاحية الرمز. اضغط «أعد إرسال الرمز».', en: 'The code has expired. Press "Send a new code".' },
     tries: { ar: 'تجاوزت عدد المحاولات لهذا الرمز. اضغط «أعد إرسال الرمز».', en: 'Too many attempts for this code. Press "Send a new code".' },
     sends: { ar: 'طلبت رموزاً كثيرة. اضغط «الدخول بحساب آخر» وسجّل الدخول من جديد بعد قليل.', en: 'You\'ve asked for many codes. Press "Use another account" and sign in again a little later.' },
+    locked: { ar: 'محاولات دخول كثيرة على هذا الحساب اليوم. حاول مرة أخرى غداً، وإن لم تكن أنت من يحاول فغيّر كلمة المرور من «نسيت كلمة المرور؟».', en: 'Too many sign-in attempts on this account today. Please try again tomorrow — and if it wasn\'t you, change your password with "Forgot your password?".' },
     mail: { ar: 'تعذّر إرسال الرمز الآن. حاول مرة أخرى بعد قليل.', en: 'We couldn\'t send the code right now. Please try again shortly.' },
     weak: { ar: 'اختر كلمة مرور من ٨ أحرف على الأقل.', en: 'Please choose a password of at least 8 characters.' },
     pwned: { ar: 'ظهرت كلمة المرور هذه في تسريبات بيانات سابقة على الإنترنت، فيسهل تخمينها. اختر كلمة مرور أخرى.', en: 'This password has appeared in past data breaches, so it\'s easy to guess. Please choose a different one.' },
@@ -86,7 +87,7 @@
       if (res.ok) { waitResend(60); return; }
       if (res.status === 429 && res.data.error === 'wait') { waitResend(res.data.retryIn || 60); return; }
       if (res.status === 401) { A.forget(); show('signin', 'lEmail'); return; }
-      error('codeError', res.status === 403 ? 'access' : (res.status === 0 ? 'network' : (res.data.error === 'sends' ? 'sends' : 'mail')));
+      error('codeError', res.status === 403 ? 'access' : (res.status === 0 ? 'network' : (res.data.error === 'sends' || res.data.error === 'locked' ? res.data.error : 'mail')));
     });
   }
 
@@ -120,7 +121,7 @@
       var k = res.data && res.data.error;
       if (res.status === 0) error('codeError', 'network');
       else if (k === 'code' && typeof res.data.left === 'number') error('codeError', res.data.left > 0 ? 'wrongLeft' : 'tries', res.data.left, 'lCode');
-      else error('codeError', k === 'expired' || k === 'tries' ? k : (res.status === 401 ? 'credentials' : 'failed'), 0, 'lCode');
+      else error('codeError', k === 'expired' || k === 'tries' || k === 'locked' ? k : (res.status === 401 ? 'credentials' : 'failed'), 0, 'lCode');
     });
   });
   $('resendCode').addEventListener('click', function () { clear('codeError'); sendCode(); });
