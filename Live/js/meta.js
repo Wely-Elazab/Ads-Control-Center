@@ -15,16 +15,29 @@
   var GRAPH_VERSION = 'v26.0';
 
   // ---------- Facebook SDK ----------
-  // أي كود محتاج FB قبل ما الـ SDK يخلص تحميل (زي استرجاع الجلسة) بيستنى هنا
-  var fbReadyQueue = [];
-  function whenFbReady(cb) { if (fbReadyQueue) fbReadyQueue.push(cb); else cb(); }
+  // أي كود محتاج FB قبل ما الـ SDK يخلص تحميل (زي استرجاع الجلسة) بيستنى هنا. onGone (اختياري) = المكتبة اتمنعت (والطلب مستني، أو من
+  // قبل كده): من غيره اللي مستني كان بيتشال من الطابور من غير ما حد يقوله — «جارٍ تجديد الجلسة» كانت بتفضل تلف للأبد لو الربط المحفوظ
+  // اترفض والمكتبة وقعت بعده، وأي طلب من غير مفتاح كان بيفضل معلّق (التدقيق الشامل ١٢ نوفمبر ٢٠٢٦)
+  var fbReadyQueue = [], fbGoneQueue = [];
+  function whenFbReady(cb, onGone) {
+    if (fbSdkFailed) { if (onGone) onGone(); return; }
+    if (!fbReadyQueue) { cb(); return; }
+    fbReadyQueue.push(cb);
+    if (onGone) fbGoneQueue.push(onGone);
+  }
   // مكتبة فيسبوك ممكن تتمنع (إضافة حجب إعلانات، متصفح Brave، حماية التتبّع) — من غير ده العميل كان بيشوف
   // «ما زالت المكتبة قيد التحميل» على طول، والجلسة المحفوظة كانت بتفضل معلّقة من غير أي رسالة
   var fbSdkFailed = false;
   function onFbSdkFailed() {
     fbSdkFailed = true;
     fbReadyQueue = [];
-    if (activeSources.meta) {
+    // معانا مفتاح شغّال (أو الربط المحفوظ بيتجدد دلوقتي) = الأرقام بتيجي من Graph على طول ومالهاش دعوة بالمكتبة (metaApi): مفيش كارت خطأ
+    // فوق حساب شغّال. قبل كده أي حساب معروض كان بياخد «تعذّر تحميل Meta — المكتبة محجوبة» لو المكتبة وقعت على شبكة بطيئة بعد ما أرقامه ظهرت.
+    // بيتحسب قبل اللي مستنيين: واحد منهم ممكن يشيل الحساب (جلسة مش راجعة) والكارت لسه لازم يقول السبب
+    var blocked = !!activeSources.meta && !validToken(sessionTokens.meta) && !(typeof renewing !== 'undefined' && renewing.meta);
+    var gone = fbGoneQueue; fbGoneQueue = [];
+    gone.forEach(function (f) { f(); });
+    if (blocked) {
       setPlatformState('meta', { kind: 'error', msg: msg('s.metaSdkBlocked') });
       setStatus(msg('s.metaSdkBlocked'));
       if (typeof render === 'function') render();
@@ -72,6 +85,7 @@
   function metaErrorText(err) {
     var code = err ? Number(err.code) : null;
     return function () {
+      if (err && err.sdk) return t('s.metaSdkBlocked');   // مكتبة فيسبوك اتمنعت والطلب مالوش مفتاح (metaApi)
       if (META_RATE_CODES[code]) return t('err.rateLimit');
       if (code === 10 || (code >= 200 && code <= 299)) return t('err.permission');
       return (err && err.message) || t('s.unexpected');
@@ -84,7 +98,7 @@
     fetchAllPages('/me/adaccounts', { fields: META_ACCOUNT_FIELDS, limit: 100 }, FULL_SCAN_CAP, function (err, data) {
       if (err) {
         if (isMetaAuthError(err)) { markExpired('meta'); return; }
-        var failMsg = isMetaRateLimit(err) ? metaErrorText(err) : msg('s.metaAccountsFailed');
+        var failMsg = isMetaRateLimit(err) || err.sdk ? metaErrorText(err) : msg('s.metaAccountsFailed');
         setPlatformState('meta', { kind: 'error', msg: failMsg });
         setStatus(failMsg);
         render();
@@ -102,7 +116,7 @@
           accountStatus: a.account_status, spendCap: a.spend_cap || null, amountSpent: a.amount_spent || null
         };
       });
-      setPlatformOptions('meta', data.map(function (a) { return { value: a.id, label: 'Meta — ' + a.name }; }));
+      setPlatformOptions('meta', data.map(function (a) { return { value: a.id, label: 'Meta — ' + (a.name || a.id) }; }));
       document.getElementById('tConnectTitle').textContent = t('title.metaConnected');
       // بعد استرجاع الجلسة بنحدّث بيانات الحساب (حالته وحد الصرف) الأول، وبعدين نحمّل نفس الحساب المحفوظ.
       // غير كده: آخر حساب اختاره العميل ← أول حساب شغّال (account_status = 1) — مش أول حساب في القايمة
@@ -131,14 +145,20 @@
     // معانا مفتاح: Graph API على طول من غير مكتبة فيسبوك (نفس طريقة المُشغّل على الخادم — runner.ts graph). المكتبة على الشبكة
     // البطيئة بتتأخر أو جزء منها مبيتحمّلش (حساب حقيقي ١٠ و١١ أكتوبر ٢٠٢٦: «تعذّر تحميل الحسابات» وهي بتتحمّل)، وحاجب الإعلانات
     // بيمنعها كلها — والأرقام مالهاش دعوة بيها. المكتبة بتفضل للدخول نفسه (FB.login)، وللطلب من غير مفتاح (جلسة المكتبة)
-    var tok = validToken(sessionTokens.meta);
+    var entry = sessionTokens.meta, tok = validToken(entry);
     if (tok) { graphCall(path, a, b, c, tok); return; }
-    // من غير مفتاح والمكتبة لسه متحمّلتش: الطلب بيستنى جاهزيتها بدل خطأ «FB is not defined». لو المكتبة اتمنعت،
-    // onFbSdkFailed بيعرض رسالتها. المُشغّل على الخادم معرّف FB بديل (runner.ts) فمبيستناش
+    var back = function (error) { var done = [a, b, c].filter(function (f) { return typeof f === 'function'; })[0]; if (done) done({ error: error }); };
+    // مفتاح الربط المحفوظ انتهى والتاب لسه مفتوح (آخر يوم من الـ٦٠ تقريباً): ده «الجلسة انتهت» (١٩٠) — الأداة تجدد أو تطلب ربط من جديد
+    // (markExpired). من غيره الطلب كان بيروح للمكتبة من غير مفتاح، وMeta بترد «(#200) Provide valid app ID» (اتقاس ١٢ نوفمبر ٢٠٢٦) فالعميل
+    // يشوف «ليس لديك صلاحية» وزرار «حاول تاني» اللي مبيحلّش حاجة. بعد إعادة التحميل المفتاح المنتهي مبيرجعش أصلاً (main.js restoreSession)
+    if (entry && entry.token) { back({ code: 190, message: 'saved Meta link expired' }); return; }
+    // من غير مفتاح والمكتبة لسه متحمّلتش: الطلب بيستنى جاهزيتها بدل خطأ «FB is not defined». لو المكتبة اتمنعت (قبل كده، أو والطلب
+    // مستني) بيرجع بخطأ sdk — رسالته «المكتبة محجوبة» (metaErrorText) بدل طلب معلّق للأبد. المُشغّل على الخادم معرّف FB بديل
+    // (runner.ts) فمبيستناش
     if (typeof FB === 'undefined') {
-      if (fbReadyQueue) { fbReadyQueue.push(function () { metaApi(path, a, b, c); }); return; }
-      var done = [a, b, c].filter(function (f) { return typeof f === 'function'; })[0];
-      if (done) done({ error: { message: 'Facebook SDK unavailable' } });
+      var gone = function () { back({ message: 'Facebook SDK unavailable', sdk: true }); };
+      if (fbReadyQueue && !fbSdkFailed) whenFbReady(function () { metaApi(path, a, b, c); }, gone);
+      else gone();
       return;
     }
     return FB.api(path, a, b, c);
@@ -1036,8 +1056,10 @@
   // الصور المصغّرة الصغيرة (أقل من ٤٠٠ — مقاسها في stp: «s160x160» أو «p64x64») بتتأجل لآخر حاجة: حساب حقيقي ١٠ أكتوبر ٢٠٢٦،
   // ١١ إعلان فيديو كان غلافه ١٦٠×١٦٠ مشوّش من asset_feed_spec ونسخة ١٠٨٠ متاحة في thumbnail_url
   function smallThumb(u) {
-    var stp = /[?&]stp=([^&]+)/.exec(u || '');
-    var m = stp && /[ps](\d{2,4})x(\d{2,4})/.exec(decodeURIComponent(stp[1]));
+    var stp = /[?&]stp=([^&]+)/.exec(u || ''), size = stp ? stp[1] : '';
+    // قيمة مش متشفّرة صح («%» لوحدها) كانت بترمي خطأ يوقّع تحميل الحساب كله بسبب رابط صورة واحد — بتتقرا زي ما هي
+    try { size = decodeURIComponent(size); } catch (e) { /* زي ما هي */ }
+    var m = /[ps](\d{2,4})x(\d{2,4})/.exec(size);
     return !!m && Math.max(+m[1], +m[2]) < 400;
   }
   function metaImageUrl(ad) {

@@ -215,8 +215,13 @@
   }
   // «حاول تاني»: نفس الحساب لو معروف، أو قائمة الحسابات من الأول، أو ربط تاني لو مفيش جلسة
   function retryPlatform(platform) {
+    // Meta في تاب جديد (main.js autoReconnectMeta) بتحط الحساب قبل ما قائمة الحسابات توصل. لو القائمة فشلت (شبكة، حد الطلبات) و«حاول مرة
+    // أخرى» حمّل إعلانات الحساب على طول: بياناته مش موجودة، فالأيام بتتحسب بتوقيت المتصفح بدل توقيت الحساب والمبالغ من غير عملة، وقائمة
+    // الحسابات فاضية. فالقائمة الأول وبعدها نفس الحساب (التدقيق الشامل ١٢ نوفمبر ٢٠٢٦). بالمفتاح المحفوظ من غير مكتبة فيسبوك كمان
+    var metaReady = typeof FB !== 'undefined' || !!validToken(sessionTokens.meta);
+    if (platform === 'meta' && activeSources.meta && !accountInfo['meta:' + activeSources.meta] && metaReady) { loadAdAccounts(activeSources.meta); return; }
     if (activeSources[platform]) { loadSource(platform, activeSources[platform]); return; }
-    if (platform === 'meta' && typeof FB !== 'undefined') { loadAdAccounts(); return; }
+    if (platform === 'meta' && metaReady) { loadAdAccounts(); return; }
     if (platform === 'google' && validToken(sessionTokens.google)) { loadGoogleAccounts(); return; }
     if (platform === 'snapchat' && validToken(sessionTokens.snapchat)) { loadSnapchatAccounts(); return; }
     if (platform === 'tiktok' && validToken(sessionTokens.tiktok) && (platformOptions.tiktok || []).length) { loadSource('tiktok', platformOptions.tiktok[0].value); return; }

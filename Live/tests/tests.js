@@ -3998,6 +3998,82 @@
         delete activeSources.meta;
       }
     });
+    // التدقيق الشامل ١٢ نوفمبر ٢٠٢٦: المفتاح والربط المحفوظ بيشتغلوا من غير مكتبة فيسبوك (metaApi → Graph على طول)، فمنعها (حاجب إعلانات، أو
+    // وقعت على شبكة بطيئة) ميمنعش الرجوع بيهم. قبل كده: كارت «المكتبة محجوبة» بدل الحساب، ومفيش محاولة في التاب الجديد
+    var fbBlockedCase = function (run) {
+      var real = { failed: fbSdkFailed, queue: fbReadyQueue, load: window.loadAdAccounts, renew: window.renewSession, last: lastAccounts.meta,
+        tok: sessionTokens.meta, sealed: sealedFor('meta'), hadFB: 'FB' in window, FB: window.FB };
+      var loaded = [];
+      window.loadAdAccounts = function (id) { loaded.push(id); };
+      try {
+        delete activeSources.meta; delete sessionTokens.meta; setPlatformOptions('meta', []); setPlatformState('meta', null);
+        lastAccounts.meta = 'act_42';
+        run(loaded);
+      } finally {
+        fbSdkFailed = real.failed; fbReadyQueue = real.queue; window.loadAdAccounts = real.load; window.renewSession = real.renew;
+        if (real.hadFB) window.FB = real.FB; else delete window.FB;
+        if (real.last === undefined) delete lastAccounts.meta; else lastAccounts.meta = real.last;
+        if (real.tok) sessionTokens.meta = real.tok; else delete sessionTokens.meta;
+        keepSealed('meta', real.sealed);
+        delete activeSources.meta; setPlatformState('meta', null); setLoading('meta', false); setPlatformOptions('meta', []);
+      }
+    };
+    test('Meta والمكتبة ممنوعة: الربط المحفوظ بيرجّع الحساب في تاب جديد، والمفتاح بيرجّعه بعد reload، ومن غيرهم الكارت الواضح', function () {
+      fbBlockedCase(function (loaded) {
+        fbSdkFailed = true;
+        window.renewSession = function () { return { then: function (f) { f(true); } }; };
+        keepSealed('meta', 'm1.sealedcopy');
+        autoReconnectMeta();
+        eq([loaded.slice(), activeSources.meta], [['act_42'], 'act_42'], 'new tab: the saved link works without the SDK');
+
+        keepSealed('meta', null); delete activeSources.meta; loaded.length = 0; setLoading('meta', false);
+        autoReconnectMeta();
+        eq([loaded.slice(), platformState.meta || null], [[], null], 'no saved link: nothing to try, no card');
+
+        restoreSession({ tokens: { meta: { token: 'TOK', expiresAt: Date.now() + 3600000 } }, options: {}, active: { meta: 'act_7' }, accountInfo: {} }, {});
+        eq([loaded.slice(), platformState.meta || null], [['act_7'], null], 'reload with a working key: the account loads, no «blocked» card');
+
+        delete sessionTokens.meta; delete activeSources.meta; loaded.length = 0;
+        restoreSession({ tokens: {}, options: {}, active: { meta: 'act_7' }, accountInfo: {} }, {});
+        eq([loaded.slice(), platformState.meta && platformState.meta.kind], [[], 'error'], 'no key and no saved link: the clear card');
+      });
+    });
+    test('«حاول مرة أخرى» لـMeta وبيانات الحساب لسه موصلتش (قائمة الحسابات فشلت في تاب جديد): القائمة الأول وبعدها نفس الحساب — مش إعلاناته بتوقيت المتصفح ومن غير عملة', function () {
+      var real = { accounts: window.loadAdAccounts, ads: window.loadAdsForAccount, tok: sessionTokens.meta, src: activeSources.meta, info: accountInfo['meta:act_42'], hadFB: 'FB' in window, FB: window.FB };
+      var lists = [], ads = [];
+      window.loadAdAccounts = function (id) { lists.push(id === undefined ? null : id); };
+      window.loadAdsForAccount = function (id) { ads.push(id); };
+      try {
+        delete window.FB;
+        sessionTokens.meta = { token: 'TOK', expiresAt: Date.now() + 3600000 };
+        activeSources.meta = 'act_42'; delete accountInfo['meta:act_42'];
+        retryPlatform('meta');
+        eq([lists, ads], [['act_42'], []], 'no account details yet: the list first, with the saved key and without the SDK');
+        accountInfo['meta:act_42'] = { name: 'x', timeZone: 'Asia/Riyadh', currency: 'SAR' };
+        retryPlatform('meta');
+        eq([lists, ads], [['act_42'], ['act_42']], 'details known: the account itself, as before');
+        delete activeSources.meta;
+        retryPlatform('meta');
+        eq([lists, ads], [['act_42', null], ['act_42']], 'no account chosen: the list, with the saved key alone');
+      } finally {
+        window.loadAdAccounts = real.accounts; window.loadAdsForAccount = real.ads;
+        if (real.hadFB) window.FB = real.FB; else delete window.FB;
+        if (real.tok) sessionTokens.meta = real.tok; else delete sessionTokens.meta;
+        if (real.src) activeSources.meta = real.src; else delete activeSources.meta;
+        if (real.info) accountInfo['meta:act_42'] = real.info; else delete accountInfo['meta:act_42'];
+      }
+    });
+    test('Meta في تاب جديد: الربط المحفوظ اترفض والمكتبة اتمنعت واحنا مستنيينها = «انتهت الجلسة» بزرار الربط — مش «جارٍ تجديد الجلسة» للأبد', function () {
+      fbBlockedCase(function (loaded) {
+        delete window.FB; fbSdkFailed = false; fbReadyQueue = [];
+        window.renewSession = function () { return { then: function (f) { f(false); } }; };
+        keepSealed('meta', 'm1.sealedcopy');
+        autoReconnectMeta();
+        eq([!!loadingPlatforms.meta, platformState.meta || null, fbReadyQueue.length], [true, null, 1], 'waiting for the SDK');
+        onFbSdkFailed();
+        eq([!!loadingPlatforms.meta, platformState.meta && platformState.meta.kind, loaded.slice()], [false, 'expired', []]);
+      });
+    });
   });
 
   // ---------- إعدادات التنبيهات بلغة صاحب المتجر + نافذة أول مرة (ui.js) ----------
@@ -5634,8 +5710,9 @@
     });
 
     test('مكتبة Meta اتمنعت (حجب إعلانات مثلاً): رسالة واضحة، والجلسة المحفوظة بتبقى كارت خطأ بدل ما تعلّق', function () {
-      var prev = fbSdkFailed;
+      var prev = fbSdkFailed, prevQ = fbReadyQueue, prevTok = sessionTokens.meta;
       try {
+        delete sessionTokens.meta;
         activeSources.meta = 'act_1';
         onFbSdkFailed();
         eq(platformState.meta && platformState.meta.kind, 'error');
@@ -5644,7 +5721,75 @@
           loginWithMeta();
           eq(document.getElementById('connectStatus').textContent, t('s.metaSdkBlocked'), 'login button says why');
         }
-      } finally { fbSdkFailed = prev; }
+      } finally {
+        fbSdkFailed = prev; fbReadyQueue = prevQ; delete activeSources.meta; setPlatformState('meta', null);
+        if (prevTok) sessionTokens.meta = prevTok; else delete sessionTokens.meta;
+      }
+    });
+    // التدقيق الشامل ١٢ نوفمبر ٢٠٢٦: الحساب بيشتغل بمفتاحه المحفوظ من غير المكتبة (metaApi → Graph على طول)، والمكتبة لو وقعت على شبكة
+    // بطيئة بعد ما أرقامه ظهرت كانت بتحط كارت «تعذّر تحميل Meta — المكتبة محجوبة» فوقه
+    test('مكتبة Meta اتمنعت والحساب شغّال بمفتاحه المحفوظ: مفيش كارت خطأ فوقه؛ من غير مفتاح الكارت بيظهر', function () {
+      var prev = fbSdkFailed, prevQ = fbReadyQueue, prevTok = sessionTokens.meta, prevStatus = document.getElementById('connectStatus').textContent;
+      try {
+        activeSources.meta = 'act_1'; setPlatformState('meta', null);
+        sessionTokens.meta = { token: 'TOK', expiresAt: Date.now() + 3600000 };
+        onFbSdkFailed();
+        eq([platformState.meta || null, document.getElementById('connectStatus').textContent], [null, prevStatus], 'a working key: nothing shown');
+        renewing.meta = Promise.resolve(true); delete sessionTokens.meta;
+        onFbSdkFailed();
+        eq(platformState.meta || null, null, 'the saved link is being renewed right now: nothing shown yet');
+        delete renewing.meta;
+        sessionTokens.meta = { token: 'TOK', expiresAt: Date.now() - 1000 };
+        onFbSdkFailed();
+        eq(platformState.meta && platformState.meta.kind, 'error', 'no usable key: the card');
+      } finally {
+        fbSdkFailed = prev; fbReadyQueue = prevQ; delete renewing.meta; delete activeSources.meta; setPlatformState('meta', null);
+        if (prevTok) sessionTokens.meta = prevTok; else delete sessionTokens.meta;
+      }
+    });
+    test('Meta: اللي مستني مكتبة فيسبوك بيتبلّغ لما تتمنع (طلب من غير مفتاح، واسترجاع الجلسة) — مفيش حاجة بتفضل معلّقة', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, prev = fbSdkFailed, prevQ = fbReadyQueue, prevTok = sessionTokens.meta, prevSrc = activeSources.meta;
+      try {
+        delete window.FB; fbReadyQueue = []; fbSdkFailed = false; delete sessionTokens.meta; delete activeSources.meta;
+        var got = null, gone = 0, ran = 0;
+        metaApi('/me', { fields: 'id' }, function (r) { got = r; });
+        whenFbReady(function () { ran++; }, function () { gone++; });
+        whenFbReady(function () { ran++; });                       // من غير onGone زي الأول: بيتشال في صمت
+        eq([got, gone, fbReadyQueue.length], [null, 0, 3], 'waiting');
+        onFbSdkFailed();
+        ok(got && got.error && got.error.sdk === true, 'the waiting request came back with an error');
+        eq([gone, ran], [1, 0]);
+        eq([metaErrorText(got.error)(), isMetaAuthError(got.error), isMetaRateLimit(got.error)], [t('s.metaSdkBlocked'), false, false]);
+        got = null;
+        metaApi('/me', {}, function (r) { got = r; });
+        ok(got && got.error && got.error.sdk === true, 'a request after the failure fails at once');
+        whenFbReady(function () { ran++; }, function () { gone++; });
+        eq([gone, ran, fbReadyQueue.length], [2, 0, 0], 'a late waiter is told at once and nothing is queued');
+      } finally {
+        fbSdkFailed = prev; fbReadyQueue = prevQ; if (hadFB) window.FB = prevFB; else delete window.FB;
+        if (prevTok) sessionTokens.meta = prevTok; else delete sessionTokens.meta;
+        if (prevSrc) activeSources.meta = prevSrc; else delete activeSources.meta;
+      }
+    });
+    test('Meta: مفتاح الربط انتهى والتاب مفتوح = «الجلسة انتهت» (١٩٠) — مش طلب من غير مفتاح لمكتبة فيسبوك', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, prevTok = sessionTokens.meta, calls = 0, got = null;
+      try {
+        window.FB = { api: function () { calls++; } };
+        sessionTokens.meta = { token: 'OLD', expiresAt: Date.now() - 1000 };
+        metaApi('/act_1/ads', { fields: 'id' }, function (r) { got = r; });
+        eq([calls, isMetaAuthError(got && got.error)], [0, true]);
+        // من غير أي مفتاح: جلسة المكتبة زي الأول
+        delete sessionTokens.meta;
+        metaApi('/act_1/ads', { fields: 'id' }, function () {});
+        eq(calls, 1, 'no key at all: the SDK session as before');
+      } finally {
+        if (hadFB) window.FB = prevFB; else delete window.FB;
+        if (prevTok) sessionTokens.meta = prevTok; else delete sessionTokens.meta;
+      }
+    });
+    test('Meta: رابط صورة مصغّرة مش متشفّر صح («%» لوحدها) مبيرميش خطأ يوقّع تحميل الحساب', function () {
+      eq([smallThumb('https://x.test/a.jpg?stp=dst-jpg_p64x64%'), smallThumb('https://x.test/a.jpg?stp=dst-jpg_s1080x1080%'), smallThumb('https://x.test/a.jpg?stp=c0.0.64.64a_dst-jpg_p64x64'), smallThumb(null)],
+        [true, false, true, false]);
     });
 
     test('أرقام Meta: قيمة مش رقم مبتطلعش «NaN»', function () {
@@ -6690,9 +6835,9 @@
       }, function (e) { restore(); throw e; });
     });
     test('Meta: الطلب بيستنى مكتبة فيسبوك لو لسه متحمّلتش (شبكة بطيئة) بدل «FB is not defined»', function () {
-      var hadFB = 'FB' in window, prevFB = window.FB, prevQ = fbReadyQueue, got = null;
+      var hadFB = 'FB' in window, prevFB = window.FB, prevQ = fbReadyQueue, prevFailed = fbSdkFailed, prevTok = sessionTokens.meta, got = null;
       try {
-        delete window.FB; fbReadyQueue = [];
+        delete window.FB; fbReadyQueue = []; fbSdkFailed = false; delete sessionTokens.meta;
         metaApi('/me', { fields: 'id' }, function (r) { got = r; });
         eq([fbReadyQueue.length, got], [1, null]);
         window.FB = { api: function (p, params, cb) { cb({ id: 'x' }); } };
@@ -6702,7 +6847,10 @@
         delete window.FB; got = null;
         metaApi('/me', {}, function (r) { got = r; });
         ok(got && got.error, 'error back');
-      } finally { fbReadyQueue = prevQ; if (hadFB) window.FB = prevFB; else delete window.FB; }
+      } finally {
+        fbReadyQueue = prevQ; fbSdkFailed = prevFailed; if (hadFB) window.FB = prevFB; else delete window.FB;
+        if (prevTok) sessionTokens.meta = prevTok; else delete sessionTokens.meta;
+      }
     });
     testAsync('Meta: تعديل ميزانية المجموعة الإعلانية من سجل الحساب بيوصل لإعلاناتها (التقييم بيستنى نتيجته)', function () {
       var hadFB = 'FB' in window, prevFB = window.FB;

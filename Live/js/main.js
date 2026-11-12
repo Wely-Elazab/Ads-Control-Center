@@ -43,8 +43,9 @@
         return;
       }
       activeSources.meta = active.meta;
-      // المكتبة اتمنعت قبل ما نوصل هنا — كارت خطأ واضح بدل جلسة معلّقة
-      if (fbSdkFailed) { onFbSdkFailed(); return; }
+      // المكتبة اتمنعت قبل ما نوصل هنا ومفيش مفتاح ولا ربط محفوظ — كارت خطأ واضح بدل جلسة معلّقة. بالمفتاح أو بالربط المحفوظ الحساب بيتحمّل
+      // من غير المكتبة خالص (metaApi): قبل كده كان بياخد كارت «المكتبة محجوبة» وهو يقدر يشتغل (التدقيق الشامل ١٢ نوفمبر ٢٠٢٦)
+      if (fbSdkFailed && !validToken(sessionTokens.meta) && !sealedFor('meta')) { onFbSdkFailed(); return; }
       // بنعيد قراءة بيانات الحساب (الحالة وحد الصرف) بدل ما نعتمد على المحفوظ من جلسة قديمة —
       // حساب اتحل عنده مشكلة الدفع كان هيفضل ظاهر إن إعلاناته كلها متوقفة
       metaResume(function () { loadAdAccounts(active.meta); }, function () {
@@ -78,7 +79,8 @@
   autoReconnectMeta();
   function autoReconnectMeta() {
     var last = lastAccounts.meta;
-    if (!last || isConnected('meta') || fbSdkFailed) return;
+    // المكتبة ممنوعة والربط محفوظ على الجهاز: الربط بيشتغل من غيرها
+    if (!last || isConnected('meta') || (fbSdkFailed && !sealedFor('meta'))) return;
     // التجديد بياخد ثانية: «جارٍ تجديد الجلسة» بدل شاشة «اربط حسابك» اللي كانت بتوحي إن الحساب اتفصل
     var hadLink = !!sealedFor('meta');
     if (hadLink) { setLoading('meta', true, msg('s.renewing', { platform: PLATFORM_NAMES.meta })); render(); }
@@ -99,13 +101,14 @@
   function metaResume(onOk, onFail) {
     var tryFb = function () {
       if (fbSdkFailed) { onFail(); return; }
+      // onFail كمان لو المكتبة اتمنعت واحنا مستنيينها (whenFbReady onGone) — من غيره «جارٍ تجديد الجلسة» كانت بتفضل للأبد
       whenFbReady(function () {
         FB.getLoginStatus(function (resp) {
           if (!resp || resp.status !== 'connected') { onFail(); return; }
           if (!sealedFor('meta') && resp.authResponse) keepMetaLink(resp.authResponse.accessToken);
           onOk();
         });
-      });
+      }, onFail);
     };
     // reload لنفس التاب: المفتاح لسه في جلسة التاب
     if (validToken(sessionTokens.meta)) { onOk(); return; }
