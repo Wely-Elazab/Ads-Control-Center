@@ -29,10 +29,13 @@
   // قبل كده كانت "ر.س" افتراضياً، فحساب بالجنيه كان ممكن يظهر بالريال
   var CURRENCY_LABELS = { SAR: 'ر.س', AED: 'د.إ', EGP: 'ج.م', KWD: 'د.ك', QAR: 'ر.ق', BHD: 'د.ب', OMR: 'ر.ع', JOD: 'د.أ', USD: '$', EUR: '€', GBP: '£' };
   var CURRENCY_SYMBOLS_EN = { USD: '$', EUR: '€', GBP: '£' };
+  // رمز العملة بييجي من المنصة وبيتكتب مع المبلغ جوه HTML من غير esc في أماكن كتير (money): أي قيمة مش رمز عملة (٢–٥ حروف لاتينية)
+  // بتتشال بدل ما تتعرض زي ما هي — دفاع في العمق (التدقيق الشامل ١١ نوفمبر ٢٠٢٦؛ فحص كل مواضع بناء HTML في ui.js ملقاش غيرها)
   function currencyLabel(cur) {
     if (!cur) return '';
-    if (!isAr()) return CURRENCY_SYMBOLS_EN[cur] || cur;
-    return CURRENCY_LABELS[cur] || cur;
+    var code = /^[A-Za-z]{2,5}$/.test(String(cur)) ? String(cur) : '';
+    if (!isAr()) return CURRENCY_SYMBOLS_EN[cur] || code;
+    return CURRENCY_LABELS[cur] || code;
   }
   // رقم بفاصل الآلاف (٢٬٤٠٠ / 2,400). keepSmallDecimal: الأرقام الأقل من ١٠ بخانة عشرية لو فيها كسور
   // (٠٫٤ مش ٠) — عشان صرف صغير زي "صرف ١ بس" ميتقريش صفر. وأقل من ١ بخانتين، وأقل من ٠٫١ بتلاتة (التدقيق العميق ٢٤ أكتوبر،

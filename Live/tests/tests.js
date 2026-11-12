@@ -2209,6 +2209,10 @@
       var j = engine(salesBase().concat([y]), {}, { maxCost: { purchase: 50 } }).byAd.l1.issues.filter(function (k) { return k.code === 'loss'; })[0];
       // ٦٠٠ إنفاق و٢٤٠ مبيعات: المبلغ هو الخسارة الحقيقية ٣٦٠ (مش النقص عن المستهدف ٢٬٧٦٠) — ده اللي بيدخل لوحة «ما حققته»
       ok(j && j.title === t('al.lowRoas.t') && j.money.kind === 'loss' && j.amount === 360 && j.atRisk, j ? j.title + ' ' + j.money.kind + ' ' + j.amount : 'no loss');
+      // والخسارة الفعلية ليها مبلغ يومي (المبلغ ÷ أيام الحكم) — لوحة «ما حققته» بتقول بيه «تهدر نحو … يومياً» (كان صفر دايماً)؛ واللي بيكسب
+      // وتحت المستهدف مبلغه اليومي صفر (مش هدر)
+      eq(j.money.daily, 60, 'the daily loss is the loss of the judged days over their number (360 over 6 days)');
+      eq(i.money.daily, 0, 'below target but not losing: no daily waste');
     });
     test('أسبوع فيه مبيعات بس آخر ٣ أيام من غير ولا بيعة: سطر صريح بدل ما متوسط الأسبوع يخبّيه', function () {
       // ١٨ طلباً بعائد ×٠٫٢٥ في الأسبوع (خسارة بدليل)، وآخر ٣ أيام من غير ولا بيعة بإنفاق ٩٠٠
@@ -2896,6 +2900,9 @@
       eq(apiErrorText({ status: 429, data: { error: 'Too Many Requests' } })(), t('err.rateLimit'));
       eq(apiErrorText({ status: 403, data: { error: 'x', code: 'WRONG_APP' } })(), t('err.wrongApp'));
       eq(apiErrorText({ status: 500, data: { error: 'Boom from platform' } })(), 'Boom from platform');
+      // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: رمز العملة من المنصة بيتكتب مع المبلغ جوه HTML — أي قيمة مش رمز عملة بتتشال
+      eq([currencyLabel('<img src=x onerror=1>'), money(5, '"><b>'), withLang('en', function () { return currencyLabel('XYZ'); }), withLang('ar', function () { return currencyLabel('SAR'); }),
+        withLang('en', function () { return currencyLabel('USD'); }), currencyLabel(null)], ['', fmtNum(5, true), 'XYZ', 'ر.س', '$', '']);
       // رمز الخطأ العام من الخادم (SERVER) بيتكتب بلغة الواجهة — نص الخادم نفسه عربي بس (التدقيق الشامل ١١ نوفمبر ٢٠٢٦)
       eq(apiErrorText({ status: 500, data: { error: 'حدث خطأ غير متوقع في الخادم.', code: 'SERVER' } })(), t('s.unexpected'));
       withLang('en', function () {
@@ -6360,7 +6367,16 @@
         var html = function (pick, alerts) { return withLang('ar', function () { return valuePanelHtml(valueData(pick || null, alerts || [])); }); };
         var h = html(null, risk);
         ok(/data-value-ack/.test(h) && /دون أي أرقام إنفاق أو مبيعات/.test(h) && /بعد موافقتك أعلاه/.test(h), 'notice first: ' + h);
-        ok(/١ مشكلة تنتظر نظرتك، وتهدر نحو ١٠٠ ر\.س يومياً/.test(h) && /data-kpi="risk"/.test(h), 'pending: the urgent one only');
+        ok(/مشكلة واحدة تنتظر نظرتك، وتهدر نحو ١٠٠ ر\.س يومياً/.test(h) && /data-kpi="risk"/.test(h), 'pending: the urgent one only');
+        // فحص حي ١٢ نوفمبر ٢٠٢٦: «٢ مشكلة تنتظر نظرتك، وتهدر نحو ٠ $ يومياً» — المثنى بصيغته، ومن غير مبلغ يومي مفيش «نحو ٠»
+        var two = [{ level: 'critical', atRisk: true, amount: 300, adId: 'a1', currency: 'SAR', money: { daily: 100 } },
+          { level: 'critical', atRisk: true, amount: 90, adId: 'a2', currency: 'SAR', money: { daily: 30 } }];
+        ok(/مشكلتان تنتظران نظرتك، وتهدران نحو ١٣٠ ر\.س يومياً/.test(html(null, two)), 'two: the dual');
+        var dry = two.map(function (a) { return Object.assign({}, a, { money: { daily: 0 } }); });
+        var hd = html(null, dry);
+        ok(/مشكلتان تنتظران نظرتك\./.test(hd) && !/نحو ٠/.test(hd) && !/يومياً/.test(hd), 'no daily amount: no "about 0 a day": ' + hd);
+        ok(/مشكلة واحدة تنتظر نظرتك\./.test(html(null, dry.slice(0, 1))), 'one, no daily amount');
+        ok(/3 problems waiting for you\./.test(withLang('en', function () { return valuePanelHtml(valueData(null, dry.concat([Object.assign({}, dry[0], { adId: 'a9' })]))); })), 'English');
         // عنوان اللوحة بأيام الفترة (آخر ٧ أيام = أيام مكتملة لأمس)
         ok(h.indexOf('<span class="value-period">' + fmtRange(shiftKey(today, -7), yesterday) + '</span>') > -1, 'period dates in the title: ' + h);
         valueAckNow = true;
@@ -6377,7 +6393,7 @@
         // يوم واحد فيه تنبيه جديد في الفترة: دقيقة + ١٠ ثواني × الإعلانين اللي صرفوا يومها = ٨٠ ثانية → «نحو دقيقة»
         ok(/وقت وفّرناه عليك<\/span><b class="value-v">نحو دقيقة<\/b>/.test(h), h);
         // النهارده برّه «آخر ٧ أيام» (أيام مكتملة): سطر لوحده زي «اليوم حتى الآن» في الملخص
-        ok(/اليوم حتى الآن \(لا يدخل في أرقام الفترة\): عالجت ١ مشكلة بعد تنبيهنا/.test(h), h);
+        ok(/اليوم حتى الآن \(لا يدخل في أرقام الفترة\): عالجت مشكلة واحدة بعد تنبيهنا/.test(h), h);
         ok(/كيف نحسبها؟/.test(h) && /١٠ ثوانٍ لكل إعلان صرف في ذلك اليوم/.test(h) && /ناقص هدره الفعلي في أول يوم مكتمل بعد تصرّفك/.test(h), 'how we count');
         // «اليوم»: مشكلة النهارده جوه الفترة، وأمس برّه
         period = { preset: 'today' };
@@ -6387,7 +6403,7 @@
         // اتعالجت أمس ومبلغها لسه متحسبش: اليوم اللي بعدها (النهارده) مكملش — سطر بيقول كده بدل ما تبان من غير أثر
         valueEpisodes[src].push({ id: 106, ad: 'a2', kind: 'waste', firstAt: at(yesterday), decided: true, handledAt: at(yesterday), action: 'budget' });
         h = html();
-        ok(/ويُحسب مبلغ ١ مشكلة بعد اكتمال اليوم التالي لتصرّفك/.test(h), 'waiting for the day after: ' + h);
+        ok(/ويُحسب مبلغ مشكلة واحدة بعد اكتمال اليوم التالي لتصرّفك/.test(h), 'waiting for the day after: ' + h);
         valueEpisodes[src].pop();
         // نفس الإعلان ونفس يوم التصرّف مرتين (السيرفر بيقفل المشكلة لما تختفي وبيفتحها لما ترجع — حساب حقيقي ٣٠ أكتوبر):
         // مشكلة واحدة ومبلغ واحد، وأكبر مبلغ في المجموعة مش مجموعهم
@@ -6402,7 +6418,7 @@
         // ولا واحدة اتعالجت في الفترة: سطر محايد بعدد اللي نبّهنا لها، من غير خانة «٠»
         valueEpisodes[src] = valueEpisodes[src].slice(1, 2);
         h = html();
-        ok(/نبّهناك في هذه الفترة إلى ١ مشكلة/.test(h) && !/مشكلات عالجتها/.test(h) && !/هدر منعته/.test(h), h);
+        ok(/نبّهناك في هذه الفترة إلى مشكلة واحدة/.test(h) && !/مشكلات عالجتها/.test(h) && !/هدر منعته/.test(h), h);
         // فيه مشكلات في السجل بس مش في الفترة: «لم نسجّل تنبيهات عاجلة في هذه الفترة» (مش «نبدأ العدّ»)
         valueEpisodes[src] = [{ id: 105, ad: 'a3', kind: 'waste', firstAt: at(monthAgo), decided: true, handledAt: null, action: null }];
         h = html();
@@ -7592,6 +7608,14 @@
         return DX.compose(DX.analyze({ since: '2026-09-30', until: '2026-10-06', currency: 'SAR', daily: mkDays(cur), dims: [] }), target ? { target: target } : undefined);
       });
     };
+    // فحص حي ١٢ نوفمبر ٢٠٢٦ (حساب حقيقي، الشهر الماضي): «العائد ×٣٫٦ ↓ ٢٪» وتحته «الشهر السابق: ×٣٫٦» — الرقمين ٣٫٥٩ و٣٫٦٥
+    test('العائد وعائد فترة المقارنة لو التقريب خلّاهم زي بعض وهما مختلفين: بخانتين، وغير كده خانة واحدة زي الأول', function () {
+      var roas = function (cur) { return head(cur).kpis.filter(function (x) { return x.id === 'roas'; })[0]; };
+      var k = roas({ rev: 5960 });
+      eq([k.value, k.prev], ['×٥٫٩٦', '×٦']);
+      var k2 = roas({ rev: 4800 });
+      eq([k2.value, k2.prev], ['×٤٫٨', '×٦']);
+    });
     test('الإنفاق اتضاعف والطلبات زادت لكن العائد نزل من ×٦ لـ×٢٫٤: «العائد انخفض» بالأحمر مش «طلبات أكثر» بالأخضر', function () {
       var o = head({ spend: 2000, imp: 100000, clicks: 2000, atc: 230, ic: 110, pur: 32, rev: 4800 });
       eq([o.tone, o.title], ['bad', withLang('ar', function () { return t('dx.head.roasDown'); })]);

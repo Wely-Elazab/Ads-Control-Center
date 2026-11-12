@@ -1566,7 +1566,9 @@ var DX = (function () {
       { id: 'aov', label: t('dx.kpi.aov'), value: aovB ? M(aovB) : '—', prev: aovA ? M(aovA) : '—', pct: aovA && aovB ? aovB / aovA - 1 : null,
         sig: h.aov && h.aov.real ? sign(h.aov.pct) : 0, soft: h.aov && !h.aov.real ? lik(h.aov.z, aovPct) : 0, goodUp: ratioUp },
       // لون العائد من اختبار العائد نفسه (مش من تكلفة الطلب): عائد نزل ٦٠٪ كان بيفضل رمادي لأن تكلفة الطلب في حدود التذبذب
-      { id: 'roas', label: whole('dx.kpi.roas'), value: roasB ? roasStr(roasB) : '—', prev: roasA ? roasStr(roasA) : '—', pct: roasPct, sig: (h.roas && h.roas.dir) || 0, soft: h.roas && !h.roas.dir ? lik(h.roas.z, roasPct) : 0, goodUp: ratioUp },
+      // الرقمين جنب بعض: لو التقريب لخانة واحدة بيخلّيهم زي بعض وهما مختلفين بيتكتبوا بخانتين (roasVs — نفس قاعدة العائد جنب المستهدف، ر٧٥).
+      // فحص حي ١٢ نوفمبر ٢٠٢٦: «×٣٫٦ ↓ ٢٪» وتحته «الشهر السابق: ×٣٫٦» (٣٫٥٩ و٣٫٦٥)
+      { id: 'roas', label: whole('dx.kpi.roas'), value: roasB ? roasVs(roasB, roasA) : '—', prev: roasA ? roasVs(roasA, roasB) : '—', pct: roasPct, sig: (h.roas && h.roas.dir) || 0, soft: h.roas && !h.roas.dir ? lik(h.roas.z, roasPct) : 0, goodUp: ratioUp },
       { id: 'cpa', label: whole('dx.kpi.cpa'), value: cpaB ? M(cpaB) : '—', prev: cpaA ? M(cpaA) : '—', pct: cpaPct, sig: h.dEff ? -h.dEff : 0, soft: h.dEff ? 0 : lik(h.effZ, cpaPct), goodUp: ratioDown }
     ];
   }

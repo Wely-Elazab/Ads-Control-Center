@@ -3119,6 +3119,13 @@
   // «نحو ٢٤ دقيقة» / «نحو ساعة و١٠ دقائق» — بالدقائق (طلب صاحب المنتج ٣ نوفمبر ٢٠٢٦: الساعة كانت بتخلّي الشهر كله «أقل من ساعة»،
   // فالعميل مبيحسّش بأي تقدّم). أقرب دقيقة، وأقل من دقيقة كلمة. العدد مع المعدود بالعربي: ١ و٢ لفظ، و٣–١٠ جمع، و١١+ مفرد
   function arCount(n, one, two, few, many) { return n === 1 ? one : n === 2 ? two : ar(n) + ' ' + (n <= 10 ? few : many); }
+  // عدد المشكلات جوه جملة: «مشكلة واحدة» / «مشكلتين» (مرفوعة: «مشكلتان») / «٣ مشكلات» / «١١ مشكلة» — «١ مشكلة» و«٢ مشكلة» مش فصحى
+  // (فحص حي ١٢ نوفمبر ٢٠٢٦: «٢ مشكلة تنتظر نظرتك»). بالإنجليزي زي ما هو
+  function problemsText(n, nominative) {
+    if (isAr() && n === 1) return 'مشكلة واحدة';
+    if (isAr() && n === 2) return nominative ? 'مشكلتان' : 'مشكلتين';
+    return ar(n) + ' ' + noun(n, 'n.problem');
+  }
   function valueTimeText(seconds) {
     var m = Math.round((seconds || 0) / 60);
     if (m < 1) return t('val.h.less');
@@ -3214,13 +3221,18 @@
       if (d.handled) tiles += tile(t('val.handled.k'), ar(d.handled), t('val.handled.s'));
       if (Object.keys(d.money).length) tiles += tile(t('val.saved.k'), t('val.saved.v', { v: moneyByCur(d.money) }), t('val.saved.s'));
       tiles += tile(t('val.hours.k'), valueTimeText(d.seconds), t('val.hours.s'));
-      if (!d.handled) html += '<p class="value-empty">' + esc(t('val.none', { n: ar(d.recorded) + ' ' + noun(d.recorded, 'n.problem') })) + '</p>';
+      if (!d.handled) html += '<p class="value-empty">' + esc(t('val.none', { n: problemsText(d.recorded) })) + '</p>';
       html += '<div class="value-tiles">' + tiles + '</div>';
-      if (d.wait) html += '<p class="value-empty">' + esc(t('val.saved.wait', { n: ar(d.wait) + ' ' + noun(d.wait, 'n.problem') })) + '</p>';
+      if (d.wait) html += '<p class="value-empty">' + esc(t('val.saved.wait', { n: problemsText(d.wait) })) + '</p>';
     }
-    if (d.today) html += '<p class="value-empty value-today">' + esc(t('val.today', { n: ar(d.today) + ' ' + noun(d.today, 'n.problem') })) + '</p>';
+    if (d.today) html += '<p class="value-empty value-today">' + esc(t('val.today', { n: problemsText(d.today) })) + '</p>';
     if (d.pending.n) {
-      html += '<div class="value-pending"><span>' + esc(t('val.pending', { n: ar(d.pending.n) + ' ' + noun(d.pending.n, 'n.problem'), v: moneyByCur(d.pending.daily) })) + '</span>' +
+      // المثنى ليه جملته (الفعلين بيتثنّوا: «مشكلتان تنتظران… وتهدران…»). ومن غير أي مبلغ يومي (إعلانات مصرفتش في آخر أيام) الجملة من غير
+      // «وتهدر نحو ٠ … يومياً»
+      var two = isAr() && d.pending.n === 2, pn = problemsText(d.pending.n, true);
+      var wastes = Object.keys(d.pending.daily).some(function (k) { return d.pending.daily[k] > 0; });
+      var ptxt = wastes ? t(two ? 'val.pending2' : 'val.pending', { n: pn, v: moneyByCur(d.pending.daily) }) : t(two ? 'val.pendingOnly2' : 'val.pendingOnly', { n: pn });
+      html += '<div class="value-pending"><span>' + esc(ptxt) + '</span>' +
         '<button type="button" class="value-cta" data-kpi="risk">' + esc(t('val.cta')) + '</button></div>';
     }
     if (d.sources) {
