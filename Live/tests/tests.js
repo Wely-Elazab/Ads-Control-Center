@@ -4830,6 +4830,66 @@
       }).then(restore, function (e) { restore(); throw e; });
     });
 
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (OWASP ASVS 3.3.3): تغيير كلمة المرور كان بيقفل الجلسة المؤقتة بس، فأي جلسة مفتوحة بالكلمة القديمة
+    // (حد تاني عرفها) كانت بتفضل مأكَّدة لحد ٣٠ يوم
+    testAsync('تغيير كلمة المرور بيقفل كل جلسات الحساب، ولو ماتغيّرتش بيقفل الجلسة المؤقتة بس', function () {
+      var realFetch = window.fetch, calls = [], putOk = true;
+      var restore = function () { window.fetch = realFetch; };
+      window.fetch = function (url, opts) {
+        var u = String(url);
+        calls.push((opts && opts.method) + ' ' + u.replace(/^https:\/\/[^/]+\/auth\/v1/, ''));
+        var reply = function (status, body) { return Promise.resolve(new Response(JSON.stringify(body), { status: status, headers: { 'Content-Type': 'application/json' } })); };
+        if (u.indexOf('/verify') > -1) return reply(200, { access_token: 'temp-token', user: { email: 'a@b.co' } });
+        if (u.indexOf('/user') > -1) return putOk ? reply(200, { id: 'u1' }) : reply(422, { msg: 'Password should be at least 8 characters' });
+        return reply(200, {});
+      };
+      return AuthLogin.resetPassword('hash-1', 'a-good-new-password').then(function (r) {
+        eq([r.ok, r.email], [true, 'a@b.co']);
+        eq(calls, ['POST /verify', 'PUT /user', 'POST /logout?scope=global'], 'every session of the account is closed');
+        calls = []; putOk = false;
+        return AuthLogin.resetPassword('hash-2', 'short');
+      }).then(function (r) {
+        eq([r.ok, r.error], [false, 'weak']);
+        eq(calls[2], 'POST /logout?scope=local', 'password not changed: only the temporary session');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: صاحب الدخول اتغيّر من غير «خروج» (جلسة انتهت، أو «الدخول بحساب آخر») — اللي يدخل بعده في نفس التاب
+    // كان بيفتح الأداة على ربط المنصات وجلسة التاب بتاعة اللي قبله (حساباته الإعلانية)
+    test('بيانات الجهاز لصاحب الدخول بس: مستخدم تاني يدخل = ربط المنصات وجلسة التاب بتوع اللي قبله بيتمسحوا، ونفس المستخدم = زي ما هي', function () {
+      var LS = ['ac.owner', 'acc.renew.v1', 'acc.lastAccount.v1', 'acc.digestHint'], keepL = {}, keepS = {};
+      LS.forEach(function (k) { keepL[k] = localStorage.getItem(k); });
+      for (var i = 0; i < sessionStorage.length; i++) { var sk = sessionStorage.key(i); keepS[sk] = sessionStorage.getItem(sk); }
+      var restore = function () {
+        LS.forEach(function (k) { if (keepL[k] == null) localStorage.removeItem(k); else localStorage.setItem(k, keepL[k]); });
+        sessionStorage.clear();
+        Object.keys(keepS).forEach(function (k) { sessionStorage.setItem(k, keepS[k]); });
+      };
+      try {
+        localStorage.removeItem('ac.owner'); sessionStorage.removeItem('ac.owner');
+        localStorage.setItem('acc.renew.v1', '{"google":"sealed-a"}');
+        localStorage.setItem('acc.lastAccount.v1', '{"meta":"act_1"}');
+        sessionStorage.setItem('pauseproof.session.v1', '{"tokens":{"meta":{"token":"long-lived-a"}}}');
+        // جهاز من قبل التحديث (ملوش صاحب مسجّل): بيتسجّل من غير مسح
+        AuthLogin.bindDevice('A@Store.com');
+        eq([localStorage.getItem('ac.owner'), sessionStorage.getItem('ac.owner')], ['a@store.com', 'a@store.com']);
+        ok(localStorage.getItem('acc.renew.v1') && sessionStorage.getItem('pauseproof.session.v1'), 'nothing wiped the first time');
+        // نفس المستخدم دخل تاني: كله زي ما هو
+        AuthLogin.bindDevice('a@store.com');
+        ok(localStorage.getItem('acc.renew.v1') && localStorage.getItem('acc.lastAccount.v1') && sessionStorage.getItem('pauseproof.session.v1'), 'the same user keeps everything');
+        // مستخدم تاني: ربط المنصات وآخر حساب وجلسة التاب بتوع الأول اتمسحوا
+        AuthLogin.bindDevice('b@store.com');
+        eq([localStorage.getItem('acc.renew.v1'), localStorage.getItem('acc.lastAccount.v1'), sessionStorage.getItem('pauseproof.session.v1')], [null, null, null], 'the previous user data is gone');
+        eq([localStorage.getItem('ac.owner'), sessionStorage.getItem('ac.owner')], ['b@store.com', 'b@store.com']);
+        // تاب قديم لسه فيه جلسة الأول، والجهاز بقى للتاني (الدخول اتغيّر في تاب تاني): جلسة التاب بتتمسح
+        sessionStorage.setItem('ac.owner', 'a@store.com');
+        sessionStorage.setItem('pauseproof.session.v1', '{"tokens":{"meta":{"token":"long-lived-a"}}}');
+        localStorage.setItem('acc.renew.v1', '{"google":"sealed-b"}');
+        AuthLogin.bindDevice('b@store.com');
+        eq([sessionStorage.getItem('pauseproof.session.v1'), localStorage.getItem('acc.renew.v1')], [null, '{"google":"sealed-b"}'], 'the stale tab is cleared, the device data of the current user stays');
+      } finally { restore(); }
+    });
+
     test('الرجوع بعد الدخول للأداة بس (مش أي رابط برّه الموقع)', function () {
       eq(['/app', '/app?code=1&state=snapchat', 'https://evil.example/app', '//evil.example', '/appx', null].map(AuthLogin.safeNext),
         ['/app', '/app?code=1&state=snapchat', '/app', '/app', '/app', '/app']);
@@ -8971,7 +9031,12 @@
     });
     testAsync('«خروج» بيمسح الربط المحفوظ وآخر حساب من الجهاز', function () {
       return fetch('/js/auth.js?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (src) {
-        ok(/DEVICE_KEYS = \['acc\.renew\.v1', 'acc\.lastAccount\.v1', 'acc\.dx\.fb\.v1', 'pauseproof\.value\.money\.v1', 'pauseproof\.value\.money\.v2', 'pauseproof\.value\.ack\.v1'\]/.test(src) && /function signOut\(\) \{\s*try \{ DEVICE_KEYS\.forEach/.test(src), 'signOut clears device keys');
+        var keys = JSON.parse((/var DEVICE_KEYS = (\[[^\]]*\])/.exec(src) || [])[1].replace(/'/g, '"'));
+        eq(keys, ['acc.renew.v1', 'acc.lastAccount.v1', 'acc.dx.fb.v1', 'pauseproof.value.money.v1', 'pauseproof.value.money.v2', 'pauseproof.value.ack.v1',
+          'acc.digestHint', 'acc.welcome.accounts.v1']);
+        ok(/function wipeDevice\(\) \{\s*try \{ DEVICE_KEYS\.forEach/.test(src) && /function signOut\(\) \{\s*wipeDevice\(\);/.test(src), 'signOut clears device keys');
+        // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: المفتاحين دول فيهم أرقام الحسابات الإعلانية اللي المستخدم فتحها — نفس أسماء ui.js
+        eq([DIGEST_HINT_KEY, WELCOME_KEY], ['acc.digestHint', 'acc.welcome.accounts.v1'], 'same keys as ui.js');
         // من ٣١ أكتوبر (كل حاجة لكل مستخدم): إجابات التشخيص ومبالغ لوحة القيمة وموافقتها على الجهاز بتتمسح كمان — نفس أسماء ui.js
         eq([DX_FB_KEY, VALUE_MONEY_KEY, VALUE_ACK_KEY], ['acc.dx.fb.v1', 'pauseproof.value.money.v2', 'pauseproof.value.ack.v1'], 'same keys as ui.js');
         eq([RENEW_KEY, LAST_ACCOUNT_KEY], ['acc.renew.v1', 'acc.lastAccount.v1'], 'same keys as core.js');
@@ -10663,6 +10728,42 @@
         eq(went[0], ['/login', true], 'sign-out');
         ok(went[1] && went[1][0].indexOf('/login?next=') === 0 && went[1][1] === true, 'expired session: ' + JSON.stringify(went[1]));
       }, function (e) { restore(); throw e; });
+    });
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: الخادم كان لسه بيقبل إعداداً اتشال من المحرك (cprCriticalMultiple)، ومفيش حاجة بتقارن الاتنين —
+    // حدود الخادم (settings.ts SCALAR) لازم تبقى هي هي مفاتيح وحدود المحرك (alerts.js SETTINGS_META — النسب بالكسر ٠–١ عند الخادم)
+    testAsync('حدود إعدادات التنبيهات عند الخادم هي هي مفاتيح وحدود المحرك', function () {
+      return fetch('/__repo/supabase/functions/sync/settings.ts').then(function (r) {
+        if (!r.ok) throw new Error('settings.ts is not served (' + r.status + ') — run the tests with Live/tests/serve.ps1');
+        return r.text();
+      }).then(function (src) {
+        var body = (/const SCALAR: Record<string, \[number, number\]> = \{([\s\S]*?)\};/.exec(src) || [])[1] || '', server = {}, engine = {};
+        body.replace(/(\w+): \[([\d.]+), ([\d.]+)\]/g, function (_m, k, a, b) { server[k] = [Number(a), Number(b)]; return ''; });
+        PauseProofAlerts.SETTINGS_META.forEach(function (m) { var f = m.kind === 'ratio' ? 0.01 : 1; engine[m.key] = [m.min * f, m.max * f]; });
+        eq(Object.keys(server).sort(), Object.keys(engine).sort(), 'the same settings on both sides');
+        Object.keys(engine).forEach(function (k) {
+          ok(Math.abs(server[k][0] - engine[k][0]) < 1e-9 && Math.abs(server[k][1] - engine[k][1]) < 1e-9, k + ': server ' + JSON.stringify(server[k]) + ', engine ' + JSON.stringify(engine[k]));
+        });
+      });
+    });
+    // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: سطر «حُلّت/مستمرة» في الملخص بياخد عنوانه من رمز التنبيه (runner.ts KIND_TITLE)، والرمز اللي ملوش عنوان
+    // بيتكتب «توقف الإعلان». كل رمز ممكن يطلع «عاجل» من المحرك لازم يكون له عنوان، وكل عنوان نصه موجود في اللغتين
+    testAsync('عناوين تنبيهات الملخص: كل رمز ممكن يطلع «عاجل» له عنوان عند المُشغّل، وكل عنوان نصه موجود في اللغتين', function () {
+      return fetch('/__repo/supabase/functions/sync/runner.ts').then(function (r) {
+        if (!r.ok) throw new Error('runner.ts is not served (' + r.status + ') — run the tests with Live/tests/serve.ps1');
+        return r.text();
+      }).then(function (src) {
+        var body = (/const KIND_TITLE: Record<string, string> = \{([\s\S]*?)\};/.exec(src) || [])[1] || '', titles = {};
+        body.replace(/'?([\w-]+)'?: '([\w.]+)'/g, function (_m, k, v) { titles[k] = v; return ''; });
+        ['stopped', 'waste-week', 'waste', 'loss', 'cost-max', 'acct-status', 'spend-cap', 'acct-stopped', 'acct-zero', 'spend-cap-near', 'top-stopped',
+          'tracking-off', 'lpv-drop', 'checkout-off', 'link-broken'].forEach(function (code) { ok(titles[code], 'no title for the code ' + code); });
+        var missing = [];
+        Object.keys(titles).forEach(function (k) {
+          ['ar', 'en'].forEach(function (l) {
+            withLang(l, function () { if (t(titles[k], { label: 'x', one1: 'y' }) === titles[k]) missing.push(titles[k] + ' (' + l + ')'); });
+          });
+        });
+        eq(missing, [], 'every title has its text');
+      });
     });
     // المُشغّل في Supabase (runner.ts) بيحمّل ملفات المحرك بس من الأداة (ENGINE_FILES — snapchat.js اتضاف ٣١ أكتوبر للملخص لكل المنصات)
     // وبيستخدم أسماءها العامة (g.اسم). تغيير اسم دالة في core.js مثلاً كان بيكسر البريد من غير ما أي اختبار هنا يفشل (المرحلة ٢، ب٣)

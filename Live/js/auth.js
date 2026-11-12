@@ -78,7 +78,12 @@
   // الخطوة الأولى: البريد وكلمة المرور. الخطأ: 'credentials' (غلط) / 'network' / 'busy' (محاولات كتير)
   function signIn(email, password) {
     return authCall('POST', '/token?grant_type=password', { email: email, password: password }).then(function (res) {
-      if (res.ok && res.data.access_token) { write(fromResponse(res.data, email)); return { ok: true }; }
+      if (res.ok && res.data.access_token) {
+        var s = fromResponse(res.data, email);
+        bindDevice(s.email);   // قبل أي حاجة: لو اللي كان داخل قبله حد تاني، بياناته على الجهاز بتتمسح
+        write(s);
+        return { ok: true };
+      }
       return { ok: false, error: res.status === 0 ? 'network' : (res.status === 429 ? 'busy' : 'credentials') };
     });
   }
@@ -94,7 +99,10 @@
       if (!v.ok || !v.data.access_token) return { ok: false, error: v.status === 0 ? 'network' : 'link' };
       var temp = v.data.access_token;
       return authCall('PUT', '/user', { password: password }, temp).then(function (u) {
-        authCall('POST', '/logout?scope=local', null, temp);
+        // كلمة المرور اتغيّرت = كل الجلسات بتتقفل، مش الجلسة المؤقتة دي بس (التدقيق الشامل ١١ نوفمبر ٢٠٢٦ — OWASP ASVS 3.3.3): تغيير
+        // كلمة المرور هو طريق صاحب الحساب لما حد تاني يعرفها (رسالة الرمز نفسها بتقول «غيّرها فوراً»)، فلازم يطلّع أي جلسة مفتوحة بيها —
+        // مش يسيبها مأكَّدة ٣٠ يوم. ماتغيّرتش = المؤقتة بس
+        authCall('POST', '/logout?scope=' + (u.ok ? 'global' : 'local'), null, temp);
         if (u.ok) return { ok: true, email: (v.data.user && v.data.user.email) || null };
         var weak = u.status === 422 || /password/i.test(String(u.data.msg || u.data.message || u.data.error_code || ''));
         return { ok: false, error: u.status === 0 ? 'network' : (weak ? 'weak' : 'failed') };
@@ -141,9 +149,44 @@
   // ومن ٣١ أكتوبر (كل حاجة لكل مستخدم): نسخة الجهاز من إجاباتك على «هل كان التشخيص صحيحاً؟»، والمبالغ المحسوبة للوحة «ما حققته مع
   // الأداة»، وموافقتك على ملاحظتها — كانت بتبان للي يدخل بعدك
   // value.money.v2 من ٣ نوفمبر ٢٠٢٦ (المبالغ المقيسة)، وv1 بتفضل عشان أجهزة لسه عليها النسخة القديمة
-  var DEVICE_KEYS = ['acc.renew.v1', 'acc.lastAccount.v1', 'acc.dx.fb.v1', 'pauseproof.value.money.v1', 'pauseproof.value.money.v2', 'pauseproof.value.ack.v1'];
-  function signOut() {
+  // acc.digestHint وacc.welcome.accounts.v1 (التدقيق الشامل ١١ نوفمبر ٢٠٢٦): فيهم أرقام الحسابات الإعلانية اللي المستخدم فتحها — كانوا بيفضلوا
+  var DEVICE_KEYS = ['acc.renew.v1', 'acc.lastAccount.v1', 'acc.dx.fb.v1', 'pauseproof.value.money.v1', 'pauseproof.value.money.v2', 'pauseproof.value.ack.v1',
+    'acc.digestHint', 'acc.welcome.accounts.v1'];
+  // ---------- بيانات الجهاز لصاحب الدخول بس ----------
+  // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (OWASP ASVS 3.3.1 و4.1.x — عزل المستخدمين): ربط المنصات المحفوظ (acc.renew.v1) وجلسة التاب
+  // (sessionStorage: مفاتيح Google وSnapchat، ومفتاح Meta الطويل نحو ٦٠ يوم) كانوا بيفضلوا لو صاحب الدخول اتغيّر من غير «خروج» — جلسة
+  // انتهت، أو «الدخول بحساب آخر» في صفحة الدخول. اللي يدخل بعده في نفس التاب كان بيفتح الأداة على حسابات اللي قبله الإعلانية.
+  // دلوقتي الجهاز والتاب ليهم «صاحب» (بريد الدخول): أول ما يتغيّر، بيانات اللي قبله بتتمسح قبل ما الأداة تقراها. نفس الصاحب = كل حاجة
+  // زي ما هي (الربط المحفوظ بيفضل). جهاز أو تاب من قبل التحديث ملوش صاحب مسجّل: بيتسجّل من غير مسح
+  var OWNER_KEY = 'ac.owner';
+  function wipeDevice() {
     try { DEVICE_KEYS.forEach(function (k) { localStorage.removeItem(k); }); sessionStorage.clear(); } catch (e) { /* التخزين مقفول */ }
+  }
+  function bindDevice(email) {
+    if (!email) return;
+    var me = String(email).toLowerCase();
+    try {
+      var prev = localStorage.getItem(OWNER_KEY);
+      if (prev && prev !== me) wipeDevice();
+      if (prev !== me) localStorage.setItem(OWNER_KEY, me);
+      // التاب نفسه: جلسة المنصات اللي فيه ليها صاحبها (تاب مفتوح من قبل ما الدخول يتغيّر في تاب تاني)
+      var tab = sessionStorage.getItem(OWNER_KEY);
+      if (tab && tab !== me) sessionStorage.clear();
+      if (tab !== me) sessionStorage.setItem(OWNER_KEY, me);
+    } catch (e) { /* التخزين مقفول — مفيش حاجة محفوظة أصلاً */ }
+  }
+  // الدخول اتغيّر لحساب تاني في تاب تاني والأداة مفتوحة هنا: التاب بيتحمّل من جديد (bindDevice بيمسح جلسته في أول التحميل) بدل ما
+  // يفضل عارض حسابات اللي قبله
+  global.addEventListener('storage', function (e) {
+    if (e.key !== STORE || location.pathname !== APP_PATH) return;
+    var s = read(), tab = null;
+    try { tab = sessionStorage.getItem(OWNER_KEY); } catch (x) { /* مقفول */ }
+    if (s && s.email && tab && String(s.email).toLowerCase() !== tab) location.reload();
+  });
+
+  function signOut() {
+    wipeDevice();
+    try { localStorage.removeItem(OWNER_KEY); } catch (e) { /* التخزين مقفول */ }
     var done = function () { goLogin('/login'); };
     forget().then(done, done);
   }
@@ -200,8 +243,11 @@
   global.AuthLogin = {
     read: read, token: token, headers: headers, headersNow: headersNow, signIn: signIn, sendCode: sendCode, verifyCode: verifyCode,
     forgot: forgot, status: status, resetPassword: resetPassword, pwnedCount: pwnedCount, signOut: signOut, forget: forget, toLogin: toLogin, safeNext: safeNext,
+    bindDevice: bindDevice,
     // رد من /api أو sync معناه «الدخول خلص أو مش مكتمل» (مش «ربط المنصة خلص»)
     isLoginFailure: function (res) { return !!res && res.status === 401 && !!res.data && res.data.code === 'LOGIN'; }
   };
+  // قبل ما core.js يقرا جلسة التاب والربط المحفوظ (الملف ده بيتحمّل قبله): صاحب الدخول الحالي هو صاحب بيانات الجهاز
+  (function () { var s = read(); if (s && s.email) bindDevice(s.email); })();
   guardApp();
 })(window);
