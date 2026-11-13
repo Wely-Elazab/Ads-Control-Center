@@ -5,13 +5,13 @@
 // مكان الملف حسب توصية Supabase («Testing your Edge Functions»): supabase/functions/tests/<اسم الدالة>-test.ts
 
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
-import { corsHeaders, esc, reply, str, stripHidden } from '../sync/lib.ts';
+import { corsHeaders, esc, reply, str, stripHidden, unsubHeaders } from '../sync/lib.ts';
 import { MAX_PER_PLATFORM, SNAP_ID, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, counterMissing, handleLogin, newCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -70,6 +70,15 @@ Deno.test('مواعيد الملخص في الرسائل: الساعة والأ�
   assertEquals(daysText([0, 3], 'ar'), 'يومي الأحد والأربعاء');
   assertEquals(daysText([0, 3, 5], 'ar'), 'أيام الأحد والأربعاء والجمعة');
   assertEquals(daysText([0, 3, 5], 'en'), 'Sunday, Wednesday and Friday');
+});
+Deno.test('إلغاء الاشتراك بنقرة (RFC 8058): الترويستان لرابط الإيقاف بتاعنا بس، والرابط بين <> زي ما هو', () => {
+  const stop = 'https://adscenter.online/stop?u=11111111-2222-3333-4444-555555555555&s=abcdefghijklmnopqrstuvwxyz_-';
+  assertEquals(unsubHeaders(stop), { 'List-Unsubscribe': '<' + stop + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' });
+  // رابط تاني، أو حروف بتكسر الترويسة (<> أو فاصلة بتبدأ رابط تاني، أو سطر جديد بيبدأ ترويسة تانية): من غير ترويسات
+  for (const bad of ['', 'http://adscenter.online/stop?u=1&s=2', 'https://evil.example/stop?u=1&s=2', 'https://adscenter.online.evil.example/stop?u=1',
+    'https://adscenter.online/app', 'https://adscenter.online/stop?u=1&s=2>, <https://evil.example/x', 'https://adscenter.online/stop?u=1\r\nBcc: x@y.z']) {
+    assertEquals(unsubHeaders(bad), undefined, bad);
+  }
 });
 Deno.test('المقارنة الآمنة: نفس النتيجة من غير اختصار', () => {
   assert(sameString('abc', 'abc'));
@@ -695,6 +704,10 @@ Deno.test('الملخص لكل مستخدم: التفعيل بحساب Meta ال
     assertEquals(store.tokens.map((t) => [t.user, t.account]), [[A, 'act_1']], 'the long-lived access is stored for this user and account');
     const confirm = store.mails[store.mails.length - 1];
     assert(confirm && String(confirm.html).indexOf('/stop?u=' + A + '&') > -1, 'the stop link is for this user');
+    // إلغاء الاشتراك بنقرة (٦٩): الترويستان برابط الإيقاف نفسه اللي في آخر الرسالة
+    const confirmStop = String(confirm.text).split('\n').pop() as string;
+    assertEquals(confirmStop.indexOf('https://adscenter.online/stop?u=' + A + '&s='), 0);
+    assertEquals(confirm.headers, { 'List-Unsubscribe': '<' + confirmStop + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' });
     assert(String(confirm.html).indexOf('Store one') > -1, 'names the account');
     // مستخدم تاني: ملخصه هو بس (فاضي)، ومبيقدرش يشيل حساب من ملخص الأول
     assertEquals((await call('digest.get', {}, B)).body.settings, null);
@@ -742,6 +755,14 @@ Deno.test('رابط الإيقاف: الجديد لكل مستخدم بيوقف 
     const r2 = await handleDigest('stop', { u: A, sig }, null);
     assertEquals([r2.status, (await r2.json()).wasEnabled, store.digests.length, store.tokens.length], [200, true, 0, 0], 'the new link stops the whole summary');
     assertEquals((await handleDigest('stop', { u: A, sig }, null)).status, 200, 'clicking twice is fine');
+    const stopLogs = () => store.logs.filter((l) => l.type === 'disabled' && l.status === 'skipped').map((l) => l.error);
+    assertEquals(stopLogs(), ['stop link (old)', 'stop link'], 'the log says which link');
+    // زرار «إلغاء الاشتراك» في برنامج البريد (Live/cloudflare/worker.js oneClickStop — ٦٩): نفس الإيقاف بنفس التوقيع، والسجل بيقول الطريق
+    await handleDigest('digest.enable', { token: T, accountId: 'act_1', email: 'a@store.com', lang: 'ar', consent: true }, null, A);
+    assertEquals((await handleDigest('stop', { u: A, sig: sig.slice(0, -2) + 'xx', via: 'one-click' }, null)).status, 403, 'the same signature check');
+    const r3 = await handleDigest('stop', { u: A, sig, via: 'one-click' }, null);
+    assertEquals([r3.status, (await r3.json()).wasEnabled, store.digests.length], [200, true, 0]);
+    assertEquals(stopLogs(), ['stop link (old)', 'stop link', 'stop link (one-click)']);
   } finally { restoreDigestEnv(); }
 });
 Deno.test('«فصل» Meta: حسابات Meta بتخرج من ملخص المستخدم وصلاحياتها بتتمسح', async () => {
@@ -777,6 +798,8 @@ Deno.test('الملخص: تغيير البريد بيبلّغ العنوان ا�
     assertEquals(sent.map((m: any) => m.to[0]), ['old@store.com', 'new@store.com']);
     assertEquals(sent[0].subject, 'تم تغيير بريد الملخص التلقائي');
     assert(String(sent[0].html).indexOf('new@store.com') < 0, 'the new address is not disclosed to the old one');
+    // إلغاء الاشتراك بنقرة (٦٩): العنوان القديم خرج من الملخص فمفيش ترويسة إلغاء، وتأكيد الجديد فيه رابط إيقاف فبياخدها
+    assertEquals([sent[0].headers, typeof sent[1].headers], [undefined, 'object'], 'one-click headers only where a stop link is');
     // نفس البريد تاني = مفيش رسائل
     const again = store.mails.length;
     assertEquals((await handleDigest('digest.update', { email: 'new@store.com' }, null, A)).status, 200);
@@ -922,6 +945,10 @@ Deno.test('الطابور — العاجل: رسالة واحدة بحسابات
     assertEquals(m.subject, 'عاجل: أمران يحتاجان إلى إجراء — في حسابين');
     // الصياغة اللي وافق عليها صاحب المنتج ١٣ نوفمبر ٢٠٢٦ (القديمة كانت بتنفي وبعدين توعد بتذكير)
     assert(String(m.text).indexOf('لن تصلك رسالة أخرى عن هذا التنبيه وحده إلا تذكيراً واحداً إذا استمر يومين') > -1, 'the approved wording');
+    // إلغاء الاشتراك بنقرة (٦٩): الترويستان برابط الإيقاف نفسه اللي في آخر الرسالة
+    const stopLine = String(m.text).split('\n').pop() as string;
+    assertEquals(stopLine.indexOf('https://adscenter.online/stop?u=' + QA + '&s='), 0);
+    assertEquals(m.headers, { 'List-Unsubscribe': '<' + stopLine + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' });
     assert(String(m.html).indexOf('TITLE-Meta one') > -1 && String(m.html).indexOf('TITLE-Snap S1') > -1, 'both accounts in one email');
     assert(String(m.html).indexOf('snapchat=S1') > -1 && String(m.html).indexOf('meta=act_1') > -1, 'each account links to its own page');
     // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: النسخة النصية كانت بتقول «Ads Center» من غير أي عنوان
@@ -1121,6 +1148,9 @@ Deno.test('الطابور — ملخص بحسابات كتير: سطر لكل ح
     const text = String(out.mails[0].text);
     assert(text.indexOf('يصلك هذا الملخص') > -1, 'the plain text says when it comes');
     assert(/لإيقاف الملخص والتنبيهات: إيقاف\nhttps?:\/\//.test(text), 'and names the stop link');
+    const sumStop = text.split('\n').pop() as string;
+    assertEquals(sumStop.indexOf('https://adscenter.online/stop?u=' + QA + '&s='), 0);
+    assertEquals(out.mails[0].headers, { 'List-Unsubscribe': '<' + sumStop + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }, 'one-click unsubscribe (69)');
   } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
 });
 
@@ -1136,6 +1166,19 @@ Deno.test('الطابور — ملخص بحسابين: العنوان بينته
   } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
 });
 
+Deno.test('رسائل الوصول والصلاحية: فيها رابط الإيقاف، فبتاخد ترويسات الإلغاء بنقرة زي العاجل والملخص (send في runner.ts)', () => {
+  const restoreEngine = fakeEngine();
+  try {
+    const stop = 'https://adscenter.online/stop?u=' + QA + '&s=abcdefghijklmnopqrstuvwxyz';
+    for (const en of [false, true]) {
+      const mails = [connectionMail('meta', 'act_1', 'Store one', en, stop), expiryMail('snapchat', 'S1', 'Snap one', '2026-12-01T00:00:00Z', 'Asia/Kuwait', en, stop)];
+      for (const m of mails) {
+        assertEquals(m.stop, stop, m.subject);
+        assert(String(m.text).endsWith('\n' + stop) && String(m.html).indexOf('href="' + stop + '"') > -1, m.subject);
+      }
+    }
+  } finally { restoreEngine(); }
+});
 Deno.test('عدد الحسابات في عنوان البريد: «في حسابين» بعد حرف الجر، و«حسابان» خبراً لوحده (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦)', () => {
   assertEquals([accountsPhrase(2, false), accountsPhrase(2, false, true), accountsPhrase(2, true), accountsPhrase(2, true, true)],
     ['حسابين', 'حسابان', '2 accounts', '2 accounts']);

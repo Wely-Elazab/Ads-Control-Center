@@ -114,19 +114,30 @@ export const MAIL_FROM = 'Ads Center <support@adscenter.online>';
 export const MAIL_REPLY_TO = 'support@adscenter.online';
 // بيرجّع رقم الرسالة عند Resend، أو بيرمي خطأ فيه حالة Resend بس (من غير محتوى الرسالة).
 // replyTo: إشعار طلب الانضمام بس — الرد عليه بيروح للعميل نفسه (الباقي الرد بيرجع لـ support@)
+// headers: ترويسات زيادة — إلغاء الاشتراك بنقرة في الرسائل اللي فيها رابط إيقاف (unsubHeaders تحت)
 // مهلة ١٥ ثانية (مراجعة ١٧ أكتوبر — مع مهلة طلبات Meta في runner.ts): بعدها بيرمي زي أي فشل، والمُشغّل بيحاول الساعة الجاية
-export async function sendEmail(to: string, subject: string, html: string, text: string, replyTo = MAIL_REPLY_TO): Promise<string> {
+export async function sendEmail(to: string, subject: string, html: string, text: string, replyTo = MAIL_REPLY_TO, headers?: Record<string, string>): Promise<string> {
   const key = Deno.env.get('RESEND_API_KEY');
   if (!key) throw new Error('resend key missing');
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'authorization': 'Bearer ' + key, 'content-type': 'application/json' },
-    body: JSON.stringify({ from: MAIL_FROM, to: [to], reply_to: replyTo, subject, html, text }),
+    // headers من غير قيمة (undefined) مبتتكتبش في JSON أصلاً — الرسالة بتتبعت زي الأول
+    body: JSON.stringify({ from: MAIL_FROM, to: [to], reply_to: replyTo, subject, html, text, headers }),
     signal: AbortSignal.timeout(15000)
   });
   const j = await r.json().catch(() => null);
   if (!r.ok || !j || !j.id) throw new Error('resend ' + r.status + ' ' + String((j && (j.name || j.message)) || '').slice(0, 80));
   return j.id;
+}
+// إلغاء الاشتراك بنقرة واحدة (RFC 8058 مع RFC 2369 — التدقيق الشامل ١٣ نوفمبر ٢٠٢٦، ٦٩): كل رسالة فيها رابط إيقاف (العاجل، والملخص،
+// والوصول، والصلاحية، وتأكيد التفعيل) بتاخد الترويستين دول، فبرنامج البريد يقدر يعرض «إلغاء الاشتراك» جنب اسم المرسل. الرابط هو رابط
+// الإيقاف نفسه (https وفيه توقيع صعب يتزوّر — §3.1)، والـ POST عليه بيوقف فوراً في Live/cloudflare/worker.js (oneClickStop)، وفتحه
+// العادي (GET) لسه صفحة بزرار. شرط §4: توقيع DKIM يغطي الترويستين (في h=) — Resend هو اللي بيوقّع، فده بيتأكد من «عرض الأصل» في
+// Gmail بعد النشر. أي رابط تاني (مش رابط إيقاف بتاعنا) = من غير ترويسات
+export function unsubHeaders(stop: string): Record<string, string> | undefined {
+  if (typeof stop !== 'string' || stop.indexOf(SITE + '/stop?u=') !== 0 || /[\s<>,]/.test(stop)) return undefined;
+  return { 'List-Unsubscribe': '<' + stop + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' };
 }
 // غلاف الرسائل: من غير صور ولا روابط تتبّع. الفقرات جاهزة (اللي فيها بيانات من برّه لازم تتعمل لها esc قبلها)
 // والفقرة اللي بتبدأ بـ <div (صندوق تنبيه) بتتحط زي ما هي

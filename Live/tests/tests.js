@@ -9766,6 +9766,77 @@
         });
       }).then(null, function (e) { window.fetch = realFetch; throw e; });
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٩): رسائل الملخص والتنبيهات فيها List-Unsubscribe + List-Unsubscribe-Post (sync/lib.ts unsubHeaders)
+    testAsync('إلغاء الاشتراك بنقرة (RFC 8058): POST على رابط الإيقاف بيوقف فوراً بالتوقيع، وGET لسه الصفحة بالزرار', function () {
+      var realFetch = window.fetch, sent = [], answer = 200;
+      var U = '11111111-2222-3333-4444-555555555555', S = 'abcdefghijklmnopqrstuvwxyz_-0123';
+      var link = 'https://adscenter.online/stop?u=' + U + '&s=' + S, FORM = 'application/x-www-form-urlencoded', BODY = 'List-Unsubscribe=One-Click';
+      var page = { ASSETS: { fetch: function () { return Promise.resolve(new Response('<p>stop page</p>', { status: 200, headers: { 'content-type': 'text/html' } })); } } };
+      window.fetch = function (url, opts) {
+        sent.push({ url: String(url), body: JSON.parse(opts.body) });
+        return answer === 'down' ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve(new Response('{}', { status: answer }));
+      };
+      var go = function (w, url, init) { return w.default.fetch(new Request(url, init), page); };
+      var post = function (w, url, body, type) {
+        return go(w, url, { method: 'POST', body: body, headers: type ? { 'content-type': type } : {} }).then(function (r) { return r.status; });
+      };
+      return import('/cloudflare/worker.js').then(function (w) {
+        var fd = new FormData(); fd.append('List-Unsubscribe', 'One-Click');
+        // مثال المعيار نفسه (§8.3) بحروفه — حدوده ناقصة شرطتين عن multipart الصحيح
+        var rfc83 = '---FormBoundaryjWmhtjORrn\r\nContent-Disposition: form-data; name="List-Unsubscribe"\r\n\r\nOne-Click\r\n---FormBoundaryjWmhtjORrn--\r\n';
+        return go(w, link, { method: 'POST', body: BODY, headers: { 'content-type': FORM } }).then(function (r) {
+          eq([r.status, r.headers.get('Location'), r.headers.get('Cache-Control'), sent.length], [200, null, 'no-store', 1], 'stopped at once, no redirect (§3.1)');
+          ok(r.headers.get('Content-Security-Policy'), 'security headers like every response');
+          eq(sent[0], { url: w.SUPABASE_SYNC_URL, body: { action: 'stop', u: U, sig: S, via: 'one-click' } }, 'the same stop request as the page, signed by the link');
+          return post(w, link, fd);
+        }).then(function (st) {
+          eq([st, sent.length], [200, 2], 'multipart/form-data (§3.2)');
+          return post(w, link, rfc83, 'multipart/form-data; boundary=---FormBoundaryjWmhtjORrn');
+        }).then(function (st) {
+          eq([st, sent.length], [200, 3], 'the RFC example itself');
+          return post(w, link, 'list-unsubscribe=one-click\r\n', FORM);
+        }).then(function (st) {
+          eq([st, sent.length], [200, 4], 'ABNF strings are case-insensitive (RFC 5234 §2.3)');
+          return Promise.all([post(w, link, 'List-Unsubscribe=Yes', FORM), post(w, link, '', FORM), post(w, link, 'One-Click', 'text/plain'),
+            post(w, link, 'x=List-Unsubscribe%3DOne-Click', FORM)]);
+        }).then(function (sts) {
+          eq([sts, sent.length], [[400, 400, 400, 400], 4], 'not a one-click body: sync is never called');
+          return Promise.all([
+            post(w, 'https://adscenter.online/stop?u=nope&s=' + S, BODY, FORM),
+            post(w, 'https://adscenter.online/stop?u=' + U + '&s=short', BODY, FORM),
+            post(w, 'https://adscenter.online/stop?a=act_1&s=' + S, BODY, FORM),
+            post(w, link, BODY + '&pad=' + new Array(4200).join('x'), FORM)
+          ]);
+        }).then(function (sts) {
+          eq([sts, sent.length], [[400, 400, 400, 413], 4], 'bad link or oversized body: refused before calling sync');
+          // Content-Length أكبر من الحد: الرد قبل قراءة الجسم (المتصفح مبيسمحش بالترويسة دي في Request، فطلب وهمي)
+          var fake = { headers: new Headers({ 'content-length': '99999' }), text: function () { throw new Error('read'); } };
+          return w.oneClickStop(fake, new URL(link)).then(function (r) { return r.status; });
+        }).then(function (st) {
+          eq([st, sent.length], [413, 4], 'declared size checked before reading');
+          answer = 403;
+          return post(w, link, BODY, FORM);
+        }).then(function (st) {
+          eq([st, sent.length], [403, 5], 'a forged signature stays refused (sync checks it)');
+          answer = 500;
+          return post(w, link, BODY, FORM);
+        }).then(function (st) {
+          eq(st, 502, 'sync failed: never a false success');
+          answer = 'down';
+          return post(w, link, BODY, FORM);
+        }).then(function (st) {
+          eq([st, sent.length], [502, 7], 'sync unreachable');
+          // GET = الصفحة بالزرار (برامج فحص الروابط متوقفش حاجة)، وأي طريقة تانية = 405 بالطرق المسموحة فعلاً
+          return Promise.all([go(w, link, { method: 'GET' }), go(w, link, { method: 'PUT', body: BODY })]);
+        }).then(function (rs) {
+          eq([rs[0].status, rs[1].status, rs[1].headers.get('Allow'), sent.length], [200, 405, 'GET, HEAD, POST', 7]);
+          return rs[0].text();
+        }).then(function (html) {
+          ok(html.indexOf('stop page') > -1, 'GET serves the page');
+          window.fetch = realFetch;
+        });
+      }).then(null, function (e) { window.fetch = realFetch; throw e; });
+    });
   });
 
   // ---------- الملخص التلقائي بالبريد (supabase/functions/sync/digest.ts) ----------

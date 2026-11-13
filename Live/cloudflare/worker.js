@@ -248,8 +248,12 @@ export default {
       return withSecurityHeaders(new Response(null, { status: r.permanent ? 308 : 307, headers: { Location: r.destination + url.search } }));
     }
 
+    // إلغاء الاشتراك بنقرة واحدة من برنامج البريد: POST على رابط الإيقاف نفسه (oneClickStop تحت). فتحه العادي (GET) لسه الصفحة بالزرار
+    if (path === '/stop' && request.method === 'POST') return withSecurityHeaders(await oneClickStop(request, url));
+
+    // Allow = الطرق اللي المسار ده بيقبلها فعلاً
     if (request.method !== 'GET' && request.method !== 'HEAD') {
-      return withSecurityHeaders(new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } }));
+      return withSecurityHeaders(new Response('Method Not Allowed', { status: 405, headers: { Allow: path === '/stop' ? 'GET, HEAD, POST' : 'GET, HEAD' } }));
     }
 
     const assetPath = Object.prototype.hasOwnProperty.call(REWRITES, path) ? REWRITES[path] : path;
@@ -271,4 +275,41 @@ export function pingSupabase() {
   return fetch(SUPABASE_SYNC_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'ping' }) })
     .then(function (r) { if (!r.ok) console.error('supabase ping', r.status); return r.ok; })
     .catch(function (e) { console.error('supabase ping failed', String(e && e.message ? e.message : e)); return false; });
+}
+
+// ---------- إلغاء الاشتراك بنقرة واحدة (RFC 8058 — التدقيق الشامل ١٣ نوفمبر ٢٠٢٦، ٦٩) ----------
+// رسائل الملخص والتنبيهات فيها List-Unsubscribe = رابط الإيقاف نفسه، وList-Unsubscribe-Post (supabase/functions/sync/lib.ts unsubHeaders).
+// زرار «إلغاء الاشتراك» في برنامج البريد بيبعت POST على الرابط ده وجسمه «List-Unsubscribe=One-Click» (§3.2)، فالإيقاف هنا فوري من غير
+// صفحة ولا تحويل (§3.1: المرسل ممنوع يرد بتحويل). التوقيع (s) هو الإثبات، ودالة sync هي اللي بتتأكد منه — نفس طلب صفحة /stop
+// (js/stop.js). GET على نفس الرابط مبيوقفش حاجة (الصفحة بزرار) عشان برامج فحص الروابط
+export const ONE_CLICK_MAX = 4096;
+const STOP_USER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const STOP_SIG = /^[A-Za-z0-9_-]{20,100}$/;
+// الجسم: ترميز النماذج (application/x-www-form-urlencoded) أو multipart/form-data (§3.2). قراءة متسامحة من غير محلّل multipart صارم —
+// مثال المعيار نفسه (§8.3) حدوده ناقصة شرطتين — والحروف الكبيرة والصغيرة سواء (نصوص ABNF مش حساسة لحالة الأحرف — RFC 5234 §2.3)
+export function oneClickBody(text) {
+  const s = String(text || '');
+  let ok = false;
+  new URLSearchParams(s.trim()).forEach(function (v, k) {
+    if (k.trim().toLowerCase() === 'list-unsubscribe' && v.trim().toLowerCase() === 'one-click') ok = true;
+  });
+  return ok || /name="?list-unsubscribe"?[^\r\n]*\r?\n(?:[^\r\n]+\r?\n)*\r?\n[ \t]*one-click[ \t]*(?:\r?\n|$)/i.test(s);
+}
+// الرد من غير جسم: 200 = اتوقف (أو كان واقف أصلاً)، 400/403 = الرابط أو الجسم غلط، 413 = جسم كبير، 502 = دالة sync مردّتش بنجاح
+export async function oneClickStop(request, url) {
+  const reply = function (status) { return new Response(null, { status: status, headers: { 'Cache-Control': 'no-store' } }); };
+  const u = url.searchParams.get('u') || '', s = url.searchParams.get('s') || '';
+  if (!STOP_USER.test(u) || !STOP_SIG.test(s)) return reply(400);
+  if (Number(request.headers.get('content-length') || 0) > ONE_CLICK_MAX) return reply(413);
+  const text = await request.text();
+  if (text.length > ONE_CLICK_MAX) return reply(413);
+  if (!oneClickBody(text)) return reply(400);
+  const r = await fetch(SUPABASE_SYNC_URL, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'stop', u: u, sig: s, via: 'one-click' }), signal: AbortSignal.timeout(10000)
+  }).catch(function () { return null; });
+  if (r && r.ok) return reply(200);
+  if (r && (r.status === 400 || r.status === 403)) return reply(r.status);
+  console.error('one-click stop', r ? r.status : 'network');
+  return reply(502);
 }

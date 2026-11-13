@@ -19,7 +19,7 @@
 // نفس التنبيه ميتكررش: تذكير واحد بس لو استمر يومين كمان. «ساء» = ظهرت مشكلة عاجلة جديدة على نفس
 // العنصر أو مشكلة «مهمة» بقت «عاجلة» — دي بصمة جديدة فبتتبعت. مبنحفظش أي أرقام — النوع والعنصر والتواريخ بس.
 
-import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
+import { GRAPH, SITE, MAIL_REPLY_TO, db, rpc, esc, sendEmail, mailHtml, unsubHeaders } from './lib.ts';
 import { seal, unseal, sealedAad, stopUrl, accountName, daysText, hourText } from './digest.ts';
 import { joinReminders } from './join.ts';
 
@@ -507,9 +507,10 @@ async function logSend(user: string, account: string, type: string, status: stri
   await db('send_log', { method: 'POST', headers: { 'prefer': 'return=minimal' },
     body: JSON.stringify({ user_id: user, account_id: account || '-', type, status, provider_id: id, error: error ? error.slice(0, 200) : null }) }).catch(() => {});
 }
-async function send(user: string, account: string, type: string, to: string, mail: { subject: string; html: string; text: string }): Promise<boolean> {
+// كل رسالة بتتبعت من هنا فيها رابط إيقاف (stop): بيتحط كمان في ترويسات إلغاء الاشتراك بنقرة (lib.ts unsubHeaders — التدقيق الشامل، ٦٩)
+async function send(user: string, account: string, type: string, to: string, mail: { subject: string; html: string; text: string; stop: string }): Promise<boolean> {
   try {
-    const id = await sendEmail(to, mail.subject, mail.html, mail.text);
+    const id = await sendEmail(to, mail.subject, mail.html, mail.text, MAIL_REPLY_TO, unsubHeaders(mail.stop));
     await logSend(user, account, type, 'sent', id, null);
     return true;
   } catch (e) {
@@ -632,9 +633,9 @@ function urgentMail(sections: Section[], tz: string, en: boolean, stop: string, 
   lines.push(en ? 'You won\'t get another email about this alert on its own, except one reminder if it lasts two more days; every urgent email lists what is still ongoing, and your summary shows whether it was resolved.'
     : 'لن تصلك رسالة أخرى عن هذا التنبيه وحده إلا تذكيراً واحداً إذا استمر يومين؛ وكل رسالة عاجلة تذكر ما زال قائماً منها، ويبيّن ملخصك هل حُلّ.');
   lines.push(en ? 'To stop the summary and alerts: <a href="' + stop + '">Stop</a>' : 'لإيقاف الملخص والتنبيهات: <a href="' + stop + '">إيقاف</a>');
-  return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
+  return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop, stop };
 }
-function connectionMail(platform: string, account: string, name: string, en: boolean, stop: string) {
+export function connectionMail(platform: string, account: string, name: string, en: boolean, stop: string) {
   const n = esc(name), app = appLink(platform, account), p = PLAT_NAME[platform] || platform;
   const subject = en ? 'We lost access to ' + name + ' — open Ads Center to restore it' : 'توقف وصولنا إلى حساب ' + name + ' — افتح الأداة لإعادته';
   const lines = en ? [
@@ -648,10 +649,10 @@ function connectionMail(platform: string, account: string, name: string, en: boo
     'لإعادتها: افتح ' + app + ' وسجّل الدخول بحساب ' + p + ' مرة واحدة، وسنجدد الصلاحية تلقائياً.',
     'وإذا أردت إيقافها نهائياً: <a href="' + stop + '">إيقاف الملخص والتنبيهات</a>'
   ];
-  return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
+  return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop, stop };
 }
 // Meta بتحدد مدة الصلاحية (نحو ٦٠ يوم). Snapchat: إحنا اللي بنحددها — ٦٠ يوم من آخر مرة العميل فتح الحساب ده في الأداة (digest.ts)
-function expiryMail(platform: string, account: string, name: string, expiresAt: string, tz: string, en: boolean, stop: string) {
+export function expiryMail(platform: string, account: string, name: string, expiresAt: string, tz: string, en: boolean, stop: string) {
   const n = esc(name), app = appLink(platform, account), meta = platform === 'meta';
   const subject = en ? 'Open Ads Center to keep alerts for ' + name + ' running' : 'افتح Ads Center ليستمر الملخص والتنبيهات لحساب ' + name;
   const lines = en ? [
@@ -669,7 +670,7 @@ function expiryMail(platform: string, account: string, name: string, expiresAt: 
       : 'لتجديدها يكفي أن تفتح هذا الحساب في ' + app + ' مرة واحدة، دون أي إجراء آخر.',
     'وإذا أردت إيقافها نهائياً: <a href="' + stop + '">إيقاف الملخص والتنبيهات</a>'
   ];
-  return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
+  return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop, stop };
 }
 
 // ---------- الملخص ----------
@@ -915,7 +916,7 @@ function summaryMail(secs: SumSection[], since: string, until: string, s: Settin
   // النسخة النصية بسطر المواعيد وسطر الإيقاف زي HTML (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦): كانت بتنتهي برابط من غير ما تقول إنه للإيقاف
   const text = subject + '\n\n' + glance + (compact ? secs.filter(needsAttention) : secs).map(summaryText).join('\n\n— — —\n\n') + '\n\n' +
     plainLines(parts.slice(-2)) + '\n' + stop;
-  return { subject, html: mailHtml(heading, parts, en ? 'en' : 'ar'), text };
+  return { subject, html: mailHtml(heading, parts, en ? 'en' : 'ar'), text, stop };
 }
 const COMPACT_AFTER = 3;
 export function needsAttention(sec: { sum: { composed: { tone?: string } } }): boolean {

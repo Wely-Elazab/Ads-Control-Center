@@ -8,7 +8,7 @@
 // مشفّرة تاني بنفس المفتاح، عن طريق دوال vault_sealed_* (storeSealed تحت).
 // الإيقاف (أو «فصل» أو رابط الإيقاف) = الصلاحيات والإعدادات بيتمسحوا فوراً. سياسة الخصوصية، البندين ٣ و٧
 
-import { GRAPH, META_APP_ID, META_ID, SITE, TOKEN, UUID_SHAPE, USER_ID, db, rpc, metaAccount, reply, sendEmail, mailHtml, esc, stripHidden } from './lib.ts';
+import { GRAPH, META_APP_ID, META_ID, MAIL_REPLY_TO, SITE, TOKEN, UUID_SHAPE, USER_ID, db, rpc, metaAccount, reply, sendEmail, mailHtml, esc, stripHidden, unsubHeaders } from './lib.ts';
 
 const CONSENT_VERSION = '2026-10-31-snapchat';   // سياسة الخصوصية: ملخص لكل مستخدم بإعداداته وحساباته، وحسابات Snapchat فيه
 // شكل المعرّف (UUID_SHAPE وUSER_ID) في lib.ts — تعريف واحد لكل الملفات
@@ -253,7 +253,8 @@ async function mailEnabled(user: string, names: string[], s: any): Promise<void>
   ];
   const text = subject + '\n\n' + lines.map((l) => l.replace(/<[^>]+>/g, '')).join('\n') + '\n' + stop;
   try {
-    const id = await sendEmail(s.email, subject, mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text);
+    // فيها رابط الإيقاف، فبتاخد ترويسات إلغاء الاشتراك بنقرة زي الملخص (lib.ts unsubHeaders — ٦٩)
+    const id = await sendEmail(s.email, subject, mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text, MAIL_REPLY_TO, unsubHeaders(stop));
     await logSend(user, '', 'enabled', 'sent', id, null);
   } catch (e) {
     await logSend(user, '', 'enabled', 'failed', null, String((e as Error).message || e));
@@ -353,7 +354,8 @@ async function storedTokenWorks(user: string, account: string): Promise<boolean 
 //   digest.disable ← {}                       إيقاف الملخص كله
 //   digest.refresh ← { ...open }              الأداة بتبعته لما الحساب يتفتح — بيجدد صلاحيته (٦٠ يوم) لو الحساب في الملخص
 //   digest.disconnect ← { platform? }         «فصل» المنصة (Meta لو مفيش): حساباتها بتخرج من الملخص وصلاحياتها بتتمسح
-//   stop           ← { u, sig } | { account, sig }   رابط الإيقاف (الجديد لكل مستخدم، والقديم لكل حساب في رسائل اتبعتت قبل كده)
+//   stop           ← { u, sig, via? } | { account, sig }   رابط الإيقاف (الجديد لكل مستخدم، والقديم لكل حساب في رسائل اتبعتت قبل كده)؛
+//                    via: 'one-click' = زرار «إلغاء الاشتراك» في برنامج البريد (Live/cloudflare/worker.js oneClickStop) — للسجل بس
 export async function handleDigest(action: string, body: any, origin: string | null, userId: string | null = null): Promise<Response> {
   if (action === 'stop') {
     const sig = body.sig;
@@ -377,7 +379,7 @@ export async function handleDigest(action: string, body: any, origin: string | n
     const s = await digestOf(user as string);
     if (s) {
       await removeDigest(user as string);
-      await logSend(user as string, '', 'disabled', 'skipped', null, 'stop link');
+      await logSend(user as string, '', 'disabled', 'skipped', null, body.via === 'one-click' ? 'stop link (one-click)' : 'stop link');
     }
     return reply(200, { ok: true, wasEnabled: !!s }, origin);
   }
