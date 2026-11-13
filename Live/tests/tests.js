@@ -10314,6 +10314,9 @@
               w.history[k] = function () { hist.push(k); return orig.apply(w.history, arguments); };
             });
             d.getElementById(p === 'google' ? 'platformGoogle' : 'platformSnapchat').click();
+            // حتمي (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦، النتيجة ٦٦): الخروج في نفس لحظة الضغط. التحقق بعد مهلة بس كان بيعدّي انتظار قبل
+            // الخروج بالتوقيت — نجح على الجهاز وفشل في CI لما ربط Google استنى بصمة PKCE، والرابط بيرجّع خطوة في المهلة دي فيلغي النقل
+            eq(w.PageExit.isLeaving(), true, 'leaving in the same moment as the click');
             return sleep(50);
           }).then(function () {
             var host = p === 'google' ? 'https://accounts.google.com/' : 'https://accounts.snapchat.com/';

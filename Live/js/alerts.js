@@ -300,7 +300,6 @@
     var lam = spend * bar / mu;
     return compoundTail(s, lam, mu, phiOf(lam, days), dir < 0);
   }
-  function salesBelowP(sales, spend, bar, orders, aovRef, days) { return roasP(sales, spend, bar, orders, aovRef, days, -1); }
   function salesAboveP(sales, spend, bar, orders, aovRef, days) { return roasP(sales, spend, bar, orders, aovRef, days, 1); }
   // عدد k أو أقل لو المتوقع lambda — بالتشتت (بديل poissonAtMost لأحكام الأداء)
   function countBelowP(k, lambda, days) { var phi = phiOf(lambda, days); return lambda > 0 && k < lambda ? gammq(k / phi + 1, lambda / phi) : 1; }
@@ -437,7 +436,7 @@
           if (anyDone(c.dailySales)) { valued.sales += sa; valued.results += re; }
         });
         o.roas = hasSales && o.spend > 0 ? o.sales / o.spend : null;
-        // متوسط قيمة الطلب — مرجع دليل الخسارة (salesBelowP): من الإعلانات اللي بتسجّل قيمة مبيعات بس. إعلان شراء من غير قيمة
+        // متوسط قيمة الطلب — مرجع «طلب واحد» في النصوص ودليل «جيد» لإعلانات المبيعات (salesAboveP): من الإعلانات اللي بتسجّل قيمة مبيعات بس. إعلان شراء من غير قيمة
         // (تتبّع القيمة ناقص) كانت طلباته بتدخل المقام من غير مبيعاتها، فالمتوسط يطلع أقل من الحقيقة (المرحلة ٥)
         o.aov = valued.results > 0 && valued.sales > 0 ? valued.sales / valued.results : null;
         return o;
@@ -562,7 +561,8 @@
       ? ((c.campaignId && s.campaignMaxCost && s.campaignMaxCost[c.campaignId]) || (c.resultKey && s.maxCost && s.maxCost[c.resultKey]) || null) : null;
     var maxScope = maxCost && c.campaignId && s.campaignMaxCost && s.campaignMaxCost[c.campaignId] ? 'camp' : 'acc';
     var roasW = spendW > 0 ? salesW / spendW : null;
-    // ---- الدليل (ق١ — المرحلة ٥): كل حكم أداء باحتمال الصدفة بمعيار الملخص (fewerP / salesBelowP فوق) ----
+    // ---- الدليل (ق١ — المرحلة ٥): احتمال الصدفة بمعيار الملخص — fewerP للنتائج والتكلفة، وsalesAboveP لـ«جيد» في المبيعات (فوق).
+    // من ٢٥ أكتوبر ٢٠٢٦ (4464729) مستوى التنبيه من حدود الإعدادات بشرط إنفاق بالمبلغ، مش باحتمال الصدفة، ودليل الخسارة الاحتمالي اتشال ----
     // المرجع للعدّ: باقي الحساب (من غير الإعلان ده) بنفس نوع النتيجة على أيام الحكم نفسها
     var restK = peer ? Math.max(0, peer.results - resW) : 0, restE = peer ? Math.max(0, peer.spend - spendW) : 0;
     // المرجع للمقارنة وللأرقام في النص = متوسط باقي إعلاناتك (المراجعة الثانية للمرحلة ٥ — «ترك واحد» leave-one-out، نفس مرجع

@@ -23,7 +23,6 @@
   }
   var ARABIC_DIGITS = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
   function ar(n) { return isAr() ? String(n).replace(/[0-9]/g, function (d) { return ARABIC_DIGITS[d]; }) : String(n); }
-  function digitsAny(n) { return ar(n); }
   function decSep() { return isAr() ? '٫' : '.'; }
   // العملة بتيجي من الحساب الإعلاني نفسه. لو المنصة مرجّعتهاش بنسيبها فاضية —
   // قبل كده كانت "ر.س" افتراضياً، فحساب بالجنيه كان ممكن يظهر بالريال

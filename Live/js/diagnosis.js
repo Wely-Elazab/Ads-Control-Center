@@ -2433,8 +2433,6 @@ var DX = (function () {
       trackingOf: trackingOf, eventsOn: eventsOn, hijriOf: hijriOf, isWhiteFridayWeekend: isWhiteFridayWeekend, localize: localize,
       actionOf: actionOf, keyInTz: keyInTz, certText: certText, salesDrivers: salesDrivers, driversLine: driversLine, salesMovers: salesMovers,
       prepareDims: prepareDims, windowCount: windowCount, hijriSupported: !!HIJRI,
-      T: { Z_REAL: Z_REAL, Z_SEG: Z_SEG, PHI_SAMPLING: PHI_SAMPLING },
-      // للمعايرة بالمحاكاة بس (tests/dx-sim.js) — كود الأداة نفسه مبيغيّرش العتبات أبداً
-      tune: function (o) { if (o.Z_REAL) Z_REAL = o.Z_REAL; if (o.Z_WHERE) Z_WHERE = o.Z_WHERE; return { Z_REAL: Z_REAL, Z_WHERE: Z_WHERE }; } }
+      T: { Z_REAL: Z_REAL, Z_SEG: Z_SEG, PHI_SAMPLING: PHI_SAMPLING } }
   };
 })();
