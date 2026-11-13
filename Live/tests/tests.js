@@ -10339,6 +10339,37 @@
         eq(written, [], 'no summary yet: nothing copied');
       }).then(restore, function (e) { restore(); throw e; });
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): حالة تحميل ملخص المتجر لكل منصة (ui.js dxBegin وdxDone وdxFail — بيناديهم meta.js وgoogle.js
+    // وsnapchat.js) مكانتش اتنفّذت في أي اختبار: الاختبارات كانت بتحط dxState جاهز
+    test('ملخص المتجر — تحميل كل منصة: نفس الطلب مبيتكررش وهو ماشي أو خلص، والرد المتأخر بعد تغيير الحساب أو الفترة بيتجاهل، والفشل بيتعلّم وبيتعاد', function () {
+      var keep = { dx: dxState, rc: window.dxRecompute, an: DX.analyze, pull: window.dxSyncPull };
+      var log = [];
+      window.dxRecompute = function () { log.push('recompute'); };
+      DX.analyze = function (input) { log.push('analyze:' + input.since); return { fake: input.since }; };
+      window.dxSyncPull = function (id) { log.push('pull:' + id); };
+      try {
+        dxState = { status: 'idle', sources: {} };
+        eq(dxBegin('meta', 'K1', 'Store', 'meta:act_1'), true, 'the first request starts');
+        eq([dxState.sources.meta.status, dxState.sources.meta.accountId], ['loading', 'meta:act_1']);
+        eq(dxBegin('meta', 'K1', 'Store', 'meta:act_1'), false, 'the same request while it is loading: not again');
+        eq(dxBegin('meta', 'K2', 'Store', 'meta:act_1'), true, 'another period or account: a new request');
+        log.length = 0;
+        dxDone('meta', 'K1', { since: 'OLD' });
+        eq([dxState.sources.meta.status, log], ['loading', []], 'the late answer of the old request is ignored');
+        dxDone('meta', 'K2', { since: 'NEW' });
+        var s = dxState.sources.meta;
+        eq([s.status, s.report, s.input.since, log], ['ready', { fake: 'NEW' }, 'NEW', ['analyze:NEW', 'recompute', 'pull:meta:act_1']],
+          'the current answer: analysed, shown, the saved answers pulled');
+        eq(dxBegin('meta', 'K2', 'Store', 'meta:act_1'), false, 'ready: not again');
+        // فشل منصة تانية: الفشل القديم مبيكتبش على طلب جديد، والفشل الحالي بيتعلّم، وإعادة المحاولة بنفس المفتاح مسموحة
+        dxBegin('google', 'G1', 'G', 'google:1');
+        dxFail('google', 'G0', { error: 'old' });
+        eq(dxState.sources.google.status, 'loading', 'an old failure is ignored');
+        dxFail('google', 'G1', { error: 'quota' });
+        eq([dxState.sources.google.status, dxState.sources.google.err], ['error', { error: 'quota' }]);
+        eq(dxBegin('google', 'G1', 'G', 'google:1'), true, 'after a failure the same request may run again');
+      } finally { dxState = keep.dx; window.dxRecompute = keep.rc; DX.analyze = keep.an; window.dxSyncPull = keep.pull; }
+    });
     test('الترتيب: الحساب العاجل، عاجل الملخص، عاجل الإعلانات، يحتاج قرارك، مهم، للمتابعة', function () {
       var ads = [ad('a1', { cid: 'c9' })];
       var items = DX.attention([blk('watch', { dim: 'country', key: 'SA' }), blk('decision'), blk('urgent'), blk('why')],
