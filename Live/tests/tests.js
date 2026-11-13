@@ -2956,6 +2956,33 @@
   });
 
   describe('تحسينات الواجهة', function () {
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): ترتيب «الأحدث إطلاقاً» و«آخر تعديل» (ui.js sortCandidates — age) مكانش اتنفّذ في أي اختبار
+    test('ترتيب الإعلانات: «الأحدث إطلاقاً» و«آخر تعديل» من الأحدث للأقدم، واللي تاريخه مش معروف آخر القائمة، والقائمة الأصلية زي ما هي', function () {
+      var a = ad('old', { age: 30 }), b = ad('new', { age: 2 }), c = ad('unknown', { age: 5 });
+      c.daysAgo = null;
+      a.updatedDaysAgo = 1; b.updatedDaysAgo = 9; c.updatedDaysAgo = null;
+      var ids = function (list) { return list.map(function (x) { return x.id; }); };
+      eq(ids(sortCandidates([a, c, b], 'launch')), ['new', 'old', 'unknown'], 'newest launch first, an unknown date last');
+      eq(ids(sortCandidates([c, b, a], 'update')), ['old', 'new', 'unknown'], 'last edited first, an unknown date last');
+      var input = [a, c, b];
+      sortCandidates(input, 'launch');
+      eq(ids(input), ['old', 'unknown', 'new'], 'a sorted copy: the list itself is not reordered');
+    });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): لوحة الفلاتر على الموبايل (ui.js openFilters) مكانتش اتفتحت في أي اختبار
+    test('فلاتر الموبايل: الزرار بيفتح اللوحة وبيوقّف تمرير الصفحة اللي وراها، و«عرض النتائج» و«إغلاق» بيقفلوها ويرجّعوا التمرير', function () {
+      var drawer = document.getElementById('filterDrawer'), toggle = document.getElementById('filterToggle');
+      var wasHidden = drawer.classList.contains('hidden'), overflow = document.body.style.overflow;
+      var state = function () { return [drawer.classList.contains('hidden'), document.body.style.overflow]; };
+      try {
+        toggle.click();
+        eq(state(), [false, 'hidden'], 'open: the page behind does not scroll');
+        document.getElementById('filterDrawerDone').click();
+        eq(state(), [true, ''], '«show results» closes it');
+        toggle.click();
+        document.getElementById('filterDrawerClose').click();
+        eq(state(), [true, ''], '«close» too');
+      } finally { drawer.classList.toggle('hidden', wasHidden); document.body.style.overflow = overflow; }
+    });
     test('إنفاق صفر بعملة الحساب المعروض', function () {
       candidates = [ad('e1', { active: false })];
       candidates[0].currency = 'EGP';
