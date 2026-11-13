@@ -2540,6 +2540,33 @@
         eq('codeVerifier' in calls[1].body, false, 'no key kept = the exchange as before');
       } finally { window.apiPost = post; history.replaceState({}, '', before); }
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (النتيجة ٦٧ — قياس التغطية): exchangeSnapchatCode متنفّذتش ولا مرة في أي اختبار — مسار دخول Snapchat كله
+    test('رجوع Snapchat: state صح = تبادل الكود مرة واحدة والجلسة والنسخة المقفولة بتتحفظ؛ نفس الرابط تاني مبيتبادلش؛ رفض الخادم برسالة', function () {
+      var before = location.href, post = window.apiPost, load = window.loadSnapchatAccounts, calls = [], loaded = 0, reply;
+      var keepTok = snapchatAccessToken, keepSess = sessionTokens.snapchat, keepRenew = localStorage.getItem(RENEW_KEY);
+      window.apiPost = function (u, body) { calls.push({ u: u, body: body }); return { then: function (f) { f(reply); return { catch: function () {} }; } }; };
+      window.loadSnapchatAccounts = function () { loaded++; };
+      try {
+        reply = { ok: true, status: 200, data: { access_token: 'snap-tok', expires_in: 3600, sealed: 'v2.sealed-copy' } };
+        history.replaceState({}, '', location.pathname + '?code=sc1&state=' + encodeURIComponent(newOauthState('snapchat')));
+        eq(checkSnapchatRedirect(), true);
+        eq([calls.length, calls[0].u, calls[0].body.code, calls[0].body.redirectUri], [1, '/api/snapchat-token', 'sc1', oauthReturnUrl()]);
+        eq([snapchatAccessToken, validToken(sessionTokens.snapchat), sealedFor('snapchat'), loaded], ['snap-tok', 'snap-tok', 'v2.sealed-copy', 1], 'session + sealed copy kept, accounts load');
+        eq(location.search, '', 'the code leaves the address bar');
+        history.replaceState({}, '', location.pathname + '?code=sc1&state=snapchat.replayed');
+        eq([checkSnapchatRedirect(), calls.length], [false, 1], 'the same link again: no second exchange');
+        reply = { ok: false, status: 400, data: { error: 'invalid_grant' } };
+        history.replaceState({}, '', location.pathname + '?code=sc2&state=' + encodeURIComponent(newOauthState('snapchat')));
+        setStatus('');
+        eq(checkSnapchatRedirect(), true);
+        ok(document.getElementById('connectStatus').textContent.indexOf('Snapchat') > -1 && loaded === 1, 'a refusal says so and loads no accounts: ' + document.getElementById('connectStatus').textContent);
+      } finally {
+        window.apiPost = post; window.loadSnapchatAccounts = load; snapchatAccessToken = keepTok;
+        if (keepSess === undefined) delete sessionTokens.snapchat; else sessionTokens.snapchat = keepSess;
+        if (keepRenew === null) localStorage.removeItem(RENEW_KEY); else localStorage.setItem(RENEW_KEY, keepRenew);
+        history.replaceState({}, '', before);
+      }
+    });
     test('إصدار Meta هو v26 (v21 كان منتهي)', function () { eq(GRAPH_VERSION, 'v26.0'); });
   });
 
@@ -6677,6 +6704,82 @@
     test('رسالة «لا يمكن جمع» بسبب الأيام صحيحة في «اليوم» و«هذا الشهر» كمان — مش «آخر يوم مكتمل» (النتيجة ٦٣)', function () {
       withLang('ar', function () { var x = t('dx.view.blockedPeriod', { platforms: 'Meta وSnapchat' }); ok(x.indexOf('آخر يوم مكتمل') < 0 && x.indexOf('أيام مختلفة') > -1, x); });
       withLang('en', function () { var x = t('dx.view.blockedPeriod', { platforms: 'Meta and Snapchat' }); ok(x.indexOf('last complete day') < 0 && x.indexOf('different days') > -1, x); });
+    });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (النتيجة ٦٧ — قياس التغطية): مسار «الخسارة» من أرقام الكارت ومسار «الهدر القديم» بطلب الإنفاق اليومي
+    // متنفّذوش ولا مرة في أي اختبار — أرقام فلوس بتتعرض للعميل. الحساب هنا باليد من الأرقام
+    test('قيمة الأداة: مبلغ الخسارة من الكارت = (الإنفاق − المبيعات) قبل التنبيه ÷ ٣ ناقص اللي بعد التصرّف، ومبيقلش عن صفر', function () {
+      var D = shiftKey(todayKeyInTz('UTC'), -5), dd = [-4, -3, -2, -1, 0, 1, 2].map(function (k) { return shiftKey(D, k); });
+      var c = { dailyDates: dd, daily: [0, 100, 100, 100, 100, 50, 0], dailySales: [0, 40, 40, 40, 0, 30, 0] };
+      var ep = { id: 'x1', ad: 'a1', kind: 'loss', firstAt: D + 'T12:00:00.000Z', handledAt: D + 'T13:00:00.000Z' };
+      eq(valueSavedFromCard(ep, c, 'UTC'), 40, '(300 − 120) ÷ 3 = 60 before, 50 − 30 = 20 after');
+      eq(valueSavedFromCard(Object.assign({}, ep, { kind: 'waste' }), c, 'UTC'), 50, 'waste: 300 ÷ 3 − 50');
+      eq(valueSavedFromCard(ep, Object.assign({}, c, { daily: [0, 100, 100, 100, 100, 200, 0], dailySales: [0, 40, 40, 40, 0, 10, 0] }), 'UTC'), 0, 'lost more after = 0, not negative');
+      eq(valueSavedFromCard(ep, Object.assign({}, c, { dailyDates: dd.slice(2) }), 'UTC'), null, 'a before-day outside the card = not from the card');
+    });
+    testAsync('قيمة الأداة: الهدر القديم برّه أسبوع الكارت بيتقاس بطلب الإنفاق اليومي (Meta وSnapchat) — دفعات ٣١ يوم، ويوم من غير صف = مصرفش', function () {
+      var today = todayKeyInTz('UTC'), at = function (k, h) { return k + 'T' + (h || '12') + ':00:00.000Z'; };
+      var D1 = shiftKey(today, -60), D2 = shiftKey(today, -50), D3 = shiftKey(today, -20);
+      var saved = { act: activeSources.meta, snap: activeSources.snapchat, cands: candidates, mod: window.metaObjectDaily, sod: window.snapDailySpend, rva: window.renderValueAgain };
+      var srcs = ['meta:act_7', 'snapchat:sn7'], keep = {};
+      srcs.forEach(function (s) { keep[s] = { info: accountInfo[s], eps: valueEpisodes[s], st: valueState[s], tz: valueTzOf[s] }; });
+      var put = function (obj, k, v) { if (v === undefined) delete obj[k]; else obj[k] = v; };
+      var ids = ['v1', 'v2', 'v3', 'w1'], keepMoney = {};
+      ids.forEach(function (id) { keepMoney[id] = valueMoney[id]; delete valueMoney[id]; });
+      var calls = [];
+      var day = function (map) { var o = {}; Object.keys(map).forEach(function (k) { o[k] = map[k]; }); return o; };
+      var spendByAd = {
+        a1: day((function () { var o = {}; o[shiftKey(D1, -3)] = 30; o[shiftKey(D1, -2)] = 30; o[shiftKey(D1, -1)] = 30; o[shiftKey(D1, 1)] = 6; return o; })()),
+        a2: day((function () { var o = {}; o[shiftKey(D2, -3)] = 10; o[shiftKey(D2, -2)] = 20; o[shiftKey(D2, -1)] = 30; return o; })()),
+        a3: day((function () { var o = {}; o[shiftKey(D3, -3)] = 12; o[shiftKey(D3, -2)] = 12; o[shiftKey(D3, -1)] = 12; o[shiftKey(D3, 1)] = 20; return o; })())
+      };
+      var finished;
+      var restore = function () {
+        activeSources.meta = saved.act; put(activeSources, 'snapchat', saved.snap); candidates = saved.cands;
+        window.metaObjectDaily = saved.mod; window.snapDailySpend = saved.sod; window.renderValueAgain = saved.rva;
+        srcs.forEach(function (s) { put(accountInfo, s, keep[s].info); put(valueEpisodes, s, keep[s].eps); put(valueState, s, keep[s].st); put(valueTzOf, s, keep[s].tz); });
+        ids.forEach(function (id) { put(valueMoney, id, keepMoney[id]); });
+      };
+      var waitRender = function () { return new Promise(function (r) { finished = r; }); };
+      try {
+        activeSources.meta = 'act_7'; activeSources.snapchat = 'sn7'; candidates = [];
+        accountInfo['meta:act_7'] = { timeZone: 'UTC', currency: 'SAR' }; valueTzOf['snapchat:sn7'] = 'UTC';
+        delete valueState['meta:act_7']; delete valueState['snapchat:sn7'];
+        window.renderValueAgain = function () { if (finished) finished(); };
+        window.metaObjectDaily = function (account, groups, since, until) {
+          calls.push(['meta', account, groups[0].level, groups[0].ids.slice(), since, until]);
+          var out = {};
+          groups[0].ids.forEach(function (id) { out[id] = Object.keys(spendByAd[id] || {}).filter(function (k) { return k >= since && k <= until; }).map(function (k) { return { date: k, spend: spendByAd[id][k] }; }); });
+          return Promise.resolve(out);
+        };
+        window.snapDailySpend = function (account, adIds, since, until) {
+          calls.push(['snap', account, adIds.slice(), since, until]);
+          var out = {};
+          adIds.forEach(function (id) { out[id] = spendByAd[id] || {}; });
+          return Promise.resolve(out);
+        };
+        valueEpisodes['meta:act_7'] = [
+          { id: 'v1', ad: 'a1', kind: 'waste', firstAt: at(D1), decided: true, handledAt: at(D1, '13'), action: 'pause' },
+          { id: 'v2', ad: 'a2', kind: 'waste', firstAt: at(D2), decided: true, handledAt: at(D2, '13'), action: 'budget' },
+          { id: 'v3', ad: 'a3', kind: 'waste', firstAt: at(D3), decided: true, handledAt: at(D3, '13'), action: 'creative' }];
+        var p = waitRender();
+        valueLoadMoney('meta:act_7');
+        return p.then(function () {
+          eq(calls, [['meta', 'act_7', 'ad', ['a1', 'a2'], shiftKey(D1, -3), shiftKey(D2, 1)], ['meta', 'act_7', 'ad', ['a3'], shiftKey(D3, -3), shiftKey(D3, 1)]],
+            'two batches: the third problem is more than 31 days after the first batch starts');
+          eq([valueMoney.v1, valueMoney.v2, valueMoney.v3], [{ v: 24, cur: 'SAR' }, { v: 20, cur: 'SAR' }, { v: 0, cur: 'SAR' }],
+            '30 a day before − 6 after; 20 a day before − no row after (= no spend); spent more after = 0');
+          eq(valueState['meta:act_7'].moneyBusy, false, 'done');
+          // Snapchat: نفس الحساب من رد الإنفاق اليومي (رقم الإعلان ← { اليوم: إنفاق })
+          calls = [];
+          valueEpisodes['snapchat:sn7'] = [{ id: 'w1', ad: 'a1', kind: 'waste', firstAt: at(D1), decided: true, handledAt: at(D1, '13'), action: 'pause' }];
+          var q = waitRender();
+          valueLoadMoney('snapchat:sn7');
+          return q;
+        }).then(function () {
+          eq(calls, [['snap', 'sn7', ['a1'], shiftKey(D1, -3), shiftKey(D1, 1)]]);
+          eq(valueMoney.w1 && valueMoney.w1.v, 24, 'Snapchat: the same measure');
+        }).then(restore, function (e) { restore(); throw e; });
+      } catch (e) { restore(); throw e; }
     });
     // من ٢٥ أكتوبر (قرار صاحب المنتج): اللوحة بتتبع فترة البيانات المختارة واختيار المنصات زي باقي الأداة
     test('قيمة الأداة: اللوحة بفترة البيانات المختارة — اللي اتعالج ومبلغه والوقت، والنهارده سطر لوحده، و«تنتظر نظرتك» من غير أي نسبة، والملاحظة قبل أول تسجيل', function () {
