@@ -1477,7 +1477,7 @@
       var concAd = a.adId ? ads.filter(function (c) { return c.id === a.adId; })[0] : null;
       var own = concAd ? concAd.spend : a.impactSpend;
       setImpact(a, own != null ? own : acc.total7, acc.total7, cur, fmt, own == null);
-      addCompare(a, concAd, fmt);
+      addCompare(a, concAd, fmt, s.roasTarget);
     });
     return alerts;
   }
@@ -1488,7 +1488,7 @@
   // ٧ أيام — meta.js وsnapchat.js وgoogle.js)، وتنبيهات النتائج والتكلفة والعائد بتعرض جنبه رقم المنصة لنفس الإعلان في آخر ٧ أيام (c.plat)، عشان
   // العميل يشوف قد إيه الأداة فرقت في القرار. مفيش سطر لو الرقمين زي بعض أو مفيش مقارنة (TikTok لسه)
   var CMP_METRICS = { results: 1, cpr: 1, roas: 1 };
-  function compareText(c, fmt) {
+  function compareText(c, fmt, target) {
     var pl = c && c.plat;
     if (!pl || pl.results == null || c.results == null) return null;
     // أيام مكتملة بس زي الإنفاق والطلبات ورقم المنصة (c.sales — meta.js وsnapchat.js وgoogle.js): مبيعات النهارده كانت
@@ -1496,14 +1496,19 @@
     var sales = c.sales != null ? c.sales : sum(c.dailySales || [], 0, YESTERDAY);
     var platSales = pl.sales || 0;
     if (pl.results === c.results && Math.abs(platSales - sales) <= Math.max(0.01 * platSales, 0.01)) return null;
-    var roas = function (s) { return c.spend > 0 && s > 0 ? t('al.cmpRoas', { r: fmt.num(s / c.spend) }) : ''; };
+    // نفس قاعدة ر٧٥ (roasLabel فوق): لو التقريب لخانة واحدة بيخلّي العائد زي المستهدف بالظبط بنكتبه بخانتين. رسالة عاجلة حقيقية ١٣ نوفمبر
+    // ٢٠٢٦: «عائد أقل من المستهدف» و«… عاد بـ ٥٫٩٦ ر.س، بينما المستهدف ×٦»، وتحتها «والأقرب لطلبات متجرك ٤ مشتريات بعائد ×٦، وعلى هذا
+    // الرقم بنينا التنبيه» — كأن العائد هو المستهدف نفسه
+    var num2 = fmt.num2 || fmt.num;
+    var rx = function (x) { return target != null && fmt.num(x) === fmt.num(target) && Math.abs(x - target) > 1e-9 ? num2(x) : fmt.num(x); };
+    var roas = function (s) { return c.spend > 0 && s > 0 ? t('al.cmpRoas', { r: rx(s / c.spend) }) : ''; };
     // صفر في الأقرب للمتجر: «٠ مشتريات» مش عربي سليم — جملة لوحدها (مراجعة ١ نوفمبر ٢٠٢٦، ر٣)
     if (!c.results) return t('al.compareZero', { p: countText(pl.results, c.resultKey, fmt), pr: roas(platSales) });
     return t('al.compare', { p: countText(pl.results, c.resultKey, fmt), pr: roas(platSales), s: countText(c.results, c.resultKey, fmt), sr: roas(sales) });
   }
-  function addCompare(i, c, fmt) {
+  function addCompare(i, c, fmt, target) {
     if (!c || !(i.metrics || []).some(function (m) { return CMP_METRICS[m]; })) return;
-    var cmp = compareText(c, fmt);
+    var cmp = compareText(c, fmt, target);
     if (cmp) i.compare = cmp;
   }
 
@@ -1550,7 +1555,7 @@
       ads.forEach(function (c) {
         byAd[c.id].issues.forEach(function (i) {
           setImpact(i, c.spend, acc.total7, c.currency, fmt, false);
-          addCompare(i, c, fmt);
+          addCompare(i, c, fmt, s.roasTarget);
           if (i.quiet) return;   // على الكارت وفي التفاصيل بس (underspend)
           adAlerts.push(Object.assign({ adId: c.id, adsetId: c.adsetId || null, source: source, platform: c.platform, adName: c.offer || c.headline || c.id, currency: c.currency }, i));
         });

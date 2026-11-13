@@ -2233,6 +2233,27 @@
       eq(j.money.daily, 60, 'the daily loss is the loss of the judged days over their number (360 over 6 days)');
       eq(i.money.daily, 0, 'below target but not losing: no daily waste');
     });
+    // رسالة عاجلة حقيقية ١٣ نوفمبر ٢٠٢٦ (لقطة من صاحب المنتج): «عائد أقل من المستهدف» بعائد ×٥٫٩٦ والمستهدف ×٦، وسطر المقارنة تحته
+    // كان «… ٤ مشتريات بعائد ×٦، وعلى هذا الرقم بنينا التنبيه» — كأن العائد هو المستهدف. نفس قاعدة ر٧٥: خانتين لما التقريب يساوي الحد
+    test('المقارنة في التنبيه: العائد اللي تقريبه بيساوي المستهدف بيتكتب بخانتين (×٥٫٩٦ مش ×٦) زي جملة التنبيه نفسها', function () {
+      // الخانة الأخيرة = النهارده: صفر، فالإنفاق والطلبات والمبيعات كلها على الأيام الستة المكتملة زي الإنتاج (٣٬٥٧٦ ÷ ٦٠٠ = ٥٫٩٦)
+      var six = function (v) { return [v, v, v, v, v, v, 0]; };
+      var x = ad('near', { daily: six(100), res: six(2), sales: six(596), cid: 'kn' });
+      x.plat = { results: 20, sales: 8280 };
+      var r = withLang('ar', function () { return engine(salesBase().concat([x]), {}, { roasTarget: 6 }); });
+      var i = r.byAd.near.issues.filter(function (j) { return j.code === 'loss'; })[0];
+      ok(i && i.compare, 'the below-target alert carries the comparison line: ' + list(r, 'near'));
+      withLang('ar', function () {
+        eq(i.compare, t('al.compare', { p: I18N.countPhrase(20, 'purchase', ar), pr: t('al.cmpRoas', { r: numAr(13.8) }),
+          s: I18N.countPhrase(12, 'purchase', ar), sr: t('al.cmpRoas', { r: numAr2(5.96) }) }));
+        ok(i.detail.indexOf(numAr2(5.96)) > -1, 'the same figure as the alert sentence: ' + i.detail);
+      });
+      // بعيد عن المستهدف: خانة واحدة زي الأول
+      var y = ad('far', { daily: six(100), res: six(2), sales: six(404), cid: 'kf' });
+      y.plat = { results: 20, sales: 8280 };
+      var j = withLang('ar', function () { return engine(salesBase().concat([y]), {}, { roasTarget: 6 }); }).byAd.far.issues.filter(function (k) { return k.code === 'loss'; })[0];
+      ok(j && j.compare && withLang('ar', function () { return j.compare.indexOf(t('al.cmpRoas', { r: numAr(4.04) })) > -1 && j.compare.indexOf(numAr2(4.04)) < 0; }), 'far from the target (×٤٫٠٤): one digit as before: ' + (j && j.compare));
+    });
     test('أسبوع فيه مبيعات بس آخر ٣ أيام من غير ولا بيعة: سطر صريح بدل ما متوسط الأسبوع يخبّيه', function () {
       // ١٨ طلباً بعائد ×٠٫٢٥ في الأسبوع (خسارة بدليل)، وآخر ٣ أيام من غير ولا بيعة بإنفاق ٩٠٠
       var z = ad('z3', { daily: steady(300), res: [6, 6, 6, 0, 0, 0, 0], sales: [150, 150, 150, 0, 0, 0, 0], cid: 'kz' });

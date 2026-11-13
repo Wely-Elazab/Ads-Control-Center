@@ -628,8 +628,9 @@ function urgentMail(sections: Section[], tz: string, en: boolean, stop: string, 
         : 'و' + g.ar(rest) + ' ' + (rest === 1 ? 'تنبيه آخر' : 'تنبيهات أخرى') + ' — كلها في Ads Center.') + '</p>');
     });
   }
-  lines.push(en ? 'We don\'t send a separate email for the same alert again: we remind you once if it lasts two more days, every urgent email lists what is still ongoing, and your summary shows whether it was resolved.'
-    : 'لا نرسل رسالة منفصلة عن التنبيه نفسه مرة أخرى: نذكّرك به مرة واحدة إذا استمر يومين، وكل رسالة عاجلة تذكر ما زال قائماً منها، ويبيّن ملخصك هل حُلّ.');
+  // صياغة وافق عليها صاحب المنتج ١٣ نوفمبر ٢٠٢٦: القديمة كانت بتنفي وبعدين توعد بتذكير («لا نرسل… مرة أخرى: نذكّرك به…»)
+  lines.push(en ? 'You won\'t get another email about this alert on its own, except one reminder if it lasts two more days; every urgent email lists what is still ongoing, and your summary shows whether it was resolved.'
+    : 'لن تصلك رسالة أخرى عن هذا التنبيه وحده إلا تذكيراً واحداً إذا استمر يومين؛ وكل رسالة عاجلة تذكر ما زال قائماً منها، ويبيّن ملخصك هل حُلّ.');
   lines.push(en ? 'To stop the summary and alerts: <a href="' + stop + '">Stop</a>' : 'لإيقاف الملخص والتنبيهات: <a href="' + stop + '">إيقاف</a>');
   return { subject, html: mailHtml(esc(subject), lines, en ? 'en' : 'ar'), text: plain(subject, lines) + '\n' + stop };
 }

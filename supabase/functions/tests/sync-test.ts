@@ -920,6 +920,8 @@ Deno.test('الطابور — العاجل: رسالة واحدة بحسابات
     assertEquals(out.mails.length, 1);
     const m = out.mails[0];
     assertEquals(m.subject, 'عاجل: أمران يحتاجان إلى إجراء — في حسابين');
+    // الصياغة اللي وافق عليها صاحب المنتج ١٣ نوفمبر ٢٠٢٦ (القديمة كانت بتنفي وبعدين توعد بتذكير)
+    assert(String(m.text).indexOf('لن تصلك رسالة أخرى عن هذا التنبيه وحده إلا تذكيراً واحداً إذا استمر يومين') > -1, 'the approved wording');
     assert(String(m.html).indexOf('TITLE-Meta one') > -1 && String(m.html).indexOf('TITLE-Snap S1') > -1, 'both accounts in one email');
     assert(String(m.html).indexOf('snapchat=S1') > -1 && String(m.html).indexOf('meta=act_1') > -1, 'each account links to its own page');
     // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: النسخة النصية كانت بتقول «Ads Center» من غير أي عنوان
