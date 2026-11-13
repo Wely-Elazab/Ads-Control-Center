@@ -7293,6 +7293,55 @@
         if (old.stored == null) localStorage.removeItem(VALUE_ACK_KEY); else localStorage.setItem(VALUE_ACK_KEY, old.stored);
       }
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): سجل عناصر Snapchat اللي وقفت (snapchat.js snapValueChanges) وإنفاق إعلانات بعينها يوم بيوم
+    // (snapDailySpend) مكانوش اتنفّذوا في أي اختبار. الطلب للخادم بس هو البديل — جلب السجل ونشره للوحة بالكود الحقيقي
+    testAsync('Snapchat — لوحة «ما حققته»: سجل العناصر اللي مش في الذاكرة بس بيتطلب، والإيقاف بيوصل للوحة، وتغيير الحساب في النص مبيكتبش حاجة؛ والإنفاق اليومي بالطلب الصح أو null', function () {
+      var keep = { post: window.apiPost, arrived: window.valueActionsArrived, cache: snapChangeCache, acts: valueActions['snapchat:ACC'], tok: snapchatAccessToken, seq: loadSeq.snapchat };
+      var posts = [], arrived = [];
+      window.valueActionsArrived = function (s) { arrived.push(s); };
+      snapchatAccessToken = 'SNAP-TOKEN';
+      var restore = function () {
+        window.apiPost = keep.post; window.valueActionsArrived = keep.arrived; snapChangeCache = keep.cache; snapchatAccessToken = keep.tok; loadSeq.snapchat = keep.seq;
+        if (keep.acts === undefined) delete valueActions['snapchat:ACC']; else valueActions['snapchat:ACC'] = keep.acts;
+      };
+      window.apiPost = function (path, body) {
+        posts.push({ path: path, body: body });
+        if (body.action === 'changes') {
+          return Promise.resolve({ ok: true, data: { done: body.ids.ad.map(function (id) { return 'ad:' + id; }),
+            changes: [{ level: 'ad', id: 'new', at: '2026-11-10T10:00:00Z', fields: { status: { before: 'ACTIVE', after: 'PAUSED' } } }] } });
+        }
+        // رد فاشل حتى لو فيه أرقام: null (مش أرقام نص طلب)
+        if (body.action === 'daily') return Promise.resolve(body.adIds[0] === 'bad' ? { ok: false, status: 500, data: { spend: { a1: { '2026-11-10': 99 } } } } : { ok: true, data: { spend: { a1: { '2026-11-10': 12.5 } } } });
+        return Promise.reject(new Error('unexpected'));
+      };
+      snapChangeCache = { 'ad:cached': [] };
+      beginLoad('snapchat');
+      return snapValueChanges('ACC', [{ level: 'ad', id: 'cached' }, { level: 'ad', id: 'new' }], 'UTC').then(function (got) {
+        eq([got, posts.length, posts[0].body.ids, posts[0].body.accessToken], [true, 1, { campaign: [], adsquad: [], ad: ['new'] }, 'SNAP-TOKEN'], 'only what is not cached is asked');
+        var acts = valueActions['snapchat:ACC'];
+        eq([arrived, acts && acts.list.map(function (a) { return a.kind + ':' + a.id; })], [['snapchat:ACC'], ['pause:new']], 'the pause reaches the value panel');
+        posts.length = 0;
+        return snapValueChanges('ACC', [{ level: 'ad', id: 'cached' }, { level: 'ad', id: 'new' }], 'UTC');
+      }).then(function (got) {
+        eq([got, posts.length], [false, 0], 'all cached: nothing asked');
+        // الحساب اتغيّر والطلب لسه ماشي: الرد المتأخر مبيوصلش للوحة
+        snapChangeCache = {}; arrived.length = 0;
+        var p = snapValueChanges('ACC', [{ level: 'ad', id: 'late' }], 'UTC');
+        beginLoad('snapchat');
+        return p;
+      }).then(function (got) {
+        eq([got, arrived], [false, []], 'the account changed mid-way: the late answer is dropped');
+        posts.length = 0;
+        return Promise.all([snapDailySpend('ACC', ['a1'], '2026-11-01', '2026-11-10'), snapDailySpend('ACC', ['bad'], '2026-11-01', '2026-11-10')]);
+      }).then(function (r) {
+        eq([posts[0].path, posts[0].body], ['/api/snapchat-ads-fetch', { accessToken: 'SNAP-TOKEN', action: 'daily', adAccountId: 'ACC', adIds: ['a1'], since: '2026-11-01', until: '2026-11-10' }], 'the daily request');
+        eq(r, [{ a1: { '2026-11-10': 12.5 } }, null], 'spend by day, or null on a failure');
+        window.apiPost = function () { return Promise.reject(new Error('down')); };
+        return snapDailySpend('ACC', ['a1'], '2026-11-01', '2026-11-10');
+      }).then(function (r) {
+        eq(r, null, 'network down: null');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
     // من ٢٥ أكتوبر (قرار صاحب المنتج): اللوحة بتتبع فترة البيانات المختارة واختيار المنصات زي باقي الأداة
     test('قيمة الأداة: اللوحة بفترة البيانات المختارة — اللي اتعالج ومبلغه والوقت، والنهارده سطر لوحده، و«تنتظر نظرتك» من غير أي نسبة، والملاحظة قبل أول تسجيل', function () {
       var src = 'meta:act_7', old = { act: activeSources.meta, snap: activeSources.snapchat, info: accountInfo[src], eps: valueEpisodes[src], ack: valueAckNow,
