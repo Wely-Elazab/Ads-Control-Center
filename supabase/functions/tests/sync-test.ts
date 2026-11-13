@@ -987,7 +987,7 @@ Deno.test('الطابور — العاجل: الرسالة بتقول العاج
     const html = String(out.mails[0].html);
     assertEquals(out.mails[0].subject, 'عاجل: TITLE-Meta one — Meta one', 'the subject is about the new alert only');
     assert(html.indexOf('TITLE-Meta one') > -1, 'the new alert in full');
-    assert(html.indexOf('وما زالت هذه التنبيهات العاجلة قائمة منذ أبلغناك بها') > -1, 'a still-ongoing section');
+    assert(html.indexOf('وتنبيهات عاجلة أخرى ما زالت قائمة منذ فترة:') > -1, 'a still-ongoing section');
     assert(html.indexOf('OLD-COST') > -1 && html.indexOf('OLD-WASTE') > -1, 'ongoing alerts of this account and of the other account');
     assert(html.indexOf('Snap S1') > -1, 'the other account is named');
     assert(html.indexOf('STALE') < 0, 'a context older than 2 hours is not read (its account stopped being checked)');
@@ -1004,6 +1004,37 @@ Deno.test('الطابور — العاجل: الرسالة بتقول العاج
     const h2 = String(out.mails[0].html);
     assert(h2.indexOf('LOT-00') > -1 && h2.indexOf('LOT-09') > -1 && h2.indexOf('LOT-10') < 0, 'the 10 oldest');
     assert(h2.indexOf('و3 تنبيهات أخرى') > -1, 'and the count of the rest: ' + h2.slice(h2.indexOf('LOT-09'), h2.indexOf('LOT-09') + 400));
+  } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
+});
+// صياغة صاحب المنتج ١٣ نوفمبر ٢٠٢٦: عنوان التذكير (بعد يومين) وتاريخ أول إبلاغ في المربع، وبعده القائم («أخرى» — مجموعة منفصلة) — باللغتين
+Deno.test('الطابور — التذكير: «تذكير — ما زال قائماً بعد يومين من إبلاغك به» بتاريخ أول إبلاغ، وبعده «وتنبيهات عاجلة أخرى ما زالت قائمة منذ فترة» (باللغتين)', async () => {
+  const restoreEngine = fakeEngine();
+  try {
+    const want = {
+      ar: { subject: 'تذكير: «REMIND-T» ما زال قائماً — Meta one', remind: 'تذكير — ما زال قائماً بعد يومين من إبلاغك به:', first: 'أبلغناك به أول مرة يوم 10 نوفمبر.',
+        still: 'وتنبيهات عاجلة أخرى ما زالت قائمة منذ فترة:' },
+      en: { subject: 'Reminder: REMIND-T is still ongoing — Meta one', remind: 'Reminder — still ongoing two days after we alerted you:', first: 'We first alerted you on ',
+        still: 'Other urgent alerts that have been ongoing for a while:' }
+    };
+    for (const lang of ['ar', 'en'] as const) {
+      const rem = qUrgent('meta', 'act_1', 'Meta one');
+      rem.payload.fresh = [];
+      rem.payload.remind = [{ a: { title: 'REMIND-T', detail: 'd', advice: 'a', code: 'loss' },
+        m: { kind: 'perf', object_id: 'ad-act_1', first_at: '2026-11-10T09:00:00Z', last_sent_at: '2026-11-10T09:00:00Z', last_seen_at: 'x', times_sent: 1, resolved_at: null, last_code: 'loss' } }];
+      rem.payload.ongoing = [{ title: 'OLD-COST', name: 'Ad c', first_at: '2026-11-03T04:00:46Z' }];
+      const out = fakeQueueDb({ outbox: [rem], accounts: [qAcct('meta', 'act_1')], digest: {} });
+      assertEquals(await assemble([qUser({ lang })], noEngine, { stop: {}, us: {} }), { 'urgent-reminded': 1 }, lang);
+      const w = want[lang], m = out.mails[0], html = String(m.html);
+      assertEquals(m.subject, w.subject);
+      // بالترتيب، وكل واحد بعد اللي قبله (عنوان التنبيه نفسه موجود كمان في رأس الرسالة فوق)
+      let pos = -1;
+      for (const x of [w.remind, 'REMIND-T', w.first, w.still, 'OLD-COST']) {
+        const i = html.indexOf(x, pos + 1);
+        assert(i > pos, lang + ': missing or out of order: ' + x);
+        pos = i;
+      }
+      restoreFetch();
+    }
   } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
 });
 Deno.test('الملخص: كل تنبيه عاجل لسه قائم بيظهر (الأقدم أول)، والقطع على اللي حُلّ بس — بعدده', () => {

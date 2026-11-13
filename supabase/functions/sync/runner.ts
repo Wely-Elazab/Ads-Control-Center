@@ -609,7 +609,10 @@ function urgentMail(sections: Section[], tz: string, en: boolean, stop: string, 
       s.fresh.forEach((a) => lines.push(alertBox(a, null)));
     }
     if (s.remind.length) {
-      lines.push(en ? 'Still ongoing since our first alert:' : 'وما زال قائماً منذ أبلغناك به:');
+      // صياغة صاحب المنتج ١٣ نوفمبر ٢٠٢٦ («تذكير — … منذ يومين») بتعديل: «بعد يومين من إبلاغك به» بدل «منذ أبلغناك به منذ يومين» —
+      // «منذ» كانت مكررة، والتذكير بيتبعت بعد ٤٨ ساعة أو أكتر (بالليل QUIET_FROM–QUIET_UNTIL بيستنى لـ ٧ الصبح)، فالجملة دي صح في كل الحالات.
+      // تاريخ أول إبلاغ بالظبط في المربع نفسه تحت
+      lines.push(en ? 'Reminder — still ongoing two days after we alerted you:' : 'تذكير — ما زال قائماً بعد يومين من إبلاغك به:');
       s.remind.forEach((r) => lines.push(alertBox(r.a, en ? 'We first alerted you on ' + dateText(r.m.first_at, tz, true) + '.'
         : 'أبلغناك به أول مرة يوم ' + dateText(r.m.first_at, tz, false) + '.')));
     }
@@ -617,9 +620,10 @@ function urgentMail(sections: Section[], tz: string, en: boolean, stop: string, 
   });
   if (one) lines.push(en ? 'Full details are in ' + appLink(one.platform, one.account, 'alerts') + '.' : 'التفاصيل الكاملة في ' + appLink(one.platform, one.account, 'alerts') + '.');
   // كل تنبيه عاجل لسه قائم اتبعت قبل كده — في كل حسابات المستخدم، فالرسالة بتقول كل العاجل دلوقتي زي صفحة التنبيهات
+  // «أخرى» صح: الجديد والتذكير والقائم مجموعات منفصلة لكل تنبيه (urgentPass). «منذ فترة» بالفصحى (صاحب المنتج كتبها «من فترة»)، وتاريخ كل واحد جنبه
   const still = ongoingAll(sections, ctx), many = still.length > 1 || (still.length === 1 && !one);
   if (still.length) {
-    lines.push('<p style="margin:18px 0 8px;font-weight:700;line-height:1.7">' + (en ? 'Still ongoing since we first alerted you:' : 'وما زالت هذه التنبيهات العاجلة قائمة منذ أبلغناك بها:') + '</p>');
+    lines.push('<p style="margin:18px 0 8px;font-weight:700;line-height:1.7">' + (en ? 'Other urgent alerts that have been ongoing for a while:' : 'وتنبيهات عاجلة أخرى ما زالت قائمة منذ فترة:') + '</p>');
     still.forEach((s) => {
       if (many) lines.push('<p style="margin:8px 0 4px;color:#6b7280;font-size:14px">' + esc(s.name) + '</p>');
       s.items.slice(0, ONGOING_MAX).forEach((x) => lines.push('<p style="margin:0 0 4px;line-height:1.8">• <strong>' + esc(x.title) + '</strong>' + (x.name ? ' — ' + esc(x.name) : '') +
