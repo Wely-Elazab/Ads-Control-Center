@@ -7237,6 +7237,37 @@
         }).then(restore, function (e) { restore(); throw e; });
       } catch (e) { restore(); throw e; }
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): ضغطة «حسناً» نفسها (ackValue) مكانتش اتنفّذت في أي اختبار — رسم الملاحظة بس كان مختبر
+    test('«حسناً» في ملاحظة لوحة «ما حققته» (ackValue): بتتحفظ على الجهاز وفي سجل المستخدم مرة واحدة، والتسجيل بيبدأ واللوحة بتترسم من غير الملاحظة', function () {
+      var old = { ack: valueAckNow, stored: localStorage.getItem(VALUE_ACK_KEY), write: window.writeUserSettings, tick: window.valueTick, rva: window.renderValueAgain,
+        state: userSetState, set: userSet };
+      var writes = [], calls = [];
+      window.writeUserSettings = function (w) { writes.push(w); return Promise.resolve({}); };
+      window.valueTick = function () { calls.push('tick'); };
+      window.renderValueAgain = function () { calls.push('render:' + (valueAckNow ? 'accepted' : 'not yet')); };
+      var btn = document.createElement('button');
+      btn.type = 'button'; btn.setAttribute('data-value-ack', '');
+      document.getElementById('dxWaste').appendChild(btn);
+      try {
+        localStorage.removeItem(VALUE_ACK_KEY); valueAckNow = false;
+        userSetState = 'ready'; userSet = { prefs: {} };
+        btn.click();
+        eq([valueAckNow, localStorage.getItem(VALUE_ACK_KEY), writes, calls], [true, '1', [{ changes: { prefs: { valueAck: true } } }], ['tick', 'render:accepted']],
+          'first click: this device, the user record, logging starts, the panel redraws without the notice');
+        userSet = { prefs: { valueAck: true } };
+        btn.click();
+        eq(writes.length, 1, 'already in the user record: not written again');
+        // إعدادات المستخدم لسه متحمّلتش: الجهاز بس، من غير كتابة على سجل مش معروف
+        localStorage.removeItem(VALUE_ACK_KEY); valueAckNow = false; userSetState = 'loading'; userSet = null;
+        btn.click();
+        eq([valueAckNow, localStorage.getItem(VALUE_ACK_KEY), writes.length], [true, '1', 1], 'settings not loaded yet: this device only');
+      } finally {
+        btn.remove();
+        window.writeUserSettings = old.write; window.valueTick = old.tick; window.renderValueAgain = old.rva;
+        userSetState = old.state; userSet = old.set; valueAckNow = old.ack;
+        if (old.stored == null) localStorage.removeItem(VALUE_ACK_KEY); else localStorage.setItem(VALUE_ACK_KEY, old.stored);
+      }
+    });
     // من ٢٥ أكتوبر (قرار صاحب المنتج): اللوحة بتتبع فترة البيانات المختارة واختيار المنصات زي باقي الأداة
     test('قيمة الأداة: اللوحة بفترة البيانات المختارة — اللي اتعالج ومبلغه والوقت، والنهارده سطر لوحده، و«تنتظر نظرتك» من غير أي نسبة، والملاحظة قبل أول تسجيل', function () {
       var src = 'meta:act_7', old = { act: activeSources.meta, snap: activeSources.snapchat, info: accountInfo[src], eps: valueEpisodes[src], ack: valueAckNow,
