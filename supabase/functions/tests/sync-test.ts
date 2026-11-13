@@ -11,7 +11,7 @@ import { bearer, cleanCode, counterMissing, handleLogin, newCode, verifyJwt } fr
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -919,7 +919,7 @@ Deno.test('الطابور — العاجل: رسالة واحدة بحسابات
     assertEquals(await assemble([qUser()], noEngine, { stop: {}, us: {} }), { 'urgent-sent': 1 });
     assertEquals(out.mails.length, 1);
     const m = out.mails[0];
-    assertEquals(m.subject, 'عاجل: أمران يحتاجان إلى إجراء — حسابين');
+    assertEquals(m.subject, 'عاجل: أمران يحتاجان إلى إجراء — في حسابين');
     assert(String(m.html).indexOf('TITLE-Meta one') > -1 && String(m.html).indexOf('TITLE-Snap S1') > -1, 'both accounts in one email');
     assert(String(m.html).indexOf('snapchat=S1') > -1 && String(m.html).indexOf('meta=act_1') > -1, 'each account links to its own page');
     // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: النسخة النصية كانت بتقول «Ads Center» من غير أي عنوان
@@ -1115,5 +1115,26 @@ Deno.test('الطابور — ملخص بحسابات كتير: سطر لكل ح
     assert(html.indexOf('PERIOD-Acct1') < 0 && html.indexOf('PERIOD-Acct2') < 0 && html.indexOf('PERIOD-Acct4') < 0, 'no details for the good ones');
     assert(new TextEncoder().encode(html).length < 102 * 1024, 'under the Gmail clipping size');
     assertEquals(out.mails[0].subject.indexOf('ملخص حساباتك'), 0);
+    // النسخة النصية: سطر المواعيد وسطر الإيقاف زي HTML — كانت بتنتهي برابط من غير ما تقول إنه للإيقاف (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦)
+    const text = String(out.mails[0].text);
+    assert(text.indexOf('يصلك هذا الملخص') > -1, 'the plain text says when it comes');
+    assert(/لإيقاف الملخص والتنبيهات: إيقاف\nhttps?:\/\//.test(text), 'and names the stop link');
   } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
+});
+
+Deno.test('الطابور — ملخص بحسابين: العنوان بينتهي بـ«حسابان» (خبر لوحده بعد النقطتين)', async () => {
+  const restoreEngine = fakeEngine();
+  try {
+    const tones = ['bad', 'good'];
+    const st = { outbox: tones.map((tn, i) => qSum('snapchat', 'S' + i, 'Acct' + i, tn)), accounts: tones.map((_tn, i) => qAcct('snapchat', 'S' + i)),
+      digest: { summary_pending: QKEY, summary_pending_at: new Date().toISOString(), sending_until: null } as QRow };
+    const out = fakeQueueDb(st);
+    assertEquals(await assemble([qUser({ summary_pending: QKEY, summary_pending_at: st.digest.summary_pending_at })], noEngine, { stop: {}, us: {} }), { summary: 1 });
+    assertMatch(String(out.mails[0].subject), /^ملخص حساباتك \(.*\): حسابان$/);
+  } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
+});
+
+Deno.test('عدد الحسابات في عنوان البريد: «في حسابين» بعد حرف الجر، و«حسابان» خبراً لوحده (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦)', () => {
+  assertEquals([accountsPhrase(2, false), accountsPhrase(2, false, true), accountsPhrase(2, true), accountsPhrase(2, true, true)],
+    ['حسابين', 'حسابان', '2 accounts', '2 accounts']);
 });

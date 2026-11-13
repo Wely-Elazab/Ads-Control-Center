@@ -537,10 +537,11 @@ function dateText(iso: string, tz: string, en: boolean): string {
 // رابط الأداة بيتكتب جنب اسمها («Ads Center (https://…)»): الوسوم كلها بتتشال، فالنسخة النصية كانت بتقول «التفاصيل الكاملة في Ads Center»
 // من غير أي عنوان (التدقيق الشامل ١١ نوفمبر ٢٠٢٦). رابط الإيقاف بيتكتب في آخر الرسالة زي الأول
 const APP_LINK = new RegExp('<a href="(' + SITE.replace(/\./g, '\\.') + '/app[^"]*)">([^<]*)</a>', 'g');
-function plain(title: string, lines: string[]): string {
-  return title + '\n\n' + lines.map((l) => l.replace(APP_LINK, '$2 ($1)').replace(/<[^>]+>/g, '')
+function plainLines(lines: string[]): string {
+  return lines.map((l) => l.replace(APP_LINK, '$2 ($1)').replace(/<[^>]+>/g, '')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')).join('\n\n');
 }
+function plain(title: string, lines: string[]): string { return title + '\n\n' + plainLines(lines); }
 function alertBox(a: any, note: string | null): string {
   const muted = 'margin:0 0 6px;color:#6b7280;font-size:14px;line-height:1.7';
   return '<div style="border-inline-start:4px solid #c2410c;padding:2px 12px;margin:0 0 18px">' +
@@ -581,15 +582,17 @@ export function ongoingAll(sections: Section[], ctx: Section[]): { name: string;
   });
   return out;
 }
-function accountsPhrase(n: number, en: boolean): string {
+// عدد الحسابات بالعربي (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦): بعد «في» مجرور («عاجل: … — في حسابين»)، وخبر لوحده مرفوع
+// («ملخص حساباتك (…): حسابان»). قبل كده «— حسابين» في العاجل و«: حسابين» في الملخص
+export function accountsPhrase(n: number, en: boolean, nominative = false): string {
   if (en) return n + ' accounts';
-  return n === 2 ? 'حسابين' : g.ar(n) + (n <= 10 ? ' حسابات' : ' حساباً');
+  return n === 2 ? (nominative ? 'حسابان' : 'حسابين') : g.ar(n) + (n <= 10 ? ' حسابات' : ' حساباً');
 }
 function urgentMail(sections: Section[], tz: string, en: boolean, stop: string, ctx: Section[] = []) {
   const fresh = sections.reduce((all: any[], s) => all.concat(s.fresh), []);
   const remind = sections.reduce((all: { a: any; m: Mark }[], s) => all.concat(s.remind), []);
   const one = sections.length === 1 ? sections[0] : null;
-  const where = one ? one.name : accountsPhrase(sections.length, en);
+  const where = one ? one.name : (en ? 'in ' : 'في ') + accountsPhrase(sections.length, en);
   const subject = fresh.length
     ? (en ? 'Urgent: ' + (fresh.length === 1 ? fresh[0].title : countPhrase(fresh.length, true)) + ' — ' + where
       : 'عاجل: ' + (fresh.length === 1 ? fresh[0].title : countPhrase(fresh.length, false)) + ' — ' + where)
@@ -870,7 +873,7 @@ function summaryMail(secs: SumSection[], since: string, until: string, s: Settin
   // الشهري: «الملخص الشهري لـ X (سبتمبر): …»
   const monthName = g.I18N.months()[Number(since.slice(5, 7)) - 1];
   const who = one ? one.name : (en ? 'your accounts' : 'حساباتك');
-  const head = one ? one.sum.composed.title : accountsPhrase(secs.length, en);
+  const head = one ? one.sum.composed.title : accountsPhrase(secs.length, en, true);
   const subject = monthly
     ? (en ? (one ? one.name : 'Your accounts') + ' monthly summary, ' + monthName + ': ' : 'الملخص الشهري لـ' + who + ' (' + monthName + '): ') + head
     : (en ? (one ? one.name : 'Your accounts') + ' summary, ' + range + ': ' : 'ملخص ' + who + ' (' + range + '): ') + head;
@@ -908,7 +911,9 @@ function summaryMail(secs: SumSection[], since: string, until: string, s: Settin
   const heading = esc(monthly ? (en ? 'Monthly summary — ' + (one ? one.name : 'your accounts') + ', ' + monthName : 'الملخص الشهري — ' + who + '، ' + monthName)
     : (en ? 'Store summary — ' + (one ? one.name : 'your accounts') : (one ? 'ملخص المتجر — ' + one.name : 'ملخص حساباتك')));
   const glance = compact ? secs.map((sec) => sec.name + ': ' + sec.sum.composed.title).join('\n') + '\n\n' : '';
-  const text = subject + '\n\n' + glance + (compact ? secs.filter(needsAttention) : secs).map(summaryText).join('\n\n— — —\n\n') + '\n\n' + stop;
+  // النسخة النصية بسطر المواعيد وسطر الإيقاف زي HTML (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦): كانت بتنتهي برابط من غير ما تقول إنه للإيقاف
+  const text = subject + '\n\n' + glance + (compact ? secs.filter(needsAttention) : secs).map(summaryText).join('\n\n— — —\n\n') + '\n\n' +
+    plainLines(parts.slice(-2)) + '\n' + stop;
   return { subject, html: mailHtml(heading, parts, en ? 'en' : 'ar'), text };
 }
 const COMPACT_AFTER = 3;
