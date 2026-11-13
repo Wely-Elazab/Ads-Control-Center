@@ -4604,6 +4604,61 @@
         eq([loaded.slice(), platformState.meta && platformState.meta.kind], [[], 'error'], 'no key and no saved link: the clear card');
       });
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): حفظ ربط Meta بعد دخول فيسبوك (core.js keepMetaLink) مكانش اتنفّذ في أي اختبار
+    testAsync('ربط Meta المحفوظ (keepMetaLink): بعد دخول فيسبوك النسخة المقفولة على الجهاز والمفتاح الطويل للتاب، والرد الناقص أو الفشل مبيحفظش حاجة', function () {
+      var prev = window.syncCall, calls = [], answer = null, had = { sealed: sealedFor('meta'), tok: sessionTokens.meta };
+      var restore = function () { window.syncCall = prev; keepSealed('meta', had.sealed); if (had.tok) sessionTokens.meta = had.tok; else delete sessionTokens.meta; saveSession(); };
+      window.syncCall = function (body) { calls.push(body); return answer(); };
+      keepSealed('meta', null); delete sessionTokens.meta;
+      return Promise.resolve().then(function () {
+        keepMetaLink('');
+        eq(calls.length, 0, 'no Facebook token: nothing asked');
+        answer = function () { return Promise.resolve({ sealed: 'm1.sealed-copy', access_token: 'LONG-TOKEN', expires_in: 5184000 }); };
+        keepMetaLink('SHORT-TOKEN');
+        eq(calls, [{ action: 'meta.seal', token: 'SHORT-TOKEN' }], 'the short token goes to sync to be sealed');
+        return tick();
+      }).then(function () {
+        var tk = sessionTokens.meta;
+        eq([sealedFor('meta'), validToken(tk)], ['m1.sealed-copy', 'LONG-TOKEN'], 'the sealed copy on the device, the long token for this tab');
+        ok(tk.expiresAt > Date.now() + (5184000 - 61) * 1000 && tk.expiresAt <= Date.now() + (5184000 - 60) * 1000, 'expiry = expires_in minus a minute');
+        keepSealed('meta', null); delete sessionTokens.meta;
+        var bad = [
+          function () { return Promise.resolve(null); },
+          function () { return Promise.resolve({ sealed: 'm1.only-sealed' }); },
+          function () { return Promise.resolve({ access_token: 'ONLY-TOKEN' }); },
+          function () { return Promise.reject({ status: 500 }); }
+        ];
+        return bad.reduce(function (p, fn) { return p.then(function () { answer = fn; keepMetaLink('SHORT-2'); return tick(); }); }, Promise.resolve());
+      }).then(function () {
+        eq([sealedFor('meta'), sessionTokens.meta || null, calls.length], [null, null, 5], 'an incomplete answer or a failure keeps nothing (the tool goes on with the Facebook session)');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+    test('ربط Meta: دخول فيسبوك جديد بيشيل المفتاح القديم ويحفظ الجديد قبل تحميل الحسابات، وفتح الأداة بجلسة فيسبوك من غير ربط محفوظ بيحفظه', function () {
+      var real = { has: 'FB' in window, FB: window.FB, keep: window.keepMetaLink, load: window.loadAdAccounts, queue: fbReadyQueue, failed: fbSdkFailed, tok: sessionTokens.meta, sealed: sealedFor('meta') };
+      var order = [], opts = null, okN = 0, failN = 0;
+      window.keepMetaLink = function (tok) { order.push('keep:' + tok + ':' + (sessionTokens.meta ? 'old-key' : 'no-key')); };
+      window.loadAdAccounts = function () { order.push('load'); };
+      try {
+        sessionTokens.meta = { token: 'OLD-KEY', expiresAt: Date.now() + 3600000 };
+        window.FB = { login: function (cb, o) { opts = o; cb({ authResponse: { accessToken: 'FB-SHORT' } }); } };
+        loginWithMeta();
+        eq([order, opts, sessionTokens.meta || null], [['keep:FB-SHORT:no-key', 'load'], { scope: 'ads_read' }, null],
+          'a new sign-in: the old key goes first (it may belong to another Facebook account), then the save, then the accounts');
+        order.length = 0;
+        fbReadyQueue = null; fbSdkFailed = false; keepSealed('meta', null); delete sessionTokens.meta;
+        window.FB = { getLoginStatus: function (cb) { cb({ status: 'connected', authResponse: { accessToken: 'FB-SESSION' } }); } };
+        metaResume(function () { okN++; }, function () { failN++; });
+        eq([order, okN, failN], [['keep:FB-SESSION:no-key'], 1, 0], 'reopened with a Facebook session and no saved link: saved now');
+        window.FB = { getLoginStatus: function (cb) { cb({ status: 'unknown' }); } };
+        metaResume(function () { okN++; }, function () { failN++; });
+        eq([order, okN, failN], [['keep:FB-SESSION:no-key'], 1, 1], 'not connected: nothing saved, connecting is needed');
+      } finally {
+        if (real.has) window.FB = real.FB; else delete window.FB;
+        window.keepMetaLink = real.keep; window.loadAdAccounts = real.load; fbReadyQueue = real.queue; fbSdkFailed = real.failed;
+        if (real.tok) sessionTokens.meta = real.tok; else delete sessionTokens.meta;
+        keepSealed('meta', real.sealed);
+      }
+    });
     test('«حاول مرة أخرى» لـMeta وبيانات الحساب لسه موصلتش (قائمة الحسابات فشلت في تاب جديد): القائمة الأول وبعدها نفس الحساب — مش إعلاناته بتوقيت المتصفح ومن غير عملة', function () {
       var real = { accounts: window.loadAdAccounts, ads: window.loadAdsForAccount, tok: sessionTokens.meta, src: activeSources.meta, info: accountInfo['meta:act_42'], hadFB: 'FB' in window, FB: window.FB };
       var lists = [], ads = [];
