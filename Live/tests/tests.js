@@ -1629,6 +1629,27 @@
       delete w.plat;
       ok(!engine(baseAccount().concat([w])).alerts.some(function (x) { return x.compare; }), 'no platform number = no line');
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): فتح الإعلان من صفحة التنبيهات (ui.js openAlertAd) مكانش اتنفّذ في أي اختبار. التنبيه على إعلان
+    // role="button" وtabindex="0"، فلازم يتفتح بـEnter وبالمسافة زي أي زرار (WAI-ARIA APG — نمط الزرار) ومن غير ما الصفحة تنزل
+    test('صفحة التنبيهات: التنبيه على إعلان بيتفتح بالضغط وبـEnter وبالمسافة (زرار)، وباقي المفاتيح لأ، وتنبيه الحساب مش زرار', function () {
+      var keep = window.openExpand, opened = [];
+      window.openExpand = function (c) { opened.push(c.id); };
+      var key = function (el, k) { var e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }); el.dispatchEvent(e); return e.defaultPrevented; };
+      try {
+        candidates = [ad('k1')];
+        alertsListEl.innerHTML = alertMarkup({ level: 'critical', adId: 'k1', adName: 'Ad k1', title: 'T1', detail: 'D', advice: 'A' }, 0) +
+          alertMarkup({ level: 'warning', adId: null, accountName: 'Meta — Store', title: 'T2', detail: 'D', advice: 'A' }, 1);
+        var items = alertsListEl.querySelectorAll('.alert-item');
+        eq([items[0].getAttribute('role'), items[0].getAttribute('tabindex'), items[1].hasAttribute('role'), items[1].hasAttribute('tabindex')], ['button', '0', false, false],
+          'only the alert on an ad is a button');
+        items[0].querySelector('.alert-title').click();
+        eq(opened, ['k1'], 'a click anywhere on it');
+        eq([key(items[0], 'Enter'), key(items[0], ' '), key(items[0], 'a'), key(items[0], 'Tab')], [true, true, false, false], 'Enter and Space are handled (no page scroll), other keys are left alone');
+        eq(opened, ['k1', 'k1', 'k1'], 'opened by Enter and by Space');
+        items[1].click(); key(items[1], 'Enter');
+        eq(opened.length, 3, 'an account-level alert opens nothing');
+      } finally { window.openExpand = keep; alertsListEl.innerHTML = ''; }
+    });
     // مراجعة ١ نوفمبر (ر٣، حساب Snapchat حقيقي): «والأقرب لطلبات متجرك ٠ مشتريات» — صفر بجملة لوحدها
     test('المقارنة في التنبيه: صفر في الأقرب للمتجر بجملة سليمة من غير «٠ مشتريات»', function () {
       var z = ad('zero', { daily: [10, 10, 10, 10, 10, 10, 2], res: [0, 0, 0, 0, 0, 0, 0] });
