@@ -34,13 +34,19 @@
   // نافذة الدخول القديمة لازم تتفتح في نفس لحظة الضغط وإلا المتصفح يمنعها
   var googleCodeFlow = false;
   function probeGoogleCodeFlow() {
+    preparePkce(); // زوج PKCE جاهز قبل أول ضغطة (loginWithGoogleRedirect تحت)
     apiPost('/api/google-token', { probe: true }).then(function (res) { googleCodeFlow = !!(res.ok && res.data && res.data.codeFlow === true); });
   }
   // ---------- PKCE (RFC 7636) — التدقيق الشامل ١٣ نوفمبر ٢٠٢٦، النتيجة ١١ ----------
   // RFC 9700 §2.1.1 بيوصي بـ PKCE حتى للعميل السري: مفتاح عشوائي بيفضل في التاب (sessionStorage) ومبيطلعش إلا مع تبادل الكود
   // على خادمنا، فكود اتسرق أو اتحقن (رابط رجوع من حد تاني) ميتبادلش من غيره. Google بيعلن S256 في وثيقة الاكتشاف
-  // (code_challenge_methods_supported). لو التشفير أو التخزين مش متاحين: الدخول زي الأول بـ state لوحده — Google مبيطلبوش للعميل السري
+  // (code_challenge_methods_supported). لو التشفير أو التخزين مش متاحين: الدخول زي الأول بـ state لوحده — Google مبيطلبوش للعميل السري.
+  // البصمة بتتحسب بـ crypto.subtle (غير متزامن)، والانتقال لـ Google لازم يبدأ في نفس لحظة الضغط: الضغط بيقفل نافذة المنصات، والرابط
+  // (route.js) بيرجّع خطوة في السجل لو الصفحة لسه مبدأتش تسيبنا — والرجوع بيلغي النقل (عطل ١١–١٢ أكتوبر، واتمسك تاني في CI ١٣ نوفمبر
+  // لما الانتظار على البصمة كان بعد الضغط). فالزوج (مفتاح، بصمة) بيتجهّز في الذاكرة وقت فتح الأداة، ووقت الضغط المفتاح بيتحفظ والرابط
+  // بيتبني والصفحة بتسيبنا في نفس اللحظة. الزوج مش جاهز (أول جزء من الثانية، أو من غير تشفير) = الدخول من غير PKCE
   var OAUTH_PKCE_KEY = 'pauseproof.oauthPkce';
+  var pkceReady = null, pkceGen = 0;
   function b64url(bytes) {
     var s = '';
     for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
@@ -50,20 +56,33 @@
   function pkceChallenge(verifier) {
     return crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)).then(function (h) { return b64url(new Uint8Array(h)); });
   }
-  // ٣٢ بايت عشوائية = ٤٣ حرف (RFC 7636 §4.1 والملحق B). المفتاح بيتحفظ قبل حساب البصمة مش بعدها، فآخر محاولة هي المحفوظة
-  function newPkce() {
-    var verifier;
+  // ٣٢ بايت عشوائية = ٤٣ حرف (RFC 7636 §4.1 والملحق B). آخر تجهيز بس هو اللي بيتسجّل (pkceGen)
+  function preparePkce() {
+    var gen = ++pkceGen;
+    pkceReady = null;
     try {
       if (!window.crypto || !crypto.subtle || !crypto.getRandomValues || typeof TextEncoder === 'undefined') return Promise.resolve(null);
       var raw = new Uint8Array(32);
       crypto.getRandomValues(raw);
-      verifier = b64url(raw);
-      sessionStorage.setItem(OAUTH_PKCE_KEY, verifier);
+      var verifier = b64url(raw);
+      return pkceChallenge(verifier).then(function (challenge) {
+        if (gen !== pkceGen) return null;
+        pkceReady = { verifier: verifier, challenge: challenge };
+        return pkceReady;
+      }, function () { return null; });
     } catch (e) { return Promise.resolve(null); }
-    return pkceChallenge(verifier).then(function (challenge) { return { verifier: verifier, challenge: challenge }; }, function () {
-      try { sessionStorage.removeItem(OAUTH_PKCE_KEY); } catch (e) { /* مقفول */ }
-      return null;
-    });
+  }
+  // الزوج الجاهز بيتاخد مرة واحدة ومفتاحه بيتحفظ في التاب (متزامن). مفيش زوج = مفيش مفتاح قديم يفضل ويتبعت مع كود من غير بصمة
+  function usePkce() {
+    var p = pkceReady;
+    pkceReady = null;
+    try {
+      if (p) { sessionStorage.setItem(OAUTH_PKCE_KEY, p.verifier); return p; }
+      sessionStorage.removeItem(OAUTH_PKCE_KEY);
+    } catch (e) {
+      try { sessionStorage.removeItem(OAUTH_PKCE_KEY); } catch (x) { /* مقفول */ }
+    }
+    return null;
   }
   // بيتقري ويتمسح مرة واحدة وقت الرجوع، زي state — ولو شكله مش مفتاح PKCE مبيتبعتش
   function takePkce() {
@@ -73,18 +92,17 @@
   }
   function loginWithGoogleRedirect() {
     platformOverlay.classList.add('hidden');
-    var state = newOauthState('google');
-    return newPkce().then(function (pkce) {
-      var authUrl = 'https://accounts.google.com/o/oauth2/v2/auth' +
-        '?client_id=' + encodeURIComponent(GOOGLE_CLIENT_ID) +
-        '&redirect_uri=' + encodeURIComponent(oauthReturnUrl()) +
-        '&response_type=code&access_type=offline&prompt=consent' +
-        '&scope=' + encodeURIComponent(GOOGLE_ADS_SCOPE) +
-        '&state=' + encodeURIComponent(state) +
-        (pkce ? '&code_challenge=' + pkce.challenge + '&code_challenge_method=S256' : '');
-      saveSession(); // احتياطي قبل ما الصفحة تتقفل — المنصات المحمّلة هترجع بعد الرجوع من Google
-      PageExit.leave(authUrl); // route.js: بيوقف الرابط والسجل عشان ميلغوش النقل لـ Google
-    });
+    var pkce = usePkce();
+    var authUrl = 'https://accounts.google.com/o/oauth2/v2/auth' +
+      '?client_id=' + encodeURIComponent(GOOGLE_CLIENT_ID) +
+      '&redirect_uri=' + encodeURIComponent(oauthReturnUrl()) +
+      '&response_type=code&access_type=offline&prompt=consent' +
+      '&scope=' + encodeURIComponent(GOOGLE_ADS_SCOPE) +
+      '&state=' + encodeURIComponent(newOauthState('google')) +
+      (pkce ? '&code_challenge=' + pkce.challenge + '&code_challenge_method=S256' : '');
+    saveSession(); // احتياطي قبل ما الصفحة تتقفل — المنصات المحمّلة هترجع بعد الرجوع من Google
+    PageExit.leave(authUrl); // route.js: بيوقف الرابط والسجل عشان ميلغوش النقل لـ Google
+    preparePkce(); // لو رجع للصفحة بزرار الرجوع من غير ما يكمّل (pageshow)، المحاولة الجاية ليها زوج جديد
   }
   // لو رجعنا من Google بـ ?code=... في الرابط، كمّل تسجيل الدخول تلقائياً (نفس فكرة checkSnapchatRedirect)
   function checkGoogleRedirect() {

@@ -2469,46 +2469,55 @@
       } finally { history.replaceState({}, '', before); }
     });
     // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (النتيجة ١١ — RFC 7636، RFC 9700 §2.1.1): PKCE في دخول Google
-    testAsync('PKCE: البصمة = متجه RFC 7636 (الملحق B) بالظبط، والمفتاح الجديد ٤٣ حرف ومحفوظ في التاب ويتقري مرة واحدة', function () {
+    testAsync('PKCE: البصمة = متجه RFC 7636 (الملحق B) بالظبط، والزوج الجاهز ٤٣ حرف وبيتاخد مرة واحدة ومفتاحه في التاب', function () {
       return pkceChallenge('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk').then(function (c) {
         eq(c, 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', 'RFC 7636 Appendix B');
-        return newPkce();
+        return preparePkce();
       }).then(function (p) {
         ok(/^[A-Za-z0-9_-]{43}$/.test(p.verifier), 'a 43-character key');
-        eq(sessionStorage.getItem('pauseproof.oauthPkce'), p.verifier, 'kept in this tab');
         return pkceChallenge(p.verifier).then(function (c) {
           eq(c, p.challenge);
-          eq(takePkce(), p.verifier, 'read once');
-          eq([takePkce(), sessionStorage.getItem('pauseproof.oauthPkce')], [null, null], 'and removed');
+          eq(usePkce(), p, 'taken once');
+          eq(sessionStorage.getItem('pauseproof.oauthPkce'), p.verifier, 'its key kept in this tab');
+          eq([usePkce(), sessionStorage.getItem('pauseproof.oauthPkce')], [null, null], 'not twice, and no stale key left for an attempt without PKCE');
           sessionStorage.setItem('pauseproof.oauthPkce', 'short');
           eq(takePkce(), null, 'a malformed saved value is never sent');
+          // تجهيزين ورا بعض: الأحدث بس اللي بيتسجّل
+          var a = preparePkce(), b = preparePkce();
+          return Promise.all([a, b]).then(function (r) { eq([r[0], pkceReady === r[1], !!r[1]], [null, true, true], 'only the latest preparation counts'); });
         });
-      });
+      }).then(function () { usePkce(); }, function (e) { usePkce(); throw e; });
     });
-    testAsync('PKCE: رابط Google فيه البصمة (S256) وstate، ومن غير تشفير أو تخزين الدخول زي الأول بـ state لوحده', function () {
+    // CI ١٣ نوفمبر ٢٠٢٦: الانتظار على البصمة بعد الضغط خلّى الرابط يرجّع خطوة في السجل قبل الخروج فاتلغى النقل لـ Google (عطل ١١–١٢ أكتوبر).
+    // الاختبار ده حتمي: الخروج لازم يبقى في نفس لحظة الضغط، مش بعدها بأي قدر
+    testAsync('PKCE: الضغط بيسيب الصفحة في نفس اللحظة والرابط فيه البصمة (S256) وstate؛ ومن غير زوج جاهز أو تشفير أو تخزين الدخول زي الأول', function () {
       var go = PageExit.go, urls = [], setItem = Storage.prototype.setItem;
       PageExit.go = function (u) { urls.push(u); };
       var restore = function () {
-        PageExit.go = go; PageExit.reset(); delete crypto.subtle.digest; Storage.prototype.setItem = setItem;
+        PageExit.go = go; PageExit.reset(); delete crypto.subtle.digest; Storage.prototype.setItem = setItem; usePkce();
         try { sessionStorage.removeItem('pauseproof.oauthPkce'); sessionStorage.removeItem('pauseproof.oauthState'); } catch (e) { /* مقفول */ }
       };
-      return loginWithGoogleRedirect().then(function () {
-        var q = new URL(urls[0]).searchParams, v = sessionStorage.getItem('pauseproof.oauthPkce');
-        eq([q.get('code_challenge_method'), q.get('state'), q.get('access_type')], ['S256', sessionStorage.getItem('pauseproof.oauthState'), 'offline']);
-        return pkceChallenge(v).then(function (c) { eq(q.get('code_challenge'), c, 'the challenge of the key kept in the tab'); });
-      }).then(function () {
-        PageExit.reset();
+      return preparePkce().then(function (p) {
+        loginWithGoogleRedirect();
+        eq([PageExit.isLeaving(), urls.length], [true, 1], 'left in the same moment as the click (a step back after it would cancel it)');
+        var q = new URL(urls[0]).searchParams;
+        eq([q.get('code_challenge'), q.get('code_challenge_method'), q.get('state'), q.get('access_type')],
+          [p.challenge, 'S256', sessionStorage.getItem('pauseproof.oauthState'), 'offline']);
+        eq(sessionStorage.getItem('pauseproof.oauthPkce'), p.verifier, 'the key of that challenge');
+        // الزوج مش جاهز (الحساب لسه شغّال): من غير PKCE، ومفيش مفتاح قديم يتبعت مع كود من غير بصمة
+        PageExit.reset(); pkceReady = null;
+        loginWithGoogleRedirect();
+        q = new URL(urls[1]).searchParams;
+        eq([PageExit.isLeaving(), q.get('code_challenge'), !!q.get('state'), sessionStorage.getItem('pauseproof.oauthPkce')], [true, null, true, null], 'not ready = state only, no stale key');
         crypto.subtle.digest = function () { return Promise.reject(new Error('no digest')); };
-        return loginWithGoogleRedirect();
-      }).then(function () {
-        var q = new URL(urls[1]).searchParams;
-        eq([q.get('code_challenge'), q.get('code_challenge_method'), !!q.get('state')], [null, null, true], 'no crypto = state only, like before');
-        eq(sessionStorage.getItem('pauseproof.oauthPkce'), null, 'no orphan key');
-        delete crypto.subtle.digest;
-        Storage.prototype.setItem = function (k, val) { if (k === 'pauseproof.oauthPkce') throw new Error('blocked'); return setItem.call(this, k, val); };
-        return newPkce();
+        return preparePkce();
       }).then(function (p) {
-        eq(p, null, 'no storage = no PKCE (the key could not come back)');
+        eq([p, pkceReady], [null, null], 'no crypto = no PKCE');
+        delete crypto.subtle.digest;
+        return preparePkce();
+      }).then(function () {
+        Storage.prototype.setItem = function (k, val) { if (k === 'pauseproof.oauthPkce') throw new Error('blocked'); return setItem.call(this, k, val); };
+        eq(usePkce(), null, 'no storage = no PKCE (the key could not come back)');
       }).then(restore, function (e) { restore(); throw e; });
     });
     test('PKCE: الرجوع من Google بيبعت المفتاح مع الكود ويمسحه، وstate غلط = مفيش تبادل والمفتاح بيتمسح برضه', function () {
@@ -10312,6 +10321,8 @@
             // التجربة (١٧ أكتوبر، Chromium): الرجوع في السجل بيلغي النقل، وreplaceState/pushState لأ — بس الاتنين ممنوعين بعد الخروج
             ok(hist.indexOf('back') === -1 && hist.indexOf('go') === -1, 'no step back after leaving: it cancels the navigation (' + hist.join(',') + ')');
             eq(hist, [], 'no history change at all after leaving');
+            // PKCE (النتيجة ١١): الزوج اتجهّز وقت فتح الأداة (probeGoogleCodeFlow)، فالرابط فيه البصمة من غير ما الضغط يستنى
+            if (p === 'google') ok(/[?&]code_challenge=[A-Za-z0-9_-]{43}(&|$)/.test(went[0]) && /[?&]code_challenge_method=S256(&|$)/.test(went[0]), 'PKCE ready from when the tool opened: ' + went[0]);
             f.remove();
           }, function (e) { f.remove(); throw e; });
         });
