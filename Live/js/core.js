@@ -705,6 +705,9 @@
       Object.keys(vars || {}).forEach(function (k) {
         var x = vars[k];
         v[k] = typeof x === 'number' ? ar(x) : (typeof x === 'function' ? x() : x);
+        // السبب ({msg}) بيتحط جوه قوسين («تعذّر تحميل إعلانات Meta ({msg}).») أو آخر ملاحظة بتتعرض جوه قوسين: نقطته في آخره كانت
+        // بتطلع «… مرة أخرى.).» (التدقيق الشامل ١٤ نوفمبر ٢٠٢٦، ٧٤) — فبتتشال، والقالب هو اللي بيقفل الجملة
+        if (k === 'msg' && typeof v[k] === 'string') v[k] = v[k].replace(/\s*\.+\s*$/, '');
       });
       return t(key, v);
     };

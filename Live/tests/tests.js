@@ -2921,6 +2921,16 @@
     });
     // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): Meta بترجع خطأ في طلب الإعلانات (مش استثناء من المكتبة زي اللي فوق) — المسار ده (dropBase) مكانش
     // اتنفّذ في أي اختبار: كارت الخطأ بسببه، وخطأ الجلسة «انتهى الربط»، والنسخة المؤقتة لأرقام الحساب بتتشال فالمحاولة الجاية طلب جديد
+    // التدقيق الشامل ١٤ نوفمبر ٢٠٢٦ (٧٤): السبب جوه قوسين وبعده نقطة القالب — سبب بينتهي بنقطة كان بيطلع «… مرة أخرى.).»
+    test('رسائل الفشل: السبب جوه القوسين من غير نقطته الأخيرة، فالجملة بنقطة واحدة بعد القوس — وفي الملاحظات كمان', function () {
+      withLang('ar', function () {
+        eq(msg('s.adsFailed', { platform: 'Meta', msg: 'انتظر ٥ دقائق ثم حاول مرة أخرى.' })(), 'تعذّر تحميل إعلانات Meta (انتظر ٥ دقائق ثم حاول مرة أخرى).');
+        eq(msg('s.adsFailed', { platform: 'Meta', msg: function () { return 'Bad request. '; } })(), 'تعذّر تحميل إعلانات Meta (Bad request).', 'a deferred reason, with a space after its period');
+        eq(msg('s.adsFailed', { platform: 'Meta', msg: 'HTTP 500' })(), 'تعذّر تحميل إعلانات Meta (HTTP 500).', 'no period: as is');
+        eq(msg('note.pmaxFailed', { msg: 'Timed out.' })(), 'تعذّر تحميل حملات Performance Max: Timed out', 'a note (shown later inside brackets) ends without one too');
+      });
+      withLang('en', function () { eq(msg('s.backendFailed', { msg: 'Failed to fetch.' })(), 'Couldn\'t reach the server (Failed to fetch).'); });
+    });
     testAsync('Meta: خطأ من Meta في طلب الإعلانات = كارت خطأ بسببه بكلام مفهوم ومن غير تحميل معلّق، وخطأ الجلسة (١٩٠) = «انتهى الربط»', function () {
       var hadFB = 'FB' in window, prevFB = window.FB, answer = null;
       var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; delete accountInfo['meta:act_5']; };
@@ -2933,8 +2943,10 @@
         eq([loadingPlatforms.meta, platformState.meta && platformState.meta.kind, metaBases.act_5 || null], [false, 'error', null], 'an error card, not stuck loading, the cached numbers dropped');
         // metaErrorText بترجّع رسالة مؤجلة (دالة بلغة الواجهة وقت العرض) زي msg
         var text = document.getElementById('connectStatus').textContent, why = metaErrorText(answer.error);
-        why = typeof why === 'function' ? why() : String(why);
+        // السبب نفسه من غير نقطته الأخيرة (القالب هو اللي بيقفل الجملة — ٧٤)
+        why = (typeof why === 'function' ? why() : String(why)).replace(/\s*\.+\s*$/, '');
         ok(why.length > 10 && text.indexOf(why) > -1 && text.indexOf('(#17)') < 0, 'the reason in plain words, not Meta\'s code: ' + text);
+        ok(text.indexOf('.).') < 0 && /\)\.$/.test(text), 'one period, after the bracket: ' + text);
         answer = { error: { code: 190, message: 'Session has expired' } };
         delete platformState.meta;
         loadAdsForAccount('act_5');
