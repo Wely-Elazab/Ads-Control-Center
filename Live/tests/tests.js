@@ -11012,6 +11012,18 @@
       text.replace(/\b[A-Z_]*_KEYS\s*=\s*\[([^\]]*)\]/g, function (_, list) { list.replace(/'([^']+)'/g, function (__, k) { add(k); }); });
       return Object.keys(keys);
     }
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦: كل تشغيل كان بيبعت طلبات تمهيدية لدالة sync الحقيقية (runner.js). example.invalid نطاق محجوز
+    // مبيتحلّش أبداً (RFC 2606)، فلو الحاجز اتشال الطلب بيفشل من غير ما يوصل لأي خادم
+    testAsync('الاختبارات مبتكلّمش الإنتاج: طلب لأصل تاني بيترفض زي النت المقطوع ويتسجّل، ونفس الأصل شغال (runner.js)', function () {
+      var before = window.__netBlocked.length;
+      return fetch('https://example.invalid/functions/v1/sync', { method: 'POST', body: '{}' }).then(function () {
+        throw new Error('the request went out');
+      }, function (e) {
+        eq(e instanceof TypeError, true, 'a network-style failure');
+        eq(window.__netBlocked.slice(before).indexOf('https://example.invalid/functions/v1/sync') >= 0, true, 'counted as blocked');
+        return fetch('/tests/index.html?t=' + Date.now()).then(function (r) { eq(r.ok, true, 'same origin still works'); });
+      });
+    });
     testAsync('الاختبارات مبتغيّرش تخزين المتصفح: المشغّل بيحفظ ويرجّع كل مفتاح بتستخدمه الأداة', function () {
       return appSources().then(function (files) {
         var all = {};

@@ -41,6 +41,23 @@
     var s = document.createElement('script'); s.id = id; s.type = 'text/plain'; document.head.appendChild(s);
   });
 
+  // الاختبارات بتشتغل من غير نت (فوق: مكتبات Meta وGoogle) — بس fetch كان مفتوح، فكل تشغيل (هنا وفي CI) كان بيبعت طلبات تمهيدية
+  // (OPTIONS) لدالة sync الحقيقية على الإنتاج: ١٦ في كل تشغيل اتشافوا في سجلات Supabase من HeadlessChrome وقت browser-tests — من اختبارات
+  // بتنادي مسارات حقيقية من غير ما تبدّلها: حفظ العملة (writeUserSettings)، فصل منصة (digestDisconnect)، تحميل الملخص (digestLoad) (التدقيق
+  // الشامل ١٣ نوفمبر ٢٠٢٦). دلوقتي أي طلب لأصل غير الصفحة دي بيترفض زي النت المقطوع (TypeError — نفس اللي الكود بيشوفه لما الطلب يتمنع)
+  // وبيتسجّل في __netBlocked. الاختبارات اللي بتبدّل fetch بنفسها بترجّع الحاجز ده (مش fetch الأصلي) لما تخلص
+  var realFetch = window.fetch.bind(window);
+  window.__netBlocked = [];
+  window.fetch = function (input, init) {
+    var url = typeof input === 'string' ? input : (input && input.url) || String(input), abs = null;
+    try { abs = new URL(url, location.href); } catch (e) { /* رابط مش مفهوم: fetch نفسه يرفضه */ }
+    if (abs && abs.origin !== location.origin) {
+      window.__netBlocked.push(abs.origin + abs.pathname);
+      return Promise.reject(new TypeError('Failed to fetch'));
+    }
+    return realFetch(input, init);
+  };
+
   var SCRIPTS = ['/js/theme.js', '/js/i18n.js', '/js/auth.js', '/js/alerts.js', '/js/core.js', '/js/diagnosis.js', '/js/meta.js', '/js/google.js', '/js/snapchat.js',
     '/js/tiktok.js', '/js/ui.js', '/js/route.js', '/js/main.js', '/js/pricing.js', '/tests/dx-sim.js', '/tests/tests.js'];
   // لاختبارات «البنية التقنية» في tests.js
