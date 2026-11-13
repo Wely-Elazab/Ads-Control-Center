@@ -293,7 +293,7 @@
       'x.basisPeriodPast': 'الحكم على أرقام الفترة المختارة ({period}).',
       'x.basisPeriodNow': 'أما تنبيهات الوضع الحالي (أمس وآخر ٣ أيام) ففي صفحة التنبيهات.',
       'x.basisPeriodToday': 'الحكم على أرقام الفترة المختارة ({period}) ومنها اليوم حتى الآن، فقد يتغيّر قبل نهاية اليوم.',
-      'x.basisToday': 'الحكم على أرقام اليوم حتى الآن، فقد يتغيّر قبل نهاية اليوم.',
+      'x.basisOpenDay': 'الحكم على آخر ٧ أيام مكتملة لأن اليوم لم يكتمل بعد، والأرقام المعروضة لليوم حتى الآن.',
       'x.basisNow': 'الحكم على آخر ٧ أيام مكتملة، لأن أيام الفترة المختارة لم تصل لهذا الإعلان.',
       // الإعلان المتعدَّل: الحكم على الأيام اللي بعد آخر تعديل بس (alerts.js — days)
       'x.basisPeriodEdit': 'التقييم مبني على الأيام المكتملة بعد آخر تعديل ({n})، ولا يُحتسب اليوم الجاري لأنه لم يكتمل.',
@@ -305,7 +305,7 @@
       // إعلان كتالوج Snapchat: صوره ووجهته من مجموعة المنتجات، فإن لم تصلنا المنتجات فلا صورة ولا وجهة
       'x.snapSetEmpty': 'صور هذا الإعلان تأتي من مجموعة منتجاته، ولم تُرجع Snapchat أي منتج فيها. تأكّد أن المجموعة غير فارغة في مدير إعلانات Snapchat.',
       'x.snapSetFailed': 'صور هذا الإعلان تأتي من مجموعة منتجاته، وتعذّر على الأداة قراءتها من Snapchat الآن.',
-      // ٤٠٣ من Snapchat (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Coda: كتالوج يعمل وآخر يُرفض في الحساب نفسه)
+      // ٤٠٣ من Snapchat (حساب حقيقي ٢ نوفمبر ٢٠٢٦: كتالوج يعمل وآخر يُرفض في الحساب نفسه)
       'x.snapSetNoAccess': 'صور هذا الإعلان تأتي من كتالوج منتجات، وحساب Snapchat الذي ربطته لا يملك صلاحية عليه — لذلك ترفض Snapchat الطلب. امنح حسابك صلاحية هذا الكتالوج من «مدير الأعمال» في Snapchat ثم أعد تحميل الأداة.',
       'x.snapSetGone': 'مجموعة منتجات هذا الإعلان لم تعد موجودة في Snapchat، فلا توجد صور نعرضها.',
       'x.snapCatalogDest': 'لكل منتج في الكتالوج صفحته الخاصة، فلا توجد صفحة مقصودة واحدة لهذا الإعلان.',
@@ -1900,7 +1900,7 @@
       'x.basisPeriodPast': 'The verdict is on the selected period\'s figures ({period}).',
       'x.basisPeriodNow': 'Alerts about right now (yesterday and the last 3 days) are on the Alerts page.',
       'x.basisPeriodToday': 'The verdict is on the selected period\'s figures ({period}), including today so far, so it may change before the day ends.',
-      'x.basisToday': 'The verdict is on today\'s figures so far, so it may change before the day ends.',
+      'x.basisOpenDay': 'The verdict is on the last 7 complete days, because today isn\'t over yet; the figures shown are today\'s so far.',
       'x.basisNow': 'The verdict is on the last 7 complete days, because the selected period\'s days haven\'t arrived for this ad.',
       'x.basisPeriodEdit': 'The verdict is based on the complete days since the last change ({n}); today isn\'t counted because it isn\'t over yet.',
       'x.noText': '(no text)',

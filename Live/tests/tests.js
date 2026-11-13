@@ -6050,8 +6050,8 @@
     testAsync('قائمة الحسابات بتظهر كاملة جوه الشاشة على الموبايل (ومربع الاختيار مش مقطوع)', function () {
       return toolFrame(375, 812).then(function (f) {
         var w = f.contentWindow, d = f.contentDocument;
-        w.platformOptions.meta = [{ value: 'act_1', label: 'Meta — Level Up' }, { value: 'act_2', label: 'Meta — Second' }];
-        w.platformOptions.snapchat = [{ value: 'sn1', label: 'Snapchat — Coda Self Service' }];
+        w.platformOptions.meta = [{ value: 'act_1', label: 'Meta — Store One' }, { value: 'act_2', label: 'Meta — Second' }];
+        w.platformOptions.snapchat = [{ value: 'sn1', label: 'Snapchat — Store One Self Service' }];
         w.activeSources.meta = 'act_1';
         w.renderAccountPicker();
         d.getElementById('acctPickBtn').click();
@@ -6648,7 +6648,7 @@
       eq(metaImageUrl({ creative: { asset_feed_spec: { videos: [{ video_id: '1', thumbnail_url: small }] } } }), small);
       withLang('ar', function () { eq(landingText('https://www.shop.com/products/%D9%86%D8%B8%D8%A7%D8%B1%D8%A9/?utm_source=x'), 'shop.com/products/نظارة'); });
     });
-    // حساب حقيقي ٢ نوفمبر ٢٠٢٦ (Coda): إعلان كتالوج Snapchat فضل بخلفية فاضية من غير أي كلام،
+    // حساب حقيقي ٢ نوفمبر ٢٠٢٦: إعلان كتالوج Snapchat فضل بخلفية فاضية من غير أي كلام،
     // وSnapchat كانت بترجّع ٤٠٣ على كتالوجه بينما كتالوج تاني في نفس الحساب بيشتغل
     test('Snapchat: سبب غياب صور الكتالوج بيتقال بالظبط — والـ٤٠٣ العميل يقدر يصلّحه بنفسه', function () {
       eq(setNoteKey({ code: 'set', status: 403 }), 'x.snapSetNoAccess', 'مفيش صلاحية على الكتالوج');
@@ -6665,7 +6665,7 @@
         withLang('en', function () { ok(t(k) !== k && t(k).length > 20, 'إنجليزي: ' + k); });
       });
     });
-    // حساب حقيقي ٢ نوفمبر ٢٠٢٦ (Level Up): ٢٥ إعلان من ١٠١ كابشنهم كان اسم الإعلان، و٢٢ منهم نصهم موجود
+    // حساب حقيقي ٢ نوفمبر ٢٠٢٦: ٢٥ إعلان من ١٠١ كابشنهم كان اسم الإعلان، و٢٢ منهم نصهم موجود
     // في asset_feed_spec اللي مكناش بنطلبه. النص بييجي من ٤ أماكن مختلفة حسب نوع الإعلان
     test('Meta: نص الإعلان من كل مكان Meta بتحطه فيه (المختصر، والنسخ المتعددة، وspec)', function () {
       // ١) الإعلان العادي: Meta بتملا body/title
@@ -8241,8 +8241,8 @@
     test('اختيار الحسابات: الزرار بالحساب المختار في كل منصة متصلة، والقائمة فيها ✓ جنب المختار وبحث بالاسم، والاختيار بيحمّل الحساب', function () {
       var old = { opts: Object.assign({}, platformOptions), act: Object.assign({}, activeSources), load: window.loadSource }, asked = [];
       try {
-        platformOptions.meta = [{ value: 'act_1', label: 'Meta — Level Up' }, { value: 'act_2', label: 'Meta — Second Store' }];
-        platformOptions.snapchat = [{ value: 'sn1', label: 'Snapchat — levelupkwt Self Service' }];
+        platformOptions.meta = [{ value: 'act_1', label: 'Meta — Store One' }, { value: 'act_2', label: 'Meta — Second Store' }];
+        platformOptions.snapchat = [{ value: 'sn1', label: 'Snapchat — storeone Self Service' }];
         delete platformOptions.google; delete platformOptions.tiktok;
         activeSources.meta = 'act_1'; activeSources.snapchat = 'sn1';
         window.loadSource = function (p, id) { asked.push([p, id]); };
@@ -8250,7 +8250,7 @@
           renderAccountPicker();
           var btn = document.getElementById('acctPickBtn');
           ok(!document.getElementById('acctPicker').hidden, 'shown');
-          eq(Array.prototype.map.call(btn.querySelectorAll('.acct-pick-name'), function (s) { return s.textContent; }), ['Level Up', 'levelupkwt Self Service'], 'both platforms');
+          eq(Array.prototype.map.call(btn.querySelectorAll('.acct-pick-name'), function (s) { return s.textContent; }), ['Store One', 'storeone Self Service'], 'both platforms');
           btn.click();
           var list = document.getElementById('acctList');
           ok(!document.getElementById('acctPanel').hidden, 'panel open');
@@ -8262,7 +8262,7 @@
           ok(list.querySelector('.acct-opt.plat-snapchat'), 'والصف كمان');
           // لكل مربع اسم صريح فيه المنصة (قارئ الشاشة كان بيقول «مربع اختيار» من غير اسم — ٣ نوفمبر ٢٠٢٦)
           eq(Array.prototype.map.call(list.querySelectorAll('.acct-opt'), function (b) { return b.getAttribute('aria-label'); }),
-            ['Meta — Level Up', 'Meta — Second Store', 'Snapchat — levelupkwt Self Service'], 'اسم كل مربع');
+            ['Meta — Store One', 'Meta — Second Store', 'Snapchat — storeone Self Service'], 'اسم كل مربع');
           var search = document.getElementById('acctSearch');
           search.value = 'second'; search.dispatchEvent(new Event('input'));
           eq(Array.prototype.map.call(list.querySelectorAll('[data-acct-id]'), function (b) { return b.getAttribute('data-acct-id'); }), ['act_2'], 'search by name');
@@ -8354,6 +8354,89 @@
         platformOptions.meta = oldOpts.meta; platformOptions.google = oldOpts.google;
         DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
       }
+    });
+    // التدقيق الشامل ١٢ نوفمبر ٢٠٢٦ (قراءة ui.js كاملاً)
+    test('«مسح الفلاتر» بيشيل ترشيح المجموعة الإعلانية كمان، وبيرجّع ملخص المتجر لكل المنصات — مش أرقام منصة واحدة تحت «كل المنصات»', function () {
+      var a = src('meta', 21), b = src('google', 23);
+      var oldOpts = { meta: platformOptions.meta, google: platformOptions.google }, oldCands = candidates;
+      DX_ON = true; activeSources.meta = 'act_1'; activeSources.google = '123';
+      platformOptions.meta = [{ value: 'act_1', label: 'Meta — Store One' }];
+      platformOptions.google = [{ value: '123', label: 'Google Ads — G Store' }];
+      try {
+        platSel = null;
+        candidates = [ad('k1', { aid: 's1' }), ad('k2', { aid: 's2' })];
+        dxState.sources = { meta: { status: 'ready', key: 'm', gen: 1, input: a.input, report: DX.analyze(a.input), account: 'M', accountId: 'meta:1' },
+          google: { status: 'ready', key: 'g', gen: 1, input: b.input, report: DX.analyze(b.input), account: 'G', accountId: 'google:1' } };
+        dxRecompute();
+        document.querySelector('#dxBody [data-plat-pick="google"]').click();
+        eq([platSel, dxState.view], [['google'], 'google']);
+        filters.adset = adsetKey(candidates[0]); filters.adsetName = 'Set'; filters.campaign = campaignKey(candidates[0]); filters.campaignName = 'Camp';
+        document.getElementById('clearFiltersBtn').click();
+        eq([platSel, dxState.view, dxState.accountId], [null, 'all', 'all:meta:1,google:1'], 'the summary is back on all platforms');
+        eq([filters.adset, filters.adsetName, filters.campaign, filters.campaignName], [null, null, null, null], 'the ad set filter is cleared too');
+        eq(document.getElementById('activeFilters').children.length, 0, 'no filter chips left');
+      } finally {
+        platSel = null; filters.adset = null; filters.adsetName = null; filters.campaign = null; filters.campaignName = null;
+        candidates = oldCands;
+        delete activeSources.meta; delete activeSources.google;
+        platformOptions.meta = oldOpts.meta; platformOptions.google = oldOpts.google;
+        DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
+        render();
+      }
+    });
+    test('فلتر الحالة والصيغة: الاختيار الحالي معلّم لقارئ الشاشة (aria-pressed) من أول التحميل ومع كل تغيير ومع «مسح الفلاتر»', function () {
+      var group = document.querySelector('.filter-group[data-filter="health"]'), fmt = document.querySelector('.filter-group[data-filter="format"]');
+      var pressed = function (g) { return Array.prototype.map.call(g.querySelectorAll('.chip'), function (c) { return c.dataset.value + ':' + c.getAttribute('aria-pressed'); }).join(' '); };
+      try {
+        eq(pressed(fmt), 'all:true video:false image:false text:false', 'from the first load');
+        group.querySelector('.chip[data-value="review"]').click();
+        eq([filters.health, pressed(group)], ['review', 'all:false review:true improve:false good:false pending:false stopped:false']);
+        document.getElementById('clearFiltersBtn').click();
+        eq([filters.health, pressed(group)], ['all', 'all:true review:false improve:false good:false pending:false stopped:false']);
+      } finally { setFilterChip(group, 'all'); render(); }
+    });
+    test('عملات «لا يمكن جمع أرقام…» بأسمائها وبأداة العطف بتاعة اللغة — مش «EGP، USD» بفاصلة عربية في الإنجليزي', function () {
+      var a = src('meta', 21), b = src('google', 23);
+      b.input.currency = 'EGP';
+      var oldOpts = { meta: platformOptions.meta, google: platformOptions.google };
+      DX_ON = true; activeSources.meta = 'act_1'; activeSources.google = '123';
+      platformOptions.meta = [{ value: 'act_1', label: 'Meta — Store One' }];
+      platformOptions.google = [{ value: '123', label: 'Google Ads — G Store' }];
+      try {
+        platSel = null;
+        dxState.sources = { meta: { status: 'ready', key: 'm', gen: 1, input: a.input, report: DX.analyze(a.input), account: 'M', accountId: 'meta:1' },
+          google: { status: 'ready', key: 'g', gen: 1, input: b.input, report: DX.analyze(b.input), account: 'G', accountId: 'google:1' } };
+        var cur = a.input.currency;
+        withLang('en', function () {
+          dxRecompute();
+          var txt = document.getElementById('dxBody').textContent;
+          eq(dxState.sel.blocked, 'currency');
+          ok(txt.indexOf('(' + currencyLabel(cur) + ' and ' + currencyLabel('EGP') + ')') > -1 && txt.indexOf('،') === -1, txt.slice(0, 300));
+        });
+        withLang('ar', function () {
+          dxRecompute();
+          ok(document.getElementById('dxBody').textContent.indexOf('(' + currencyLabel(cur) + ' و' + currencyLabel('EGP') + ')') > -1, document.getElementById('dxBody').textContent.slice(0, 300));
+        });
+      } finally {
+        platSel = null;
+        delete activeSources.meta; delete activeSources.google;
+        platformOptions.meta = oldOpts.meta; platformOptions.google = oldOpts.google;
+        DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
+      }
+    });
+    test('كروت المجموعات الإعلانية كل واحد بيتحرك أول مرة يظهر (كان أول كارت بس)، وشكل رقم حساب Snapchat UUID بالظبط، وقيمة خانة الإعداد متهرَّبة', function () {
+      var oldCands = candidates, oldMode = viewMode;
+      try {
+        candidates = [ad('m1', { aid: 'anim-set-1' }), ad('m2', { aid: 'anim-set-2' })];
+        viewMode = 'adsets';
+        render();
+        eq(cardGrid.querySelectorAll('.adset-card').length, 2);
+        eq(cardGrid.querySelectorAll('.adset-card.card-in').length, 2, 'both ad set cards animate in');
+      } finally { candidates = oldCands; viewMode = oldMode; render(); }
+      eq([DIGEST_ID.snapchat.test('b2c3d4e5-f6a7-4b8c-9d0e-123456789abc'), DIGEST_ID.snapchat.test('------------------------------------'), DIGEST_ID.snapchat.test('b2c3d4e5f6a7-4b8c-9d0e-123456789abc-')],
+        [true, false, false]);
+      var row = settingRow({ key: 'roasTarget', kind: 'multiple', label: 'L', help: 'H' }, '"><b id="x">', null);
+      ok(row.indexOf('<b id="x">') === -1 && row.indexOf('&quot;&gt;&lt;b') > -1, row);
     });
     // بيانات صناعية أرقامها معروفة: ١٠٠ طلب في الأسبوع بمتوسط ١٠٠ وإنفاق ٧٬٠٠٠، والأسبوع الحالي بمضاعفات
     var dxDays = function (curPur, curRev) {
@@ -9205,7 +9288,10 @@
       return fetch('/js/auth.js?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (src) {
         var keys = JSON.parse((/var DEVICE_KEYS = (\[[^\]]*\])/.exec(src) || [])[1].replace(/'/g, '"'));
         eq(keys, ['acc.renew.v1', 'acc.lastAccount.v1', 'acc.dx.fb.v1', 'pauseproof.value.money.v1', 'pauseproof.value.money.v2', 'pauseproof.value.ack.v1',
-          'acc.digestHint', 'acc.welcome.accounts.v1']);
+          'acc.digestHint', 'acc.welcome.accounts.v1', 'pauseproof.alertSettings.v1']);
+        // التدقيق الشامل ١٢ نوفمبر ٢٠٢٦: نسخة الجهاز القديمة من إعدادات التنبيهات بتتنقل لسجل أول مستخدم مالوش سجل (legacyMerge) — لازم تتمسح
+        // مع الخروج وتغيّر صاحب الدخول
+        eq(SETTINGS_KEY, 'pauseproof.alertSettings.v1', 'same key as ui.js');
         ok(/function wipeDevice\(\) \{\s*try \{ DEVICE_KEYS\.forEach/.test(src) && /function signOut\(\) \{\s*wipeDevice\(\);/.test(src), 'signOut clears device keys');
         // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: المفتاحين دول فيهم أرقام الحسابات الإعلانية اللي المستخدم فتحها — نفس أسماء ui.js
         eq([DIGEST_HINT_KEY, WELCOME_KEY], ['acc.digestHint', 'acc.welcome.accounts.v1'], 'same keys as ui.js');
@@ -9575,7 +9661,7 @@
       });
     });
     // المرحلة ٢ (٣١ أكتوبر ٢٠٢٦ — «واجعل الملخص لكل المنصات»): حساب Snapchat بنسخته المقفولة اللي على الجهاز (core.js sealedFor)
-    var SNAP_ACC = 'cd3b3bfe-4361-484c-9985-51c2d1264860', SNAP_SEALED = 'v2.' + new Array(17).join('A') + '.' + new Array(41).join('B');
+    var SNAP_ACC = 'a1b2c3d4-e5f6-4a7b-8c9d-0123456789a0', SNAP_SEALED = 'v2.' + new Array(17).join('A') + '.' + new Array(41).join('B');
     var withSnap = function (fn) {
       var saved = { snap: activeSources.snapchat, opts: platformOptions.snapchat, tz: valueTzOf['snapchat:' + SNAP_ACC], sealed: sealedFor('snapchat') };
       activeSources.snapchat = SNAP_ACC;
@@ -11159,7 +11245,7 @@
       eq(line(setup({ preset: 'last30' })), t('x.basisPeriod', pl()), 'last 30 days: the «now» rules are on too');
       eq(line(setup({ preset: 'yesterday' })), t('x.basisPeriod', pl()) + ' ' + t('x.basisPeriodNow'), 'yesterday: under 7 days');
       eq(line(setup({ preset: 'lastMonth' })), t('x.basisPeriodPast', pl()) + ' ' + t('x.basisPeriodNow'), 'last month');
-      eq(line(setup({ preset: 'today' })), t('x.basisToday'), 'today');
+      eq(line(setup({ preset: 'today' })), t('x.basisOpenDay'), 'today alone: the verdict stays on the last 7 complete days');
       var c = setup({ preset: 'custom', since: shiftKey(TODAY, -3), until: TODAY });
       eq(line(c), t('x.basisPeriodToday', pl()), 'a custom range up to today');
       delete c.pd;
@@ -11169,6 +11255,37 @@
       expandOverlay.classList.add('hidden');
     });
 
+    // التدقيق الشامل ١٢ نوفمبر ٢٠٢٦ (فحص حي ١٦ دقيقة بعد منتصف الليل بتوقيت الحساب): «لا نتائج اليوم حتى الآن — يحتاج إلى تحسين» على إعلانات
+    // صرفت ٠٫٠١ $ ونتيجتها لسه موصلتش من المنصة
+    test('«اليوم» لوحده لسه مخلصش: الكارت بأرقام اليوم والحكم على آخر ٧ أيام مكتملة — مش «لا نتائج اليوم» على سنت اتصرف في أول اليوم', function () {
+      period = { preset: 'today' };
+      var mk = function (id, n) { return withPd(w8(id, { daily: [100, 100, 100, 100, 100, 100, 100, 0.01], res: week(n) }), TODAY, TODAY, flat(0.01, 0)); };
+      candidates = [mk('a', 5), mk('b', 5), mk('c', 5)];
+      render();
+      var c = candidates[2], a = adAnalysis(c);
+      ok(!analysis.period && analysis === analysisNow, 'no period analysis on the open day alone');
+      eq([openDayOnly(c), judgedOnPeriod(c), periodOf(c).spend, a.health], [true, false, 0.01, analysisNow.byAd.c.health], 'today\'s figures, the «now» verdict');
+      ok(!a.issues.some(function (i) { return /^waste/.test(i.code || ''); }), 'no «no results today» on a cent: ' + JSON.stringify(a.issues.map(function (i) { return i.code; })));
+      var card = document.getElementById('card-c');
+      ok(!card.querySelector('.card-stat[class*="mv-"], .card-stat[class*="tone-"]'), 'today\'s numbers are not coloured by the 7-day verdict');
+      ok(card.querySelector('.health-dot').getAttribute('title').indexOf(t('x.basisOpenDay')) > -1, card.querySelector('.health-dot').getAttribute('title'));
+      // جدول التفاصيل بيفضل تابع الفترة زي الأرقام اللي فوقه: عمود النهارده
+      var tb = dailyTableData(c);
+      eq([tb.dates.length, tb.hasToday, tb.today.spend], [0, true, 0.01], 'the details table still follows the period');
+      // حساب بتوقيت تاني يومه لسه «أمس» (فترته يوم مكتمل): بيتحكم عليه بفترته، والتاني لأ
+      var other = withPd(w8('o', { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: week(5) }), Y, Y, flat(100, 5));
+      other.source = 'snapchat:s1'; other.platform = 'Snapchat';
+      candidates = [mk('a', 5), mk('b', 5), mk('c', 5), other];
+      render();
+      eq([!!analysis.period, judgedOnPeriod(findCandidate('o')), judgedOnPeriod(findCandidate('c'))], [true, true, false], 'each ad by its own account day');
+      eq(analysis.byAd.c, analysisNow.byAd.c, 'the open-day ad keeps the «now» verdict');
+      // فترة فيها النهارده مع أيام تانية بتتحكم زي ما هي
+      period = { preset: 'custom', since: Y, until: TODAY };
+      var two = withPd(w8('t', { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: week(5) }), Y, TODAY, flat(100, 5));
+      candidates = [two, withPd(w8('t2', { daily: [100, 100, 100, 100, 100, 100, 100, 40], res: week(5) }), Y, TODAY, flat(100, 5))];
+      render();
+      eq([openDayOnly(two), judgedOnPeriod(two)], [false, true], 'yesterday + today is judged on its days');
+    });
     test('جدول الأيام في التفاصيل بيتبع الفترة: أيامها والإجمالي، والنهارده منفصل لو الفترة بتخلص أمس أو فيها النهارده', function () {
       var setup = function (pp, dayFn) {
         period = pp;

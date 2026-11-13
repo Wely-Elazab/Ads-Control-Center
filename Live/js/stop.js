@@ -5,7 +5,7 @@
   var SYNC_URL = 'https://rhrrnxsgodiideqeollo.supabase.co/functions/v1/sync';
   var q = new URLSearchParams(location.search);
   var user = q.get('u') || '', account = q.get('a') || '', sig = q.get('s') || '';
-  var valid = (/^[0-9a-f-]{36}$/.test(user) || /^act_\d{1,30}$/.test(account)) && /^[A-Za-z0-9_-]{20,100}$/.test(sig);
+  var valid = (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user) || /^act_\d{1,30}$/.test(account)) && /^[A-Za-z0-9_-]{20,100}$/.test(sig);
   var payload = user ? { action: 'stop', u: user, sig: sig } : { action: 'stop', account: account, sig: sig };
 
   function show(state) {

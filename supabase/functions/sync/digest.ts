@@ -322,7 +322,7 @@ async function removeAccount(user: string, platform: string, account: string): P
   return true;
 }
 export async function accountName(account: string): Promise<string | undefined> {
-  const r = await db('ad_accounts?select=name&platform=eq.meta&account_id=eq.' + account, { method: 'GET' }).catch(() => null);
+  const r = await db('ad_accounts?select=name&platform=eq.meta&account_id=eq.' + encodeURIComponent(account), { method: 'GET' }).catch(() => null);
   const rows = r ? await r.json().catch(() => null) : null;
   return Array.isArray(rows) && rows[0] && rows[0].name ? rows[0].name : undefined;
 }

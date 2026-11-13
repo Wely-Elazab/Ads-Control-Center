@@ -960,7 +960,7 @@
     // على التكلفة لإعلان أو مجموعة جوّاها (مركز المساعدة ٥١١١٠٧٢٣٣٤٢٠٥٢٨ — المرحلة ٥ ق٢)، فحكم التكلفة هناك مبيبقاش «عاجل»
     'campaign{id,name,effective_status,start_time,stop_time,daily_budget,lifetime_budget,' + META_ISSUES + '},';
   var META_AD_FIELDS_BASIC = 'id,name,effective_status,created_time,updated_time,adset{id,name,optimization_goal},campaign{id,name},';
-  // bodies/titles/descriptions في asset_feed_spec (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Level Up): الإعلان المبني على منشور موجود
+  // bodies/titles/descriptions في asset_feed_spec (حساب حقيقي ٢ نوفمبر ٢٠٢٦): الإعلان المبني على منشور موجود
   // (object_type = SHARE) بيرجّع body وtitle فاضيين، والنص الحقيقي جوه asset_feed_spec. مكناش بنطلبهم خالص، فالكابشن كان
   // بيقع على اسم الإعلان في ٢٥ إعلان من ١٠١ — ٢٢ منهم نصهم موجود هنا
   var META_CREATIVE_FULL = '{title,body,image_url,image_hash,thumbnail_url,video_id,effective_object_story_id,effective_instagram_media_id,product_set_id,' +

@@ -94,10 +94,10 @@ Deno.test('التشفير: المفتاح المحفوظ بيرجع زي ما ه
 
 // مراجعة ١ نوفمبر ٢٠٢٦ (ح٣): شكل المعرّف صارم — الشكل القديم كان بيقبل ٣٦ شرطة ورا بعض
 Deno.test('شكل رقم الحساب: UUID بالظبط، مش أي ٣٦ حرف', () => {
-  assertEquals(SNAP_ID.test('cd3b3bfe-4361-484c-9985-51c2d1264860'), true);
-  assertEquals(SNAP_ID.test('CD3B3BFE-4361-484C-9985-51C2D1264860'), true, 'الحروف الكبيرة مقبولة');
-  for (const bad of ['------------------------------------', 'cd3b3bfe43614 84c998551c2d1264860',
-    'cd3b3bfe-4361-484c-9985-51c2d126486', 'cd3b3bfe-4361-484c-9985-51c2d1264860x', '']) {
+  assertEquals(SNAP_ID.test('a1b2c3d4-e5f6-4a7b-8c9d-0123456789a0'), true);
+  assertEquals(SNAP_ID.test('A1B2C3D4-E5F6-4A7B-8C9D-0123456789A0'), true, 'الحروف الكبيرة مقبولة');
+  for (const bad of ['------------------------------------', 'a1b2c3d4e5f64 a7b8c9d0123456789a0',
+    'a1b2c3d4-e5f6-4a7b-8c9d-0123456789a', 'a1b2c3d4-e5f6-4a7b-8c9d-0123456789a0x', '']) {
     assertEquals(SNAP_ID.test(bad), false, 'لازم يترفض: ' + bad);
   }
 });
@@ -385,7 +385,7 @@ Deno.test('سجل الحساب القديم: قراءة بس (للنقل لإع�
     metaOk = false;
     assertEquals((await handleSettings('settings.get', { platform: 'meta', accountId: 'act_123', platformToken: T }, null)).status, 403, 'no access on Meta');
     snapOk = false;
-    assertEquals((await handleSettings('settings.get', { platform: 'snapchat', accountId: 'cd3b3bfe-4361-484c-9985-51c2d1264860', platformToken: T }, null)).status, 403);
+    assertEquals((await handleSettings('settings.get', { platform: 'snapchat', accountId: 'a1b2c3d4-e5f6-4a7b-8c9d-0123456789a0', platformToken: T }, null)).status, 403);
     // رقم حساب Snapchat معرّف UUID بالظبط زي digest.ts (التدقيق الشامل ١١ نوفمبر ٢٠٢٦: كان هنا شكل متساهل)
     assertEquals((await handleSettings('settings.get', { platform: 'snapchat', accountId: 'aaaa-1111', platformToken: T }, null)).status, 400);
     assertEquals((await handleSettings('settings.get', { platform: 'google', accountId: '1', platformToken: T }, null)).status, 400);
@@ -709,7 +709,7 @@ Deno.test('الملخص لكل مستخدم: التفعيل بحساب Meta ال
     assertEquals(MAX_PER_PLATFORM, { meta: 20, snapchat: 10 });
     for (let i = 3; i <= MAX_PER_PLATFORM.meta; i++) store.accounts.push({ user_id: A, platform: 'meta', account_id: 'act_' + i });
     assertEquals((await call('digest.add', { token: T, accountId: 'act_99' }, A)).body.error, 'too many');
-    const snap = await call('digest.add', { platform: 'snapchat', accountId: 'cd3b3bfe-4361-484c-9985-51c2d1264860', sealed: 'v2.' + 'A'.repeat(16) + '.' + 'B'.repeat(40) }, A);
+    const snap = await call('digest.add', { platform: 'snapchat', accountId: 'a1b2c3d4-e5f6-4a7b-8c9d-0123456789a0', sealed: 'v2.' + 'A'.repeat(16) + '.' + 'B'.repeat(40) }, A);
     assertEquals(snap.status, 200, 'another platform has its own limit');
     store.accounts = store.accounts.filter((a) => !(a.user_id === A && (a.platform === 'snapchat' || Number(a.account_id.slice(4)) >= 3)));
     store.sealed = [];
@@ -757,7 +757,7 @@ Deno.test('«فصل» Meta: حسابات Meta بتخرج من ملخص المس�
 // التدقيق الشامل ١١ نوفمبر ٢٠٢٦: منطقة زمنية Intl بيقبلها وقاعدة البيانات مبتعرفهاش كانت بتوقّع طابور البريد لكل المستخدمين
 Deno.test('الملخص: منطقة زمنية قاعدة البيانات مبتعرفهاش متتحفظش — بيتحط الافتراضي', async () => {
   const A = '11111111-2222-3333-4444-555555555555';
-  const SNAP = 'cd3b3bfe-4361-484c-9985-51c2d1264860', SEALED = 'v2.' + 'A'.repeat(16) + '.' + 'B'.repeat(40);
+  const SNAP = 'a1b2c3d4-e5f6-4a7b-8c9d-0123456789a0', SEALED = 'v2.' + 'A'.repeat(16) + '.' + 'B'.repeat(40);
   const store = fakeDigestDb();
   try {
     const r = await handleDigest('digest.enable', { platform: 'snapchat', accountId: SNAP, sealed: SEALED, name: 'S', timezone: 'AET', email: 'a@store.com', consent: true }, null, A);
@@ -787,7 +787,7 @@ Deno.test('الملخص: تغيير البريد بيبلّغ العنوان ا�
 Deno.test('الملخص بحساب Snapchat: التفعيل والإضافة بالنسخة المقفولة (مشفّرة تاني)، والتجديد، والإزالة، و«فصل» Snapchat بس', async () => {
   const A = '11111111-2222-3333-4444-555555555555';
   const T = 'TOKEN_abcdefghijklmnopqrstuvwxyz';
-  const SNAP = 'cd3b3bfe-4361-484c-9985-51c2d1264860', SNAP2 = '0f0e0d0c-0b0a-4908-8706-050403020100';
+  const SNAP = 'a1b2c3d4-e5f6-4a7b-8c9d-0123456789a0', SNAP2 = '0f0e0d0c-0b0a-4908-8706-050403020100';
   const SEALED = 'v2.' + 'A'.repeat(16) + '.' + 'B'.repeat(40);
   const open = { platform: 'snapchat', accountId: SNAP, sealed: SEALED, name: 'Snap store\u0007', timezone: 'Asia/Dubai' };
   const store = fakeDigestDb();
@@ -1097,7 +1097,7 @@ Deno.test('فحص الروابط: التحويلات بتتتبع قفزة قف�
     assertEquals(await probe('https://shop.example/ok'), { status: 200, blocked: false });
     const before = seen.length;
     assertEquals(await probe('https://shop.example/loop'), { status: 0, blocked: false }, 'an endless redirect = no answer');
-    assert(seen.length - before <= 11, 'a bounded number of hops');
+    assert(seen.length - before === 21, 'as many hops as fetch itself followed (20), then it gives up: ' + (seen.length - before));
   } finally { restoreFetch(); }
 });
 

@@ -405,8 +405,10 @@ function linkAllowed(u: URL): boolean {
 }
 // التحويلات بنتبعها بنفسنا، وكل قفزة بتتراجع بنفس linkAllowed (OWASP SSRF Prevention Cheat Sheet — التدقيق الشامل ١١ نوفمبر ٢٠٢٦):
 // كان fetch بيتبعها لوحده، فرابط إعلان مسموح يقدر يحوّل لعنوان IP أو اسم داخلي والدالة تفتحه. قفزة لعنوان مش مسموح = مش عطل
-// (منقولش «معطّل» على حاجة مفتحناهاش)، وأكتر من LINK_HOPS قفزات = عدم استجابة. المهلة للقفزات كلها مع بعض
-const LINK_HOPS = 10;
+// (منقولش «معطّل» على حاجة مفتحناهاش)، وأكتر من LINK_HOPS قفزات = عدم استجابة. المهلة للقفزات كلها مع بعض.
+// ٢٠ قفزة = نفس حد fetch نفسه لما كان بيتبعها لوحده (WHATWG Fetch: «redirect count is 20» — ونفس حد Chrome): سلسلة تحويلات تتبّع
+// طويلة كانت بتتفتح قبل كده متتحسبش «لا يستجيب» دلوقتي (مرور المختبِر ١٢ نوفمبر ٢٠٢٦ — كانت ١٠)
+const LINK_HOPS = 20;
 export async function probe(url: string): Promise<{ status: number; blocked: boolean }> {
   try {
     const deadline = AbortSignal.timeout(LINK_TIMEOUT_MS);

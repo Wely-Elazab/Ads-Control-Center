@@ -502,7 +502,7 @@ export default async function handler(req, res) {
       const set = sd && sd.product_sets && sd.product_sets[0] && (sd.product_sets[0].product_set || sd.product_sets[0]);
       const catalogId = set && shaped(set.catalog_id, /^[A-Za-z0-9-]{1,64}$/);
       // الحالة بترجع عشان نعرف الفرق بين «المجموعة مش موجودة» (٤٠٤) و«مفيش صلاحية» (٤٠٣) و«الرد شكله غير متوقع»
-      // (٢٠٠ من غير catalog_id). الواجهة مبتعرضهاش للعميل — للتشخيص بس (حساب حقيقي ٢ نوفمبر ٢٠٢٦: مجموعة في Coda بتفشل
+      // (٢٠٠ من غير catalog_id). الواجهة مبتعرضهاش للعميل — للتشخيص بس (حساب حقيقي ٢ نوفمبر ٢٠٢٦: مجموعة بتفشل
       // ومجموعة تانية في نفس الحساب بتنجح)
       if (!sr.ok || !catalogId) { res.status(200).json({ products: [], error: 'set', setStatus: sr.status }); return; }
       const pr = await fetch(SNAP_API + '/catalogs/' + encodeURIComponent(catalogId) + '/products/search', {

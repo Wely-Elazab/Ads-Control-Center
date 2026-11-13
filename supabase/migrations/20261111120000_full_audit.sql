@@ -63,7 +63,10 @@ grant execute on function public.digest_claim(integer, text[]) to service_role;
 -- طلبات في نفس اللحظة كانت بتعدّي حد ٥ محاولات للرمز و٥ إرسالات للجلسة، وجلسة جديدة بكلمة المرور = عدّاد جديد — فاللي معاه كلمة المرور
 -- يقدر يخمّن الرمز بلا حد ويغرّق بريد صاحب الحساب (NIST SP 800-63B §5.2.2، OWASP ASVS 2.2.1). دلوقتي المحاولة والإرسال بيتخصموا
 -- في قاعدة البيانات قبل أي حاجة (قفل لكل مستخدم — pg_advisory_xact_lock)، ومعاهم حد لكل مستخدم في ٢٤ ساعة عبر كل جلساته.
--- tries_total = مجموع محاولات الجلسة (attempts بيتصفّر مع كل رمز جديد)
+-- tries_total = مجموع محاولات الجلسة (attempts بيتصفّر مع كل رمز جديد).
+-- نافذة الـ٢٤ ساعة بوقت آخر رمز اتبعت للجلسة (مش بوقت إنشائها): المحاولة محتاجة رمز لسه صالح (١٠ دقايق)، فأي جلسة عليها محاولة أو
+-- إرسال النهارده آخر إرسال ليها النهارده. بوقت الإنشاء، جلسات اتعملت أمس (بتفضل لحد يومين قبل ما تتمسح — purge_login_data) كان باقي
+-- إرسالاتها ومحاولاتها بيتستخدم النهارده من غير ما يتعدّ: نحو ٧٥ رمز و٣٣٠ محاولة في اليوم بدل ١٥ و٣٠ (مرور المختبِر ١٢ نوفمبر ٢٠٢٦)
 alter table public.login_sessions add column if not exists tries_total integer not null default 0;
 
 -- حجز إرسال رمز. -1 = حد اليوم للمستخدم، null = حد الجلسة أو المهلة بين رمزين لسه مخلصتش، غير كده إرسالات الجلسة بعد الزيادة
@@ -75,7 +78,7 @@ declare
 begin
   perform pg_advisory_xact_lock(hashtextextended('ads-center/login:' || p_user::text, 0));
   select coalesce(sum(s.sends), 0) into v_day from public.login_sessions s
-   where s.user_id = p_user and s.created_at > now() - interval '24 hours';
+   where s.user_id = p_user and coalesce(s.last_sent_at, s.created_at) > now() - interval '24 hours';
   if v_day >= p_day_max then return -1; end if;
   insert into public.login_sessions as l (session_id, user_id, sends, last_sent_at)
   values (p_session, p_user, 1, now())
@@ -97,7 +100,7 @@ declare
 begin
   perform pg_advisory_xact_lock(hashtextextended('ads-center/login:' || p_user::text, 0));
   select coalesce(sum(s.tries_total), 0) into v_day from public.login_sessions s
-   where s.user_id = p_user and s.created_at > now() - interval '24 hours';
+   where s.user_id = p_user and coalesce(s.last_sent_at, s.created_at) > now() - interval '24 hours';
   if v_day >= p_day_max then return -1; end if;
   update public.login_sessions l set attempts = l.attempts + 1, tries_total = l.tries_total + 1
    where l.session_id = p_session and l.user_id = p_user and l.attempts < p_max

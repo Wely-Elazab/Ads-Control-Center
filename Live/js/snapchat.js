@@ -215,10 +215,10 @@
   // بتقول «Preview Not Supported» له): أول المنتجات في كل مجموعة (api/snapchat-ads-fetch.js action=products — طلبين لكل مجموعة)، صورة
   // أول منتج للكارت، والمنتجات جوه الإعلان (ui.js snapMediaView). snapProducts[المجموعة] = المنتجات (فاضية = مفيش)
   var snapProducts = {};
-  // سبب إن المجموعة رجعت من غير منتجات (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Coda: مجموعة رجعت صفر منتج، والكارت فضل
+  // سبب إن المجموعة رجعت من غير منتجات (حساب حقيقي ٢ نوفمبر ٢٠٢٦: مجموعة رجعت صفر منتج، والكارت فضل
   // بخلفية فاضية من غير أي كلام). { code, status }: code = 'set' مقدرناش نقرا المجموعة، 'search' مقدرناش
   // نقرا منتجاتها، 'net' الطلب نفسه فشل، '' المجموعة فاضية فعلاً. وstatus = رد Snapchat على المجموعة —
-  // ٤٠٣ معناها الحساب المربوط مش ليه صلاحية على الكتالوج ده (ده اللي حصل في Coda: كتالوج شغّال وتاني مرفوض)
+  // ٤٠٣ معناها الحساب المربوط مش ليه صلاحية على الكتالوج ده (ده اللي حصل في حساب حقيقي: كتالوج شغّال وتاني مرفوض)
   var snapProductErr = {};
   function loadSnapchatCatalog(adAccountId, token) {
     var source = 'snapchat:' + adAccountId, sets = {};
@@ -535,7 +535,7 @@
         cta: (cr && cr.cta) || null,
         // إعلانات من غير وسيط واحد: مجموعة منتجات (COLLECTION) أو قصة من كذا لقطة (COMPOSITE) — مش «صورة ثابتة».
         // وإعلان الكتالوج (render_type = DYNAMIC) صوره بتيجي من مجموعة المنتجات نفسها، فكان بيتوسم «صورة ثابتة» غلط
-        // (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Coda)
+        // (حساب حقيقي ٢ نوفمبر ٢٠٢٦)
         badgeKey: cr && cr.type === 'COLLECTION' ? 'card.snapCollection'
           : (cr && cr.type === 'COMPOSITE' ? 'card.snapStory' : (cr && cr.dynamic ? 'card.snapCatalog' : null)),
         landing: landing || '—', landingKind: landing ? 'website' : null,

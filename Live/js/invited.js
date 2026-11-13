@@ -69,7 +69,7 @@
 
   // الرابط نفسه بيتشال من شريط العنوان بعد القراءة (فيه التوقيع)
   try { history.replaceState(null, '', location.pathname); } catch (e) { /* مش مهم */ }
-  if (!/^[0-9a-f-]{36}$/.test(id) || !/^[A-Za-z0-9_-]{20,100}$/.test(sig)) { show('bad'); return; }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) || !/^[A-Za-z0-9_-]{20,100}$/.test(sig)) { show('bad'); return; }
   document.getElementById('invSend').addEventListener('click', send);
   document.getElementById('invRetry').addEventListener('click', function () { if (last === 'send') send(); else load(); });
   load();

@@ -118,7 +118,7 @@
         var on = o.value === activeSources[p];
         // مربع اختيار: الضغط في أي مكان على الصف بيختار أو بيلغي الاختيار (role=checkbox — الصف كله هو المربع)
         // الاسم الصريح للمربع: قارئ الشاشة كان بيقول «مربع اختيار، غير محدد» من غير اسم الحساب (شجرة الإتاحة على
-        // الموقع ٣ نوفمبر ٢٠٢٦). والمنصة جوه الاسم عشان حساب بنفس الاسم على منصتين (Coda مثلاً) ميتلخبطش
+        // الموقع ٣ نوفمبر ٢٠٢٦). والمنصة جوه الاسم عشان حساب بنفس الاسم على منصتين ميتلخبطش
         html += '<button type="button" class="acct-opt plat-' + esc(p) + (on ? ' on' : '') + '" role="checkbox" aria-checked="' + on + '"' +
           ' aria-label="' + esc(PLATFORM_NAMES[p] + ' — ' + acctName(o.label)) + '"' +
           ' data-acct-plat="' + esc(p) + '" data-acct-id="' + esc(o.value) + '">' +
@@ -675,7 +675,7 @@
     addExtraAlerts(analysisNow);
     if (period.preset === 'last7') return;
     // الإعلانات اللي أيام فترتها وصلت (c.pd) بيتحكم عليها بالفترة، والباقي (طلب الفترة فشل) بحكم «الآن» زي ما كان والحالة بتقول كده
-    var withPd = candidates.filter(function (c) { return c.pd && c.pd.dates && c.pd.dates.length; });
+    var withPd = candidates.filter(pdJudged);
     if (!withPd.length) return;
     // نوافذ بطول واحد للكل (المحرّك بياخد طول أطولها — setWindow وبيقرا الأيام من الآخر): حساب بتوقيت تاني ممكن فترته تبقى يوم أقصر
     var len = withPd.reduce(function (m, c) { return Math.max(m, c.pd.dates.length + 1); }, 0);
@@ -796,16 +796,27 @@
     return v;
   }
   // الحكم على أرقام الكارت نفسها؟ «آخر ٧ أيام» دايماً، وغيرها لو أيام الفترة وصلت (runAnalysis) — غير كده الحكم على «الآن»
-  function judgedOnPeriod(c) { return period.preset === 'last7' || !!(analysis.period && c.pd && c.pd.dates && c.pd.dates.length); }
+  function judgedOnPeriod(c) { return period.preset === 'last7' || !!(analysis.period && pdJudged(c)); }
+  // «اليوم» لوحده لسه مخلصش (فترة الإعلان يوم واحد وهو النهارده بتوقيت حسابه): مبيتحكمش عليه — الكارت بأرقام اليوم حتى الآن والحكم على آخر
+  // ٧ أيام مكتملة (حكم «الآن»)، زي ملخص المتجر بالظبط (diagnosis.js status 'open': «لا يصدر حكم الملخص قبل اكتماله» — قرار ٧ نوفمبر ٢٠٢٦)
+  // وزي القاعدة المتفق عليها من ٣٠ سبتمبر: مفيش حكم على بيانات يوم واحد لسه مخلصش. التدقيق الشامل ١٢ نوفمبر ٢٠٢٦ (فحص حي، ١٦ دقيقة بعد
+  // منتصف الليل بتوقيت الحساب): إعلانات وصول صرفت ٠٫٠١ $ ولسه نتيجتها موصلتش من المنصة طلع عليها «لا نتائج اليوم حتى الآن — يحتاج إلى تحسين»،
+  // وإعلان صرف ٠٫٢٤ $ «جيد». المنصات نفسها بتسجّل الإنفاق قبل النتائج، فأول اليوم ده ضوضاء مش حكم. فترة فيها أيام تانية مع النهارده
+  // («اليوم وأمس»، «هذا الشهر») بتتحكم زي ما هي
+  function openDayOnly(c) {
+    var d = c.pd && c.pd.dates, dd = c.dailyDates || [];
+    return !!d && d.length === 1 && dd.length > 0 && d[0] === dd[dd.length - 1];
+  }
+  function pdJudged(c) { return !!(c.pd && c.pd.dates && c.pd.dates.length) && !openDayOnly(c); }
   // عدد أيام بالعربي السليم: «يوم واحد» و«يومين» من غير رقم، والباقي بالرقم («٧ أيام»، «٣٠ يوماً»)
   function dayCountText(n) { return n === 1 ? t('dx.act.d1') : (n === 2 ? t('dx.act.d2') : ar(n) + ' ' + noun(n, 'n.day')); }
   // سطر أساس الحكم (تحت الحالة في التفاصيل وفي تلميح نقطة الكارت): على أنهي أيام اتحكم على الإعلان. قبل ٣ نوفمبر ٢٠٢٦ كان
   // «آخر ٧ أيام مكتملة» مهما كانت الفترة
   function basisLineOf(c, a) {
     if (a.days) return t('x.basisPeriodEdit', { n: ar(a.days) + ' ' + noun(a.days, 'n.day') });
-    if (!judgedOnPeriod(c)) return t('x.basisNow');
+    if (!judgedOnPeriod(c)) return t(openDayOnly(c) ? 'x.basisOpenDay' : 'x.basisNow');
     var r = resolvePeriodFor(BROWSER_TZ), today = todayKeyInTz(BROWSER_TZ), pl = { period: periodLabel() };
-    if (r.until === today) return r.since === today ? t('x.basisToday') : t('x.basisPeriodToday', pl);
+    if (r.until === today) return t('x.basisPeriodToday', pl);
     // قواعد «الآن» (أمس وآخر ٣ أيام) مقفولة في حكم الفترة اللي مبتخلصش أمس أو أقل من ٧ أيام (periodEngineOpts) — بنقول فين تلاقيها
     return t(r.until === shiftKey(today, -1) ? 'x.basisPeriod' : 'x.basisPeriodPast', pl) +
       (period.preset === 'last7' || periodEngineOpts().recent || nowOnlyIssues(c, a).length ? '' : ' ' + t('x.basisPeriodNow'));
@@ -1259,7 +1270,8 @@
   function animateCards(reshuffled) {
     var k = 0;
     Array.prototype.forEach.call(cardGrid.querySelectorAll('.candidate-card, .campaign-card'), function (el) {
-      var key = el.dataset.id ? 'ad:' + el.dataset.id : 'camp:' + el.dataset.campaign;
+      // كارت المجموعة الإعلانية ليه مفتاحه (data-adset): كان بياخد «camp:undefined» زي كل المجموعات، فأول كارت بس هو اللي بيتحرك
+      var key = el.dataset.id ? 'ad:' + el.dataset.id : (el.dataset.adset ? 'set:' + el.dataset.adset : 'camp:' + el.dataset.campaign);
       if (seenCards[key]) return;
       seenCards[key] = true;
       el.style.setProperty('--i', Math.min(k++, 14));
@@ -1525,7 +1537,8 @@
   // الحسابات المفتوحة اللي ينفع تتضاف للملخص، بإثبات الوصول ليها: Meta = مفتاح الجلسة (السيرفر بيبدّله بمفتاح طويل)، وSnapchat (من ٣١ أكتوبر
   // ٢٠٢٦ — «واجعل الملخص لكل المنصات») = النسخة المقفولة من مفتاح التجديد اللي على الجهاز (core.js sealedFor) — بتتحفظ مشفّرة تاني على
   // الخادم ومتتفتحش غير في الـ Worker (api/digest-fetch.js). Meta الأول: التفعيل بأول حساب مفتوح، والباقي بزرار «أضف»
-  var DIGEST_ID = { meta: /^act_\d{1,30}$/, snapchat: /^[0-9a-f-]{36}$/i };
+  // Snapchat: شكل UUID بالظبط زي الخادم (supabase/functions/sync/lib.ts UUID_SHAPE وapi/_input.js UUID) — المتساهل كان بيقبل ٣٦ شرطة
+  var DIGEST_ID = { meta: /^act_\d{1,30}$/, snapchat: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i };
   function digestOpen() {
     return ['meta', 'snapchat'].map(function (p) { return { platform: p, accountId: activeSources[p] }; }).filter(function (o) {
       return DIGEST_ID[o.platform].test(o.accountId || '') && (o.platform === 'meta' ? !!metaAccessToken() : !!sealedFor(o.platform));
@@ -2232,7 +2245,8 @@
   function dxMixNotes() {
     var sel = dxState.sel || {}, out = [];
     var names = function (list) { return DX.listText((list || []).map(function (p) { return t('dx.plat.' + p); })); };
-    if (sel.blocked === 'currency') out.push(t('dx.view.blockedCur', { platforms: names(sel.plats), curs: sel.curs.join('، ') }));
+    // العملات بأسمائها وبأداة العطف بتاعة اللغة (كانت رموز بفاصلة عربية حتى في الإنجليزي: «EGP، USD»)
+    if (sel.blocked === 'currency') out.push(t('dx.view.blockedCur', { platforms: names(sel.plats), curs: DX.listText(sel.curs.map(function (c) { return currencyLabel(c) || c; })) }));
     if (sel.blocked === 'period') out.push(t('dx.view.blockedPeriod', { platforms: names(sel.plats) }));
     if (sel.excluded && sel.excluded.length) out.push(t('dx.view.excluded', { platforms: names(sel.excluded) }));
     if (sel.conv) {
@@ -2879,7 +2893,8 @@
       return a && a.health === 'review' && onPlatforms(c, pick);
     }).length;
     // الشارة بتفتح الإعلانات بحكم الفترة، فبتقول الفترة لو غير الأسبوع — القسم نفسه عن «الآن» فالعدد من غيرها كان بيتقرا عن دلوقتي
-    var reviewText = period.preset === 'last7' ? t('attn.review', { n: ar(review) }) : t('attn.reviewP', { n: ar(review), period: periodLabel() });
+    // من غير حكم فترة (اليوم لوحده، أو أيام الفترة موصلتش): العدد من حكم «الآن» فمن غير اسم الفترة
+    var reviewText = period.preset === 'last7' || !analysis.period ? t('attn.review', { n: ar(review) }) : t('attn.reviewP', { n: ar(review), period: periodLabel() });
     var chips = review ? '<button type="button" class="attn-chip" data-kpi="review">' + esc(reviewText) + '</button>' : '';
     var head = '<div class="top-alerts-head"><h3 class="top-alerts-title">' + esc(t('sec.attn')) + '</h3>' + (chips ? '<span class="attn-chips">' + chips + '</span>' : '') + '</div>';
     if (!items.length) {
@@ -3292,6 +3307,7 @@
 
   document.querySelectorAll('.filter-group').forEach(function (group) {
     if (group.dataset.filter === 'platform') return;   // أزرار المنصات ليها معالجها (data-plat-pick)
+    markChips(group, filters[group.dataset.filter] || 'all');
     group.addEventListener('click', function (e) {
       var btn = e.target.closest('.chip'); if (!btn) return;
       setFilterChip(group, btn.dataset.value);
@@ -3299,8 +3315,17 @@
       render();
     });
   });
+  // الاختيار الحالي معلّم لقارئ الشاشة كمان (aria-pressed — WCAG 4.1.2 «الاسم والدور والقيمة»): فلتر الحالة والصيغة كانوا متعلّمين
+  // باللون بس، عكس أزرار المنصات وطريقة العرض (التدقيق الشامل ١٢ نوفمبر ٢٠٢٦)
+  function markChips(group, value) {
+    group.querySelectorAll('.chip').forEach(function (c) {
+      var on = c.dataset.value === value;
+      c.classList.toggle('active', on);
+      c.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
   function setFilterChip(group, value) {
-    group.querySelectorAll('.chip').forEach(function (c) { c.classList.toggle('active', c.dataset.value === value); });
+    markChips(group, value);
     filters[group.dataset.filter] = value;
   }
   // البحث بيستنى لحظة بعد آخر حرف — قبل كده كل حرف كان بيعيد التحليل والرسم كله (تقيل مع الحسابات الكبيرة)
@@ -3398,7 +3423,7 @@
 
   // ليه إعلان الكتالوج في Snapchat مظهرش صور؟ (snapchat.js snapProductErr = { code, status })
   // ٤٠٣ = الحساب المربوط مش ليه صلاحية على الكتالوج — ده اللي العميل يقدر يصلّحه بنفسه من مدير الأعمال
-  // (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Coda: كتالوج بيشتغل وتاني بيترفض في نفس الحساب).
+  // (حساب حقيقي ٢ نوفمبر ٢٠٢٦: كتالوج بيشتغل وتاني بيترفض في نفس الحساب).
   // ٤٠٤ = المجموعة مبقتش موجودة. غير كده = مقدرناش نقرا. ومفيش code = المجموعة فاضية فعلاً
   function setNoteKey(why) {
     if (!why || !why.code) return 'x.snapSetEmpty';
@@ -3591,7 +3616,8 @@
     var dd = c.dailyDates, last = dd.length - 1, today = dd[last];
     var at = function (arr, i) { return (arr || [])[i] || 0; };
     var nowToday = { spend: at(c.daily, last), results: at(c.dailyResults, last), sales: at(c.dailySales, last) };
-    if (period.preset === 'last7' || !judgedOnPeriod(c)) {
+    // «اليوم» لوحده: الحكم على آخر ٧ أيام (openDayOnly) لكن الجدول بيفضل تابع الفترة زي الأرقام اللي فوقه — عمود النهارده
+    if (period.preset === 'last7' || (!judgedOnPeriod(c) && !openDayOnly(c))) {
       return { dates: dd.slice(0, last), spend: c.daily.slice(0, last), results: c.dailyResults.slice(0, last), sales: c.dailySales.slice(0, last),
         hasToday: true, today: nowToday, title: t('x.dailyTitle') };
     }
@@ -3820,7 +3846,7 @@
     if (!vsrc && c.snapProductSetId) {
       // الكتالوج: منتجات المجموعة (snapchat.js loadSnapchatCatalog)، ومن غير زرار المعاينة لو ديناميكي (Snapchat بيقول «Preview Not
       // Supported» — اتجرّب ٢٥ أكتوبر)
-      // مفيش منتجات = الكارت كان بيفضل خلفية فاضية من غير أي كلام (حساب حقيقي ٢ نوفمبر ٢٠٢٦ — Coda).
+      // مفيش منتجات = الكارت كان بيفضل خلفية فاضية من غير أي كلام (حساب حقيقي ٢ نوفمبر ٢٠٢٦).
       // دلوقتي بيقول السبب: المجموعة فاضية عند Snapchat، ولا إحنا مقدرناش نقراها
       var showItems = function (items, why) {
         if (openSeq !== expandSeq) return;
@@ -4156,7 +4182,7 @@
     var label = copyKey ? t(copyKey) : m.label, help = copyKey ? t(copyKey + '.help') : m.help;
     // نص مش number: خانة الأرقام بتعتبر «٢٫٥» أو «2,5» قيمة فاضية، فكانت بتتشال في صمت وترجع للافتراضي
     return '<label class="setting-row"><span class="setting-text"><span class="setting-label">' + esc(label) + '</span><span class="setting-help">' + esc(help) + '</span></span>' +
-      '<span class="setting-input"><input type="text" inputmode="decimal" dir="ltr" autocomplete="off" spellcheck="false" data-step="' + step + '" name="' + m.key + '" value="' + shown + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
+      '<span class="setting-input"><input type="text" inputmode="decimal" dir="ltr" autocomplete="off" spellcheck="false" data-step="' + step + '" name="' + m.key + '" value="' + esc(String(shown)) + '"><span class="setting-unit">' + SETTING_UNITS[m.kind] + '</span></span></label>';
   }
   // هدف المتجر (العائد المستهدف)
   function settingsCoreHtml(current) {
@@ -4598,10 +4624,15 @@
   document.getElementById('welcomeClose').addEventListener('click', closeWelcome);
 
   function resetFilterChips() {
-    document.querySelectorAll('.filter-group').forEach(function (g) { g.querySelectorAll('.chip').forEach(function (ch) { ch.classList.toggle('active', ch.dataset.value === 'all'); }); });
+    // أزرار المنصات بتترسم من اختيار المنصات نفسه (renderFilterState)
+    document.querySelectorAll('.filter-group').forEach(function (g) { if (g.dataset.filter !== 'platform') markChips(g, 'all'); });
     filters.platform = 'all'; filters.format = 'all'; filters.health = 'all'; filters.text = '';
-    filters.campaign = null;
-    platSel = null;
+    // ترشيح المجموعة الإعلانية كمان (المستوى الأوسط من ٣ نوفمبر ٢٠٢٦ — كان بيفضل بعد «مسح الفلاتر»)، واختيار المنصات بيرجع «كل المنصات» في
+    // الملخص نفسه: من غير dxBuild أزرار المنصات كانت بتقول «كل المنصات» والأرقام تحتها لسه أرقام المنصة اللي كانت مختارة (التدقيق الشامل
+    // ١٢ نوفمبر ٢٠٢٦)
+    filters.campaign = null; filters.campaignName = null;
+    filters.adset = null; filters.adsetName = null;
+    if (platSel) { platSel = null; dxBuild(); }
     textFilter.value = '';
   }
 
