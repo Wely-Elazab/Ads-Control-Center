@@ -3205,6 +3205,31 @@
         eq(document.activeElement && document.activeElement.id, 'loginMenuBtn');
       }).then(function () { showView('summary'); }, function (e) { showView('summary'); throw e; });
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): Tab جوه النافذة (ui.js focusablesIn وحبس التركيز) مكانش اتنفّذ في أي اختبار — كل النوافذ فيها زرار
+    // إغلاق فالقايمة نفسها مكانتش بتتحسب. WCAG 2.1.2 و2.4.3: التركيز ميطلعش من النافذة المفتوحة وبيلف جواها بالترتيب
+    testAsync('النوافذ: Tab من آخر عنصر بيرجع لأول عنصر وShift+Tab من الأول بيروح للآخر، والعنصر المخفي أو المعطّل مش من محطات التركيز', function () {
+      var dlg = document.getElementById('welcomeOverlay'), card = dlg.querySelector('.expand-card'), wasHidden = dlg.classList.contains('hidden');
+      var off = document.createElement('button'), ghost = document.createElement('button');
+      off.type = 'button'; off.id = 'trapOff'; off.disabled = true;
+      ghost.type = 'button'; ghost.id = 'trapGhost'; ghost.hidden = true;
+      card.appendChild(off); card.appendChild(ghost);
+      var tab = function (shift) {
+        var e = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: !!shift, bubbles: true, cancelable: true });
+        document.activeElement.dispatchEvent(e);
+        return e.defaultPrevented;
+      };
+      var cleanup = function () { off.remove(); ghost.remove(); if (wasHidden) dlg.classList.add('hidden'); };
+      dlg.classList.remove('hidden');
+      return tick().then(function () {
+        var ids = focusablesIn(dlg).map(function (el) { return el.id; });
+        eq([ids[0], ids[ids.length - 1], ids.indexOf('trapOff'), ids.indexOf('trapGhost')], ['welcomeClose', 'welcomeSkip', -1, -1], 'stops: ' + ids.join(','));
+        document.getElementById('welcomeSkip').focus();
+        eq([tab(false), document.activeElement.id], [true, 'welcomeClose'], 'Tab on the last: back to the first');
+        eq([tab(true), document.activeElement.id], [true, 'welcomeSkip'], 'Shift+Tab on the first: to the last');
+        document.getElementById('welcomeSave').focus();
+        eq([tab(false), document.activeElement.id], [false, 'welcomeSave'], 'in the middle: left to the browser');
+      }).then(cleanup, function (e) { cleanup(); throw e; });
+    });
     testAsync('سياسة الأمان: script-src من غير unsafe-inline/eval، وصفحة الفحص مطابقة للموقع', function () {
       return Promise.all([import('/cloudflare/worker.js'), fetch('/tests/csp-check.html').then(function (r) { return r.text(); })]).then(function (r) {
         var live = r[0].SECURITY_HEADERS['Content-Security-Policy'];
