@@ -11110,6 +11110,29 @@
       eq(parseRoute('?cmp=custom&csince=2026-10-05', '2026-10-11').compare, null, 'missing end');
       eq(routeSearch({ accounts: {}, view: 'summary', list: null, compare: '2026-10-01:2026-10-05', period: 'last7' }, ''), '?period=last7&cmp=custom&csince=2026-10-01&cuntil=2026-10-05');
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): تطبيق المجموعة اللي في الرابط (route.js routeFindAdset) مكانش اتنفّذ في أي اختبار — قراءتها بس كانت مختبرة
+    test('المجموعة الإعلانية اللي في الرابط (adset=): أول ما إعلاناتها توصل الفلتر بيتطبّق باسمها — برقمها أو بمفتاحها، واللي مش موجود لسه بيستنى', function () {
+      var keep = { adset: routePending.adset, campaign: routePending.campaign, f: filters.adset, fn: filters.adsetName };
+      try {
+        var x = ad('x1', { aid: 'as9' });
+        x.adsetName = 'Set nine';
+        candidates = [ad('x0', { aid: 'as1' }), x];
+        routePending.campaign = null;
+        routePending.adset = 'as9';
+        routeBeforeRender();
+        eq([filters.adset, filters.adsetName, routePending.adset], [adsetKey(x), 'Set nine', null], 'by its number from the platform');
+        filters.adset = null; filters.adsetName = null;
+        routePending.adset = adsetKey(x);
+        routeBeforeRender();
+        eq([filters.adset, routePending.adset], [adsetKey(x), null], 'by its key (a link copied from the tool)');
+        filters.adset = null; filters.adsetName = null;
+        routePending.adset = 'as404';
+        routeBeforeRender();
+        eq([filters.adset, routePending.adset], [null, 'as404'], 'not among the loaded ads yet: it waits for them');
+      } finally {
+        routePending.adset = keep.adset; routePending.campaign = keep.campaign; filters.adset = keep.f; filters.adsetName = keep.fn;
+      }
+    });
     test('الفترة المخصصة في الرابط: مترتبة، مش في المستقبل، وأقصاها ٩٣ يوم — زي زرار «تطبيق»', function () {
       eq(parseRoute('?period=custom&since=2026-10-09&until=2026-10-01', '2026-10-11').period, { preset: 'custom', since: '2026-10-01', until: '2026-10-09' }, 'reversed');
       eq(parseRoute('?period=custom&since=2026-10-01&until=2026-12-01', '2026-10-11').period, { preset: 'custom', since: '2026-10-01', until: '2026-10-11' }, 'future end');
