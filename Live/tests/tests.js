@@ -3989,6 +3989,386 @@
         });
       });
     });
+    // ---------- صفحة الدخول (login.html + js/login.js) — التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): الصفحة نفسها مكانش ليها أي اختبار ----------
+    // في iframe من نفس الأصل: Supabase ودالة sync وPwned Passwords ردود وهمية جوه الإطار (مفيش أي طلب حقيقي)، والنقل للأداة بيوصل لـ /app
+    // اللي مش موجود على خادم الاختبار (404 من غير سكربتات). التخزين مشترك مع صفحة الاختبار: نسخة كاملة قبل كل اختبار وبترجع زي ما هي بعده
+    var LOGIN_SB = 'https://rhrrnxsgodiideqeollo.supabase.co', loginRoutes = {}, loginLog = [];
+    function loginSnap() {
+      var dump = function (st) { var o = {}; for (var i = 0; i < st.length; i++) o[st.key(i)] = st.getItem(st.key(i)); return o; };
+      var l = dump(localStorage), s = dump(sessionStorage);
+      localStorage.setItem('acc.lang', 'ar');
+      ['ac.login', 'ac.owner'].forEach(function (k) { localStorage.removeItem(k); sessionStorage.removeItem(k); });
+      return function () {
+        delete window.__loginFetch;
+        [[localStorage, l], [sessionStorage, s]].forEach(function (p) { p[0].clear(); Object.keys(p[1]).forEach(function (k) { p[0].setItem(k, p[1][k]); }); });
+      };
+    }
+    // الردود بالمسار: '/token?grant_type=password' وأخواتها (Auth)، واسم العملية لدالة sync ('login.status' …)، و'pwned'.
+    // الرد { status, body } أو دالة بترجّعه، و'down' = الشبكة وقعت. أي طلب مش متوقع بيترفض ويتسجّل برضه
+    function loginFetch(w, url, opts) {
+      var u = String(url), o = opts || {}, body = null;
+      try { body = o.body ? JSON.parse(o.body) : null; } catch (e) { body = o.body; }
+      var key = u.indexOf(LOGIN_SB + '/auth/v1') === 0 ? u.slice((LOGIN_SB + '/auth/v1').length)
+        : u === LOGIN_SB + '/functions/v1/sync' ? body && body.action
+          : u.indexOf('https://api.pwnedpasswords.com/range/') === 0 ? 'pwned' : u;
+      loginLog.push({ key: key, method: o.method || 'GET', body: body, headers: o.headers || {}, url: u });
+      var r = loginRoutes[key];
+      if (typeof r === 'function') r = r(body);
+      if (r === 'down') return Promise.reject(new TypeError('Failed to fetch'));
+      if (!r) return Promise.reject(new TypeError('unexpected request: ' + key));
+      var status = r.status || 200;
+      return Promise.resolve(new w.Response(status === 204 ? null : (typeof r.body === 'string' ? r.body : JSON.stringify(r.body || {})), { status: status }));
+    }
+    function loginNet(w, routes) {
+      loginRoutes = routes; loginLog.length = 0;
+      if (w) w.fetch = function (u, o) { return loginFetch(w, u, o); };
+      return loginLog;
+    }
+    // من غير routes: الصفحة بعنوانها (?reset و?first و?next بتتقري)، والردود بتتحط بعد التحميل. بـ routes: srcdoc وبديل fetch قبل أي سكربت
+    // (مسار الجلسة المحفوظة: الصفحة بتسأل الدالة أول ما تفتح) — ومن غير query
+    function loginPage(query, routes) {
+      if (!routes) return framePage('/login.html' + (query || ''), 420, 820);
+      loginNet(null, routes);
+      window.__loginFetch = loginFetch;
+      return framePage('/login.html', 420, 820, 'window.fetch = function (u, o) { return parent.__loginFetch(window, u, o); };');
+    }
+    function loginWait(fn) {
+      return new Promise(function (resolve) {
+        var left = 150;
+        (function poll() { var v = fn(); if (v || --left <= 0) resolve(v); else setTimeout(poll, 20); })();
+      });
+    }
+    function loginState(f) { var s = f.contentDocument.querySelector('[data-login-state]:not([hidden])'); return s && s.getAttribute('data-login-state'); }
+    function loginMsg(f, id) { var el = f.contentDocument.getElementById(id); return el && !el.hidden ? el.textContent : null; }
+    function loginFocus(f) { var a = f.contentDocument.activeElement; return a && a.id; }
+    function loginWhere(f) { try { return f.contentWindow.location.pathname + f.contentWindow.location.search; } catch (e) { return 'cross-origin'; } }
+    var LOGIN_SESSION = function (token) { return JSON.stringify({ access_token: token, refresh_token: 'RT-' + token, expires_at: Date.now() + 3600000, email: 'owner@store.com' }); };
+
+    testAsync('صفحة الدخول: البريد وكلمة المرور بيتراجعوا قبل أي طلب، والرد الغلط والمحاولات الكتير والشبكة والحساب غير المفعّل كل واحد برسالته', function () {
+      var restore = loginSnap(), f, n = 0;
+      return loginPage().then(function (fr) {
+        f = fr;
+        var d = f.contentDocument, submit = function () { d.getElementById('signinForm').requestSubmit(); };
+        var log = loginNet(f.contentWindow, {
+          '/token?grant_type=password': function () {
+            n++;
+            return n === 1 ? { status: 400, body: { error: 'invalid_grant' } } : n === 2 ? { status: 429, body: {} } : n === 3 ? 'down'
+              : { body: { access_token: 'AT-0', refresh_token: 'RT-0', expires_in: 3600, user: { email: 'owner@store.com' } } };
+          },
+          'login.status': { body: { access: false, verified: false } },
+          '/logout?scope=local': { status: 204 }
+        });
+        eq(loginState(f), 'signin', 'starts on sign-in');
+        d.getElementById('lEmail').value = 'not-an-email';
+        d.getElementById('lPassword').value = 'some-password';
+        submit();
+        eq([loginMsg(f, 'signinError'), d.getElementById('lEmail').getAttribute('aria-invalid'), loginFocus(f), log.length],
+          ['اكتب بريدك الإلكتروني بشكل صحيح.', 'true', 'lEmail', 0], 'a wrong email: no request');
+        d.getElementById('lEmail').value = ' Owner@Store.com ';
+        d.getElementById('lPassword').value = '';
+        submit();
+        eq([loginMsg(f, 'signinError'), d.getElementById('lEmail').getAttribute('aria-invalid'), loginFocus(f), log.length],
+          ['اكتب كلمة المرور.', null, 'lPassword', 0], 'no password: no request, and the email is no longer marked');
+        d.getElementById('lPassword').value = 'wrong-password';
+        // المؤشر في حقل تاني: الرد الغلط هو اللي لازم يرجّعه لكلمة المرور (طفرة: من غيرها الاختبار كان بينجح والمؤشر مكانه من الخطوة اللي قبلها)
+        d.getElementById('lEmail').focus();
+        submit();
+        ok(d.getElementById('signinSubmit').disabled && loginMsg(f, 'signinError') === null, 'busy while waiting, the old error gone');
+        return loginWait(function () { return loginMsg(f, 'signinError'); }).then(function (msg) {
+          eq([msg, loginFocus(f), d.getElementById('signinSubmit').disabled], ['البريد أو كلمة المرور غير صحيحة.', 'lPassword', false], 'wrong email or password');
+          eq([log[0].key, log[0].method, log[0].body, !!log[0].headers.apikey], ['/token?grant_type=password', 'POST', { email: 'Owner@Store.com', password: 'wrong-password' }, true], 'the sign-in request');
+          submit();
+          return loginWait(function () { return loginMsg(f, 'signinError'); });
+        }).then(function (msg) {
+          eq(msg, 'محاولات كثيرة. انتظر قليلاً ثم حاول مرة أخرى.', 'too many attempts (429)');
+          submit();
+          return loginWait(function () { return loginMsg(f, 'signinError'); });
+        }).then(function (msg) {
+          eq(msg, 'تعذّر الاتصال. تأكد من الإنترنت وحاول مرة أخرى.', 'no connection');
+          eq([log.length, localStorage.getItem('ac.login'), loginState(f)], [3, null, 'signin'], 'no session after any failure');
+          // كلمة المرور صح بس الحساب مش مفعّل في التجربة (أو اتشال منها): رسالته، والجلسة اللي اتفتحت بتتقفل هنا وعند Supabase
+          submit();
+          return loginWait(function () { return loginMsg(f, 'signinError'); });
+        }).then(function (msg) {
+          var out = log.filter(function (x) { return x.key === '/logout?scope=local'; })[0];
+          eq([msg, localStorage.getItem('ac.login'), out && out.headers.authorization, loginState(f), d.getElementById('signinSubmit').disabled],
+            ['هذا الحساب غير مفعّل في التجربة بعد. إن كنت أرسلت طلب انضمام، فسنفعّله خلال ٢٤ ساعة.', null, 'Bearer AT-0', 'signin', false], 'no pilot access: signed out again');
+        });
+      }).then(function () { f.remove(); restore(); }, function (e) { if (f) f.remove(); restore(); throw e; });
+    });
+
+    testAsync('صفحة الدخول: كلمة المرور صح ← الرمز على البريد (الطلب التاني بعد ٦٠ ثانية) ← نفس صفحة الأداة اللي بعتتك، والجلسة باسم البريد', function () {
+      var restore = loginSnap(), f;
+      return loginPage('?next=' + encodeURIComponent('/app?meta=act_1')).then(function (fr) {
+        f = fr;
+        var d = f.contentDocument;
+        var log = loginNet(f.contentWindow, {
+          '/token?grant_type=password': { body: { access_token: 'AT-1', refresh_token: 'RT-1', expires_in: 3600, user: { email: 'owner@store.com' } } },
+          'login.status': { body: { access: true, verified: false, email: 'owner@store.com' } },
+          'login.code': { body: { sent: true } },
+          'login.verify': function (b) { return b.code === '123456' ? { body: { verified: true } } : { status: 400, body: { error: 'code', left: 2 } }; }
+        });
+        d.getElementById('lEmail').value = 'Owner@Store.com';
+        d.getElementById('lPassword').value = 'right-password';
+        d.getElementById('signinForm').requestSubmit();
+        return loginWait(function () { return loginState(f) === 'code'; }).then(function () {
+          var s = JSON.parse(localStorage.getItem('ac.login'));
+          eq([s.access_token, s.refresh_token, s.email, localStorage.getItem('ac.owner')], ['AT-1', 'RT-1', 'owner@store.com', 'owner@store.com'], 'the session is stored for this email');
+          ok(s.expires_at > Date.now() + 3500000, 'expiry from expires_in');
+          eq(d.getElementById('lPassword').value, '', 'the password does not stay in the page');
+          eq(Array.prototype.map.call(d.querySelectorAll('[data-login-email]'), function (el) { return el.textContent; }), ['owner@store.com', 'owner@store.com'], 'the code step names the address (lowercase)');
+          eq(log.map(function (x) { return x.key; }), ['/token?grant_type=password', 'login.status', 'login.code']);
+          eq([log[1].headers.Authorization, log[2].headers.Authorization, log[1].body.lang], ['Bearer AT-1', 'Bearer AT-1', 'ar'], 'the sync calls carry the new session and the page language');
+          eq([d.getElementById('resendCode').disabled, loginMsg(f, 'resendWait'), loginFocus(f)], [true, 'يمكنك طلب رمز جديد بعد ٦٠ ثانية.', 'lCode'], 'a new code only after 60 seconds');
+          d.getElementById('lCode').value = '12345';
+          d.getElementById('codeForm').requestSubmit();
+          eq([loginMsg(f, 'codeError'), log.length], ['اكتب الرمز المكوّن من ٦ أرقام.', 3], 'five digits: no request');
+          // أرقام عربية ومسافات (منسوخة من رسالة البريد على الموبايل): بتتحوّل وتتبعت ٦ أرقام
+          d.getElementById('lCode').value = '١٢٣ ٤٥٧';
+          d.getElementById('codeSubmit').focus();
+          d.getElementById('codeForm').requestSubmit();
+          return loginWait(function () { return loginMsg(f, 'codeError'); });
+        }).then(function (msg) {
+          eq([msg, log[3] && log[3].body, loginFocus(f)], ['الرمز غير صحيح. بقيت لك ٢ من المحاولات.', { action: 'login.verify', lang: 'ar', code: '123457' }, 'lCode'], 'a wrong code: the attempts left');
+          d.getElementById('lCode').value = '123456';
+          d.getElementById('codeForm').requestSubmit();
+          return loginWait(function () { return loginWhere(f) === '/app?meta=act_1'; });
+        }).then(function (went) {
+          ok(went, 'back to the tool page that sent you to sign in: ' + loginWhere(f));
+        });
+      }).then(function () { f.remove(); restore(); }, function (e) { if (f) f.remove(); restore(); throw e; });
+    });
+
+    testAsync('صفحة الدخول: next لموقع تاني مبيتّبعش — بعد الدخول الرجوع على /app بس', function () {
+      var restore = loginSnap(), f;
+      return loginPage('?next=' + encodeURIComponent('https://evil.example/app')).then(function (fr) {
+        f = fr;
+        var d = f.contentDocument;
+        loginNet(f.contentWindow, {
+          '/token?grant_type=password': { body: { access_token: 'AT-3', refresh_token: 'RT-3', expires_in: 3600, user: { email: 'owner@store.com' } } },
+          'login.status': { body: { access: true, verified: false } },
+          'login.code': { body: { verified: true } }
+        });
+        d.getElementById('lEmail').value = 'owner@store.com';
+        d.getElementById('lPassword').value = 'right-password';
+        d.getElementById('signinForm').requestSubmit();
+        return loginWait(function () { return loginWhere(f) === '/app'; });
+      }).then(function (went) {
+        ok(went, 'to the tool, not to the other site: ' + loginWhere(f));
+      }).then(function () { f.remove(); restore(); }, function (e) { if (f) f.remove(); restore(); throw e; });
+    });
+
+    testAsync('صفحة الدخول بجلسة محفوظة: مأكَّدة ← الأداة، ومستنية الرمز ← خطوة الرمز، وكل رد لإرسال الرمز برسالته أو بوقت انتظاره', function () {
+      var restore = loginSnap(), f = null;
+      var pending = { body: { access: true, verified: false, email: 'owner@store.com' } };
+      var codeError = function (msg) { return { error: msg }; };
+      // [الحالة، رد login.status، رد login.code، المتوقع]
+      var cases = [
+        ['verified', { body: { access: true, verified: true } }, null, { nav: '/app' }],
+        ['code sent', pending, { body: { sent: true } }, { wait: 'يمكنك طلب رمز جديد بعد ٦٠ ثانية.' }],
+        ['wait', pending, { status: 429, body: { error: 'wait', retryIn: 42 } }, { wait: 'يمكنك طلب رمز جديد بعد ٤٢ ثانية.' }],
+        ['device already confirmed', pending, { body: { verified: true } }, { nav: '/app' }],
+        ['session gone (code)', pending, { status: 401, body: { code: 'LOGIN' } }, { gone: true }],
+        ['no access', pending, { status: 403, body: { error: 'access' } }, codeError('هذا الحساب غير مفعّل في التجربة بعد. إن كنت أرسلت طلب انضمام، فسنفعّله خلال ٢٤ ساعة.')],
+        ['too many codes', pending, { status: 429, body: { error: 'sends' } }, codeError('طلبت رموزاً كثيرة. اضغط «الدخول بحساب آخر» وسجّل الدخول من جديد بعد قليل.')],
+        ['locked', pending, { status: 429, body: { error: 'locked' } }, codeError('محاولات دخول كثيرة على هذا الحساب اليوم. حاول مرة أخرى غداً، وإن لم تكن أنت من يحاول فغيّر كلمة المرور من «نسيت كلمة المرور؟».')],
+        ['mail failed', pending, { status: 502, body: { error: 'mail' } }, codeError('تعذّر إرسال الرمز الآن. حاول مرة أخرى بعد قليل.')],
+        ['network (code)', pending, 'down', codeError('تعذّر الاتصال. تأكد من الإنترنت وحاول مرة أخرى.')],
+        ['session gone (status)', { status: 401, body: { code: 'LOGIN' } }, null, { gone: true }],
+        ['access removed', { body: { access: false, verified: false } }, null, { gone: true }],
+        ['network (status)', 'down', null, { kept: true }]
+      ];
+      var run = function (i) {
+        if (i >= cases.length) return Promise.resolve();
+        var c = cases[i], name = c[0], exp = c[3], routes = { 'login.status': c[1], '/logout?scope=local': { status: 204 } };
+        if (c[2]) routes['login.code'] = c[2];
+        localStorage.setItem('ac.login', LOGIN_SESSION('AT-2'));
+        return loginPage('', routes).then(function (fr) {
+          f = fr;
+          if (exp.nav) return loginWait(function () { return loginWhere(f) === exp.nav; }).then(function (went) { ok(went, name + ': to the tool — ' + loginWhere(f)); });
+          if (exp.gone) {
+            return loginWait(function () { return localStorage.getItem('ac.login') === null; }).then(function (gone) {
+              var out = loginLog.filter(function (x) { return x.key === '/logout?scope=local'; })[0];
+              eq([!!gone, loginState(f), out && out.headers.authorization], [true, 'signin', 'Bearer AT-2'], name + ': signed out on this device and at Supabase');
+            });
+          }
+          if (exp.kept) {
+            return loginWait(function () { return loginLog.some(function (x) { return x.key === 'login.status'; }); }).then(function () {
+              return new Promise(function (r) { setTimeout(r, 60); });
+            }).then(function () {
+              eq([loginState(f), !!localStorage.getItem('ac.login')], ['signin', true], name + ': a network failure signs nobody out');
+            });
+          }
+          return loginWait(function () { return loginState(f) === 'code'; }).then(function () {
+            eq([loginState(f), loginMsg(f, 'codeError'), loginMsg(f, 'resendWait'), f.contentDocument.querySelector('[data-login-email]').textContent],
+              ['code', exp.error || null, exp.wait || null, 'owner@store.com'], name);
+          });
+        }).then(function () { f.remove(); f = null; return run(i + 1); });
+      };
+      return run(0).then(function () { restore(); }, function (e) { if (f) f.remove(); restore(); throw e; });
+    });
+
+    testAsync('صفحة الدخول — خطوة الرمز: كل رد غلط برسالته، و«أعد إرسال الرمز» بعد خطأ الإرسال، و«الدخول بحساب آخر» بيقفل الجلسة', function () {
+      var restore = loginSnap(), f, d, verify = null;
+      localStorage.setItem('ac.login', LOGIN_SESSION('AT-4'));
+      return loginPage('', {
+        'login.status': { body: { access: true, verified: false, email: 'owner@store.com' } },
+        'login.code': { status: 502, body: { error: 'mail' } },
+        'login.verify': function () { return verify; },
+        '/logout?scope=local': { status: 204 }
+      }).then(function (fr) {
+        f = fr; d = f.contentDocument;
+        return loginWait(function () { return loginMsg(f, 'codeError'); });
+      }).then(function () {
+        eq(d.getElementById('resendCode').disabled, false, 'after a failed send «send a new code» works at once');
+        loginRoutes['login.code'] = { body: { sent: true } };
+        d.getElementById('resendCode').click();
+        return loginWait(function () { return loginMsg(f, 'resendWait'); });
+      }).then(function (wait) {
+        eq([wait, loginMsg(f, 'codeError'), d.getElementById('resendCode').disabled], ['يمكنك طلب رمز جديد بعد ٦٠ ثانية.', null, true], 'resent: the error goes, the wait starts');
+        // [رد login.verify، الرسالة، الحقل اللي بيتعلّم (null = مفيش)]
+        var tries = [
+          [{ status: 400, body: { error: 'expired' } }, 'انتهت صلاحية الرمز. اضغط «أعد إرسال الرمز».', 'lCode'],
+          [{ status: 400, body: { error: 'code', left: 0 } }, 'تجاوزت عدد المحاولات لهذا الرمز. اضغط «أعد إرسال الرمز».', 'lCode'],
+          [{ status: 429, body: { error: 'tries' } }, 'تجاوزت عدد المحاولات لهذا الرمز. اضغط «أعد إرسال الرمز».', 'lCode'],
+          [{ status: 429, body: { error: 'locked' } }, 'محاولات دخول كثيرة على هذا الحساب اليوم. حاول مرة أخرى غداً، وإن لم تكن أنت من يحاول فغيّر كلمة المرور من «نسيت كلمة المرور؟».', 'lCode'],
+          [{ status: 401, body: { code: 'LOGIN' } }, 'البريد أو كلمة المرور غير صحيحة.', 'lCode'],
+          [{ status: 500, body: {} }, 'حدث خطأ. حاول مرة أخرى بعد قليل، أو راسلنا على support@adscenter.online.', 'lCode'],
+          ['down', 'تعذّر الاتصال. تأكد من الإنترنت وحاول مرة أخرى.', null]
+        ];
+        var step = function (i) {
+          if (i >= tries.length) return Promise.resolve();
+          var t = tries[i];
+          verify = t[0];
+          d.getElementById('lCode').value = '123456';
+          d.getElementById('codeSubmit').focus();
+          d.getElementById('codeForm').requestSubmit();
+          return loginWait(function () { return loginMsg(f, 'codeError'); }).then(function (msg) {
+            eq([msg, t[2] ? loginFocus(f) : null, d.getElementById('codeSubmit').disabled], [t[1], t[2], false], 'verify answer #' + i);
+            return step(i + 1);
+          });
+        };
+        return step(0);
+      }).then(function () {
+        d.getElementById('otherAccount').click();
+        var out = loginLog.filter(function (x) { return x.key === '/logout?scope=local'; })[0];
+        eq([localStorage.getItem('ac.login'), out && out.headers.authorization, d.getElementById('lCode').value, loginState(f), loginFocus(f)],
+          [null, 'Bearer AT-4', '', 'signin', 'lEmail'], '«use another account»: signed out here and at Supabase, back to sign-in');
+      }).then(function () { f.remove(); restore(); }, function (e) { if (f) f.remove(); restore(); throw e; });
+    });
+
+    testAsync('صفحة الدخول: «نسيت كلمة المرور» و«أول دخول» نفس الخطوة برابط على البريد، والرسائل بلغة الصفحة', function () {
+      var restore = loginSnap(), f;
+      var title = function (d) { return Array.prototype.filter.call(d.querySelectorAll('[data-forgot-title]'), function (el) { return !el.hidden; }).map(function (el) { return el.getAttribute('data-forgot-title'); }); };
+      return loginPage().then(function (fr) {
+        f = fr;
+        var d = f.contentDocument;
+        var log = loginNet(f.contentWindow, { 'login.forgot': function (b) {
+          return b.email === 'down@store.com' ? 'down' : (b.email === 'bad@store.com' ? { status: 400, body: { error: 'email' } } : (b.email === 'err@store.com' ? { status: 500, body: {} } : { body: { ok: true } }));
+        } });
+        var send = function (email) { d.getElementById('fEmail').value = email; d.getElementById('forgotForm').requestSubmit(); return loginWait(function () { return loginMsg(f, 'forgotError'); }); };
+        d.getElementById('lEmail').value = 'owner@store.com';
+        d.querySelector('[data-go="forgot"]').click();
+        eq([loginState(f), title(d), d.getElementById('fEmail').value, loginFocus(f)], ['forgot', ['forgot'], 'owner@store.com', 'fEmail'], 'the typed email carries over');
+        d.getElementById('fEmail').value = 'nope';
+        d.getElementById('forgotForm').requestSubmit();
+        eq([loginMsg(f, 'forgotError'), loginFocus(f), log.length], ['اكتب بريدك الإلكتروني بشكل صحيح.', 'fEmail', 0], 'a wrong email: no request');
+        return send('bad@store.com').then(function (msg) {
+          eq([msg, loginFocus(f)], ['اكتب بريدك الإلكتروني بشكل صحيح.', 'fEmail'], 'refused by the server (400)');
+          return send('err@store.com');
+        }).then(function (msg) {
+          eq(msg, 'حدث خطأ. حاول مرة أخرى بعد قليل، أو راسلنا على support@adscenter.online.', 'server error');
+          return send('down@store.com');
+        }).then(function (msg) {
+          eq(msg, 'تعذّر الاتصال. تأكد من الإنترنت وحاول مرة أخرى.', 'no connection');
+          d.getElementById('fEmail').value = 'Owner@Store.com';
+          d.getElementById('forgotForm').requestSubmit();
+          return loginWait(function () { return loginState(f) === 'sent'; });
+        }).then(function () {
+          eq([loginState(f), loginFocus(f), log[log.length - 1].body], ['sent', 'sentBox', { action: 'login.forgot', lang: 'ar', email: 'Owner@Store.com' }], 'the «check your email» step');
+          d.querySelector('[data-login-state="sent"] [data-go="signin"]').click();
+          eq([loginState(f), loginFocus(f)], ['signin', 'lEmail'], 'back to sign in');
+          d.querySelector('[data-go="first"]').click();
+          eq([loginState(f), title(d)], ['forgot', ['first']], '«first time?» = the same step with its own title');
+          f.remove();
+          return loginPage('?first=1&lang=en');
+        }).then(function (fr) {
+          f = fr;
+          var d2 = f.contentDocument;
+          eq([d2.documentElement.lang, loginState(f), title(d2)], ['en', 'forgot', ['first']], 'the link in the activation email (?first=1), in English');
+          d2.getElementById('fEmail').value = 'x';
+          d2.getElementById('forgotForm').requestSubmit();
+          eq(loginMsg(f, 'forgotError'), 'Please enter a valid email address.', 'the messages follow the page language');
+        });
+      }).then(function () { f.remove(); restore(); }, function (e) { if (f) f.remove(); restore(); throw e; });
+    });
+
+    testAsync('صفحة الدخول من رابط «اختر كلمة المرور»: الطول والتطابق والتسريبات قبل الحفظ، وكل رد برسالته، وبعد الحفظ الرابط بيتشال والجلسات كلها بتتقفل', function () {
+      var restore = loginSnap(), f, d, w, TOKEN = 'reset_TOKEN-1234567890', leaked = 'leaked-pass-123', fresh = 'brand-new-pass-456', leakedHash;
+      var sha1 = function (s) {
+        return crypto.subtle.digest('SHA-1', new TextEncoder().encode(s)).then(function (b) {
+          return Array.prototype.map.call(new Uint8Array(b), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('').toUpperCase();
+        });
+      };
+      var submit = function (p1, p2) { d.getElementById('rPassword').value = p1; d.getElementById('rConfirm').value = p2; d.getElementById('resetForm').requestSubmit(); };
+      var answer = function () { return loginWait(function () { return loginMsg(f, 'resetError'); }); };
+      var log;
+      return sha1(leaked).then(function (h) {
+        leakedHash = h;
+        return loginPage('?reset=' + TOKEN);
+      }).then(function (fr) {
+        f = fr; d = f.contentDocument; w = f.contentWindow;
+        log = loginNet(w, {
+          'pwned': { body: leakedHash.slice(5) + ':42\r\n0000000000000000000000000000000000A:0' },
+          '/verify': { status: 403, body: { error_code: 'otp_expired' } },
+          '/logout?scope=local': { status: 204 },
+          '/logout?scope=global': { status: 204 }
+        });
+        eq([loginState(f), loginFocus(f)], ['reset', 'rPassword'], 'the link opens the new-password step');
+        submit('short', 'short');
+        eq([loginMsg(f, 'resetError'), loginFocus(f), log.length], ['اختر كلمة مرور من ٨ أحرف على الأقل.', 'rPassword', 0], 'too short: nothing sent');
+        submit(fresh, fresh + 'x');
+        eq([loginMsg(f, 'resetError'), loginFocus(f), log.length], ['كلمتا المرور غير متطابقتين.', 'rConfirm', 0], 'mismatch: nothing sent');
+        submit(leaked, leaked);
+        return answer();
+      }).then(function (msg) {
+        eq([msg, loginFocus(f), log.map(function (x) { return x.key; })],
+          ['ظهرت كلمة المرور هذه في تسريبات بيانات سابقة على الإنترنت، فيسهل تخمينها. اختر كلمة مرور أخرى.', 'rPassword', ['pwned']], 'a leaked password is refused before anything is saved');
+        eq(log[0].url, 'https://api.pwnedpasswords.com/range/' + leakedHash.slice(0, 5), 'only the first 5 characters of the hash leave the device');
+        submit(fresh, fresh);
+        return answer();
+      }).then(function (msg) {
+        eq(msg, 'انتهت صلاحية الرابط أو استُخدم من قبل. اطلب رابطاً جديداً من «نسيت كلمة المرور؟».', 'an expired or used link');
+        loginRoutes['/verify'] = 'down';
+        submit(fresh, fresh);
+        return answer();
+      }).then(function (msg) {
+        eq(msg, 'تعذّر الاتصال. تأكد من الإنترنت وحاول مرة أخرى.', 'no connection');
+        loginRoutes['/verify'] = { body: { access_token: 'TEMP-1', user: { email: 'owner@store.com' } } };
+        loginRoutes['/user'] = { status: 422, body: { msg: 'Password should be at least 8 characters.' } };
+        submit(fresh, fresh);
+        return answer();
+      }).then(function (msg) {
+        eq(msg, 'اختر كلمة مرور من ٨ أحرف على الأقل.', 'refused by Supabase as weak');
+        eq(log[log.length - 1].key, '/logout?scope=local', 'not changed: only the temporary session is closed');
+        loginRoutes['/user'] = { body: { id: 'u1' } };
+        log.length = 0;
+        submit(fresh, fresh);
+        return loginWait(function () { return loginState(f) === 'signin'; });
+      }).then(function () {
+        eq(log.map(function (x) { return x.key; }), ['pwned', '/verify', '/user', '/logout?scope=global']);
+        eq([log[1].body, log[2].method, log[2].body, log[2].headers.authorization, log[3].headers.authorization],
+          [{ type: 'recovery', token_hash: TOKEN }, 'PUT', { password: fresh }, 'Bearer TEMP-1', 'Bearer TEMP-1'], 'the link token, the new password, then every session is closed');
+        eq([w.location.pathname, w.location.search, loginMsg(f, 'signinNote'), d.getElementById('lEmail').value, loginFocus(f), d.getElementById('rPassword').value, d.getElementById('rConfirm').value],
+          ['/login', '', 'تم حفظ كلمة المرور. سجّل الدخول الآن.', 'owner@store.com', 'lPassword', '', ''], 'the used link leaves the address bar; sign in with the new password');
+        eq(localStorage.getItem('ac.login'), null, 'the link itself signs nobody in');
+        f.remove();
+        return loginPage('?reset=' + encodeURIComponent('bad token!'));
+      }).then(function (fr) {
+        f = fr;
+        eq(loginState(f), 'signin', 'a malformed link opens the normal sign-in');
+      }).then(function () { f.remove(); restore(); }, function (e) { if (f) f.remove(); restore(); throw e; });
+    });
   });
 
   // ---------- التثبيت على شاشة الهاتف (manifest.webmanifest + installBtn في ui.js) ----------
