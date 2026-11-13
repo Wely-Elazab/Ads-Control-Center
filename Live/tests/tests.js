@@ -2814,6 +2814,46 @@
         ok(document.querySelector('#loadStates .ls-error [data-ls-action="retry"]'), 'retry button');
       }, function (e) { window.fetch = realFetch; throw e; });
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): «ربط تاني» (ui.js reconnectPlatform) مكانش اتنفّذ في أي اختبار — من سطر الحالة، ومن كارت الحالة،
+    // ومن «حاول تاني» لما مفيش جلسة
+    test('«ربط تاني» من سطر الحالة ومن كارت الحالة ومن «حاول تاني» من غير جلسة: بيفتح دخول المنصة نفسها وبيقفل نافذة المنصات', function () {
+      var btn = document.getElementById('statusReconnect'), states = document.getElementById('loadStates');
+      var keep = { m: window.loginWithMeta, g: window.loginWithGoogle, s: window.loginWithSnapchat, t: window.loginWithTikTok, hadFB: 'FB' in window, FB: window.FB,
+        rc: btn.getAttribute('data-reconnect'), lg: window.loadGoogleAccounts, ls: window.loadSnapchatAccounts };
+      var calls = [], card = document.createElement('button');
+      // جلسة لسه شغالة: «ربط تاني» طلب صريح للدخول من جديد (حساب تاني مثلاً) — مش «حاول تاني» اللي بيكتفي بإعادة تحميل القائمة
+      window.loadGoogleAccounts = function () { calls.push('list:google'); };
+      window.loadSnapchatAccounts = function () { calls.push('list:snapchat'); };
+      sessionTokens.google = { token: 'g', expiresAt: Date.now() + 3600000 };
+      sessionTokens.snapchat = { token: 's', expiresAt: Date.now() + 3600000 };
+      window.loginWithMeta = function () { calls.push('meta'); };
+      window.loginWithGoogle = function () { calls.push('google'); };
+      window.loginWithSnapchat = function () { calls.push('snapchat'); };
+      window.loginWithTikTok = function () { calls.push('tiktok'); };
+      delete window.FB;
+      try {
+        platformOverlay.classList.remove('hidden');
+        btn.setAttribute('data-reconnect', 'google');
+        btn.click();
+        eq([calls, platformOverlay.classList.contains('hidden')], [['google'], true], 'from the status line, and the platforms window closes');
+        card.type = 'button'; card.setAttribute('data-ls-action', 'reconnect'); card.setAttribute('data-platform', 'snapchat');
+        states.appendChild(card);
+        card.click();
+        eq(calls, ['google', 'snapchat'], 'from the state card');
+        delete sessionTokens.google; delete sessionTokens.snapchat;
+        retryPlatform('meta');
+        eq(calls, ['google', 'snapchat', 'meta'], '«try again» with no session and no Facebook library: connect again');
+        retryPlatform('tiktok');
+        eq(calls.slice(-1), ['tiktok'], 'TikTok too');
+      } finally {
+        card.remove();
+        window.loginWithMeta = keep.m; window.loginWithGoogle = keep.g; window.loginWithSnapchat = keep.s; window.loginWithTikTok = keep.t;
+        window.loadGoogleAccounts = keep.lg; window.loadSnapchatAccounts = keep.ls; delete sessionTokens.google; delete sessionTokens.snapchat;
+        if (keep.hadFB) window.FB = keep.FB;
+        if (keep.rc == null) btn.removeAttribute('data-reconnect'); else btn.setAttribute('data-reconnect', keep.rc);
+        platformOverlay.classList.add('hidden');
+      }
+    });
     testAsync('رد مش JSON من السيرفر (زي صفحة خطأ Vercel) بيطلع رسالة مفهومة', function () {
       var realFetch = window.fetch;
       window.fetch = function () { return Promise.resolve({ ok: false, status: 504, text: function () { return Promise.resolve('<html>Gateway Timeout</html>'); } }); };
