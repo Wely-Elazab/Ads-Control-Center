@@ -1,7 +1,8 @@
 // المسار: https://adscenter.online/api/google-token (بيشتغل جوه cloudflare/worker.js)
 //   { probe: true }          ← الأداة بتسأل وقت الفتح: الدخول بمفتاح تجديد متاح؟ (لو مش متاح بتكمل بالنافذة القديمة
 //                              اللي جلستها ساعة — عشان Google ميقفش لو السر لسه مش متضاف)
-//   { code, redirectUri }    ← أول دخول (إعادة توجيه لـ Google بـ access_type=offline): جلسة + نسخة مقفولة من مفتاح التجديد
+//   { code, redirectUri, codeVerifier? } ← أول دخول (إعادة توجيه لـ Google بـ access_type=offline): جلسة + نسخة مقفولة من مفتاح
+//                              التجديد. codeVerifier = مفتاح PKCE لو الأداة بعتت code_challenge (RFC 7636)
 //   { sealed }               ← الجلسة خلصت (بعد ساعة) أو الأداة اتفتحت من جديد: تجديد من غير تسجيل دخول
 //   { sealed, revoke: true } ← «فصل»: بنلغي الصلاحية عند Google نفسها، مش بس من الجهاز
 //
@@ -11,11 +12,12 @@
 // ملاحظة: التطبيق وهو في وضع «Testing» عند Google، مفتاح التجديد بيعيش ٧ أيام بس (قاعدة Google) — بعدها دخول من جديد
 
 import { guardRequest } from './_cors.js';
-import { text, badRequest } from './_input.js';
+import { text, shaped, badRequest } from './_input.js';
 import { sealToken, unsealToken, sealedExpired, SEALED_MAX } from './_seal.js';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
+const PKCE_VERIFIER = /^[A-Za-z0-9\-._~]{43,128}$/;   // RFC 7636 §4.1: code-verifier = 43*128unreserved
 
 function expectedRedirect(req) {
   const host = String(req.headers.host || '');
@@ -82,7 +84,13 @@ export default async function handler(req, res) {
     const code = text(body.code, 2048), redirectUri = text(body.redirectUri, 512);
     if (!code || !redirectUri) { badRequest(res, 'الحقلان code وredirectUri مطلوبان في جسم الطلب.'); return; }
     if (redirectUri !== expectedRedirect(req)) { badRequest(res, 'رابط الرجوع غير مطابق للرابط المسجّل.'); return; }
-    const r = await formPost(TOKEN_URL, { grant_type: 'authorization_code', client_id: clientId, client_secret: clientSecret, code: code, redirect_uri: redirectUri });
+    // PKCE (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦، النتيجة ١١): المفتاح بيروح لـ Google مع الكود. موجود وشكله غلط = رفض هنا برسالة واضحة بدل
+    // invalid_grant من Google، ومش موجود = التبادل زي الأول (متصفح من غير تشفير أو تخزين، أو رابط بدأ قبل التحديث)
+    const verifier = body.codeVerifier === undefined ? null : shaped(body.codeVerifier, PKCE_VERIFIER, 128);
+    if (body.codeVerifier !== undefined && !verifier) { badRequest(res, 'الحقل codeVerifier غير صالح.'); return; }
+    const exchange = { grant_type: 'authorization_code', client_id: clientId, client_secret: clientSecret, code: code, redirect_uri: redirectUri };
+    if (verifier) exchange.code_verifier = verifier;
+    const r = await formPost(TOKEN_URL, exchange);
     if (!r.response.ok || !r.data || !r.data.access_token) {
       res.status(r.response.ok ? 502 : r.response.status).json({
         error: (r.data && (r.data.error_description || r.data.error)) || ('HTTP ' + r.response.status)

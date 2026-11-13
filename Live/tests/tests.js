@@ -2468,6 +2468,69 @@
         eq(document.getElementById('connectStatus').textContent, 'before');
       } finally { history.replaceState({}, '', before); }
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (النتيجة ١١ — RFC 7636، RFC 9700 §2.1.1): PKCE في دخول Google
+    testAsync('PKCE: البصمة = متجه RFC 7636 (الملحق B) بالظبط، والمفتاح الجديد ٤٣ حرف ومحفوظ في التاب ويتقري مرة واحدة', function () {
+      return pkceChallenge('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk').then(function (c) {
+        eq(c, 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', 'RFC 7636 Appendix B');
+        return newPkce();
+      }).then(function (p) {
+        ok(/^[A-Za-z0-9_-]{43}$/.test(p.verifier), 'a 43-character key');
+        eq(sessionStorage.getItem('pauseproof.oauthPkce'), p.verifier, 'kept in this tab');
+        return pkceChallenge(p.verifier).then(function (c) {
+          eq(c, p.challenge);
+          eq(takePkce(), p.verifier, 'read once');
+          eq([takePkce(), sessionStorage.getItem('pauseproof.oauthPkce')], [null, null], 'and removed');
+          sessionStorage.setItem('pauseproof.oauthPkce', 'short');
+          eq(takePkce(), null, 'a malformed saved value is never sent');
+        });
+      });
+    });
+    testAsync('PKCE: رابط Google فيه البصمة (S256) وstate، ومن غير تشفير أو تخزين الدخول زي الأول بـ state لوحده', function () {
+      var go = PageExit.go, urls = [], setItem = Storage.prototype.setItem;
+      PageExit.go = function (u) { urls.push(u); };
+      var restore = function () {
+        PageExit.go = go; PageExit.reset(); delete crypto.subtle.digest; Storage.prototype.setItem = setItem;
+        try { sessionStorage.removeItem('pauseproof.oauthPkce'); sessionStorage.removeItem('pauseproof.oauthState'); } catch (e) { /* مقفول */ }
+      };
+      return loginWithGoogleRedirect().then(function () {
+        var q = new URL(urls[0]).searchParams, v = sessionStorage.getItem('pauseproof.oauthPkce');
+        eq([q.get('code_challenge_method'), q.get('state'), q.get('access_type')], ['S256', sessionStorage.getItem('pauseproof.oauthState'), 'offline']);
+        return pkceChallenge(v).then(function (c) { eq(q.get('code_challenge'), c, 'the challenge of the key kept in the tab'); });
+      }).then(function () {
+        PageExit.reset();
+        crypto.subtle.digest = function () { return Promise.reject(new Error('no digest')); };
+        return loginWithGoogleRedirect();
+      }).then(function () {
+        var q = new URL(urls[1]).searchParams;
+        eq([q.get('code_challenge'), q.get('code_challenge_method'), !!q.get('state')], [null, null, true], 'no crypto = state only, like before');
+        eq(sessionStorage.getItem('pauseproof.oauthPkce'), null, 'no orphan key');
+        delete crypto.subtle.digest;
+        Storage.prototype.setItem = function (k, val) { if (k === 'pauseproof.oauthPkce') throw new Error('blocked'); return setItem.call(this, k, val); };
+        return newPkce();
+      }).then(function (p) {
+        eq(p, null, 'no storage = no PKCE (the key could not come back)');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+    test('PKCE: الرجوع من Google بيبعت المفتاح مع الكود ويمسحه، وstate غلط = مفيش تبادل والمفتاح بيتمسح برضه', function () {
+      var before = location.href, post = window.apiPost, calls = [];
+      window.apiPost = function (u, body) { calls.push({ u: u, body: body }); return { then: function () { return { catch: function () {} }; } }; };
+      try {
+        var V = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+        var s = newOauthState('google');
+        sessionStorage.setItem('pauseproof.oauthPkce', V);
+        history.replaceState({}, '', location.pathname + '?code=c1&state=' + encodeURIComponent(s));
+        eq(checkGoogleRedirect(), true);
+        eq([calls.length, calls[0].u, calls[0].body.code, calls[0].body.codeVerifier], [1, '/api/google-token', 'c1', V]);
+        eq(sessionStorage.getItem('pauseproof.oauthPkce'), null, 'used once');
+        sessionStorage.setItem('pauseproof.oauthPkce', V);
+        history.replaceState({}, '', location.pathname + '?code=c2&state=google.wrong');
+        eq(checkGoogleRedirect(), false);
+        eq([calls.length, sessionStorage.getItem('pauseproof.oauthPkce')], [1, null], 'no exchange, key removed');
+        history.replaceState({}, '', location.pathname + '?code=c3&state=' + encodeURIComponent(newOauthState('google')));
+        eq(checkGoogleRedirect(), true);
+        eq('codeVerifier' in calls[1].body, false, 'no key kept = the exchange as before');
+      } finally { window.apiPost = post; history.replaceState({}, '', before); }
+    });
     test('إصدار Meta هو v26 (v21 كان منتهي)', function () { eq(GRAPH_VERSION, 'v26.0'); });
   });
 
@@ -5486,6 +5549,30 @@
       });
     });
 
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (النتيجة ١١ — RFC 7636): مفتاح PKCE بيروح لـ Google مع الكود، وشكله بيتراجع هنا قبل Google
+    testAsync('Google: مفتاح PKCE بيوصل لـ Google مع الكود، وشكله الغلط مرفوض قبل Google، ومن غيره التبادل زي الأول', function () {
+      var w, env = { GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret' }, back = location.origin + '/app';
+      var V = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+      return withPlatform(function () {
+        return { body: { access_token: 'g-1', expires_in: 3599, refresh_token: 'gr-1', scope: 'https://www.googleapis.com/auth/adwords' } };
+      }, function (sent) {
+        return worker().then(function (m) {
+          w = m;
+          return post(w, '/api/google-token', { code: 'good', redirectUri: back, codeVerifier: V }, env).then(json);
+        }).then(function (r) {
+          eq([r.status, sent.length, sent[0].params.code_verifier], [200, 1, V], 'sent to Google with the code');
+          return Promise.all(['short', V + '+', V.slice(0, 42), new Array(130).join('x'), 7].map(function (bad) {
+            return post(w, '/api/google-token', { code: 'good', redirectUri: back, codeVerifier: bad }, env).then(json);
+          }));
+        }).then(function (rs) {
+          eq(rs.map(function (r) { return r.status; }), [400, 400, 400, 400, 400], 'a malformed key never reaches Google');
+          eq(sent.length, 1);
+          return post(w, '/api/google-token', { code: 'good', redirectUri: back }, env).then(json);
+        }).then(function (r) {
+          eq([r.status, sent.length, 'code_verifier' in sent[1].params], [200, 2, false], 'no key = the exchange as before');
+        });
+      });
+    });
     testAsync('المتصفح: التجديد بيحفظ الجلسة والنسخة الجديدة، والربط اللي مبقاش صالح بيتمسح، وعطل الشبكة مبيمسحوش', function () {
       var realFetch = window.fetch, before = localStorage.getItem(RENEW_KEY), replies = [];
       window.fetch = function () {
