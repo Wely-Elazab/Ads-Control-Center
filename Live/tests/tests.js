@@ -538,6 +538,18 @@
     });
 
     // المرحلة ٤ (١٧ أكتوبر ٢٠٢٦): الأداة كانت ٢٨ طلب والشاشة ٢٦ لنفس الحساب والأسبوع — Ads Manager بيوم الظهور وافتراضي الـ API بيوم الشراء
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): الشبكة بين الخادم وSnapchat وقعت (fetch رفض نفسه، مش رد خطأ) — المسار ده (errOf) مكانش اتنفّذ
+    testAsync('السيرفر: الشبكة لـSnapchat وقعت = 502 بالسبب من غير ما الدالة تقع، والطلبات التانية اللي فشلت مبتوقفش الرد', function () {
+      var realFetch = window.fetch, status = null, out = null;
+      window.fetch = function () { return Promise.reject(new TypeError('network down')); };
+      var res = { setHeader: function () {}, status: function (s) { status = s; return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1' } }, res);
+      }).then(function () {
+        window.fetch = realFetch;
+        eq([status, out], [502, { error: 'network down' }]);
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
     testAsync('السيرفر: رقم المنصة في Snapchat بإعداد Ads Manager (٢٨ يوم + يوم، بيوم الظهور)، ولو اترفض فبافتراضي الـ API', function () {
       var realFetch = window.fetch, urls = [], rejectPlat = false, rejectFull = false;
       var PLAT = 'swipe_up_attribution_window=28_DAY&view_attribution_window=1_DAY&action_report_time=impression';
