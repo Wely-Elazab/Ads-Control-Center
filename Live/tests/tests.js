@@ -6644,6 +6644,31 @@
       });
       withLang('en', function () { eq([60, 1440, 3600, 4200].map(valueTimeText), ['About 1 minute', 'About 24 minutes', 'About 1 hour', 'About 1 hour 10 minutes']); });
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (النتيجة ٦٣): حسابين يومهم مختلف — العنوان كان بأيام أول حساب بس. Kiritimati (+14) وPago_Pago (-11)
+    // بينهم ٢٥ ساعة، فيومهم مختلف في أي وقت يتشغّل فيه الاختبار
+    test('قيمة الأداة: عنوان اللوحة بأيام كل الحسابات لما توقيتهم مختلف — مش أول حساب بس', function () {
+      var m = 'meta:act_7', s = 'snapchat:sc9', old = { act: activeSources.meta, snap: activeSources.snapchat, info: accountInfo[m], tzs: valueTzOf[s],
+        period: period, cands: candidates, em: valueEpisodes[m], es: valueEpisodes[s] };
+      var put = function (obj, k, v) { if (v === undefined) delete obj[k]; else obj[k] = v; };
+      try {
+        period = { preset: 'today' };
+        activeSources.meta = 'act_7'; activeSources.snapchat = 'sc9';
+        accountInfo[m] = { timeZone: 'Pacific/Kiritimati', currency: 'USD' }; valueTzOf[s] = 'Pacific/Pago_Pago';
+        candidates = []; valueEpisodes[m] = []; valueEpisodes[s] = [];
+        var a = todayKeyInTz('Pacific/Kiritimati'), b = todayKeyInTz('Pacific/Pago_Pago');
+        ok(a !== b, 'the two accounts are on different days');
+        var d = valueData(null, []);
+        eq([d.sources, d.range.since, d.range.until], [2, a < b ? a : b, a < b ? b : a], 'both accounts\' days');
+        eq([resolvePeriodFor('Pacific/Kiritimati').since, resolvePeriodFor('Pacific/Kiritimati').until], [a, a], 'the shared period is not changed');
+      } finally {
+        put(activeSources, 'meta', old.act); put(activeSources, 'snapchat', old.snap); put(accountInfo, m, old.info); put(valueTzOf, s, old.tzs);
+        put(valueEpisodes, m, old.em); put(valueEpisodes, s, old.es); period = old.period; candidates = old.cands;
+      }
+    });
+    test('رسالة «لا يمكن جمع» بسبب الأيام صحيحة في «اليوم» و«هذا الشهر» كمان — مش «آخر يوم مكتمل» (النتيجة ٦٣)', function () {
+      withLang('ar', function () { var x = t('dx.view.blockedPeriod', { platforms: 'Meta وSnapchat' }); ok(x.indexOf('آخر يوم مكتمل') < 0 && x.indexOf('أيام مختلفة') > -1, x); });
+      withLang('en', function () { var x = t('dx.view.blockedPeriod', { platforms: 'Meta and Snapchat' }); ok(x.indexOf('last complete day') < 0 && x.indexOf('different days') > -1, x); });
+    });
     // من ٢٥ أكتوبر (قرار صاحب المنتج): اللوحة بتتبع فترة البيانات المختارة واختيار المنصات زي باقي الأداة
     test('قيمة الأداة: اللوحة بفترة البيانات المختارة — اللي اتعالج ومبلغه والوقت، والنهارده سطر لوحده، و«تنتظر نظرتك» من غير أي نسبة، والملاحظة قبل أول تسجيل', function () {
       var src = 'meta:act_7', old = { act: activeSources.meta, snap: activeSources.snapchat, info: accountInfo[src], eps: valueEpisodes[src], ack: valueAckNow,
@@ -8650,7 +8675,7 @@
         dxState.sources.snapchat = rd(b, 'snapchat:1', 2);
         withLang('ar', function () { dxRecompute(); });
         eq([dxState.sel.blocked, !!dxState.report], ['period', false]);
-        ok(/آخر يوم مكتمل يختلف بينها/.test(document.getElementById('dxBody').textContent), 'says why');
+        ok(/الفترة تقع على أيام مختلفة بينها/.test(document.getElementById('dxBody').textContent), 'says why');
       } finally {
         ['meta', 'snapchat'].forEach(function (p) { if (p in act) activeSources[p] = act[p]; else delete activeSources[p]; });
         platSel = null; DX_ON = false; dxReset(); document.getElementById('storeSec').hidden = true;
