@@ -23,7 +23,7 @@ import { GRAPH, SITE, db, rpc, esc, sendEmail, mailHtml } from './lib.ts';
 import { seal, unseal, sealedAad, stopUrl, accountName, daysText, hourText } from './digest.ts';
 import { joinReminders } from './join.ts';
 
-const ENGINE_COMMIT = '81ac08c34f8499ae7a1830f888cfc24c38e55f7a';
+const ENGINE_COMMIT = '87ae0aca9d3b7ce7214cec86a3f792d2e512fde2';
 const ENGINE_FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js', 'snapchat.js'];
 const ENGINE_RAW = 'https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/' + ENGINE_COMMIT + '/Live/js/';
 
