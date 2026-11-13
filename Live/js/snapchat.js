@@ -70,7 +70,8 @@
         return;
       }
       setPlatformOptions('snapchat', accounts.map(function (a) { return { value: a.id, label: 'Snapchat — ' + (a.name || a.id) }; }));
-      setStatus(msg('s.accountsFound', { n: accounts.length, accounts: function () { return noun(accounts.length, 'n.account'); }, platform: 'Snapchat' }));
+      // حساب واحد = بيتفتح لوحده، فمفيش «اختر من القائمة» (التدقيق الشامل ١٤ نوفمبر ٢٠٢٦، ٧٤)
+      setStatus(msg(accounts.length === 1 ? 's.accountFound1' : 's.accountsFound', { accounts: function () { return countNoun(accounts.length, 'n.account'); }, platform: 'Snapchat' }));
       // آخر حساب اختاره العميل ← أول حساب شغّال ← أول حساب
       var target = pickAccount('snapchat', accounts, function (a) { return !a.status || a.status === 'ACTIVE'; });
       loadSnapchatAdsForAccount(target);

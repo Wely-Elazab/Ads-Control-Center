@@ -211,7 +211,8 @@
       setPlatformOptions('google', accounts.map(function (a) {
         return { value: a.id, label: 'Google Ads — ' + a.name + (a.name !== a.id ? ' (' + a.id + ')' : '') };
       }));
-      var found = msg('s.accountsFound', { n: accounts.length, accounts: function () { return noun(accounts.length, 'n.account'); }, platform: 'Google Ads' });
+      // حساب واحد = بيتفتح لوحده، فمفيش «اختر من القائمة» (التدقيق الشامل ١٤ نوفمبر ٢٠٢٦، ٧٤)
+      var found = msg(accounts.length === 1 ? 's.accountFound1' : 's.accountsFound', { accounts: function () { return countNoun(accounts.length, 'n.account'); }, platform: 'Google Ads' });
       var skipped = inactive.length ? msg('s.googleSkippedInactive', { ids: inactiveList }) : null;
       setStatus(skipped ? function () { return found() + ' ' + skipped(); } : found);
       // آخر حساب اختاره العميل (لو لسه موجود) — مهم كمان بعد «ربط تاني»: بيرجع على نفس الحساب

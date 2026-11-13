@@ -153,6 +153,21 @@
       eq(noun(15, 'n.campaign'), 'حملة', 'no .acc key = the singular');
       withLang('en', function () { eq(noun(1, 'n.ad'), 'ad'); eq(noun(2, 'n.ad'), 'ads'); eq(noun(15, 'n.ad'), 'ads'); });
     });
+    // التدقيق الشامل ١٤ نوفمبر ٢٠٢٦ (٧٤): العدد والمعدود عبارة واحدة — القوالب كانت «{n} {اسم}» فبتطلع «١ حساب» و«٢ حساب»
+    test('العدد والمعدود (countNoun): الواحد والاتنين بالكلمة وبإعرابهم، ومن ٣ بالرقم زي الأول، والإنجليزي زي ما هو', function () {
+      withLang('ar', function () {
+        var c = function (n, base, kase) { return countNoun(n, base, kase); };
+        eq([c(1, 'n.account'), c(2, 'n.account'), c(2, 'n.account', 'nom'), c(1, 'n.account', 'acc'), c(3, 'n.account'), c(11, 'n.account'), c(100, 'n.account')],
+          ['حساب واحد', 'حسابين', 'حسابان', 'حساباً واحداً', '٣ حسابات', '١١ حساباً', '١٠٠ حساب'], 'masculine');
+        eq([c(1, 'n.adset', 'acc'), c(2, 'n.adset', 'nom'), c(2, 'n.adset'), c(1, 'n.campaign', 'nom'), c(2, 'n.campaign', 'nom'), c(2, 'n.campaign')],
+          ['مجموعة إعلانية واحدة', 'مجموعتان إعلانيتان', 'مجموعتين إعلانيتين', 'حملة واحدة', 'حملتان', 'حملتين'], 'feminine (the accusative is written the same)');
+        eq([c(1, 'n.ad'), c(1, 'n.ad', 'acc'), c(2, 'n.ad', 'nom'), c(2, 'n.ad', 'acc'), c(1, 'n.day'), c(2, 'n.day', 'nom')],
+          ['إعلان واحد', 'إعلاناً واحداً', 'إعلانان', 'إعلانين', 'يوم واحد', 'يومان']);
+        eq(c(2, 'n.week'), '٢ أسبوع', 'a noun without these keys stays as it was (its callers handle it)');
+      });
+      withLang('en', function () { eq([countNoun(1, 'n.account'), countNoun(2, 'n.account', 'nom'), countNoun(11, 'n.ad')], ['1 account', '2 accounts', '11 ads']); });
+      eq(I18N.missingKeys(), { missingInEn: [], missingInAr: [] }, 'the new grammar keys are Arabic-only by rule');
+    });
     test('مفتاح مش موجود بيرجع نفسه (عشان يتلاحظ)', function () { eq(t('no.such.key'), 'no.such.key'); });
     test('تبديل اللغة بيغيّر الاتجاه', function () {
       withLang('en', function () { eq(document.documentElement.dir, 'ltr'); });
@@ -1730,6 +1745,22 @@
       var r = engine(ads);
       eq([issuesOf(r, 'a1').length, issuesOf(r, 'a2').length], [0, 0]);
       eq(r.alerts.filter(function (a) { return a.title === t('al.acctStopped.t'); }).length, 1);
+      // التدقيق الشامل ١٤ نوفمبر ٢٠٢٦ (٧٤): «إعلانان … كانا يُنفقان … ثم توقفا» — مش «٢ إعلان … كانت تُنفق … ثم توقفت»
+      var detail = function (list) { var a = engine(baseAccount().concat(list)).alerts.filter(function (x) { return x.title === t('al.acctStopped.t'); })[0]; return a && a.detail; };
+      var stopped = function (id) { return ad(id, { daily: [100, 100, 100, 100, 100, 100, 0], active: false, pausedLevel: 'account' }); };
+      withLang('ar', function () {
+        var two = detail([stopped('a1'), stopped('a2')]), one = detail([stopped('a1')]), three = detail([stopped('a1'), stopped('a2'), stopped('a3')]);
+        ok(two.indexOf('إعلانان في ') === 0 && two.indexOf('كانا يُنفقان') > 0 && two.indexOf('ثم توقفا') > 0, 'two: ' + two);
+        ok(one.indexOf('إعلان واحد في ') === 0 && one.indexOf('كان يُنفق') > 0 && one.indexOf('ثم توقف ') > 0, 'one: ' + one);
+        ok(three.indexOf('٣ إعلانات في ') === 0 && three.indexOf('كانت تُنفق') > 0 && three.indexOf('ثم توقفت') > 0, 'three, as before: ' + three);
+      });
+      withLang('en', function () { ok(detail([stopped('a1')]).indexOf('1 ad in ') === 0 && detail([stopped('a1')]).indexOf(' was spending') > 0, 'English singular'); });
+    });
+    // التدقيق الشامل ١٤ نوفمبر ٢٠٢٦ (٧٤): عبارة الأيام في التنبيه لإعلان اتعدّل من يوم أو اتنين — كانت «خلال آخر ١ يوم» و«خلال آخر ٢ يوم»
+    test('عبارة الأيام في التنبيه (wdPhrase): «خلال آخر يوم» و«خلال آخر يومين» و«خلال آخر ٧ أيام»', function () {
+      var W = PauseProofAlerts._.wdPhrase, fmt = { int: function (n) { return ar(n); } };
+      eq(withLang('ar', function () { return [W(1, fmt), W(2, fmt), W(7, fmt), W(11, fmt)]; }), ['خلال آخر يوم', 'خلال آخر يومين', 'خلال آخر ٧ أيام', 'خلال آخر ١١ يوماً']);
+      eq(withLang('en', function () { return [W(1, fmt), W(2, fmt), W(7, fmt)]; }), ['over the last day', 'over the last 2 days', 'over the last 7 days']);
     });
     // مراجعة الإعدادات (٢٤ أكتوبر): من غير أنماط — الحد الناقص بقيمة البداية، والمستهدف وحد الخسارة فاضيين، والتكلفة المقبولة أرقام موجبة بس
     test('الإعدادات: الحد الناقص بقيمة البداية، والعائد المستهدف مالوش قيمة ابتدائية، و٩ إعدادات بس (حد الخسارة اتشال ٨ نوفمبر)', function () {
@@ -2979,6 +3010,29 @@
       var input = [a, c, b];
       sortCandidates(input, 'launch');
       eq(ids(input), ['old', 'unknown', 'new'], 'a sorted copy: the list itself is not reordered');
+    });
+    // التدقيق الشامل ١٤ نوفمبر ٢٠٢٦ (٧٤): العدد والمعدود في الواجهة — كانت «عرض ٢ من ٢ إعلان» و«٢ إعلان» و«تم تحميل ١ إعلان»
+    test('العدد والمعدود في الواجهة: عدّاد المعرض بالمستويات التلاتة، وكارت الحملة، وسطر «متصل»، وسطر أساس الحكم بعد تعديل', function () {
+      withLang('ar', function () {
+        var gc = document.getElementById('galleryCount');
+        candidates = [ad('g1', { cid: 'c1', aid: 's1' }), ad('g2', { cid: 'c1', aid: 's1' })];
+        viewMode = 'ads'; render();
+        eq(gc.textContent, 'عرض ٢ من إعلانين', 'ads');
+        viewMode = 'campaigns'; render();
+        eq([gc.textContent, (document.querySelector('#cardGrid .camp-count') || {}).textContent], ['حملة واحدة — تضم إعلانين', 'إعلانان'], 'campaigns, and the card on its own');
+        viewMode = 'adsets'; render();
+        eq(gc.textContent, 'مجموعة إعلانية واحدة — تضم إعلانين', 'ad sets');
+        candidates = [ad('g1', { cid: 'c1', aid: 's1' })];
+        viewMode = 'campaigns'; render();
+        eq(gc.textContent, 'حملة واحدة — تضم إعلاناً واحداً', 'one ad: the accusative after «تضم»');
+        eq(connectedText([])(), 'متصل — تم تحميل إعلان واحد من جميع المنصات المتصلة.', 'connected, one ad');
+        candidates = [ad('g1'), ad('g2')];
+        eq(connectedText([])(), 'متصل — تم تحميل إعلانين من جميع المنصات المتصلة.', 'connected, two ads');
+        eq(t('s.metaShown', { ads: countNoun(1, 'n.ad') }), 'تم عرض إعلان واحد — جارٍ تحميل أرقام الإنفاق…');
+        eq([basisLineOf(candidates[0], { days: 1 }), basisLineOf(candidates[0], { days: 2 }), basisLineOf(candidates[0], { days: 5 })].map(function (s) { return (/\(([^)]*)\)/.exec(s) || [])[1]; }),
+          ['يوم واحد', 'يومين', '٥ أيام'], 'the days since the last edit');
+      });
+      viewMode = 'ads'; render();
     });
     // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): لوحة الفلاتر على الموبايل (ui.js openFilters) مكانتش اتفتحت في أي اختبار
     test('فلاتر الموبايل: الزرار بيفتح اللوحة وبيوقّف تمرير الصفحة اللي وراها، و«عرض النتائج» و«إغلاق» بيقفلوها ويرجّعوا التمرير', function () {
@@ -6337,8 +6391,10 @@
       googleAccessToken = 'test';
       loadGoogleAccounts();
       return tick().then(tick).then(function () {
-        eq(status(), t('s.accountsFound', { n: ar(2), accounts: noun(2, 'n.account'), platform: 'Google Ads' }) + ' ' + t('s.googleSkippedInactive', { ids: '777-888-9999' }),
+        eq(status(), t('s.accountsFound', { accounts: countNoun(2, 'n.account'), platform: 'Google Ads' }) + ' ' + t('s.googleSkippedInactive', { ids: '777-888-9999' }),
           'found, and the closed account by its number');
+        // التدقيق الشامل ١٤ نوفمبر ٢٠٢٦ (٧٤): «حسابين» مش «٢ حساب»
+        ok(!isAr() || status().indexOf('تم العثور على حسابين على Google Ads — اختر حساباً من القائمة.') === 0, 'the dual, not «٢ حساب»: ' + status());
         eq(platformOptions.google.map(function (o) { return o.label; }), ['Google Ads — Store A (1112223333)', 'Google Ads — 4445556666'], 'name and number (the number once when there is no name)');
         eq([loaded, accountInfo['google:1112223333'].name], [['google:1112223333'], 'Store A'], 'the first account loads');
         loaded.length = 0;
@@ -6347,9 +6403,17 @@
         loadSnapchatAccounts();
         return tick().then(tick);
       }).then(function () {
-        eq(status(), t('s.accountsFound', { n: ar(2), accounts: noun(2, 'n.account'), platform: 'Snapchat' }), 'found');
+        eq(status(), t('s.accountsFound', { accounts: countNoun(2, 'n.account'), platform: 'Snapchat' }), 'found');
         eq(platformOptions.snapchat.map(function (o) { return o.label; }), ['Snapchat — Paused one', 'Snapchat — Live one']);
         eq(loaded, ['snapchat:s2'], 'no earlier choice: the first ACTIVE account, not the paused one');
+        // حساب واحد: بيتفتح لوحده، فالرسالة من غير «اختر من القائمة» — والعدد بالكلمة (٧٤)
+        loaded.length = 0;
+        window.fetch = fakeFetch({ organizations: [{ organization: { ad_accounts: [{ ad_account: { id: 's7', name: 'Only one', status: 'ACTIVE' } }] } }] });
+        loadSnapchatAccounts();
+        return tick().then(tick);
+      }).then(function () {
+        eq([status(), loaded], [t('s.accountFound1', { platform: 'Snapchat' }), ['snapchat:s7']], 'one account: no «pick one from the list»');
+        ok(!isAr() || status() === 'تم العثور على حساب واحد على Snapchat.', status());
       }).then(restore, function (e) { restore(); throw e; });
     });
     testAsync('Google وSnapchat: فشل تحميل الإعلانات (مش انتهاء الربط) = كارت خطأ بسببه، والربط بيفضل، ورد 200 فيه error زيه', function () {

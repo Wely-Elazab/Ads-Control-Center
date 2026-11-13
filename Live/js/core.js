@@ -13,6 +13,8 @@
   function isAr() { return !window.I18N || I18N.lang === 'ar'; }
   // اسم مع عدد بالصيغة الصح في كل لغة ("٥ إعلانات" / "١٥ إعلان" / "1 ad")
   function noun(n, base) { return I18N.noun(n, base); }
+  // العدد والمعدود عبارة واحدة: «حساب واحد» / «حسابين» / «٣ حسابات» (i18n.js countNoun — kase: 'gen' افتراضياً، 'nom'، 'acc')
+  function countNoun(n, base, kase) { return I18N.countNoun(n, base, ar, kase); }
   // كائن بيرجّع النص المترجم وقت القراءة — عشان تغيير اللغة يبان من غير ما نبني الكائنات من الأول
   function i18nMap(keys) {
     var o = {};
@@ -727,7 +729,7 @@
   function connectedText(notes) {
     return function () {
       var n = (notes || []).map(function (x) { return typeof x === 'function' ? x() : x; });
-      return t('s.connected', { n: ar(candidates.length), ads: noun(candidates.length, 'n.ad') }) + (n.length ? ' (' + n.join(t('join.sep')) + ')' : '');
+      return t('s.connected', { ads: countNoun(candidates.length, 'n.ad') }) + (n.length ? ' (' + n.join(t('join.sep')) + ')' : '');
     };
   }
 

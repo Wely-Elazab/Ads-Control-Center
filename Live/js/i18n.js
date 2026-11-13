@@ -88,6 +88,13 @@
       'n.ad.one': 'إعلان', 'n.ad.acc': 'إعلاناً', 'n.ad.many': 'إعلانات',
       'n.account.one': 'حساب', 'n.account.acc': 'حساباً', 'n.account.many': 'حسابات',
       'n.day.one': 'يوم', 'n.day.acc': 'يوماً', 'n.day.many': 'أيام',
+      // العدد والمعدود عبارة واحدة (countNoun — التدقيق الشامل ١٤ نوفمبر ٢٠٢٦، ٧٤): cnt1 = واحد (مرفوع ومجرور)، cntA1 = واحد منصوب،
+      // cnt2 = اثنان منصوب ومجرور، cntN2 = اثنان مرفوع. المؤنث المنصوب مكتوب زي المرفوع فمالوش cntA1
+      'cnt1.ad': 'إعلان واحد', 'cntA1.ad': 'إعلاناً واحداً', 'cnt2.ad': 'إعلانين', 'cntN2.ad': 'إعلانان',
+      'cnt1.account': 'حساب واحد', 'cntA1.account': 'حساباً واحداً', 'cnt2.account': 'حسابين', 'cntN2.account': 'حسابان',
+      'cnt1.adset': 'مجموعة إعلانية واحدة', 'cnt2.adset': 'مجموعتين إعلانيتين', 'cntN2.adset': 'مجموعتان إعلانيتان',
+      'cnt1.campaign': 'حملة واحدة', 'cnt2.campaign': 'حملتين', 'cntN2.campaign': 'حملتان',
+      'cnt1.day': 'يوم واحد', 'cntA1.day': 'يوماً واحداً', 'cnt2.day': 'يومين', 'cntN2.day': 'يومان',
 
       // شاشة البداية
       'hero.title': 'اعرف لماذا تغيّرت مبيعات متجرك من الإعلانات، ومن أين تبدأ',
@@ -277,7 +284,7 @@
       'gallery.login': 'اربط حساباً إعلانياً لعرض إعلاناتك',
       'gallery.loading': 'جارٍ التحميل…',
       'gallery.noMatch': 'لا توجد إعلانات تطابق الفلاتر الحالية',
-      'gallery.count': 'عرض {n} من {total} {ads}',
+      'gallery.count': 'عرض {n} من {all}',
       'kpi.spend': 'الإنفاق — {p}',
       'kpi.results': 'النتائج — {p}',
       'kpi.moreTypes': '+{n} أخرى',
@@ -385,10 +392,10 @@
       'view.ads': 'الإعلانات',
       'view.campaigns': 'الحملات',
       'n.campaign.one': 'حملة', 'n.campaign.many': 'حملات',
-      'gallery.countCampaigns': '{n} {camps} — تضم {m} {ads}',
+      'gallery.countCampaigns': '{camps} — تضم {ads}',
       'camp.noName': 'حملة بدون اسم',
       'camp.pmax': 'Performance Max — على مستوى الحملة',
-      'camp.adsOf': '{n} من {total} {ads} (حسب الفلاتر)',
+      'camp.adsOf': '{n} من {all} (حسب الفلاتر)',
       'camp.activeOf': '{a} نشط من {n}',
       'camp.urgent': '{n} عاجل',
       'camp.important': '{n} مهم',
@@ -400,7 +407,7 @@
       // وSnapchat «مجموعة الإعلانات» (ad squad)، والاسم الموحّد في الأداة واحد
       'view.adsets': 'المجموعات',
       'n.adset.one': 'مجموعة إعلانية', 'n.adset.many': 'مجموعات إعلانية', 'n.adset.acc': 'مجموعة إعلانية',
-      'gallery.countAdsets': '{n} {sets} — تضم {m} {ads}',
+      'gallery.countAdsets': '{sets} — تضم {ads}',
       'adset.noName': 'مجموعة بدون اسم',
       'adset.none': 'لا تحتوي على مجموعات إعلانية',
       'adset.inCamp': 'في حملة {name}',
@@ -658,7 +665,7 @@
 
       // رسائل الاتصال والتحميل
       's.notConnected': 'غير متصل — اضغط «اربط حسابك الإعلاني» للبدء',
-      's.connected': 'متصل — تم تحميل {n} {ads} من جميع المنصات المتصلة.',
+      's.connected': 'متصل — تم تحميل {ads} من جميع المنصات المتصلة.',
       's.metaSdkLoading': 'ما زالت مكتبة Meta قيد التحميل، حاول مرة أخرى بعد ثانية.',
       's.metaOpening': 'جارٍ فتح نافذة تسجيل الدخول بحساب Meta…',
       's.metaCancelled': 'لم يكتمل تسجيل الدخول بحساب Meta. إن ظهرت لك رسالة بأن التطبيق «غير نشط» (App not active)، فإما أن حسابك لم يُفعَّل في التجربة بعد، أو أنك لم تقبل دعوة المختبِر من إعدادات فيسبوك (لا يصل بها إشعار)، أو أنك دخلت بحساب فيسبوك آخر.',
@@ -682,7 +689,8 @@
       's.googleNoAccounts': 'تم تسجيل الدخول، لكن لا توجد حسابات Google Ads مفعّلة (غير حسابات Manager) متاحة لهذا الحساب.',
       's.googleInactiveOnly': 'تم تسجيل الدخول، لكن حساب Google Ads المرتبط بهذا البريد غير مفعّل (مغلق أو لم يكتمل إعداده): {ids}. سجّل الدخول ببريد مرتبط بحساب إعلاني نشط، أو أكمل إعداد الحساب من ads.google.com.',
       's.googleSkippedInactive': '(تم تجاهل حسابات غير مفعّلة: {ids})',
-      's.accountsFound': 'تم العثور على {n} {accounts} على {platform} — اختر حساباً من القائمة.',
+      's.accountsFound': 'تم العثور على {accounts} على {platform} — اختر حساباً من القائمة.',
+      's.accountFound1': 'تم العثور على حساب واحد على {platform}.',
       's.backendFailed': 'تعذّر الاتصال بالخادم ({msg}).',
       's.loadingAds': 'جارٍ تحميل إعلانات {platform}…',
       's.adsFailed': 'تعذّر تحميل إعلانات {platform} ({msg}).',
@@ -695,7 +703,7 @@
       's.metaAccountsLoading': 'جارٍ تحميل الحسابات الإعلانية…',
       's.metaAccountsFailed': 'تعذّر تحميل الحسابات — تأكّد من أن حسابك يملك صلاحية على حساب إعلاني واحد على الأقل.',
       's.metaNoAccounts': 'لا توجد حسابات إعلانية مرتبطة بحسابك.',
-      's.metaShown': 'تم عرض {n} {ads} — جارٍ تحميل أرقام الإنفاق…',
+      's.metaShown': 'تم عرض {ads} — جارٍ تحميل أرقام الإنفاق…',
       's.finishingLogin': 'جارٍ إتمام تسجيل الدخول بحساب {platform}…',
       's.renewing': 'جارٍ تجديد الربط مع {platform}…',
       's.snapLoggedIn': 'تم تسجيل الدخول بحساب Snapchat ✓ — جارٍ تحميل الحسابات الإعلانية…',
@@ -751,6 +759,8 @@
       'al.budgetDone.a': 'إن كان ذلك مخططاً له فلا يلزم أي إجراء. أما إن كان الإعلان ناجحاً، فقد يفيد تجديد ميزانية مجموعته.',
       'al.acctStopped.t': 'إعلانات توقفت بسبب مشكلة في الحساب',
       'al.acctStopped.d': '{n} {ads} في {acc} كانت تُنفق خلال آخر ٣ أيام، ثم توقفت بسبب مشكلة في الحساب (مثل الدفع أو حد الإنفاق).',
+      'al.acctStopped.d1': 'إعلان واحد في {acc} كان يُنفق خلال آخر ٣ أيام، ثم توقف بسبب مشكلة في الحساب (مثل الدفع أو حد الإنفاق).',
+      'al.acctStopped.d2': 'إعلانان في {acc} كانا يُنفقان خلال آخر ٣ أيام، ثم توقفا بسبب مشكلة في الحساب (مثل الدفع أو حد الإنفاق).',
       'al.acctStopped.a': 'نقترح مراجعة وسيلة الدفع وحد الإنفاق في إعدادات الحساب على المنصة فوراً.',
       'al.limited.t': 'ظهور محدود بسبب سياسات المنصة',
       'al.limited.d': 'تعرض المنصة {name} لعدد محدود من الأشخاص بسبب ملاحظة على محتواه.',
@@ -1886,7 +1896,7 @@
       'gallery.login': 'Connect an ad account to see your ads',
       'gallery.loading': 'Loading…',
       'gallery.noMatch': 'No ads match the current filters',
-      'gallery.count': 'Showing {n} of {total} {ads}',
+      'gallery.count': 'Showing {n} of {all}',
       'kpi.spend': 'Spend — {p}',
       'kpi.results': 'Results — {p}',
       'kpi.moreTypes': '+{n} more',
@@ -1970,10 +1980,10 @@
       'view.ads': 'Ads',
       'view.campaigns': 'Campaigns',
       'n.campaign.one': 'campaign', 'n.campaign.many': 'campaigns',
-      'gallery.countCampaigns': '{n} {camps} — {m} {ads}',
+      'gallery.countCampaigns': '{camps} — {ads}',
       'camp.noName': 'Unnamed campaign',
       'camp.pmax': 'Performance Max — campaign level',
-      'camp.adsOf': '{n} of {total} {ads} (filtered)',
+      'camp.adsOf': '{n} of {all} (filtered)',
       'camp.activeOf': '{a} active of {n}',
       'camp.urgent': '{n} urgent',
       'camp.important': '{n} important',
@@ -1983,7 +1993,7 @@
       'filters.campaignChip': 'Campaign: {name}',
       'view.adsets': 'Ad sets',
       'n.adset.one': 'ad set', 'n.adset.many': 'ad sets',
-      'gallery.countAdsets': '{n} {sets} — {m} {ads}',
+      'gallery.countAdsets': '{sets} — {ads}',
       'adset.noName': 'Unnamed ad set',
       'adset.none': 'No ad sets in this campaign',
       'adset.inCamp': 'In {name}',
@@ -2222,7 +2232,7 @@
       'al.scale.noteNoCur': ' Also, the return over the last 3 days was ×{roas}.',
 
       's.notConnected': 'Not connected — press "Connect your ad account" to start',
-      's.connected': 'Connected — {n} {ads} loaded across all connected platforms.',
+      's.connected': 'Connected — {ads} loaded across all connected platforms.',
       's.metaSdkLoading': 'The SDK is still loading — try again in a second.',
       's.metaOpening': 'Opening the Meta login window…',
       's.metaCancelled': 'The Meta login wasn\'t completed. If you saw "App not active", your account hasn\'t been activated in the pilot yet, you haven\'t accepted the tester invitation in your Facebook settings (Facebook doesn\'t send a notification for it), or you logged in with a different Facebook account.',
@@ -2246,7 +2256,8 @@
       's.googleNoAccounts': 'Logged in, but no enabled (non-manager) Google Ads accounts are available to this login.',
       's.googleInactiveOnly': 'Logged in, but the Google Ads account on this login isn\'t active (closed, or setup not finished): {ids}. Log in with an email that has an active ad account, or finish setting up the account at ads.google.com.',
       's.googleSkippedInactive': '(skipped inactive accounts: {ids})',
-      's.accountsFound': 'Found {n} {platform} {accounts} — pick one from the list.',
+      's.accountsFound': 'Found {accounts} on {platform} — pick one from the list.',
+      's.accountFound1': 'Found one account on {platform}.',
       's.backendFailed': 'Couldn\'t reach the server ({msg}).',
       's.loadingAds': 'Loading {platform} ads…',
       's.adsFailed': 'Couldn\'t load {platform} ads ({msg}).',
@@ -2259,7 +2270,7 @@
       's.metaAccountsLoading': 'Loading ad accounts…',
       's.metaAccountsFailed': 'Couldn\'t load accounts — make sure your login has access to at least one ad account.',
       's.metaNoAccounts': 'No ad accounts are linked to your login.',
-      's.metaShown': '{n} {ads} shown — loading spend figures…',
+      's.metaShown': '{ads} shown — loading spend figures…',
       's.finishingLogin': 'Finishing the {platform} login…',
       's.renewing': 'Renewing the {platform} connection…',
       's.snapLoggedIn': 'Logged in with Snapchat ✓ — loading ad accounts…',
@@ -2309,6 +2320,8 @@
       'al.budgetDone.a': 'If this was planned, nothing is needed. If the ad was performing well, renewing its ad set\'s budget may help.',
       'al.acctStopped.t': 'Ads stopped because of an account problem',
       'al.acctStopped.d': '{n} {ads} in {acc} were spending in the last 3 days and stopped because of an account problem (such as payment or a spending limit).',
+      'al.acctStopped.d1': '1 ad in {acc} was spending in the last 3 days and stopped because of an account problem (such as payment or a spending limit).',
+      'al.acctStopped.d2': '2 ads in {acc} were spending in the last 3 days and stopped because of an account problem (such as payment or a spending limit).',
       'al.acctStopped.a': 'We suggest checking the payment method and spending limit in the platform\'s account settings right away.',
       'al.limited.t': 'Limited delivery due to platform policy',
       'al.limited.d': 'The platform is showing {name} to a limited number of people because of a note on its content.',
@@ -3245,6 +3258,18 @@
     if (lang === 'ar' && n === 2 && DICT.ar['res2.' + key] != null) return DICT.ar['res2.' + key];
     return (digits ? digits(n) : String(n)) + ' ' + resultNoun(n, key);
   }
+  // العدد والمعدود عبارة واحدة بالفصحى (التدقيق الشامل ١٤ نوفمبر ٢٠٢٦ — ٧٤): «حساب واحد» / «حسابين» (مرفوع: «حسابان»، ومنصوب مفرد:
+  // «حساباً واحداً») / «٣ حسابات» / «١١ حساباً». قبل كده القوالب كانت «{n} {اسم}» فبتطلع «١ حساب» و«٢ حساب».
+  // kase: 'gen' بعد حرف جر أو مضاف (الافتراضي) / 'nom' مبتدأ أو فاعل / 'acc' مفعول به. الإنجليزي زي ما هو: «1 account» / «2 accounts»
+  function countNoun(n, base, digits, kase) {
+    n = Math.round(Number(n) || 0);
+    if (lang === 'ar' && (n === 1 || n === 2)) {
+      var b = String(base).replace(/^n\./, '');
+      var keys = n === 1 ? (kase === 'acc' ? ['cntA1.', 'cnt1.'] : ['cnt1.']) : (kase === 'nom' ? ['cntN2.', 'cnt2.'] : ['cnt2.']);
+      for (var i = 0; i < keys.length; i++) if (DICT.ar[keys[i] + b] != null) return DICT.ar[keys[i] + b];
+    }
+    return (digits ? digits(n) : String(n)) + ' ' + noun(n, base);
+  }
   // «نحو ضعف متوسطه» / «٣ أضعاف» / «٢٫٦ ضعف» / «١٥ ضعفاً» — «٢ أضعاف» مش فصحى. بالإنجليزي «2.6×»
   function timesPhrase(x, digits) {
     var r = Math.round((Number(x) || 0) * 10) / 10;
@@ -3302,6 +3327,7 @@
     resultNoun: resultNoun,
     resultAny: resultAny,
     countPhrase: countPhrase,
+    countNoun: countNoun,
     timesPhrase: timesPhrase,
     measureNoun: measureNoun,
     timesText: timesText,
@@ -3311,8 +3337,8 @@
     months: function () { return t('months').split(','); },
     // للاختبارات: المفاتيح الموجودة في لغة ومش موجودة في التانية (المفروض دايماً فاضية)
     missingKeys: function () {
-      // مفاتيح الإعراب (.acc و resA. و resG. و resN1/resN2 للرفع) قواعد عربية بس ومالهاش مقابل إنجليزي
-      var diff = function (a, b) { return Object.keys(DICT[a]).filter(function (k) { return !(k in DICT[b]) && !/\.acc$|^res(A|G|One|2|N1|N2)\./.test(k); }); };
+      // مفاتيح الإعراب (.acc و resA. و resG. و resN1/resN2 للرفع، وcnt1/cntA1/cnt2/cntN2 للعدد والمعدود) قواعد عربية بس ومالهاش مقابل إنجليزي
+      var diff = function (a, b) { return Object.keys(DICT[a]).filter(function (k) { return !(k in DICT[b]) && !/\.acc$|^res(A|G|One|2|N1|N2)\.|^cnt(1|A1|2|N2)\./.test(k); }); };
       return { missingInEn: diff('ar', 'en'), missingInAr: diff('en', 'ar') };
     }
   };

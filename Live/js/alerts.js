@@ -61,9 +61,13 @@
   var WEEK_TXT = null, WEEK_AD = null;   // WEEK_AD = أيام الإعلان ده بعد آخر تعديل (evaluateAd)
   // من ٣ نوفمبر ٢٠٢٦ {wd} عبارة كاملة («خلال آخر ٧ أيام»، «أمس»، «خلال الشهر الماضي») — التقييم بقى على الفترة المختارة في الأداة
   // (analyze opts.phrase)، والافتراضي «خلال آخر N» بالظبط زي النصوص القديمة فالبريد ميتغيّرش
+  // «خلال آخر يوم» / «خلال آخر يومين» / «خلال آخر ٣ أيام» — قبل كده «آخر ١ يوم» و«آخر ٢ يوم» لإعلان اتعدّل من يوم أو اتنين
+  // (التدقيق الشامل ١٤ نوفمبر ٢٠٢٦، ٧٤)
   function wdPhrase(n, fmt) {
     var num = fmt && fmt.int ? fmt.int(n) : String(n);
-    return global.I18N ? global.I18N.t('wd.last', { n: num + ' ' + global.I18N.noun(n, 'n.day') }) : num;
+    if (!global.I18N) return num;
+    var I = global.I18N;
+    return I.t('wd.last', { n: n === 1 ? I.noun(1, 'n.day') : I.countNoun(n, 'n.day', fmt && fmt.int) });
   }
   // قواعد «الآن» (أمس، آخر ٣ أيام، الارتفاع المفاجئ، فرصة الزيادة، وسم التغيّر): بتشتغل بس لما النافذة بتوصل لأمس وفيها ٧ أيام
   // مكتملة على الأقل (analyze opts.recent). فترة خلصت قبل كده («الشهر الماضي») كانت هتقول «أمس» وهي تقصد ٣١ أكتوبر، وفترة
@@ -1316,7 +1320,8 @@
     if (acctStopped.length && !alerts.length) {
       var n = acctStopped.length;
       alerts.push(makeIssue('critical', ['account'], t('al.acctStopped.t'),
-        t('al.acctStopped.d', { n: fmt.int(n), ads: global.I18N ? global.I18N.noun(n, 'n.ad') : '', acc: accName }),
+        // إعلان واحد أو اتنين: الفعل بيتصرّف معاهم («كان يُنفق … ثم توقف» / «كانا يُنفقان … ثم توقفا») — التدقيق الشامل ١٤ نوفمبر ٢٠٢٦، ٧٤
+        t(n === 1 ? 'al.acctStopped.d1' : (n === 2 ? 'al.acctStopped.d2' : 'al.acctStopped.d'), { n: fmt.int(n), ads: global.I18N ? global.I18N.noun(n, 'n.ad') : '', acc: accName }),
         t('al.acctStopped.a'), 0, 'acct-stopped'));
     }
 
@@ -1708,6 +1713,6 @@
     analyze: analyze,
     // اختبار العائد مقابل حد (بواسون مركّب مع جاما) — الملخص بيستخدمه لسطر المستهدف (diagnosis.js targetLine)، معيار واحد للأداة
     roasP: roasP,
-    _: { poissonAtMost: poissonAtMost, roasP: roasP, fewerP: fewerP }   // للاختبارات
+    _: { poissonAtMost: poissonAtMost, roasP: roasP, fewerP: fewerP, wdPhrase: wdPhrase }   // للاختبارات
   };
 })(window);

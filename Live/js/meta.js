@@ -590,7 +590,7 @@
         }
         // لو فيه نسخة محفوظة ظاهرة بأرقامها منبدّلهاش بكروت من غير أرقام
         if (!cachedShown) { mergeCandidates(build(null, null, adsetStatusMap), source); render(); }
-        setLoading('meta', true, msg('s.metaShown', { n: order.length, ads: function () { return noun(order.length, 'n.ad'); } }));
+        setLoading('meta', true, msg('s.metaShown', { ads: function () { return countNoun(order.length, 'n.ad'); } }));
         // الصور الأصلية بتتحمّل بالتوازي، وأول ما توصل بنحدّث الكروت
         resolveMetaImages(accountId, list, applyImages);
         return adsetStatusMap;

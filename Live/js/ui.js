@@ -813,7 +813,7 @@
   // سطر أساس الحكم (تحت الحالة في التفاصيل وفي تلميح نقطة الكارت): على أنهي أيام اتحكم على الإعلان. قبل ٣ نوفمبر ٢٠٢٦ كان
   // «آخر ٧ أيام مكتملة» مهما كانت الفترة
   function basisLineOf(c, a) {
-    if (a.days) return t('x.basisPeriodEdit', { n: ar(a.days) + ' ' + noun(a.days, 'n.day') });
+    if (a.days) return t('x.basisPeriodEdit', { n: dayCountText(a.days) });
     if (!judgedOnPeriod(c)) return t(openDayOnly(c) ? 'x.basisOpenDay' : 'x.basisNow');
     var r = resolvePeriodFor(BROWSER_TZ), today = todayKeyInTz(BROWSER_TZ), pl = { period: periodLabel() };
     if (r.until === today) return t('x.basisPeriodToday', pl);
@@ -1164,8 +1164,8 @@
     var pmaxOnly = g.ads.every(function (c) { return c.campaignLevel; });
     var count = isSet && g.noSet ? t('adset.none') : pmaxOnly ? t('camp.pmax')
       : g.ads.length < g.total
-        ? t('camp.adsOf', { n: ar(g.ads.length), total: ar(g.total), ads: noun(g.total, 'n.ad') })
-        : ar(g.total) + ' ' + noun(g.total, 'n.ad');
+        ? t('camp.adsOf', { n: ar(g.ads.length), all: countNoun(g.total, 'n.ad') })
+        : countNoun(g.total, 'n.ad', 'nom');
     // نفس شبكة أرقام كارت الإعلان بالأرقام التلاتة (٧ نوفمبر ٢٠٢٦ — كانت سطر شرائح من غير مقارنة): مجموع إعلاناتها في الفترة، وفي فترة
     // المقارنة (groupCmp)، ورقم المنصة (groupPlat)
     var gc = groupCmp(g), gp = groupPlat(g), src = g.ads[0] && g.ads[0].source, tip = ' — ' + periodLabel();
@@ -1334,7 +1334,7 @@
       cardGrid.innerHTML = sets.length
         ? sets.slice(0, renderLimit).map(campaignMarkup).join('') + moreButton(renderLimit, sets.length, true)
         : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
-      galleryCount.textContent = t('gallery.countAdsets', { n: ar(sets.length), sets: noun(sets.length, 'n.adset'), m: ar(setAds.length), ads: noun(setAds.length, 'n.ad') });
+      galleryCount.textContent = t('gallery.countAdsets', { sets: countNoun(sets.length, 'n.adset', 'nom'), ads: countNoun(setAds.length, 'n.ad', 'acc') });
     } else if (viewMode === 'campaigns') {
       // الحملة = مجموع كل إعلاناتها اللي ليها أرقام في الفترة، بالمتوقفة (الفلاتر اللي العميل اختارها بس هي اللي بتقلّلها).
       // مراجعة المرحلة ٤ (١٨ أكتوبر ٢٠٢٦، حساب حقيقي): كانت من الإعلانات الظاهرة بعد إخفاء المتوقفة — ٥ حملات من ١٣، وحملة
@@ -1344,12 +1344,12 @@
       cardGrid.innerHTML = camps.length
         ? camps.slice(0, renderLimit).map(campaignMarkup).join('') + moreButton(renderLimit, camps.length, true)
         : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
-      galleryCount.textContent = t('gallery.countCampaigns', { n: ar(camps.length), camps: noun(camps.length, 'n.campaign'), m: ar(campAds.length), ads: noun(campAds.length, 'n.ad') });
+      galleryCount.textContent = t('gallery.countCampaigns', { camps: countNoun(camps.length, 'n.campaign', 'nom'), ads: countNoun(campAds.length, 'n.ad', 'acc') });
     } else {
       cardGrid.innerHTML = visible.length
         ? visible.slice(0, renderLimit).map(cardMarkup).join('') + moreButton(renderLimit, visible.length)
         : (stoppedButton() || '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>');
-      galleryCount.textContent = t('gallery.count', { n: ar(visible.length), total: ar(candidates.length), ads: noun(candidates.length, 'n.ad') });
+      galleryCount.textContent = t('gallery.count', { n: ar(visible.length), all: countNoun(candidates.length, 'n.ad') });
     }
     animateCards(reshuffled);
     renderLastUpdated();
