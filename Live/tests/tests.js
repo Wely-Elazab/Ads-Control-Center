@@ -2815,6 +2815,30 @@
         ok(document.getElementById('connectStatus').textContent.indexOf('boom') > -1, 'reason shown');
       }, function (e) { restore(); throw e; });
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): Meta بترجع خطأ في طلب الإعلانات (مش استثناء من المكتبة زي اللي فوق) — المسار ده (dropBase) مكانش
+    // اتنفّذ في أي اختبار: كارت الخطأ بسببه، وخطأ الجلسة «انتهى الربط»، والنسخة المؤقتة لأرقام الحساب بتتشال فالمحاولة الجاية طلب جديد
+    testAsync('Meta: خطأ من Meta في طلب الإعلانات = كارت خطأ بسببه بكلام مفهوم ومن غير تحميل معلّق، وخطأ الجلسة (١٩٠) = «انتهى الربط»', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, answer = null;
+      var restore = function () { if (hadFB) window.FB = prevFB; else delete window.FB; delete accountInfo['meta:act_5']; };
+      var until = function (fn, n) { return fn() ? Promise.resolve(true) : (n > 0 ? new Promise(function (r) { setTimeout(r, 20); }).then(function () { return until(fn, n - 1); }) : Promise.resolve(false)); };
+      window.FB = { api: function () { var cb = [].slice.call(arguments).filter(function (f) { return typeof f === 'function'; })[0]; if (cb) cb(answer); } };
+      accountInfo['meta:act_5'] = {};
+      answer = { error: { code: 17, message: '(#17) User request limit reached' } };
+      loadAdsForAccount('act_5');
+      return until(function () { return platformState.meta; }, 100).then(function () {
+        eq([loadingPlatforms.meta, platformState.meta && platformState.meta.kind, metaBases.act_5 || null], [false, 'error', null], 'an error card, not stuck loading, the cached numbers dropped');
+        // metaErrorText بترجّع رسالة مؤجلة (دالة بلغة الواجهة وقت العرض) زي msg
+        var text = document.getElementById('connectStatus').textContent, why = metaErrorText(answer.error);
+        why = typeof why === 'function' ? why() : String(why);
+        ok(why.length > 10 && text.indexOf(why) > -1 && text.indexOf('(#17)') < 0, 'the reason in plain words, not Meta\'s code: ' + text);
+        answer = { error: { code: 190, message: 'Session has expired' } };
+        delete platformState.meta;
+        loadAdsForAccount('act_5');
+        return until(function () { return platformState.meta; }, 100);
+      }).then(function () {
+        eq(platformState.meta && platformState.meta.kind, 'expired', 'a session error: «expired», not an error card');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
     test('حساب فاضي: كارت «الحساب ده مفيهوش إعلانات» بدل شاشة «اربط حسابك»', function () {
       activeSources.meta = 'act_9';
       setPlatformState('meta', { kind: 'empty' });
