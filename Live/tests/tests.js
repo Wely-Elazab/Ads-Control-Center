@@ -10088,6 +10088,89 @@
       eq(items.map(function (x) { return x.type; }), ['block', 'alert']);
       eq([items[0].related.length, items[0].rank, items[1].alert.adId], [1, 2, 'a2']);
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): «ويرتبط بها … على إعلاناتها» (ui.js alertsText) مكانش اتنفّذ في أي اختبار — البند كان بيترسم
+    // دايماً من غير تنبيهات مرتبطة. هنا البند الحقيقي (attnBlockHtml) بعد ما المحرك يربط التنبيهات بيه (DX.attention)
+    test('البند وعليه تنبيهات إعلاناته: «ويرتبط بها تنبيهان على إعلاناتها» بالعدد الصح (المفرد والمثنى والجمع والتمييز)، والتنبيهات نفسها جوه البند', function () {
+      var saved = candidates;
+      var item = function (n, dim, lang) {
+        var ads = [];
+        for (var i = 0; i < n; i++) ads.push(ad('r' + i, { cid: 'c1' }));
+        candidates = ads.length ? ads : [ad('r0', { cid: 'c1' })];
+        var seg = dim === 'ad' ? { dim: 'ad', key: 'r0' } : { dim: 'campaign', key: 'c1' };
+        // على مستوى الإعلان: كل التنبيهات على الإعلان نفسه (تكلفة وتكرار مثلاً)
+        var alerts = ads.map(function (a, i) { return al(i % 2 ? 'warning' : 'critical', dim === 'ad' ? 'r0' : a.id); });
+        var it = DX.attention([blk('decision', seg)], alerts, candidates)[0];
+        var box = document.createElement('div');
+        box.innerHTML = withLang(lang || 'ar', function () { return attnBlockHtml(it); });
+        return { sub: box.querySelector('summary .top-alert-src').textContent, rel: box.querySelectorAll('.attn-rel .top-alert').length };
+      };
+      try {
+        eq([1, 2, 3, 10, 11, 25].map(function (n) { return item(n, 'campaign').sub; }), ['ويرتبط بها تنبيه واحد على إعلاناتها', 'ويرتبط بها تنبيهان على إعلاناتها',
+          'ويرتبط بها ٣ تنبيهات على إعلاناتها', 'ويرتبط بها ١٠ تنبيهات على إعلاناتها', 'ويرتبط بها ١١ تنبيهاً على إعلاناتها', 'ويرتبط بها ٢٥ تنبيهاً على إعلاناتها']);
+        eq(item(3, 'campaign').rel, 3, 'the related alerts are listed inside the item');
+        eq([item(1, 'ad').sub, item(2, 'ad').sub], ['ويرتبط به تنبيه واحد على الإعلان نفسه', 'ويرتبط به تنبيهان على الإعلان نفسه'], 'on the ad itself');
+        eq([1, 2, 11].map(function (n) { return item(n, 'campaign', 'en').sub; }), ['Plus 1 alert on its ads', 'Plus 2 alerts on its ads', 'Plus 11 alerts on its ads'], 'English, Latin digits');
+        eq(item(0, 'campaign').sub, withLang('ar', function () { return t('attn.open'); }), 'no related alert: the plain line');
+      } finally { candidates = saved; }
+    });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧ و٧٣): «انسخ الملخص» ونسخ البند الواحد (ui.js dxCopyText) مكانوش اتنفّذوا في أي اختبار — والضغطتين ورا
+    // بعض كانوا بيسيبوا الزرار «تم النسخ ✓» على طول
+    testAsync('«انسخ الملخص» ونسخ بند واحد: النص كامل بالمقارنات والملاحظات واسم الحساب، و«تم النسخ» وبيرجع حتى بعد ضغطتين، والنسخ البديل لو الحافظة رفضت', function () {
+      var keep = { dx: dxState, ownExec: Object.prototype.hasOwnProperty.call(document, 'execCommand'), toText: DX.toText, ex: window.dxExcludedNote };
+      var written = [], clipOk = true, execOk = true, seen = null;
+      navigator.clipboard.writeText = function (s) { written.push(s); return clipOk ? Promise.resolve() : Promise.reject(new Error('denied')); };
+      document.execCommand = function (cmd) { written.push('legacy:' + cmd); return execOk; };
+      DX.toText = function (o, account) { seen = { o: o, account: account }; return 'FULL-TEXT'; };
+      window.dxExcludedNote = function () { return 'EXCLUDED'; };
+      var block = { kind: 'decision', title: 'BLOCK-T', lines: ['line one'] };
+      dxState = { status: 'ready', account: 'Store one', composed: { period: 'P-RANGE', blocks: [{ kind: 'why', title: 'B0', lines: [] }, block], notes: ['N1'] }, platCmp: { x: 1 }, costCmp: null };
+      var copyBtn = document.getElementById('dxCopy'), label = copyBtn.textContent;
+      var blockBtn = document.createElement('button');
+      blockBtn.type = 'button'; blockBtn.setAttribute('data-dx-copy', '1'); blockBtn.textContent = 'copy block';
+      document.body.appendChild(blockBtn);
+      var restore = function () {
+        delete navigator.clipboard.writeText;
+        if (!keep.ownExec) delete document.execCommand;
+        DX.toText = keep.toText; window.dxExcludedNote = keep.ex; dxState = keep.dx;
+        clearTimeout(copyBtn.copyTimer); clearTimeout(blockBtn.copyTimer); delete copyBtn.dataset.copyLabel; copyBtn.textContent = label; blockBtn.remove();
+      };
+      var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+      return Promise.resolve().then(function () {
+        copyBtn.click();
+        eq(seen && [seen.account, seen.o.period, seen.o.notes, seen.o.platCmp, seen.o.costCmp], ['Store one', 'P-RANGE', ['N1', 'EXCLUDED'], { x: 1 }, null],
+          'the whole summary with the comparisons, the notes and the excluded-ads note');
+        eq(dxState.composed.notes, ['N1'], 'the summary itself is not changed');
+        return wait(0);
+      }).then(function () {
+        eq([written, copyBtn.textContent], [['FULL-TEXT'], t('dx.copied')], 'copied');
+        copyBtn.click();
+        return wait(0);
+      }).then(function () {
+        eq(copyBtn.textContent, t('dx.copied'), 'a second click before the label came back');
+        return wait(2700);
+      }).then(function () {
+        eq(copyBtn.textContent, label, 'back to its own label even after two quick clicks');
+        written.length = 0;
+        blockBtn.click();
+        return wait(0);
+      }).then(function () {
+        eq([written, blockBtn.textContent], [['📊 ' + t('dx.title') + ' — Store one\nP-RANGE\n\n' + DX.blockText(block)], t('dx.copied')], 'one block: title, account, period, then the block');
+        clipOk = false; written.length = 0;
+        copyBtn.click();
+        return wait(0);
+      }).then(function () {
+        eq([written, copyBtn.textContent], [['FULL-TEXT', 'legacy:copy'], t('dx.copied')], 'clipboard refused: the older way of copying');
+        execOk = false; written.length = 0;
+        copyBtn.click();
+        return wait(0);
+      }).then(function () {
+        eq([written, copyBtn.textContent], [['FULL-TEXT', 'legacy:copy'], t('dx.copyFailed')], 'both refused: it says so');
+        dxState = { status: 'loading', composed: null };
+        written.length = 0;
+        copyBtn.click();
+        eq(written, [], 'no summary yet: nothing copied');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
     test('الترتيب: الحساب العاجل، عاجل الملخص، عاجل الإعلانات، يحتاج قرارك، مهم، للمتابعة', function () {
       var ads = [ad('a1', { cid: 'c9' })];
       var items = DX.attention([blk('watch', { dim: 'country', key: 'SA' }), blk('decision'), blk('urgent'), blk('why')],

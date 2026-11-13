@@ -2425,10 +2425,13 @@
   });
   // النسخ: الملخص كله أو بلوك واحد (عشان يتبعت لمسؤول الإعلانات على الواتساب)
   function dxCopyText(text, btn) {
+    // نص الزرار الأصلي بيتحفظ مرة واحدة، والمؤقت القديم بيتلغي (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ — ٧٣): ضغطتين ورا بعض في أقل من ٢٫٥ ثانية
+    // كانت التانية بتحفظ «تم النسخ ✓» كأنه الأصلي، ومؤقتها (اللي بيخلص آخر واحد) بيرجّعه — فالزرار كان بيفضل «تم النسخ ✓» على طول
     var done = function (ok) {
-      var old = btn.textContent;
+      if (!btn.dataset.copyLabel) btn.dataset.copyLabel = btn.textContent;
+      clearTimeout(btn.copyTimer);
       btn.textContent = t(ok ? 'dx.copied' : 'dx.copyFailed');
-      setTimeout(function () { btn.textContent = old; }, 2500);
+      btn.copyTimer = setTimeout(function () { btn.textContent = btn.dataset.copyLabel; delete btn.dataset.copyLabel; }, 2500);
     };
     var legacy = function () {
       var ta = document.createElement('textarea');
