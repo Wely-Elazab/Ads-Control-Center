@@ -527,7 +527,7 @@
   // كل منصة بتجيب أرقامها بنفس طريقة أرقام الفترة بالظبط (كأن المستخدم اختار المدى ده فترةً)، وبتتحفظ هنا بمفتاح المدى مش جوه
   // الكروت: الكروت بتتبني من جديد مع كل تحديث (mergeCandidates)، والمتوقفة بتنضاف بعدين
   var cmpLoaders = {};   // منصة ← دالة بتجيب أرقام المقارنة تاني (تغيير المقارنة لوحدها — ui.js applyCompare)
-  var cmpStore = {};     // مصدر ← { key, tz, status: 'loading' | 'ok' | 'failed', byId, calc }
+  var cmpStore = {};     // مصدر ← { key, tz, status: 'loading' | 'ok' | 'failed', byId, calc, all }
   function cardCompareRange(tz) {
     if (!window.DX || !DX.compareWindow) return null;
     var d = dxPeriodFor(tz);
@@ -538,16 +538,30 @@
   function cmpBegin(source, tz) {
     var w = cardCompareRange(tz);
     if (!w) return null;
-    cmpStore[source] = { key: cmpKeyOf(w), tz: tz, status: 'loading', byId: {}, calc: null };
+    cmpStore[source] = { key: cmpKeyOf(w), tz: tz, status: 'loading', byId: {}, calc: null, all: null };
     return w;
   }
   // النهاية بتتحسب بس لو لسه نفس المدى (المستخدم مغيّرش الفترة أو المقارنة في النص). byId = أرقام كل إعلان، أو calc(c) بيحسبها؛
   // false لإعلان = أرقامه مش متاحة (طلب فترته فشل)، ومش موجود = مصرفش في المدى ده (المنصات بترجّع اللي ليه أرقام بس)
-  function cmpDone(source, w, byId, calc) {
+  // all = إعلانات رد فترة المقارنة كلها بحملتها ومجموعتها ونوع نتيجتها وأرقامها ({ id, campaignId, campaignName, adsetId, adsetName,
+  // resultKey, p }): اللي مش كارت دلوقتي (صرف في فترة المقارنة واتوقف قبل الفترة) بيدخل في مجموع حملته ومجموعته (ui.js groupCmp)
+  function cmpDone(source, w, byId, calc, all) {
     var e = cmpStore[source];
     if (!e || e.key !== cmpKeyOf(w) || e.status !== 'loading') return false;
-    e.status = 'ok'; e.byId = byId || {}; e.calc = calc || null;
+    e.status = 'ok'; e.byId = byId || {}; e.calc = calc || null; e.all = Array.isArray(all) ? all : [];
     return true;
+  }
+  // «all» من قائمة كروت مبنية بنفس تحويل المنصة على مدى المقارنة (Snapchat وGoogle وTikTok)
+  function cmpAllOf(list) {
+    return (list || []).filter(function (c) { return c && c.id && c.period; }).map(function (c) {
+      return { id: c.id, campaignId: c.campaignId || null, campaignName: c.campaignName || null, adsetId: c.adsetId || null, adsetName: c.adsetName || null,
+        resultKey: c.resultKey || null, p: c.period };
+    });
+  }
+  // «all» للمصدر لو أرقام المقارنة جاهزة ولسه لنفس المدى، وإلا ولا حاجة
+  function cmpExtra(source) {
+    var e = cmpStore[source];
+    return e && e.status === 'ok' && Array.isArray(e.all) && e.key === cmpKeyOf(cardCompareRange(e.tz)) ? e.all : [];
   }
   function cmpFail(source, w) {
     var e = cmpStore[source];

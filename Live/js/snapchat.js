@@ -158,7 +158,7 @@
         d.periodStats, d.storeStats ? d.storeStats.timeseries_stats || [] : null, d.periodStoreStats, null, null, d.period);
       var byId = {};
       list.forEach(function (c) { byId[c.id] = c.period || false; });
-      if (cmpDone(source, w, byId)) render();
+      if (cmpDone(source, w, byId, null, cmpAllOf(list))) render();
     }).catch(gone);
   }
 

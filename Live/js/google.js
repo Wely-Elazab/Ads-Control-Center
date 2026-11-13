@@ -245,7 +245,7 @@
       list.forEach(function (c) { byId[c.id] = c.period || null; });
       // أرقام PMax للمدى فشلت: كل حملات PMax اللي في الكروت من غير مقارنة — حملة مش في الرد كانت هتبان «صفر» (مصرفتش) وهي مش معروفة
       if (!Array.isArray(d.pmaxPeriod)) candidates.forEach(function (c) { if (c.source === source && c.campaignLevel) byId[c.id] = false; });
-      if (cmpDone(source, w, byId)) render();
+      if (cmpDone(source, w, byId, null, cmpAllOf(list))) render();
     }).catch(gone);
   }
 

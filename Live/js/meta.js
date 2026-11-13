@@ -741,7 +741,7 @@
           return;
         }
         var camps = base.campsP && base.campsSince <= w.since ? base.campsP : metaCampaignIds(accountId, w.since, w.until);
-        var params = { level: 'ad', time_range: JSON.stringify({ since: w.since, until: w.until }), fields: 'ad_id,spend,actions,action_values', limit: 500 };
+        var params = { level: 'ad', time_range: JSON.stringify({ since: w.since, until: w.until }), fields: 'ad_id,campaign_id,adset_id,spend,actions,action_values', limit: 500 };
         camps.then(function (ids) {
           if (noCampaigns(ids)) return { data: [] };
           return insightsPromise(accountId, scopeToCampaigns(params, ids)).then(function (res) {
@@ -752,7 +752,7 @@
           // noWindows = Meta رفضت النوافذ ورجعنا لرقمها هي (fbPagesPromise): أساس تاني غير أرقام الكارت، فمش مقارنة
           if (!res || res.err || res.truncated || res.noWindows) { gone(); return; }
           var byAd = byAdId(res.data);
-          if (cmpDone(source, w, null, function (c) { return metaCmpPeriod(byAd[c.id], c, w); })) render();
+          if (cmpDone(source, w, null, function (c) { return metaCmpPeriod(byAd[c.id], c, w); }, metaCmpAll(res.data))) render();
         }, gone);
       };
       cmpLoaders.meta = function () { if (live()) loadCompare(); };
@@ -1277,6 +1277,15 @@
     var rp = Array.isArray(rows) ? metaDaysPeriod(rows, w, c.metaCtx) : metaRowPeriod(rows || {}, c.metaCtx);
     if (rp.key !== c.resultKey) return { spend: rp.period.spend, results: null, sales: 0, cpr: null, roas: null, otherType: true };
     return rp.period;
+  }
+  // صفوف فترة المقارنة كلها بحملة ومجموعة كل إعلان (core.js cmpDone all): اللي صرف وقتها ومش كارت دلوقتي بيدخل في مجموع حملته (ui.js
+  // groupCmp). نوع النتيجة من رقم Meta نفسه في الصف (عمود Results)، ومن غيره الإنفاق والمبيعات بس
+  function metaCmpAll(rows) {
+    return (rows || []).filter(function (row) { return row && row.ad_id; }).map(function (row) {
+      var first = metaResults(row), rp = metaRowPeriod(row, { first: first, goal: null, key: first ? first.key : null, type: first ? first.type : null });
+      return { id: String(row.ad_id), campaignId: row.campaign_id ? String(row.campaign_id) : null, campaignName: null,
+        adsetId: row.adset_id ? String(row.adset_id) : null, adsetName: null, resultKey: rp.key, p: rp.period };
+    });
   }
 
   // ---------- حالة التشغيل الفعلية لإعلان Meta ----------

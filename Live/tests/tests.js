@@ -362,6 +362,25 @@
       var p = transformSnapchatAds(ads, plat, days, 'SAR', [], [], pPlat, store, pStore)[0].period;
       eq([p.results, p.sales, p.plat.results], [1, 19, 0], 'the period too');
     });
+    test('Snapchat: رد فترة المقارنة كله بيتحفظ بحملة ومجموعة كل إعلان — اللي صرف وقتها ومش كارت بيدخل في مجموع حملته', function () {
+      var keep = { apiPost: window.apiPost, isCurrentLoad: window.isCurrentLoad, render: window.render }, src = 'snapchat:acc9', saved = cmpStore[src];
+      var two = [{ ad: { id: 'a1', name: 'Snap ad 1', status: 'ACTIVE', ad_squad_id: 'sq1' } }, { ad: { id: 'old1', name: 'Old', status: 'PAUSED', ad_squad_id: 'sq1' } }];
+      window.apiPost = function (u, body) {
+        var r = { ok: true, data: { ads: two, stats: { timeseries_stats: [] }, squads: [{ id: 'sq1', campaign_id: 'cp1' }], campaigns: [{ id: 'cp1', name: 'Camp' }],
+          periodStats: totals({ a1: { spend: 30 * M, swipes: 5 }, old1: { spend: 12 * M, swipes: 2 } }), period: { since: body.period.since, until: body.period.until },
+          range: { since: days[0].key, until: days[7].key }, account: { currency: 'USD' } } };
+        return { then: function (f) { f(r); return { catch: function () {} }; } };
+      };
+      window.isCurrentLoad = function () { return true; };
+      window.render = function () {};
+      try {
+        loadSnapchatCompare('acc9', 'UTC', 't');
+        eq(cmpExtra(src).map(function (x) { return [x.id, x.campaignId, x.adsetId, x.p.spend]; }), [['s-a1', 'cp1', 'sq1', 30], ['s-old1', 'cp1', 'sq1', 12]]);
+      } finally {
+        Object.keys(keep).forEach(function (k) { window[k] = keep[k]; });
+        if (saved) cmpStore[src] = saved; else delete cmpStore[src];
+      }
+    });
     test('طلب «الأقرب للمتجر» فشل = أرقام المنصة زي الأول ومن غير مقارنة', function () {
       var c = transformSnapchatAds(ads, plat, days, 'SAR', [], [], null, null, null)[0];
       eq([c.results, c.plat, platOf(c)], [14, null, null]);
@@ -2887,6 +2906,53 @@
         cmpStore['meta:act_1'].byId.gb = false;
         eq(groupCmp(g).state, 'failed', 'one ad not available = the total is not (a partial total would be wrong)');
       } finally { if (saved) cmpStore['meta:act_1'] = saved; else delete cmpStore['meta:act_1']; }
+    });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (فحص حي — Snapchat، «هذا الشهر» مقابل ١–١٣ أكتوبر): «الفترة السابقة» على كروت الحملات كانت أقل من حقيقتها
+    // بـ١١–١٦٪ — ١٠ إعلانات صرفت ٦٤ $ في فترة المقارنة ومش كروت (اتوقفت قبل الفترة)، فمكانتش في مجموع حملتها
+    test('كارت الحملة والمجموعة: «الفترة السابقة» فيها إعلاناتها اللي صرفت وقتها ومش كروت دلوقتي — مرة واحدة، ومن غيرها لو الكارت متفلتر', function () {
+      var a = ad('oa', { daily: steady(10), res: steady(1), sales: steady(100), cid: 'oc1', aid: 'os1' }), b = ad('ob', { daily: steady(20), res: steady(1), sales: steady(50), cid: 'oc1', aid: 'os1' });
+      a.period = buildPeriod(70, 7, 700); b.period = buildPeriod(140, 7, 350);
+      var other = ad('oz', { daily: steady(5), res: steady(1), cid: 'oc2', aid: 'os2' }); other.period = buildPeriod(35, 7, 0);
+      var src = a.source, saved = cmpStore[src], keep = { cands: candidates, f: Object.assign({}, filters) }, tz = BROWSER_TZ, w = cardCompareRange(tz);
+      var orphan = function (id, cid, sid, key, p) { return { id: id, campaignId: cid, campaignName: null, adsetId: sid, adsetName: null, resultKey: key, p: p }; };
+      var campOf = function (cid) { return groupCampaigns(candidates).filter(function (g) { return g.ads[0].campaignId === cid; })[0]; };
+      try {
+        filters.format = 'all'; filters.health = 'all'; filters.text = '';
+        candidates = [a, b, other];
+        cmpStore[src] = { key: cmpKeyOf(w), tz: tz, status: 'ok', byId: { oa: buildPeriod(50, 5, 400), ob: buildPeriod(30, 3, 100) }, calc: null,
+          all: [orphan('oa', 'oc1', 'os1', 'purchase', buildPeriod(50, 5, 400)), orphan('gone1', 'oc1', 'os1', 'purchase', buildPeriod(40, 2, 120)),
+            orphan('gone2', 'oc1', 'os1', 'lead', buildPeriod(10, 9, 0)), orphan('gone3', 'oc2', 'os2', 'purchase', buildPeriod(99, 1, 0))] };
+        eq(groupCmp(campOf('oc1')), { state: 'ok', p: buildPeriod(130, 10, 620) }, 'the campaign then = its cards + its ads that spent then (another result type: spend only)');
+        var set = groupAdsets(candidates).filter(function (g) { return g.ads[0].adsetId === 'os1'; })[0];
+        eq(groupCmp(set).p, buildPeriod(130, 10, 620), 'the ad set the same');
+        eq(groupCmp(campOf('oc2')).p.spend, 99, 'each campaign its own');
+        // إعلان «صرف وقتها» بقى كارت (المتوقفة اتحمّلت): مبيتحسبش مرتين
+        var back = ad('gone1', { daily: steady(0), cid: 'oc1', aid: 'os1' }); back.period = buildPeriod(0, 0, 0);
+        cmpStore[src].byId.gone1 = buildPeriod(40, 2, 120);
+        candidates = [a, b, other, back];
+        eq(groupCmp(campOf('oc1')).p, buildPeriod(130, 10, 620), 'counted once when it becomes a card');
+        // الكارت متفلتر (بحث بالاسم): مجموع إعلاناته الظاهرة بس
+        filters.text = 'Ad o';
+        eq(groupCmp(campOf('oc1')).p.spend, 120, 'a filtered card: its shown ads only');
+        // مدى المقارنة اتغيّر ولسه بيتحمّل: مفيش إضافات من المدى القديم
+        filters.text = '';
+        cmpStore[src].key = '2020-01-01:2020-01-07';
+        eq(groupCmp(campOf('oc1')).state, 'loading');
+        // والإضافات نفسها: مدى قديم أو لسه بيتحمّل = ولا حاجة
+        eq(cmpExtra(src), [], 'another range: nothing');
+        cmpStore[src].key = cmpKeyOf(w); cmpStore[src].status = 'loading';
+        eq(cmpExtra(src), [], 'still loading: nothing');
+      } finally {
+        candidates = keep.cands; Object.keys(keep.f).forEach(function (k) { filters[k] = keep.f[k]; });
+        if (saved) cmpStore[src] = saved; else delete cmpStore[src];
+      }
+    });
+    test('Meta: صفوف فترة المقارنة كلها بحملة ومجموعة كل إعلان ونوع نتيجته (metaCmpAll)', function () {
+      var rows = [{ ad_id: '501', campaign_id: '77', adset_id: '88', spend: '40.5', actions: [{ action_type: 'purchase', value: '3', '7d_click': '2' }],
+        action_values: [{ action_type: 'purchase', value: '300', '7d_click': '200' }], results: [{ indicator: 'actions:purchase', values: [{ value: '3' }] }] },
+        { ad_id: '502', spend: '5' }, { spend: '9' }];
+      eq(metaCmpAll(rows).map(function (x) { return [x.id, x.campaignId, x.adsetId, x.resultKey, x.p.spend, x.p.results, x.p.sales]; }),
+        [['501', '77', '88', 'purchase', 40.5, 2, 200], ['502', null, null, null, 5, null, 0]]);
     });
     test('نص الخطأ اللي في الرابط مبيظهرش — رسالة من عندنا بس', function () {
       var denied = oauthErrorFromUrl(new URLSearchParams('error=access_denied&error_description=Call+0100+now'));
@@ -11467,6 +11533,7 @@
         eq(sent[0].period, { preset: 'custom', since: w.since, until: w.until });
         var x = cmpOf(tt);
         eq([x.state, x.p.spend, x.p.results], ['ok', 31, 3], 'TikTok');
+        eq(cmpExtra('tiktok:adv1').map(function (e) { return [e.id, e.campaignId, e.adsetId, e.p.spend]; }), [[tt.id, '3', '77', 31]], 'TikTok: the whole reply with campaign and ad group');
         reply = function () { return { ok: true, data: { ads: rows, report: [], periodReport: null, period: { since: w.since, until: w.until }, range: { since: KEYS[0], until: KEYS[6] } } }; };
         loadTikTokCompare('adv1', 'UTC', 't');
         eq(cmpOf(tt).state, 'failed', 'its period numbers failed: not available');
@@ -11483,6 +11550,7 @@
         eq(sent[0].period, { preset: 'custom', since: w.since, until: w.until });
         var y = cmpOf(gg);
         eq([y.state, y.p.spend, y.p.results, y.p.sales], ['ok', 70, 2, 180], 'Google: closest to the store with the platform cap, like the card');
+        eq(cmpExtra('google:123').map(function (e) { return [e.id, e.campaignId, e.adsetId, e.p.spend]; }), [[gg.id, '3', '7', 70]], 'Google: the whole reply with campaign and ad group');
         // حملة Performance Max: أرقام PMax للمدى فشلت = مش متاحة (مش صفر)، حتى لو الحملة مش في الرد خالص
         var camp = { id: '21', name: 'PMax', status: 'ENABLED', primaryStatus: 'ELIGIBLE' };
         var pm = transformGooglePmax([], [{ campaign: camp, metrics: { costMicros: String(80 * M), conversions: 4, conversionsValue: 400 } }], DAYS_X, 'SAR', null, null, null, null, pr)[0];

@@ -927,7 +927,21 @@
       if (periodOf(g.ads[i]).results == null) continue;
       if (x.p.results == null) resOk = false; else results += x.p.results;
     }
-    return state === 'ok' ? { state: 'ok', p: buildPeriod(spend, resOk ? results : null, sales) } : { state: state, p: null };
+    if (state !== 'ok') return { state: state, p: null };
+    // إعلانات صرفت في فترة المقارنة ومش كروت دلوقتي (اتوقفت قبل الفترة): بتدخل في مجموع حملتها ومجموعتها — زي رقم الحملة في المنصة.
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (فحص حي — Snapchat، «هذا الشهر» مقابل ١–١٣ أكتوبر): «الفترة السابقة» على كروت الحملات كانت أقل من
+    // حقيقتها بـ١١–١٦٪ (١٠ إعلانات صرفت ٦٤ $ وقتها). بس لو الكارت = الحملة كلها: بحث أو صيغة أو حالة = مجموع الإعلانات الظاهرة بس.
+    // النتائج من نفس النوع بس (الكارت بيقارن نوع واحد)، واللي بقى كارت (المتوقفة اتحمّلت) مبيتعدّش مرتين
+    if (filters.format === 'all' && filters.health === 'all' && !filters.text && g.ads.length) {
+      var src = g.ads[0].source, keyOf = g.kind === 'adset' ? adsetKey : campaignKey;
+      cmpExtra(src).forEach(function (x) {
+        if (!x.p || findCandidate(x.id)) return;
+        if (keyOf({ source: src, campaignId: x.campaignId, campaignName: x.campaignName, adsetId: x.adsetId, adsetName: x.adsetName }) !== g.key) return;
+        spend += x.p.spend || 0; sales += x.p.sales || 0;
+        if (resOk && x.resultKey === g.resultKey && x.p.results != null) results += x.p.results;
+      });
+    }
+    return { state: 'ok', p: buildPeriod(spend, resOk ? results : null, sales) };
   }
   // رقم المنصة لإعلانات حملة أو مجموعة في الفترة — نفس الإعلانات اللي في أرقام الكارت
   function groupPlat(g) {

@@ -123,7 +123,7 @@
       var list = transformTikTokAds(d.ads || [], d.report || [], daysFromRange(d.range), d.advertiser && d.advertiser.currency, d.periodReport, d.periodDaily, d.period);
       var byId = {};
       list.forEach(function (c) { byId[c.id] = c.period || null; });
-      if (cmpDone(source, w, byId)) render();
+      if (cmpDone(source, w, byId, null, cmpAllOf(list))) render();
     }).catch(gone);
   }
 
