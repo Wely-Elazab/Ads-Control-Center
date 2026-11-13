@@ -6200,6 +6200,66 @@
         ok(text.indexOf(t('s.googleAccountsFailed', { msg: '' }).slice(0, 10)) === -1, 'not shown as a failure');
       }, function (e) { window.fetch = realFetch; throw e; });
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): نجاح قائمة الحسابات بأكتر من حساب، وفشل تحميل الإعلانات من غير انتهاء الربط (google.js وsnapchat.js
+    // fail و«تم العثور على …») مكانوش اتنفّذوا في أي اختبار — كان فيه بس «حساب مقفول بس» و«انتهى الربط» وخطأ قائمة Snapchat
+    testAsync('Google وSnapchat: أكتر من حساب = «تم العثور على …» والقائمة بالاسم، وGoogle بيقول رقم المقفول، وSnapchat بيبدأ بأول حساب شغّال', function () {
+      var realFetch = window.fetch, real = { g: window.loadGoogleAdsForAccount, s: window.loadSnapchatAdsForAccount }, loaded = [];
+      var ids = ['google:1112223333', 'google:4445556666'];
+      window.loadGoogleAdsForAccount = function (id) { loaded.push('google:' + id); };
+      window.loadSnapchatAdsForAccount = function (id) { loaded.push('snapchat:' + id); };
+      var restore = function () { window.fetch = realFetch; window.loadGoogleAdsForAccount = real.g; window.loadSnapchatAdsForAccount = real.s; ids.forEach(function (k) { delete accountInfo[k]; }); };
+      var status = function () { return document.getElementById('connectStatus').textContent; };
+      window.fetch = fakeFetch({ accounts: [{ id: '1112223333', name: 'Store A', currency: 'SAR' }, { id: '4445556666', name: '4445556666' }], errors: [], inactive: ['7778889999'] });
+      googleAccessToken = 'test';
+      loadGoogleAccounts();
+      return tick().then(tick).then(function () {
+        eq(status(), t('s.accountsFound', { n: ar(2), accounts: noun(2, 'n.account'), platform: 'Google Ads' }) + ' ' + t('s.googleSkippedInactive', { ids: '777-888-9999' }),
+          'found, and the closed account by its number');
+        eq(platformOptions.google.map(function (o) { return o.label; }), ['Google Ads — Store A (1112223333)', 'Google Ads — 4445556666'], 'name and number (the number once when there is no name)');
+        eq([loaded, accountInfo['google:1112223333'].name], [['google:1112223333'], 'Store A'], 'the first account loads');
+        loaded.length = 0;
+        window.fetch = fakeFetch({ organizations: [{ organization: { ad_accounts: [{ ad_account: { id: 's1', name: 'Paused one', status: 'PAUSED' } }, { ad_account: { id: 's2', name: 'Live one', status: 'ACTIVE' } }] } }] });
+        snapchatAccessToken = 'test';
+        loadSnapchatAccounts();
+        return tick().then(tick);
+      }).then(function () {
+        eq(status(), t('s.accountsFound', { n: ar(2), accounts: noun(2, 'n.account'), platform: 'Snapchat' }), 'found');
+        eq(platformOptions.snapchat.map(function (o) { return o.label; }), ['Snapchat — Paused one', 'Snapchat — Live one']);
+        eq(loaded, ['snapchat:s2'], 'no earlier choice: the first ACTIVE account, not the paused one');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+    testAsync('Google وSnapchat: فشل تحميل الإعلانات (مش انتهاء الربط) = كارت خطأ بسببه، والربط بيفضل، ورد 200 فيه error زيه', function () {
+      var realFetch = window.fetch;
+      var restore = function () { window.fetch = realFetch; delete accountInfo['google:555']; };
+      var check = function (p, name, reason) {
+        eq(platformState[p] && platformState[p].kind, 'error', p + ': error state');
+        ok(document.getElementById('connectStatus').textContent.indexOf(reason) > -1, p + ': the reason is shown: ' + document.getElementById('connectStatus').textContent);
+        ok(document.querySelector('#loadStates .ls-error'), p + ': error card');
+        eq(loadingPlatforms[p], false, p + ': not stuck loading');
+      };
+      sessionTokens.google = { token: 'tok', expiresAt: Date.now() + 3600000 };
+      googleAccessToken = 'tok';
+      accountInfo['google:555'] = {};
+      window.fetch = fakeFetch({ error: 'Quota exceeded' }, 500);
+      loadGoogleAdsForAccount('555');
+      return tick().then(tick).then(function () {
+        check('google', 'Google Ads', 'Quota exceeded');
+        eq(googleAccessToken, 'tok', 'google: the link is kept (not an expiry)');
+        window.fetch = fakeFetch({ error: 'Bad customer' }, 200);
+        loadGoogleAdsForAccount('555');
+        return tick().then(tick);
+      }).then(function () {
+        check('google', 'Google Ads', 'Bad customer');
+        sessionTokens.snapchat = { token: 'stok', expiresAt: Date.now() + 3600000 };
+        snapchatAccessToken = 'stok';
+        window.fetch = fakeFetch({ error: 'Snap is down' }, 503);
+        loadSnapchatAdsForAccount('s9');
+        return tick().then(tick);
+      }).then(function () {
+        check('snapchat', 'Snapchat', 'Snap is down');
+        eq(snapchatAccessToken, 'stok', 'snapchat: the link is kept');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
   });
 
   // ---------- المراجعة الشاملة: الأمان والاعتمادية والوضوح ----------
