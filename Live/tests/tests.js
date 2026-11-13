@@ -8483,6 +8483,16 @@
       eq([early[0].stage, early[0].after], ['early', 1]);
       eq(DX.actionGroups([budget('12', '2026-09-20T10:00:00+0000', 1000, 2000), budget('12', '2026-09-21T10:00:00+0000', 2000, 1050)], 'UTC', '2026-09-24', '2026-09-26').length, 0, 'raised then lowered back');
     });
+    // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (٦٧): أول يوم بيتطلب من أرقام العناصر للحكم على التعديلات (DX.actionsFrom — المُشغّل بيستخدمه في الملخص
+    // بالبريد، runner.ts) مكانش اتنفّذ في أي اختبار: اختبارات الدالة بمحرك وهمي، والأداة مبتنادهوش
+    test('أول يوم بيتطلب للحكم على التعديلات (actionsFrom): ٧ أيام قبل أقدم تعديل في كل الحزم، أيّاً كان ترتيبها، ومن غير حزم null', function () {
+      // تعديلان يومهم التالت الكامل جوه فترة الملخص (٢٤–٢٦ سبتمبر) — تعديل ٢٠ سبتمبر يومه التالت ٢٣ فمش من حزم الملخص ده أصلاً
+      var g = DX.actionGroups([budget('30', '2026-09-21T10:00:00+0000', 1000, 2000), budget('31', '2026-09-22T10:00:00+0000', 1000, 2000)], 'UTC', '2026-09-24', '2026-09-26');
+      eq(g.map(function (x) { return x.first; }).sort(), ['2026-09-21', '2026-09-22'], 'two packages');
+      eq(DX.actionsFrom(g), '2026-09-14', 'seven days before the oldest edit (its «before» window)');
+      eq(DX.actionsFrom(g.slice().reverse()), '2026-09-14', 'whatever the order');
+      eq(DX.actionsFrom([]), null, 'no package: nothing more to read');
+    });
     test('رفع الميزانية: الحكم بعد استبعاد باقي الحساب (فرق الفروق)', function () {
       var since = '2026-09-24', until = '2026-09-26';
       var groups = DX.actionGroups([budget('20', '2026-09-22T09:00:00+0000', 10000, 20000)], 'UTC', since, until);
