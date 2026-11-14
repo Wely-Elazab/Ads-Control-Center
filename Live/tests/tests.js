@@ -3037,6 +3037,16 @@
         candidates = [ad('g1', { cid: 'c1', aid: 's1' })];
         viewMode = 'campaigns'; render();
         eq(gc.textContent, 'حملة واحدة — تضم إعلاناً واحداً', 'one ad: the accusative after «تضم»');
+        // المثنى بفعله (المرور الثاني ١٤ نوفمبر ٢٠٢٦): كانت «حملتان — تضم …»
+        candidates = [ad('g1', { cid: 'c1', aid: 's1' }), ad('g2', { cid: 'c2', aid: 's2' }), ad('g3', { cid: 'c2', aid: 's2' })];
+        viewMode = 'campaigns'; render();
+        eq(gc.textContent, 'حملتان — تضمّان ٣ إعلانات', 'two campaigns: the dual verb');
+        viewMode = 'adsets'; render();
+        eq(gc.textContent, 'مجموعتان إعلانيتان — تضمّان ٣ إعلانات', 'two ad sets: the dual verb');
+        candidates = candidates.concat([ad('g4', { cid: 'c3', aid: 's3' })]);
+        viewMode = 'campaigns'; render();
+        eq(gc.textContent, '٣ حملات — تضم ٤ إعلانات', 'three and more: the singular feminine verb');
+        candidates = [ad('g1', { cid: 'c1', aid: 's1' })];
         eq(connectedText([])(), 'متصل — تم تحميل إعلان واحد من جميع المنصات المتصلة.', 'connected, one ad');
         candidates = [ad('g1'), ad('g2')];
         eq(connectedText([])(), 'متصل — تم تحميل إعلانين من جميع المنصات المتصلة.', 'connected, two ads');
@@ -3232,7 +3242,24 @@
         cmpStore[src] = { key: cmpKeyOf(w), tz: tz, status: 'ok', byId: { oa: buildPeriod(50, 5, 400), ob: buildPeriod(30, 3, 100) }, calc: null,
           all: [orphan('oa', 'oc1', 'os1', 'purchase', buildPeriod(50, 5, 400)), orphan('gone1', 'oc1', 'os1', 'purchase', buildPeriod(40, 2, 120)),
             orphan('gone2', 'oc1', 'os1', 'lead', buildPeriod(10, 9, 0)), orphan('gone3', 'oc2', 'os2', 'purchase', buildPeriod(99, 1, 0))] };
-        eq(groupCmp(campOf('oc1')), { state: 'ok', p: buildPeriod(130, 10, 620) }, 'the campaign then = its cards + its ads that spent then (another result type: spend only)');
+        // إعلان قديم بنوع نتيجة تاني (lead وسط كروت شراء): الحملة كانت مختلطة وقتها — من غير نتائج ولا تكلفة (زي الكارت المختلط دلوقتي)،
+        // والإنفاق والمبيعات كاملين. المرور الثاني ١٤ نوفمبر ٢٠٢٦: كانت «١٠ مشتريات بـ١٣٠» (تكلفة ١٣) وإعلانات الشراء صرفت ١٢٠ بس
+        eq(groupCmp(campOf('oc1')), { state: 'ok', p: buildPeriod(130, null, 620) }, 'another result type among its old ads: no results or cost, spend and sales in full');
+        var mixedBox = document.createElement('div');
+        mixedBox.innerHTML = campaignMarkup(campOf('oc1'));
+        var cmpLines = Array.prototype.map.call(mixedBox.querySelectorAll('.card-stats .card-stat-s'), function (x) { return x.textContent; });
+        ok(cmpLines.indexOf(t('card.cmp', { label: cmpLabel(), v: money(130, 'SAR') })) > -1 && cmpLines.indexOf(t('card.cmp', { label: cmpLabel(), v: '—' })) > -1,
+          'on the card: the spend then, and a dash for the results: ' + cmpLines.join(' | '));
+        // نفس الإعلان القديم من غير أي نتائج (null): إنفاقه بس، والنتائج من كروت الشراء والقديم اللي من نوعها
+        cmpStore[src].all[2] = orphan('gone2', 'oc1', 'os1', null, buildPeriod(10, null, 0));
+        eq(groupCmp(campOf('oc1')), { state: 'ok', p: buildPeriod(130, 10, 620) }, 'the campaign then = its cards + its ads that spent then (an old ad with no results: spend only)');
+        // كروت من غير نوع نتيجة والقديم من غير نوع برضه: الاتنين «نتائج» عامة (groupLevel بيسمّيها generic)، فنتائج القديم بتتجمع
+        var allKeep = cmpStore[src].all;
+        a.resultKey = null; b.resultKey = null;
+        cmpStore[src].all = [orphan('gone9', 'oc1', 'os1', null, buildPeriod(10, 4, 0))];
+        eq(groupCmp(campOf('oc1')).p, buildPeriod(90, 12, 500), 'no result type on the cards and on the old ad: the same type, added');
+        a.resultKey = 'purchase'; b.resultKey = 'purchase';
+        cmpStore[src].all = allKeep;
         var set = groupAdsets(candidates).filter(function (g) { return g.ads[0].adsetId === 'os1'; })[0];
         eq(groupCmp(set).p, buildPeriod(130, 10, 620), 'the ad set the same');
         eq(groupCmp(campOf('oc2')).p.spend, 99, 'each campaign its own');

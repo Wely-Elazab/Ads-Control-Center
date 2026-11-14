@@ -931,14 +931,18 @@
     // إعلانات صرفت في فترة المقارنة ومش كروت دلوقتي (اتوقفت قبل الفترة): بتدخل في مجموع حملتها ومجموعتها — زي رقم الحملة في المنصة.
     // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (فحص حي — Snapchat، «هذا الشهر» مقابل ١–١٣ أكتوبر): «الفترة السابقة» على كروت الحملات كانت أقل من
     // حقيقتها بـ١١–١٦٪ (١٠ إعلانات صرفت ٦٤ $ وقتها). بس لو الكارت = الحملة كلها: بحث أو صيغة أو حالة = مجموع الإعلانات الظاهرة بس.
-    // النتائج من نفس النوع بس (الكارت بيقارن نوع واحد)، واللي بقى كارت (المتوقفة اتحمّلت) مبيتعدّش مرتين
+    // اللي بقى كارت (المتوقفة اتحمّلت) مبيتعدّش مرتين. نتائجه: من نفس نوع الكارت بتتجمع؛ نوع تاني = الحملة كانت مختلطة وقتها، فنتائج
+    // وتكلفة «الفترة السابقة» مش متاحة — زي كارت الحملة نفسه لما أنواع إعلاناته مختلطة (groupLevel: mixedResults) — والإنفاق والمبيعات
+    // والعائد كاملين. المرور الثاني ١٤ نوفمبر ٢٠٢٦: كانت نتائجه بتتساب وإنفاقه بيتجمع، فتكلفة الشراء السابقة بتتحسب على إنفاق إعلان هدفه
+    // مش شراء وتبان أعلى من حقيقتها. واللي مالوش نتائج أصلاً (null) إنفاقه بس، زي الكارت اللي من غير نتائج
     if (filters.format === 'all' && filters.health === 'all' && !filters.text && g.ads.length) {
       var src = g.ads[0].source, keyOf = g.kind === 'adset' ? adsetKey : campaignKey;
       cmpExtra(src).forEach(function (x) {
         if (!x.p || findCandidate(x.id)) return;
         if (keyOf({ source: src, campaignId: x.campaignId, campaignName: x.campaignName, adsetId: x.adsetId, adsetName: x.adsetName }) !== g.key) return;
         spend += x.p.spend || 0; sales += x.p.sales || 0;
-        if (resOk && x.resultKey === g.resultKey && x.p.results != null) results += x.p.results;
+        if (x.p.results == null) return;
+        if ((x.resultKey || 'generic') === g.resultKey) results += x.p.results; else resOk = false;
       });
     }
     return { state: 'ok', p: buildPeriod(spend, resOk ? results : null, sales) };
@@ -1334,7 +1338,8 @@
       cardGrid.innerHTML = sets.length
         ? sets.slice(0, renderLimit).map(campaignMarkup).join('') + moreButton(renderLimit, sets.length, true)
         : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
-      galleryCount.textContent = t('gallery.countAdsets', { sets: countNoun(sets.length, 'n.adset', 'nom'), ads: countNoun(setAds.length, 'n.ad', 'acc') });
+      // المثنى بفعله: «مجموعتان إعلانيتان — تضمّان …» (المرور الثاني ١٤ نوفمبر ٢٠٢٦)
+      galleryCount.textContent = t(sets.length === 2 ? 'gallery.countAdsets2' : 'gallery.countAdsets', { sets: countNoun(sets.length, 'n.adset', 'nom'), ads: countNoun(setAds.length, 'n.ad', 'acc') });
     } else if (viewMode === 'campaigns') {
       // الحملة = مجموع كل إعلاناتها اللي ليها أرقام في الفترة، بالمتوقفة (الفلاتر اللي العميل اختارها بس هي اللي بتقلّلها).
       // مراجعة المرحلة ٤ (١٨ أكتوبر ٢٠٢٦، حساب حقيقي): كانت من الإعلانات الظاهرة بعد إخفاء المتوقفة — ٥ حملات من ١٣، وحملة
@@ -1344,7 +1349,7 @@
       cardGrid.innerHTML = camps.length
         ? camps.slice(0, renderLimit).map(campaignMarkup).join('') + moreButton(renderLimit, camps.length, true)
         : '<div class="empty-state" style="grid-column:1/-1">' + t('gallery.noMatch') + '</div>';
-      galleryCount.textContent = t('gallery.countCampaigns', { camps: countNoun(camps.length, 'n.campaign', 'nom'), ads: countNoun(campAds.length, 'n.ad', 'acc') });
+      galleryCount.textContent = t(camps.length === 2 ? 'gallery.countCampaigns2' : 'gallery.countCampaigns', { camps: countNoun(camps.length, 'n.campaign', 'nom'), ads: countNoun(campAds.length, 'n.ad', 'acc') });
     } else {
       cardGrid.innerHTML = visible.length
         ? visible.slice(0, renderLimit).map(cardMarkup).join('') + moreButton(renderLimit, visible.length)
