@@ -7,6 +7,9 @@
 # الاستخدام من جذر المستودع: bash .github/scripts/ship.sh
 # بيستخدم واجهة GitHub العامة من غير دخول (حدها ٦٠ طلب في الساعة — الانتظار كل ٣٠ ثانية)
 set -euo pipefail
+# أي توقف مش مقصود بيقول سطره (المرور الثاني للتدقيق الشامل ١٤ نوفمبر ٢٠٢٦): شحنة ١٣ نوفمبر وقفت ساكتة بعد «waiting for CI»
+# (السبب تحت عند قراءة حالة التشغيل)، فمكانش فيه ما يقول إن main متحدّثش. اختباره: .github/scripts/ship-test.sh
+trap 'echo "ship.sh stopped at line $LINENO (exit $?) — if no line above says main was updated, it was NOT" >&2' ERR
 repo=Wely-Elazab/Ads-Control-Center
 site=https://adscenter.online
 sha=$(git rev-parse HEAD)
@@ -15,7 +18,8 @@ sha=$(git rev-parse HEAD)
 # $2 = حالة main ساعتها، عشان الرسالة تقول هو اتغيّر ولا لأ
 gh_api() {
   local j
-  j=$(curl -s "https://api.github.com/repos/$repo/$1")
+  # --max-time: طلب معلّق ميوقّفش السكربت للأبد. طلب فشل أو خلصت مهلته = رد فاضي، واللفة اللي بتنادي بتقراه «لسه» وتسأل تاني
+  j=$(curl -s --max-time 20 "https://api.github.com/repos/$repo/$1")
   if echo "$j" | grep -q 'API rate limit exceeded'; then
     echo "GitHub API limit reached (60 requests/hour without sign-in) — $2" >&2
     return 3
@@ -29,8 +33,10 @@ ok=""
 for i in $(seq 1 30); do
   sleep 30
   j=$(gh_api "actions/runs?head_sha=$sha&branch=staging&per_page=3" "main NOT updated; run ship.sh again within the hour")
-  st=$(echo "$j" | grep -oE '"status": *"[a-z_]+"' | head -1 | sed -E 's/.*"([a-z_]+)"$/\1/')
-  co=$(echo "$j" | grep -oE '"conclusion": *("[a-z_]+"|null)' | head -1 | sed -E 's/.*: *//; s/"//g')
+  # || true: رد من غير "status" (GitHub لسه مسجّلتش التشغيل في أول ٣٠ ثانية، أو رد فاضي من عطل شبكة) بيخلّي grep يفشل، ومع
+  # pipefail وset -e السكربت كان بيقف هنا من غير أي رسالة — دلوقتي بيتقري «none» واللفة بتكمّل
+  st=$(echo "$j" | grep -oE '"status": *"[a-z_]+"' | head -1 | sed -E 's/.*"([a-z_]+)"$/\1/' || true)
+  co=$(echo "$j" | grep -oE '"conclusion": *("[a-z_]+"|null)' | head -1 | sed -E 's/.*: *//; s/"//g' || true)
   echo "  $(date +%T) ${st:-none} ${co:-}"
   if [ "${st:-}" = "completed" ]; then ok="$co"; break; fi
 done
