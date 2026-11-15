@@ -1538,6 +1538,49 @@
       var fresh = ad('fresh', { daily: [0, 0, 0, 0, 2, 2, 0], res: [0, 0, 0, 0, 1, 0, 0], age: 2 });
       eq(engine(baseAccount().concat([fresh])).byAd.fresh.health, 'pending', 'still learning');
     });
+    // قراءة كل جملة (التدقيق الشامل ١٥ نوفمبر ٢٠٢٦): «أقل من تكلفة {one} واحدة» بجنس ثابت كانت بتطلع «عميل محتمل واحدة» و«تحويل واحدة»
+    test('«أقل من تكلفة …» بجنس نوع النتيجة: «عميل محتمل واحد» و«عملية شراء واحدة» — في التنبيه وسطر أساس الحكم وبالإنجليزي', function () {
+      var mk = function (key) {
+        var base = [ad('k1', { daily: steady(100), res: steady(5), key: key }), ad('k2', { daily: steady(100), res: steady(5), key: key })];
+        return engine(base.concat([ad('low', { daily: [2, 2, 2, 2, 2, 2, 0], res: [0, 0, 1, 0, 0, 0, 0], key: key })]));
+      };
+      var usOf = function (r) { return r.byAd.low.issues.filter(function (i) { return i.code === 'underspend'; })[0]; };
+      withLang('ar', function () {
+        var lead = mk('lead'), us = usOf(lead);
+        ok(us && /تكلفة عميل محتمل واحد بمتوسط/.test(us.detail) && !/عميل محتمل واحدة/.test(us.detail), us ? us.detail : list(lead, 'low'));
+        ok(/تكلفة عميل محتمل واحد بمتوسط/.test(lead.byAd.low.basis || ''), 'basis: ' + lead.byAd.low.basis);
+        var buy = usOf(mk('purchase'));
+        ok(buy && /تكلفة عملية شراء واحدة بمتوسط/.test(buy.detail), buy ? buy.detail : 'none');
+        var inst = usOf(mk('install'));
+        ok(inst && /تكلفة تثبيت واحد بمتوسط/.test(inst.detail), inst ? inst.detail : 'none');
+      });
+      withLang('en', function () {
+        var us = usOf(mk('lead'));
+        ok(us && /the cost of one lead on/.test(us.detail), us ? us.detail : 'none');
+      });
+    });
+    test('صيغ «واحد» و«اثنان» المرفوعة لكل أنواع النتائج: موجودة ومن غير ألف تنوين النصب (oneNoun وجملة المقارنة)', function () {
+      var keys = ['purchase', 'order', 'lead', 'message', 'click', 'lpv', 'install', 'engagement', 'video', 'reply', 'conversion', 'swipe', 'registration', 'cart',
+        'checkout', 'subscribe', 'contact', 'reach', 'generic'];
+      withLang('ar', function () { eq(keys.filter(function (k) { return t('res1.' + k) === 'res1.' + k; }), [], 'every type has its singular noun'); });
+      var bad = [];
+      withLang('ar', function () {
+        keys.forEach(function (k) {
+          var one = I18N.oneNoun(k), two = t('resN2.' + k);
+          if (!/واحدة?( |$)/.test(one) || /اً( |$)/.test(one)) bad.push('one ' + k + ': ' + one);
+          if (two === 'resN2.' + k || /ين( |$)/.test(two)) bad.push('two ' + k + ': ' + two);
+        });
+      });
+      eq(bad, []);
+      eq(withLang('en', function () { return I18N.oneNoun('lead'); }), 'one lead');
+    });
+    test('«{n} إعلاناً غيره» مع ١١ فأكثر في دمج المجموعة (مش «إعلاناً أخرى»)، و«٣ إعلانات غيره»', function () {
+      withLang('ar', function () {
+        var eleven = t('al.setMerge', { n: '١١', ads: I18N.noun(11, 'n.ad'), names: 'x' }), three = t('al.setMerge', { n: '٣', ads: I18N.noun(3, 'n.ad'), names: 'x' });
+        ok(/١١ إعلاناً غيره عليها الملاحظة نفسها/.test(eleven) && !/أخرى/.test(eleven), eleven);
+        ok(/٣ إعلانات غيره عليها الملاحظة نفسها/.test(three), three);
+      });
+    });
     test('إعلان مبيعات بيكسب على إنفاق قليل (طلبين وعائد فوق المستهدف) = «فرصة» وقراءة مبدئية، مش «يحتاج إلى تحسين»', function () {
       // حساب Snapchat حقيقي ١١ أكتوبر: طلبين بـ١٧$ وعائد ×٩٫٣ كان عليه «لا يأخذ إنفاقاً كافياً» بالأصفر
       var win = ad('win', { daily: [3, 3, 3, 3, 3, 3, 0], res: [0, 1, 0, 1, 0, 0, 0], sales: [0, 80, 0, 80, 0, 0, 0], cid: 'kw' });

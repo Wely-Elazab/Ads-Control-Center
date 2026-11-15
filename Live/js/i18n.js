@@ -357,6 +357,14 @@
       'resN1.lead': 'عميل محتمل واحد', 'resN2.lead': 'عميلان محتملان',
       'resN1.swipe': 'تمريرة واحدة', 'resN2.swipe': 'تمريرتان',
       'resN1.generic': 'نتيجة واحدة', 'resN2.generic': 'نتيجتان',
+      // باقي الأنواع (قراءة كل جملة، ١٥ نوفمبر ٢٠٢٦): من غيرها «تكلفة {one} واحدة» كانت بتطلع «عميل محتمل واحدة» و«تحويل واحدة»، وجملة
+      // المقارنة بترجع للمنصوب «تثبيتاً واحداً» في موضع رفع. المؤنث بنفس كتابة resOne، والمذكر من غير ألف التنوين
+      'resN1.click': 'نقرة واحدة', 'resN2.click': 'نقرتان', 'resN1.lpv': 'زيارة واحدة', 'resN2.lpv': 'زيارتان',
+      'resN1.install': 'تثبيت واحد', 'resN2.install': 'تثبيتان', 'resN1.engagement': 'تفاعل واحد', 'resN2.engagement': 'تفاعلان',
+      'resN1.video': 'مشاهدة واحدة', 'resN2.video': 'مشاهدتان', 'resN1.reply': 'رد واحد', 'resN2.reply': 'ردّان',
+      'resN1.registration': 'تسجيل واحد', 'resN2.registration': 'تسجيلان', 'resN1.cart': 'إضافة واحدة إلى السلة', 'resN2.cart': 'إضافتان إلى السلة',
+      'resN1.checkout': 'عملية بدء دفع واحدة', 'resN2.checkout': 'عمليتا بدء دفع', 'resN1.subscribe': 'اشتراك واحد', 'resN2.subscribe': 'اشتراكان',
+      'resN1.contact': 'طلب تواصل واحد', 'resN2.contact': 'طلبا تواصل', 'resN1.reach': 'شخص واحد', 'resN2.reach': 'شخصان',
       'x.salesRow': 'المبيعات ({cur})',
       'x.spendRow': 'الإنفاق ({cur})',
       'x.yesterday': 'أمس',
@@ -807,7 +815,7 @@
       'al.wasteWeekEarly.t': 'لا نتائج خلال الأسبوع حتى الآن',
       'al.wasteWeekEarly.tP': 'لا نتائج {wd}',
       'al.wasteNew.t': 'إنفاق كبير دون نتائج في إعلان جديد',
-      'al.wasteNew.d': 'أنفق {name} مبلغ {spend} منذ بدايته حتى أمس دون أي {label}، مع أنه ما زال في فترة التعلّم. {refSpent}',
+      'al.wasteNew.d': 'أنفق {name} مبلغ {spend} منذ بدايته حتى أمس دون أي {label}، وهو ما زال في فترة التعلّم. {refSpent}',
       'al.wasteNew.a': 'ما زال الإعلان في فترة التعلّم، لكن نقترح مراجعة الاستهداف والصفحة المقصودة إن استمر دون نتائج.',
       'al.roasText': 'كل {one} {cur} أُنفق عاد بـ {roas} {cur}',
       // الإعلان أحسن من متوسط الحساب = متوسط باقي إعلانات المبيعات أضعف منه: خفض ميزانيته لوحده بيقلل المبيعات أكتر من غيره
@@ -861,7 +869,7 @@
       // تنبيه واحد لكل مجموعة إعلانية (ISA-18.2 — alerts.js mergeBySet)
       'al.setMerge1': ' ومعه في المجموعة الإعلانية نفسها إعلان آخر عليه الملاحظة نفسها ({names})، فالسبب غالباً في المجموعة نفسها (الجمهور أو المزايدة أو الصفحة المقصودة) وليس في كل إعلان على حدة.',
       'al.setMerge2': ' ومعه في المجموعة الإعلانية نفسها إعلانان آخران عليهما الملاحظة نفسها ({names})، فالسبب غالباً في المجموعة نفسها (الجمهور أو المزايدة أو الصفحة المقصودة) وليس في كل إعلان على حدة.',
-      'al.setMerge': ' ومعه في المجموعة الإعلانية نفسها {n} {ads} أخرى عليها الملاحظة نفسها ({names})، فالسبب غالباً في المجموعة نفسها (الجمهور أو المزايدة أو الصفحة المقصودة) وليس في كل إعلان على حدة.',
+      'al.setMerge': ' ومعه في المجموعة الإعلانية نفسها {n} {ads} غيره عليها الملاحظة نفسها ({names})، فالسبب غالباً في المجموعة نفسها (الجمهور أو المزايدة أو الصفحة المقصودة) وليس في كل إعلان على حدة.',
       'al.setMerge.more': ' و{n} غيرها',
       'al.setMerge.a': ' ولأن السبب غالباً في المجموعة الإعلانية، راجع جمهورها ومزايدتها وصفحتها قبل إيقاف إعلاناتها واحداً واحداً.',
       'al.cpr.a': 'نقترح مقارنته بالإعلانات الأخرى في مجموعته: الميزانية عادةً للمجموعة أو الحملة لا للإعلان، فإن بقي أغلى منها فإيقافه أو استبدال تصميمه يترك إنفاق المجموعة للإعلانات الأرخص.',
@@ -921,13 +929,13 @@
       // الحالة «يحتاج إلى تحسين/مراجعة» وسبب «لم يُحكم بعد» (المراجعة الثانية للمرحلة ٥): التنبيه اللي حدّد الحالة بعد السبب العام
       'basis.butAlert': ' وقد ظهر عليه ما يستدعي الانتباه: «{title}».',
       'al.underspend.t': 'لا يأخذ إنفاقاً كافياً',
-      'al.underspend.d': '{name} نشط منذ {age}، لكنه أنفق {spend} فقط {wd} وحقق {count}، وهذا أقل من تكلفة {one} واحدة بمتوسط {avgOf} ({avg}). أي أن المنصة لا تعطيه إنفاقاً كافياً رغم أنه حقق نتيجة.',
-      'al.underspend.dZero': '{name} نشط منذ {age}، لكنه أنفق {spend} فقط {wd} دون أي {label}، وهذا أقل من تكلفة {one} واحدة بمتوسط {avgOf} ({avg})، فلا يكفي للحكم عليه.',
+      'al.underspend.d': '{name} نشط منذ {age}، لكنه أنفق {spend} فقط {wd} وحقق {count}، وهذا أقل من تكلفة {oneUnit} بمتوسط {avgOf} ({avg}). أي أن المنصة لا تعطيه إنفاقاً كافياً رغم أنه حقق نتيجة.',
+      'al.underspend.dZero': '{name} نشط منذ {age}، لكنه أنفق {spend} فقط {wd} دون أي {label}، وهذا أقل من تكلفة {oneUnit} بمتوسط {avgOf} ({avg})، فلا يكفي للحكم عليه.',
       'al.underspend.a': 'إن كان في مجموعة إعلانية مع إعلانات أخرى فالمنصة تفضّل غيره: قرّر هل تنقله إلى مجموعة خاصة به أو توقفه. وإن كان وحده في مجموعته فراجع ميزانيته وجمهوره وطريقة المزايدة.',
       'al.underspendWin.t': 'نتائج جيدة بإنفاق قليل',
-      'al.underspendWin.d': '{name} حقق {count} بإنفاق {spend} فقط {wd}، أي {cpr} لكل {one} مقابل {avg} بمتوسط {avgOf}. لكن المنصة تعطيه إنفاقاً أقل من تكلفة {one} واحدة بمتوسط الحساب.',
+      'al.underspendWin.d': '{name} حقق {count} بإنفاق {spend} فقط {wd}، أي {cpr} لكل {one} مقابل {avg} بمتوسط {avgOf}. لكن المنصة تعطيه إنفاقاً أقل من تكلفة {oneUnit} بمتوسط الحساب.',
       'al.underspendWin.a': 'النتيجة مبدئية لقلة الإنفاق، لكنها تستحق الاختبار: قد يفيد نقله إلى مجموعة إعلانية خاصة به بميزانية مستقلة، مع متابعة تكلفة النتيجة بعدها.',
-      'basis.underspend': 'إنفاقه {wd} {spend}، أقل من تكلفة {one} واحدة بمتوسط {avgOf} ({avg}).',
+      'basis.underspend': 'إنفاقه {wd} {spend}، أقل من تكلفة {oneUnit} بمتوسط {avgOf} ({avg}).',
       // التعديلات على الإعلان أو مجموعته أو حملته (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦)
       'edit.lvl.ad': 'الإعلان',
       'edit.lvl.adset': 'المجموعة الإعلانية',
@@ -2306,7 +2314,7 @@
       'al.impactNoPct': 'Size in your budget: {spend} {wd}',
       'al.compare': 'For comparison: the platform credits this ad with {p}{pr}, while the number closest to your store\'s orders is {s}{sr} — and this alert is based on that number.',
       'al.compareZero': 'For comparison: the platform credits this ad with {p}{pr}, while none of them shows up in the number closest to your store\'s orders — and this alert is based on that.',
-      'al.cmpRoas': ' at ROAS ×{r}',
+      'al.cmpRoas': ' at a return of ×{r}',
       'al.impactAccount': 'Affects the whole account: {spend} spent {wd}',
       'al.rejected.t': 'A running ad was rejected and stopped',
       'al.rejected.d': 'The platform rejected {name} after it had been running and spent {spend} in the last 3 days and today, so it stopped showing.',
@@ -2347,7 +2355,7 @@
       'al.noSpend7.t': 'Active ad hasn\'t spent at all',
       'al.noSpend7.d': '{name} is active but hasn\'t spent anything {wd}.',
       'al.noSpend7.a': 'If this ad should be running, we suggest checking on the platform why it isn\'t showing.',
-      'al.waste.t': 'Spend with no results in 2 days',
+      'al.waste.t': 'Spend with no results in the last 2 days',
       'al.waste.d': '{name} spent {spend} in the last 2 days with no {label}. {refSpent}',
       'al.wasteWeek.dNoRef': '{name} spent {spend} {wd} with no {label}.',
       'al.waste.a': 'We suggest reviewing the ad, and changing or pausing it if its results don\'t improve, so this budget isn\'t wasted. Some results can show up late on the platform.',
@@ -2471,13 +2479,13 @@
       'pend.prelim.profit': 'Early read: its return {wd} is ×{roas}, {cmp}. The verdict completes {need}.',
       'basis.butAlert': ' But something already needs attention: “{title}”.',
       'al.underspend.t': 'Not getting enough spend',
-      'al.underspend.d': '{name} has been active for {age}, but spent only {spend} {wd} and got {count}, less than the cost of one {one} on {avgOf} ({avg}). The platform isn\'t giving it enough spend even though it got a result.',
-      'al.underspend.dZero': '{name} has been active for {age}, but spent only {spend} {wd} with no {label}, less than the cost of one {one} on {avgOf} ({avg}), so it\'s not enough to judge.',
+      'al.underspend.d': '{name} has been active for {age}, but spent only {spend} {wd} and got {count}, less than the cost of {oneUnit} on {avgOf} ({avg}). The platform isn\'t giving it enough spend even though it got a result.',
+      'al.underspend.dZero': '{name} has been active for {age}, but spent only {spend} {wd} with no {label}, less than the cost of {oneUnit} on {avgOf} ({avg}), so it\'s not enough to judge.',
       'al.underspend.a': 'If it shares an ad set with other ads, the platform prefers them: decide whether to move it to its own ad set or pause it. If it\'s alone in its ad set, check its budget, audience and bidding.',
       'al.underspendWin.t': 'Good results on little spend',
-      'al.underspendWin.d': '{name} got {count} on only {spend} {wd} — {cpr} per {one} versus {avg} on {avgOf}. But the platform gives it less than the cost of one {one} at that average.',
+      'al.underspendWin.d': '{name} got {count} on only {spend} {wd} — {cpr} per {one} versus {avg} on {avgOf}. But the platform gives it less than the cost of {oneUnit} at that average.',
       'al.underspendWin.a': 'It\'s an early read on little spend, but worth testing: moving it to its own ad set with its own budget may help, while watching the cost per result afterwards.',
-      'basis.underspend': 'It spent {spend} {wd}, less than the cost of one {one} on {avgOf} ({avg}).',
+      'basis.underspend': 'It spent {spend} {wd}, less than the cost of {oneUnit} on {avgOf} ({avg}).',
       'edit.lvl.ad': 'the ad',
       'edit.lvl.adset': 'the ad set',
       'edit.lvl.campaign': 'the campaign',
@@ -3262,6 +3270,13 @@
     if (lang === 'ar' && n === 2 && DICT.ar['res2.' + key] != null) return DICT.ar['res2.' + key];
     return (digits ? digits(n) : String(n)) + ' ' + resultNoun(n, key);
   }
+  // «عملية شراء واحدة» / «عميل محتمل واحد» بعد مضاف أو حرف جر («أقل من تكلفة …») — الكتابة نفسها في الرفع والجر. قبل كده القوالب كانت
+  // «تكلفة {one} واحدة» بجنس ثابت فبتطلع «عميل محتمل واحدة» (قراءة كل جملة، ١٥ نوفمبر ٢٠٢٦). بالإنجليزي «one lead»
+  function oneNoun(key) {
+    key = key || 'generic';
+    if (lang === 'ar') return DICT.ar['resN1.' + key] || DICT.ar['resN1.generic'];
+    return 'one ' + t('res1.' + key);
+  }
   // العدد والمعدود عبارة واحدة بالفصحى (التدقيق الشامل ١٤ نوفمبر ٢٠٢٦ — ٧٤): «حساب واحد» / «حسابين» (مرفوع: «حسابان»، ومنصوب مفرد:
   // «حساباً واحداً») / «٣ حسابات» / «١١ حساباً». قبل كده القوالب كانت «{n} {اسم}» فبتطلع «١ حساب» و«٢ حساب».
   // kase: 'gen' بعد حرف جر أو مضاف (الافتراضي) / 'nom' مبتدأ أو فاعل / 'acc' مفعول به. الإنجليزي زي ما هو: «1 account» / «2 accounts»
@@ -3332,6 +3347,7 @@
     resultAny: resultAny,
     countPhrase: countPhrase,
     countNoun: countNoun,
+    oneNoun: oneNoun,
     timesPhrase: timesPhrase,
     measureNoun: measureNoun,
     timesText: timesText,

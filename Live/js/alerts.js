@@ -482,6 +482,8 @@
     // الجمع هنا بييجي بعد «أي» («دون أي عملاء محتملين») — فبنستخدم الصيغة المجرورة لو موجودة
     var label = global.I18N ? global.I18N.resultAny(c.resultKey) : pluralOf(c.resultKey);
     var one = singularOf(c.resultKey);
+    // «عملية شراء واحدة» / «عميل محتمل واحد» — الجنس من نوع النتيجة (i18n.js oneNoun)، مش «{one} واحدة» ثابتة
+    var oneUnit = global.I18N && global.I18N.oneNoun ? global.I18N.oneNoun(c.resultKey) : one;
     var group = c.resultKey ? acc.byLabel[c.resultKey] : null;
     var age = c.daysAgo;
     var learning = age != null && age < s.learningDays;
@@ -1068,7 +1070,7 @@
     // تكلفة نتيجة وجاب نتيجة، فقاعدة صاحب المنتج زي ما هي
     var starvedWin = underspend && profitAd && hasGoal && resW >= 2 && roasW >= s.roasTarget;
     if (underspend) {
-      var usVars = { name: name, age: daysText(age, fmt), spend: money(spendW), count: countText(resW, c.resultKey, fmt), label: label, one: one, avg: money(avgCpr),
+      var usVars = { name: name, age: daysText(age, fmt), spend: money(spendW), count: countText(resW, c.resultKey, fmt), label: label, one: one, oneUnit: oneUnit, avg: money(avgCpr),
         cpr: resW > 0 ? money(spendW / resW) : '' };
       var us = starvedWin
         ? makeIssue('opportunity', ['spend'], t('al.underspendWin.t'), t('al.underspendWin.d', usVars), t('al.underspendWin.a'), 0, 'underspend-win')
@@ -1104,7 +1106,7 @@
 
     // سطر «على أي أساس الحكم» في تفاصيل الإعلان — حتى الإعلان «الجيد» بيقول ليه
     var basis = null;
-    if (underspend && !starvedWin) basis = t('basis.underspend', { spend: money(spendW), one: one, avg: money(avgCpr) });
+    if (underspend && !starvedWin) basis = t('basis.underspend', { spend: money(spendW), one: one, oneUnit: oneUnit, avg: money(avgCpr) });
     else if (pend) basis = pendText(pend);
     else if (profitAd && hasGoal && roasW != null) {
       basis = t('basis.profit', { roas: rr(roasW), target: fmt.num(s.roasTarget) }) +
