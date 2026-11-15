@@ -2741,12 +2741,13 @@
     });
     test('رابط معطّل: ٤٠٤ = صفحة غير موجودة، ومن غير رد = لا يستجيب، وأكتر من إعلان على نفس الرابط', function () {
       var out = PauseProofAlerts.linkAlerts([{ key: 'k1', url: 'https://shop.example/p/1', status: 404, ads: ['Ad 1', 'Ad 2', 'Ad 3'] }, { key: 'k2', url: 'https://gone.example/', status: 0, ads: ['Ad 9'] }], ALERT_FMT);
-      // (١٠١) العدد بأرقام اللغة زي كل الأعداد — كان «(2)» جوه البريد العربي؛ ورمز الخطأ رمز تقني لاتيني
-      ok(out[0].code === 'link-broken' && out[0].objectId === 'k1' && /صفحة غير موجودة/.test(out[0].detail) && /وإعلانات أخرى \(٢\)/.test(out[0].detail) && /خطأ 404/.test(out[0].detail), out[0].detail);
+      // (١٠١) العدد بأرقام اللغة زي كل الأعداد — كان «(2)» جوه البريد العربي؛ و(١٠٧) رمز الخطأ كمان، زي «رمز ٥٠٣» في رسالة الواجهة
+      ok(out[0].code === 'link-broken' && out[0].objectId === 'k1' && /صفحة غير موجودة/.test(out[0].detail) && /وإعلانات أخرى \(٢\)/.test(out[0].detail) && /خطأ ٤٠٤/.test(out[0].detail), out[0].detail);
       ok(/لا يستجيب/.test(out[1].detail), out[1].detail);
       // (٩٧) خطأ الخادم (5xx) اتكرر مرتين: بالرمز نفسه
       var srv = PauseProofAlerts.linkAlerts([{ key: 'k3', url: 'https://shop.example/x', status: 503, ads: ['Ad 5'] }], ALERT_FMT);
-      ok(/موقعك يرد بخطأ \(رمز 503\)/.test(srv[0].detail) && /في محاولتين/.test(srv[0].detail), srv[0].detail);
+      ok(/موقعك يرد بخطأ \(رمز ٥٠٣\)/.test(srv[0].detail) && /في محاولتين/.test(srv[0].detail), srv[0].detail);
+      withLang('en', function () { ok(/\(code 503\)/.test(PauseProofAlerts.linkAlerts([{ key: 'k4', url: 'https://shop.example/y', status: 503, ads: ['Ad 6'] }], ALERT_FMT)[0].detail), 'English: Latin digits'); });
     });
     // (١٠١) المُشغّل (البريد) هو اللي بيطلب linkAlerts — لازم يبعت fmt، وإلا العدد يرجع لاتيني في البريد العربي
     testAsync('عقد المُشغّل: كل طلب لـ linkAlerts بيبعت fmt (أرقام اللغة في البريد)', function () {

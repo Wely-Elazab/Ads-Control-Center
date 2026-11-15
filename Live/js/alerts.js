@@ -1692,7 +1692,7 @@
   // المعطّل بس: صفحة مش موجودة (404/410)، أو خطأ الخادم (5xx) أو عدم استجابة اتكرر مرتين — الحجب الأمني
   // (403/429، تحدّي Cloudflare) مش بيوصل هنا أصلاً
   // fmt (التدقيق الشامل ١٥ نوفمبر ٢٠٢٦، ١٠١): عدد الإعلانات التانية بأرقام اللغة زي كل الأعداد — كان String() فبيطلع «وإعلانات أخرى (2)»
-  // في البريد العربي. رمز الخطأ (٤٠٤) رمز تقني بيفضل لاتيني زي ما بيظهر في المتصفح
+  // في البريد العربي. ورمز الخطأ كمان بأرقام اللغة (١٠٧) — زي «لم يستجب الخادم (رمز ٥٠٣)» في الواجهة (core.js بـ ar)؛ كان لاتيني
   function linkAlerts(results, fmt) {
     return (results || []).map(function (r) {
       var ads = r.ads || [], first = t('al.name', { name: ads[0] || '' });
@@ -1701,7 +1701,7 @@
       var url = String(r.url || '');
       if (url.length > 90) url = url.slice(0, 89) + '…';
       var key = r.status === 404 || r.status === 410 ? 'al.link.d404' : (r.status ? 'al.link.d5xx' : 'al.link.dNet');
-      var a = makeIssue('critical', ['status'], t('al.link.t'), t(key, { ads: adsText, status: String(r.status || ''), url: url }), t('al.link.a'), 0, 'link-broken');
+      var a = makeIssue('critical', ['status'], t('al.link.t'), t(key, { ads: adsText, status: r.status ? (fmt && fmt.int ? fmt.int(r.status) : String(r.status)) : '', url: url }), t('al.link.a'), 0, 'link-broken');
       a.objectId = r.key;
       return a;
     });
