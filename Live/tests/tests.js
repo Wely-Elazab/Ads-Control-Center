@@ -2594,11 +2594,63 @@
       ok(/رُفعت ميزانية المجموعة الإعلانية «Set A» اليومية/.test(out[0].detail) && out[0].detail.indexOf(money(10, 'USD')) > -1 && out[0].detail.indexOf(money(50, 'USD')) > -1 && /بواسطة Eslam/.test(out[0].detail), out[0].detail);
       ok(/تم إيقاف الحملة «Main»/.test(out[1].detail) && out[1].objectId === '4@2026-09-24T17:00:00', JSON.stringify(out[1]));
     });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٧): مسارات نصوصها مكانتش بتتطلب في أي اختبار — خفض الميزانية الكبير، والميزانية الإجمالية،
+    // والإجمالية الصغيرة اللي متستاهلش تنبيه
+    test('تعديل كبير: خفض الميزانية للتلت (والفرق ٢٠٪ من إنفاق اليوم) = «خفض كبير»، والإجمالية ×٣ بنصيب ٢٠٪ = «زيادة» الإجمالية، وبنصيب ٥٪ لأ', function () {
+      var out = withLang('ar', function () {
+        return PauseProofAlerts.editAlerts([
+          { kind: 'budget', level: 'campaign', id: '7', name: 'Main', actor: 'Sara', when: '٢٥ سبتمبر ١٠:٠٠', time: '2026-09-25T10:00:00+0000', from: 6000, to: 2000, share: 0.4 },
+          { kind: 'budget', level: 'adset', id: '8', name: 'Life', actor: 'Sara', when: 'x', time: '2026-09-25T11:00:00+0000', from: 100000, to: 300000, share: 0.2, lifetime: true },
+          { kind: 'budget', level: 'adset', id: '9', name: 'SmallLife', actor: 'Sara', when: 'x', time: '2026-09-25T12:00:00+0000', from: 100000, to: 300000, share: 0.05, lifetime: true }
+        ], ALERT_FMT, 'USD', 200);
+      });
+      eq(out.map(function (a) { return a.code + ':' + a.level; }), ['big-edit:critical', 'big-edit:critical'], 'the small lifetime budget (5% of spend) raises nothing');
+      withLang('ar', function () {
+        eq(out[0].title, t('al.editDown.t'));
+        ok(out[0].detail.indexOf('خُفّضت ميزانية الحملة «') === 0 && / اليومية من /.test(out[0].detail) && out[0].detail.indexOf(money(60, 'USD')) > -1 &&
+          out[0].detail.indexOf(money(20, 'USD')) > -1 && /بواسطة Sara/.test(out[0].detail) && /٤٠٪/.test(out[0].detail), out[0].detail);
+        eq(out[0].advice, t('al.editDown.a'));
+        ok(out[1].title === t('al.editUp.t') && / الإجمالية من /.test(out[1].detail) && out[1].detail.indexOf(money(3000, 'USD')) > -1, out[1].detail);
+      });
+      eq(out[0].objectId, '7@2026-09-25T10:00:00', 'one key per item and time (the e-mail sends it once)');
+    });
+    // (٩٧) التوقف من المنصة: السبب بوصفنا + سبب المنصة الحرفي، والإيقاف اليدوي بنفس الإنفاق من غير تنبيه
+    test('إعلان نشط توقف من مشكلة في المنصة: «عاجل» بالسبب وسبب المنصة الحرفي — والإيقاف اليدوي بنفس الإنفاق مفيش عليه تنبيه', function () {
+      var x = ad('iss', { daily: steady(50), res: steady(1), active: false, pausedLevel: 'issue' });
+      x.deliveryReason = 'Payment method failed';
+      var man = ad('man', { daily: steady(50), res: steady(1), active: false, pausedLevel: 'ad' });
+      var r = withLang('ar', function () { return engine(baseAccount().concat([x, man])); });
+      var i = r.byAd.iss.issues.filter(function (j) { return j.code === 'stopped'; })[0];
+      withLang('ar', function () {
+        ok(i && i.level === 'critical' && i.title === t('al.stopped.t') && i.detail.indexOf(t('why.issue')) > -1 && /Payment method failed/.test(i.detail) &&
+          i.detail.indexOf(money(200, 'SAR')) > -1, i ? i.level + ' ' + i.detail : JSON.stringify(r.byAd.iss.issues.map(function (j) { return j.code; })));
+      });
+      eq(r.byAd.man.issues.filter(function (j) { return j.code === 'stopped'; }).length, 0, 'an intended pause raises nothing');
+    });
+    // (٩٧) ظهور محدود بسبب ملاحظة من المنصة والإعلان لسه شغّال
+    test('ظهور محدود بسبب سياسات المنصة: «مهم» على الإعلان الشغّال، ومن غير الملاحظة مفيش', function () {
+      var lim = ad('lim', { daily: steady(100), res: steady(5), review: 'limited' }), ok2 = ad('fine', { daily: steady(100), res: steady(5) });
+      var r = withLang('ar', function () { return engine(baseAccount().concat([lim, ok2])); });
+      var i = r.byAd.lim.issues.filter(function (j) { return j.code === 'limited'; })[0];
+      withLang('ar', function () { ok(i && i.level === 'warning' && i.title === t('al.limited.t') && i.detail.indexOf('Ad lim') > -1, i ? i.detail : JSON.stringify(r.byAd.lim.issues.map(function (j) { return j.code; }))); });
+      eq(r.byAd.fine.issues.filter(function (j) { return j.code === 'limited'; }).length, 0);
+    });
+    // (٩٧) نوع النتيجة مش معروف (المنصة مرجّعتش النتيجة اللي الإعلان بيتحسّن لها): «لم يُحكم بعد» بسببه، من غير أي حكم على التكلفة
+    test('نوع النتيجة غير معروف: «لم يُحكم بعد» بسبب «نوع النتيجة غير معروف» ومن غير تنبيه أداء', function () {
+      var r = withLang('ar', function () { return engine(baseAccount().concat([ad('ng', { daily: steady(100), noResults: true })])); });
+      var a = r.byAd.ng;
+      eq([a.health, a.pending], ['pending', 'noGoal']);
+      withLang('ar', function () { eq(a.pendingTitle, t('pend.noGoal.t')); });
+      eq(a.issues.filter(function (i) { return i.level === 'critical' || i.level === 'warning'; }).length, 0, 'no cost or waste verdict without a known result');
+    });
     test('رابط معطّل: ٤٠٤ = صفحة غير موجودة، ومن غير رد = لا يستجيب، وأكتر من إعلان على نفس الرابط', function () {
       var out = PauseProofAlerts.linkAlerts([{ key: 'k1', url: 'https://shop.example/p/1', status: 404, ads: ['Ad 1', 'Ad 2', 'Ad 3'] }, { key: 'k2', url: 'https://gone.example/', status: 0, ads: ['Ad 9'] }], ALERT_FMT);
       // (١٠١) العدد بأرقام اللغة زي كل الأعداد — كان «(2)» جوه البريد العربي؛ ورمز الخطأ رمز تقني لاتيني
       ok(out[0].code === 'link-broken' && out[0].objectId === 'k1' && /صفحة غير موجودة/.test(out[0].detail) && /وإعلانات أخرى \(٢\)/.test(out[0].detail) && /خطأ 404/.test(out[0].detail), out[0].detail);
       ok(/لا يستجيب/.test(out[1].detail), out[1].detail);
+      // (٩٧) خطأ الخادم (5xx) اتكرر مرتين: بالرمز نفسه
+      var srv = PauseProofAlerts.linkAlerts([{ key: 'k3', url: 'https://shop.example/x', status: 503, ads: ['Ad 5'] }], ALERT_FMT);
+      ok(/موقعك يرد بخطأ \(رمز 503\)/.test(srv[0].detail) && /في محاولتين/.test(srv[0].detail), srv[0].detail);
     });
     // (١٠١) المُشغّل (البريد) هو اللي بيطلب linkAlerts — لازم يبعت fmt، وإلا العدد يرجع لاتيني في البريد العربي
     testAsync('عقد المُشغّل: كل طلب لـ linkAlerts بيبعت fmt (أرقام اللغة في البريد)', function () {
