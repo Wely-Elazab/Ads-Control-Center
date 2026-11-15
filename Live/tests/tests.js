@@ -7116,6 +7116,28 @@
         } finally { f.remove(); }
       });
     });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (WCAG 2.5.8 — مساحة الضغط ٢٤×٢٤ على الأقل): قياس على الأداة الحية بعرض ٤٣٤ — الرابط والزرار النصي اللي
+    // لوحده في سطر كانوا ١٦–١٨ بكسل طول (رابط الصفحة المقصودة و«المزيد» في تفاصيل الإعلان، وروابط التذييل)، وزرار «إزالة» في الإعدادات
+    testAsync('مساحة الضغط ٢٤×٢٤ على الأقل (WCAG 2.5.8): روابط التذييل، ورابط الصفحة المقصودة و«المزيد»، وأزرار «إزالة» و«تعديل» النصية', function () {
+      return toolFrame(375, 812).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        try {
+          var box = d.createElement('div'); box.className = 'wrap';
+          box.innerHTML = '<div class="attr-compare"><a class="attr-more" id="ts-more" href="#x">' + w.esc(w.t('dx.fb.edit')) + '</a></div>' +
+            '<div class="expand-landing"><span>x</span><a class="expand-landing-value mono" id="ts-land" href="#x">example.com/p</a></div>' +
+            '<ul><li>x <button type="button" class="dx-fb-link" id="ts-rm">' + w.esc(w.t('dx.auto.remove')) + '</button></li>' +
+            '<li>x <button type="button" class="dx-fb-link" id="ts-ed">' + w.esc(w.t('dx.fb.edit')) + '</button></li></ul>';
+          d.body.appendChild(box);
+          var size = function (el) { var r = el.getBoundingClientRect(); return [Math.round(r.width * 10) / 10, Math.round(r.height * 10) / 10]; };
+          var small = ['ts-more', 'ts-land', 'ts-rm', 'ts-ed'].map(function (id) { return [id, size(d.getElementById(id))]; })
+            .filter(function (x) { return x[1][0] < 24 || x[1][1] < 24; });
+          eq(small, [], 'every one of them at least 24×24');
+          var foot = Array.prototype.filter.call(d.querySelectorAll('.footer-links a'), function (a) { return a.getBoundingClientRect().height > 0; })
+            .map(function (a) { return size(a)[1]; });
+          ok(foot.length >= 3 && foot.every(function (x) { return x >= 24; }), 'the footer links at least 24px tall: ' + foot.join(', '));
+        } finally { f.remove(); }
+      });
+    });
     // iOS بيقرّب على أي حقل خطه أقل من ١٦px ومبيرجّعش التقريب. الإصلاح الأول كان جوه استعلام الموبايل، وقاعدة
     // .sort-select اللي بعده في الملف غلبته — قائمة الفترة فضلت ١٣px على الموقع (مقيس ٣ نوفمبر ٢٠٢٦). بنقيس الخط
     // الفعلي لكل حقل بالستايل الحقيقي، مش بنقرا القاعدة

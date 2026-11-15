@@ -173,7 +173,9 @@
   .expand-caption { font-size: 13.5px; line-height: 1.65; background: var(--paper); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
   .expand-landing { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12.5px; padding: 10px 0; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); margin-bottom: 14px; }
   .expand-landing-label { color: var(--ink-faint); flex-shrink: 0; }
-  .expand-landing-value { color: var(--verified); font-weight: 500; word-break: break-all; text-decoration: none; }
+  /* الرابط والزرار النصي اللي لوحده في سطر: مساحة ضغط ٢٤ بكسل على الأقل بالحشو من فوق وتحت (WCAG 2.5.8 — كانت ١٦–١٨؛ التدقيق الشامل
+     ١٥ نوفمبر ٢٠٢٦). نفس الشكل، والمسافة الزيادة جوه الرابط نفسه */
+  .expand-landing-value { color: var(--verified); font-weight: 500; word-break: break-all; text-decoration: none; padding-block: 4px; min-height: 24px; }
   a.expand-landing-value:hover { text-decoration: underline; }
   /* سبب غياب النص أو الوجهة (مش قيمة): رمادي وخفيف عشان يبان إنه شرح مش محتوى الإعلان */
   .expand-caption-note { color: var(--ink-faint); font-weight: 400; word-break: normal; }
@@ -231,7 +233,7 @@
     .attr-table .cmp-chg { display: block; margin-top: 1px; }
   }
   .attr-note { margin: 8px 0 0; font-size: 12px; line-height: 1.65; color: var(--ink-soft); }
-  .attr-more { display: inline-block; margin-top: 6px; font-size: 12.5px; font-weight: 600; color: var(--verified); text-decoration: none; }
+  .attr-more { display: inline-block; margin-top: 3px; padding-block: 3px; font-size: 12.5px; font-weight: 600; color: var(--verified); text-decoration: none; }
   .attr-more:hover { text-decoration: underline; }
   .chart-section-label { font-size: 11.5px; color: var(--ink-faint); margin-bottom: 8px; }
   .issues-now { margin: 14px 0 6px; font-weight: 600; }
@@ -337,7 +339,7 @@
   .site-footer { margin: 28px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); text-align: center; font-size: 12px; color: var(--ink-faint); }
   .site-footer p { margin: 0 0 8px; }
   .footer-links { display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; }
-  .footer-links a { color: var(--ink-soft); text-decoration: underline; }
+  .footer-links a { display: inline-block; padding-block: 3px; color: var(--ink-soft); text-decoration: underline; }
   .footer-links a:hover { color: var(--ink); }
   .expand-issues { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
   .expand-issues:empty { display: none; }
@@ -1042,7 +1044,7 @@
   .dx-fb-btn { border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 4px 14px; font-family: inherit; font-size: 12.5px; cursor: pointer; }
   .dx-fb-btn:hover { border-color: var(--ink-faint); }
   .dx-fb-done { color: var(--verified); font-weight: 600; }
-  .dx-fb-link { border: 0; background: none; color: var(--ink-soft); text-decoration: underline; font-family: inherit; font-size: 12.5px; cursor: pointer; padding: 0; }
+  .dx-fb-link { border: 0; background: none; color: var(--ink-soft); text-decoration: underline; font-family: inherit; font-size: 12.5px; cursor: pointer; padding: 3px 4px; min-width: 24px; min-height: 24px; }
   .dx-fb-form { margin-top: 8px; background: var(--paper); border-radius: 10px; padding: 10px 12px; }
   .dx-fb-label { margin: 0 0 8px; font-size: 12.5px; font-weight: 600; }
   .dx-fb-reasons { display: flex; flex-wrap: wrap; gap: 6px; }
