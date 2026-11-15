@@ -71,9 +71,7 @@
   .mono { font-family: 'IBM Plex Mono', 'Courier New', monospace; }
   .wrap { max-width: 980px; margin: 0 auto; padding: 22px 16px 84px; }
   .hidden, [hidden] { display: none !important; }
-  .fade-out { opacity: 0; transform: translateY(-6px); }
 
-  .topbar { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
   .brand { display: flex; flex-direction: column; gap: 3px; }
   /* اسم الأداة رابط للصفحة الرئيسية */
   a.brand { color: inherit; text-decoration: none; border-radius: 6px; }
@@ -81,16 +79,10 @@
   a.brand:focus-visible { outline: 2px solid var(--verified); outline-offset: 3px; }
   .brand-mark { font-size: 23px; font-weight: 700; letter-spacing: 0.2px; }
   .brand-tag { font-size: 13px; color: var(--ink-soft); }
-  .topbar-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .icon-toggle { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; }
   .lang-toggle { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 8px 15px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
   .icon-toggle:focus-visible, .lang-toggle:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 
-  .connect-panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 16px; }
-  .connect-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; }
-  .connect-title { font-size: 14.5px; font-weight: 700; margin-bottom: 3px; }
-  .connect-sub { font-size: 12.5px; color: var(--ink-soft); }
-  .connect-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .platform-list { display: flex; flex-direction: column; gap: 10px; }
   .platform-item { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; text-align: start; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; cursor: pointer; font-family: inherit; }
   .platform-item:hover:not(:disabled) { border-color: var(--verified); }
@@ -99,11 +91,7 @@
   .platform-item-sub { font-size: 12px; color: var(--ink-soft); }
   .platform-item.soon { opacity: .55; cursor: default; }
   .platform-item.soon .platform-item-sub { color: var(--pending); font-weight: 600; }
-  .sim-note { display: flex; align-items: center; gap: 8px; background: var(--pending-bg); color: var(--pending); border-radius: 10px; padding: 10px 14px; font-size: 12.5px; font-weight: 500; margin-bottom: 16px; }
 
-  .filter-toggle { display: flex; align-items: center; gap: 8px; width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 13px 18px; font-size: 13.5px; font-weight: 600; color: var(--ink); cursor: pointer; font-family: inherit; margin-bottom: 12px; }
-  .filter-bar { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; display: none; flex-direction: column; gap: 12px; }
-  .filter-bar.open { display: flex; }
   .filter-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .filter-label { font-size: 11.5px; color: var(--ink-faint); min-width: 46px; flex-shrink: 0; }
   .filter-group { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -114,11 +102,8 @@
   select { max-width: 100%; }
   .text-filter, .date-input, .sort-select { border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; font-size: 16px; font-family: inherit; color: var(--ink); background: var(--paper); }
   .text-filter { flex: 1 1 220px; }
-  .date-range { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .date-sep { font-size: 12.5px; color: var(--ink-faint); }
   .text-filter:focus-visible, .chip:focus-visible, .stop-btn:focus-visible, .ghost-btn:focus-visible, .date-input:focus-visible, .sort-select:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 
-  .gallery-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
   .gallery-count { font-size: 13px; color: var(--ink-soft); }
   .stop-btn { background: var(--verified); color: var(--on-verified); border: none; border-radius: 10px; padding: 14px 22px; font-size: 14.5px; font-weight: 600; font-family: inherit; cursor: pointer; transition: filter .15s ease, transform .1s ease; white-space: nowrap; }
   .stop-btn:hover:not(:disabled) { filter: brightness(0.92); }
@@ -138,7 +123,6 @@
   .pv-t3 { background: linear-gradient(150deg, #F6E6EE 0%, #EAC1D8 55%, #D890B7 100%); }
   .play-icon-wrap { position: relative; z-index: 1; width: 44px; height: 44px; border-radius: 50%; background: rgba(22,26,31,0.4); display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(22,26,31,0.2); }
   .play-icon { width: 0; height: 0; border-top: 9px solid transparent; border-bottom: 9px solid transparent; border-inline-start: 14px solid #fff; margin-inline-start: 3px; }
-  .dur-badge { position: absolute; bottom: 8px; inset-inline-start: 8px; background: rgba(22,26,31,0.55); color: #fff; font-size: 11px; padding: 2px 7px; border-radius: 6px; z-index: 1; }
   .format-badge { position: relative; z-index: 1; background: rgba(255,255,255,0.75); color: #161A1F; font-size: 11.5px; padding: 4px 11px; border-radius: 6px; font-weight: 600; }
   .preview-text { flex-direction: column; align-items: flex-start; justify-content: center; background: var(--card); padding: 15px 17px; gap: 4px; height: auto; min-height: 126px; }
   .text-url { font-size: 11px; color: var(--verified); display: block; }
@@ -572,8 +556,8 @@
   /* الشعار جنب كل حساب: Snapchat أصفر على أبيض مش مقروء، فبيتحط على خلفية علامته */
   .acct-opt .plat-logo { width: 15px; height: 15px; flex: 0 0 auto; opacity: .95; }
   .acct-opt.plat-snapchat .plat-logo { color: #000; background: var(--brand); border-radius: 4px; padding: 1px; }
-  /* مربع الاختيار: الصف كله هو المربع — الضغط في أي مكان فيه بيختار أو بيلغي */
-  .acct-box { flex: 0 0 auto; width: 18px; height: 18px; border: 2px solid var(--line); border-radius: 5px; display: flex;
+  /* مربع الاختيار: الصف كله هو المربع — الضغط في أي مكان فيه بيختار أو بيلغي. حدّه --ink-faint مش --line: «مش مختار» بيبان من المربع الفاضي نفسه، فلازم ٣:١ (WCAG 1.4.11 — كان ١٫٢٧؛ التدقيق الشامل ١٥ نوفمبر ٢٠٢٦) */
+  .acct-box { flex: 0 0 auto; width: 18px; height: 18px; border: 2px solid var(--ink-faint); border-radius: 5px; display: flex;
     align-items: center; justify-content: center; font-size: 12px; font-weight: 900; line-height: 1; }
   .acct-tip { margin: 8px 2px 6px; font-size: 11.5px; line-height: 1.6; color: var(--ink-faint); }
   .acct-done { width: 100%; font-family: inherit; font-size: 14px; font-weight: 700; color: var(--ink); background: var(--sending-bg);
@@ -591,7 +575,6 @@
   .acct-opt.on { background: color-mix(in srgb, var(--brand, var(--verified)) 10%, transparent); font-weight: 700; }
   .acct-opt.on .acct-box { background: var(--brand, var(--verified)); border-color: var(--brand, var(--verified)); color: var(--on-brand, #fff); }
   .acct-empty { margin: 10px 6px; font-size: 13px; color: var(--ink-soft); }
-  .appbar-icons { display: flex; align-items: center; gap: 8px; }
   .install-btn { border-color: var(--verified); color: var(--verified); }
   .install-btn[hidden] { display: none; }
   .install-steps { margin: 4px 0 14px; padding-inline-start: 22px; font-size: 14px; line-height: 1.9; }
@@ -717,7 +700,6 @@
   .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
   .kpi-label { font-size: 11.5px; color: var(--ink-faint); margin-bottom: 4px; }
   .kpi-value { font-size: 18px; font-weight: 700; }
-  .kpi.kpi-risk .kpi-value { color: var(--alert); }
   /* النتائج: كل نوع لوحده (مشتريات، محادثات...) — اسم النوع أصغر من الرقم */
   .kpi-unit { font-size: 13px; font-weight: 600; color: var(--ink-soft); }
   .kpi.kpi-multi .kpi-value { font-size: 14.5px; line-height: 1.55; }
@@ -786,12 +768,6 @@
 
   /* كارت حملة Performance Max (Google مبترجّعش إعلاناتها منفصلة) */
   .preview-campaign .format-badge { background: var(--verified-bg); color: var(--verified); }
-  .kpi.kpi-review .kpi-value { color: var(--alert); }
-  .kpi-link { font-family: inherit; color: inherit; text-align: start; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
-  .kpi-link:hover { border-color: var(--ink-faint); box-shadow: 0 2px 8px rgba(22,26,31,0.06); }
-  .kpi-link:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
-  .kpi-link .kpi-label::after { content: ' ›'; }
-  html[dir="rtl"] .kpi-link .kpi-label::after { content: ' ‹'; }
 
   /* ---------- أهم التنبيهات فوق الإعلانات ---------- */
   .top-alerts { margin: 0 0 14px; }
@@ -885,8 +861,6 @@
   .attn-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-inline-start: auto; }
   .attn-chip { font-family: inherit; font-size: 12px; font-weight: 600; border: none; border-radius: 999px; padding: 3px 10px; cursor: pointer; color: var(--alert); background: var(--alert-bg); }
   .attn-chip:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
-  /* «دون طلبات منذ بداية الشهر»: معلومة مش زرار */
-  .attn-chip.attn-chip-info { cursor: default; color: var(--pending); background: var(--pending-bg); }
   /* لوحة «قيمة الأداة» (ui.js renderWastePanel — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦، مكان لوحة الهدر): الأخضر = اللي اتحقق، والسطر
      الأحمر = المشكلات اللي مستنية دلوقتي. ومبلغ الأثر على بنود «يحتاج انتباهك الآن» (top-alert-money) تحت */
   .value-panel { margin: 0 0 14px; border-radius: var(--radius); padding: 14px 16px; background: var(--verified-bg); border: 1px solid var(--line); border-inline-start: 4px solid var(--verified); }
@@ -1087,10 +1061,10 @@
 
   /* التفاعل: الكروت بترتفع مع الماوس، والزراير بتنضغط */
   .candidate-card, .campaign-card { transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
-  .top-alert, .alert-item, .kpi-link, .summary-box { transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease, background-color .2s ease; }
+  .top-alert, .alert-item, .summary-box { transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease, background-color .2s ease; }
   @media (hover: hover) {
     .candidate-card:hover, .campaign-card:hover { transform: translateY(-3px); box-shadow: 0 14px 28px -20px rgba(22, 26, 31, .6); }
-    .top-alert:hover, .alert-item.clickable:hover, .kpi-link:hover, .summary-box:hover { transform: translateY(-2px); }
+    .top-alert:hover, .alert-item.clickable:hover, .summary-box:hover { transform: translateY(-2px); }
     .icon-toggle:hover, .lang-toggle:hover, .filters-btn:hover, .sort-select:hover, .view-switch-btn:hover { border-color: var(--ink-faint); }
   }
   .ghost-btn, .filters-btn, .chip, .nav-item, .view-switch-btn, .icon-toggle, .lang-toggle, .sort-select, .show-more, .status-action, .platform-item, .platform-disconnect, .active-filter { transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .12s ease; }

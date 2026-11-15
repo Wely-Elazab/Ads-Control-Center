@@ -7094,13 +7094,24 @@
             '<div class="daily-table-wrap"><table class="daily-table"><thead><tr><th>x</th><th class="col-today" id="cx-th">x</th></tr></thead>' +
             '<tbody><tr><td>x</td><td class="col-today"><span class="mono" id="cx-td1">1</span></td></tr><tr><td>x</td><td>1</td></tr>' +
             '<tr><td>x</td><td class="col-today"><span class="mono" id="cx-td2">1</span></td></tr></tbody></table></div>' +
-            '<div class="dx-verdict mixed"><article class="dx-block dx-note"><div class="dx-foot"><span class="dx-owner" id="cx-own">x</span></div></article></div>';
+            '<div class="dx-verdict mixed"><article class="dx-block dx-note"><div class="dx-foot"><span class="dx-owner" id="cx-own">x</span></div></article></div>' +
+            '<div class="acct-panel"><div class="acct-list"><button class="acct-opt" role="checkbox" aria-checked="false"><span class="acct-box" id="cx-box"></span><span class="acct-opt-name">x</span></button></div></div>';
           d.body.appendChild(box);
           var ids = ['cx-k1', 'cx-k2', 'cx-k3', 'cx-ack', 'cx-cta', 'cx-tab', 'cx-tab2', 'cx-acct', 'cx-acct2', 'cx-cnt', 'cx-cnt2', 'cx-th', 'cx-td1', 'cx-td2', 'cx-own'];
+          // حد مربع الحساب «مش مختار» قصاد الخلفية اللي حواليه (WCAG 1.4.11 — مؤشر حالة: ٣:١)
+          var edge = function (el) {
+            var side = parse(w.getComputedStyle(el).borderTopColor), back = { r: 255, g: 255, b: 255, a: 1 };
+            for (var n = el.parentElement, up = []; n; n = n.parentElement) up.unshift(n);
+            up.forEach(function (x) { var b = parse(w.getComputedStyle(x).backgroundColor); if (b.a > 0) back = over(b, back); });
+            var x = lum(over(side, back)), y = lum(back);
+            return Math.round((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05) * 100) / 100;
+          };
           ['light', 'dark'].forEach(function (mode) {
             de.setAttribute('data-theme', mode);
             var low = ids.map(function (id) { return [id, contrast(d.getElementById(id))]; }).filter(function (x) { return x[1] < 4.5; });
             eq(low, [], mode + ': every one of them at least 4.5:1');
+            var box3 = edge(d.getElementById('cx-box'));
+            ok(box3 >= 3, mode + ': the empty account box is visible (3:1 against its background) — ' + box3);
           });
         } finally { f.remove(); }
       });
