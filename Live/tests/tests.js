@@ -4439,6 +4439,42 @@
         });
       }));
     });
+    // التدقيق الشامل ١٦ نوفمبر ٢٠٢٦ (١١٢): العنصر المتركّز عليه ميستخبّاش تحت الشريط اللاصق ولا تحت زرار «لأعلى الصفحة» (WCAG 2.4.11، تقنية C43).
+    // المتصفح ميعرفش إن الشريط مغطّي أول الشاشة: عنصر تحته جوه الشاشة بيعتبره ظاهر فميحرّكش الصفحة — رابط في الدليل وقف عند ١٦–٣٩ بكسل
+    // تحت شريط ٦٠ وإنت راجع بـ Shift+Tab (قياس حي بعرض ٤٣٤). المسافة كانت scroll-margin-top على [id] بس، فالروابط والأزرار مكانش ليها حاجة
+    testAsync('الصفحات العامة: العنصر المتركّز عليه ميستخبّاش تحت الشريط اللاصق ولا زرار «لأعلى الصفحة» — موبايل', function () {
+      var PAGES = ['/home.html', '/help.html', '/join.html', '/login.html', '/invited.html', '/pricing.html', '/privacy.html', '/terms.html', '/data-deletion.html', '/stop.html', '/404.html'];
+      var restore = loginSnap();
+      var check = function (u) {
+        // صفحة الدخول من غير أي طلب حقيقي (والجلسة المحفوظة اتشالت في loginSnap)؛ والباقي مبيبعتش حاجة وهو مفتوح من غير رابط موقّع
+        var open = u === '/login.html' ? framePage(u, 434, 640, 'window.fetch = function () { return Promise.reject(new TypeError("no network in this test")); };') : framePage(u, 434, 640);
+        return open.then(function (f) {
+          var d = f.contentDocument, w = f.contentWindow, cs = w.getComputedStyle(d.documentElement);
+          var bar = d.querySelector('.site-bar, .legal-bar'), toTop = d.querySelector('.to-top');
+          var out = { u: u, bar: bar ? Math.round(bar.getBoundingClientRect().height) : null, padTop: cs.scrollPaddingTop, padBottom: cs.scrollPaddingBottom };
+          out.topOk = !!bar && parseFloat(cs.scrollPaddingTop) >= out.bar + 8;
+          if (toTop) { var ts = w.getComputedStyle(toTop); out.toTop = parseFloat(ts.bottom) + parseFloat(ts.height); out.bottomOk = parseFloat(cs.scrollPaddingBottom) >= out.toTop + 8; } else out.bottomOk = true;
+          f.remove();
+          return out;
+        });
+      };
+      return Promise.all(PAGES.map(check)).then(function (rows) {
+        rows.forEach(function (r) { ok(r.topOk && r.bottomOk, r.u + ': ' + JSON.stringify(r)); });
+        // والسلوك نفسه: رابط جوه الشاشة بس تحت الشريط — التركيز عليه بيحرّك الصفحة لحد ما يبان كله
+        return framePage('/help.html', 434, 640);
+      }).then(function (f) {
+        var d = f.contentDocument, w = f.contentWindow, bar = d.querySelector('.legal-bar');
+        d.documentElement.style.scrollBehavior = 'auto';
+        // رابط ظاهر بس (الصفحة فيها النسختين، والإنجليزي مخفي)
+        var links = [].slice.call(d.querySelectorAll('main a[href]')).filter(function (x) { return x.getClientRects().length > 0; }), a = links[Math.floor(links.length / 2)];
+        w.scrollTo(0, w.pageYOffset + a.getBoundingClientRect().top - 20);
+        var before = Math.round(a.getBoundingClientRect().top);
+        a.focus();
+        var after = Math.round(a.getBoundingClientRect().top), barBottom = Math.round(bar.getBoundingClientRect().bottom);
+        f.remove();
+        ok(before < barBottom && after >= barBottom, 'a link under the bar comes out when focused: top ' + before + ' -> ' + after + ' (the bar ends at ' + barBottom + ')');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
     // js/join-form.js على مقاس موبايل: الطلب بيتبعت لدالة sync (fetch وهمي هنا — مفيش طلب حقيقي)
     testAsync('نموذج الانضمام: «أنت:» إجباري، وحقل فيسبوك مع Meta بس، والغلط بيظهر على الحقل، والطلب بيتبعت كامل', function () {
       var f;

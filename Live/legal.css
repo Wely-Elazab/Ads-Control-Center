@@ -58,7 +58,11 @@ html[lang="ar"] .only-en, html[lang="en"] .only-ar { display: none !important; }
 /* كل قسم مفصول بخط وعنوانه عليه علامة بلون الأداة — عشان العين تلاقي بداية كل قسم بسرعة */
 .doc h2 { display: flex; align-items: baseline; gap: 10px; font-size: 17.5px; line-height: 1.5; margin: 30px 0 10px; padding-top: 24px; border-top: 1px solid var(--line); }
 .doc h2::before { content: ""; flex-shrink: 0; width: 4px; height: .95em; border-radius: 3px; background: var(--verified); translate: 0 .12em; }
-[id] { scroll-margin-top: 76px; }
+/* المسافة اللي الشريط اللاصق فوق مغطّيها (٥٥–٦٠ بكسل في كل الصفحات العامة) + هامش. المتصفح ميعرفش إن الشريط مغطّي أول الشاشة: عنصر تحته
+   بيعتبره ظاهر فميحرّكش الصفحة لما تتركّز عليه بزرار Tab — رابط في الدليل وقف عند ١٦–٣٩ بكسل تحت شريط ٦٠ وإنت راجع بـ Shift+Tab (قياس حي
+   بعرض ٤٣٤ — WCAG 2.4.11، تقنية C43؛ زي الأداة). وتحت مسافة زرار «لأعلى الصفحة» (١٨ + ٤٤). ونفس المسافة بتنزّل القسم اللي بتفتحه من رابط
+   (#…) تحت الشريط — كانت scroll-margin-top على [id] بس، يعني الروابط والأزرار مكانش ليها حاجة (التدقيق الشامل ١٦ نوفمبر ٢٠٢٦، ١١٢) */
+html { scroll-padding-top: 76px; scroll-padding-bottom: 70px; }
 .doc p, .doc li { font-size: 15px; color: var(--ink); }
 .doc ul, .doc ol { padding-inline-start: 22px; margin: 6px 0; }
 .doc li { margin: 4px 0; }

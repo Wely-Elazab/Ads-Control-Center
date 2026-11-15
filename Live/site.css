@@ -16,8 +16,7 @@
 main { overflow-x: hidden; overflow-x: clip; }
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
-/* الأقسام متستخبّاش تحت الشريط العلوي الثابت لما تفتحها من رابط (#...) */
-[id] { scroll-margin-top: 84px; }
+/* الأقسام والعنصر المتركّز عليه ميستخبّوش تحت الشريط العلوي الثابت: scroll-padding على html في legal.css (لكل الصفحات العامة) */
 
 /* ---------- الأزرار ---------- */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 11px 20px; border-radius: 10px; border: 1px solid transparent; font-family: inherit; font-size: 15px; font-weight: 600; line-height: 1.3; text-decoration: none; cursor: pointer; transition: transform .18s ease, box-shadow .2s ease, filter .2s ease, border-color .2s ease; }
