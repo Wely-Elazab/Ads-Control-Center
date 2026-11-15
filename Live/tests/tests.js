@@ -1574,6 +1574,21 @@
       eq(bad, []);
       eq(withLang('en', function () { return I18N.oneNoun('lead'); }), 'one lead');
     });
+    // قراءة كل جملة (١٥ نوفمبر ٢٠٢٦): خطوات التثبيت على الآيفون كانت بتعرض «(Add to Home Screen)2069» من ١١ أكتوبر (97c7ef5) — قفل العزل
+    // اتكتب أرقام (في Perl «\u» جوه الاستبدال بتكبّر الحرف اللي بعدها). كل سطر في ملف النصوص: كل فتح عزل ليه قفل
+    testAsync('النصوص: كل عزل اتجاه (U+2066–U+2068) ليه قفل (U+2069) ومفيش «2069» مكتوبة أرقام — وخطوات التثبيت على الآيفون سليمة', function () {
+      return fetch('/js/i18n.js?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (src) {
+        var bad = [];
+        src.split('\n').forEach(function (line, i) {
+          var open = (line.match(/\\u206[678]|[\u2066-\u2068]/g) || []).length, close = (line.match(/\\u2069|\u2069/g) || []).length;
+          if (open !== close || /\)206[6-9]/.test(line)) bad.push((i + 1) + ': ' + line.trim().slice(0, 70));
+        });
+        eq(bad, [], 'every line of i18n.js');
+        withLang('ar', function () {
+          ok(t('install.ios2').indexOf('\u2066(Add\u00a0to\u00a0Home\u00a0Screen)\u2069.') > -1 && t('install.ios3').indexOf('\u2066(Add)\u2069.') > -1, t('install.ios2'));
+        });
+      });
+    });
     test('«{n} إعلاناً غيره» مع ١١ فأكثر في دمج المجموعة (مش «إعلاناً أخرى»)، و«٣ إعلانات غيره»', function () {
       withLang('ar', function () {
         var eleven = t('al.setMerge', { n: '١١', ads: I18N.noun(11, 'n.ad'), names: 'x' }), three = t('al.setMerge', { n: '٣', ads: I18N.noun(3, 'n.ad'), names: 'x' });
