@@ -7022,6 +7022,28 @@
         f.remove();
       });
     });
+    // المرور الثاني ١٤ نوفمبر ٢٠٢٦ (WCAG 1.4.10 Reflow — من غير تمرير بالعرض عند ٣٢٠ بكسل): قائمة العملة عرضها الطبيعي = أطول اختيار فيها،
+    // وبالإنجليزي كانت ٤٧٥ بكسل، فصفحة الإعدادات كلها بتتحرك بالعرض على أي موبايل (اتشافت على الموقع بعرض ٤٣٤، واتقاست محلياً: الصفحة ٥٠٨
+    // بكسل عند ٣٢٠ و٣٧٥ و٤٣٤). بالعربي الاختيارات أقصر فمكانتش بتبان
+    testAsync('الأداة على الموبايل باللغتين: ولا صفحة من الأربعة بتتحرك بالعرض عند ٣٢٠ بكسل، وقائمة العملة جوه بطاقتها', function () {
+      var restore = keepStorage(['acc.lang']), f = null;
+      var check = function (lang) {
+        localStorage.setItem('acc.lang', lang);
+        return toolFrame(320, 700).then(function (fr) {
+          f = fr;
+          var w = f.contentWindow, d = f.contentDocument, de = d.documentElement, extra = {};
+          eq(de.lang, lang, 'the tool opened in ' + lang);
+          ['summary', 'ads', 'alerts', 'settings'].forEach(function (v) { w.showView(v); extra[v] = de.scrollWidth - de.clientWidth; });
+          eq(extra, { summary: 0, ads: 0, alerts: 0, settings: 0 }, lang + ': extra width in px on each page');
+          var list = d.getElementById('currencyPref'), sel = list.getBoundingClientRect(), card = list.closest('.set-card').getBoundingClientRect();
+          ok(list.options.length > 1 && sel.width > 0, lang + ': the currency list is filled and shown');
+          ok(sel.left >= card.left && sel.right <= card.right,
+            lang + ': the list stays inside its card: ' + Math.round(sel.left) + '..' + Math.round(sel.right) + ' in ' + Math.round(card.left) + '..' + Math.round(card.right));
+          f.remove(); f = null;
+        });
+      };
+      return check('en').then(function () { return check('ar'); }).then(restore, function (e) { if (f) f.remove(); restore(); throw e; });
+    });
     // iOS بيقرّب على أي حقل خطه أقل من ١٦px ومبيرجّعش التقريب. الإصلاح الأول كان جوه استعلام الموبايل، وقاعدة
     // .sort-select اللي بعده في الملف غلبته — قائمة الفترة فضلت ١٣px على الموقع (مقيس ٣ نوفمبر ٢٠٢٦). بنقيس الخط
     // الفعلي لكل حقل بالستايل الحقيقي، مش بنقرا القاعدة

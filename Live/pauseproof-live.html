@@ -106,6 +106,9 @@
   .filter-group { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip { border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); font-size: 13px; font-weight: 500; padding: 8px 15px; border-radius: 999px; cursor: pointer; font-family: inherit; transition: background .12s ease, color .12s ease, border-color .12s ease; }
   .chip.active { background: var(--verified); border-color: var(--verified); color: var(--on-verified); }
+  /* القائمة المنسدلة متزيدش عن حاويتها: عرضها الطبيعي = أطول اختيار فيها، وقائمة العملة بالإنجليزي (٤٧٥ بكسل) كانت بتخلّي صفحة الإعدادات
+     تتحرك بالعرض على أي موبايل (المرور الثاني ١٤ نوفمبر ٢٠٢٦ — WCAG 1.4.10 Reflow: من غير تمرير بالعرض عند ٣٢٠ بكسل) */
+  select { max-width: 100%; }
   .text-filter, .date-input, .sort-select { border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; font-size: 16px; font-family: inherit; color: var(--ink); background: var(--paper); }
   .text-filter { flex: 1 1 220px; }
   .date-range { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
