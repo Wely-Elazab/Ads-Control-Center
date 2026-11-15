@@ -2879,10 +2879,11 @@
   function attnAlertHtml(a) {
     var target = a.adId && findCandidate(a.adId) ? ' data-ad-id="' + esc(a.adId) + '"' : ' data-go-alerts';
     var src = a.adName ? (a.platform || '') + ' · ' + alertAdName(a) : (a.accountName || a.platform || '');
+    // سطر المصدر سطر واحد بنقاط «…»: النص الكامل في title زي باقي الأسماء المقصوصة (WCAG 1.4.12 — التدقيق الشامل ١٥ نوفمبر ٢٠٢٦، ١٠٠)
     return '<button type="button" class="top-alert ' + LEVELS[a.level].cls + '"' + target + '>' +
       '<span class="top-alert-level">' + LEVELS[a.level].label + '</span>' +
       '<span class="top-alert-text"><span class="top-alert-title">' + esc(a.title) + '</span>' +
-      '<span class="top-alert-src" dir="auto">' + esc(src) + '</span></span>' + alertMoneyHtml(a) + '</button>';
+      '<span class="top-alert-src" dir="auto" title="' + esc(src) + '">' + esc(src) + '</span></span>' + alertMoneyHtml(a) + '</button>';
   }
   function attnBlockHtml(it) {
     var b = it.block, key = foldKey(b), rel = it.related, onAd = b.seg && b.seg.dim === 'ad';
@@ -2893,7 +2894,7 @@
     var html = '<details class="attn-block" data-fold="' + esc(key) + '"' + (foldOpen[key] ? ' open' : '') + '>' +
       '<summary class="top-alert ' + lv.cls + '"><span class="top-alert-level">' + esc(t(DX_KIND_LABEL[b.kind])) + '</span>' +
       '<span class="top-alert-text"><span class="top-alert-title">' + esc(b.title) + '</span>' +
-      '<span class="top-alert-src">' + esc(sub) + '</span></span>' + (b.money ? moneyPill(b.money.kind, b.money.text, true) : '') + '</summary>' +
+      '<span class="top-alert-src" title="' + esc(sub) + '">' + esc(sub) + '</span></span>' + (b.money ? moneyPill(b.money.kind, b.money.text, true) : '') + '</summary>' +
       '<div class="attn-body">' + dxBlockHtml(b, it.index, true);
     if (rel.length) html += '<div class="attn-rel"><p>' + esc(t(onAd ? 'attn.relTitleAd' : 'attn.relTitleCamp')) + '</p>' + rel.map(attnAlertHtml).join('') + '</div>';
     if (camp) html += '<div class="attn-camp"><button type="button" class="ghost-btn" data-campaign="' + esc(campaignKey(camp)) + '">' + esc(t('attn.showCamp')) + '</button></div>';

@@ -10801,6 +10801,9 @@
         var it = DX.attention([blk('decision', seg)], alerts, candidates)[0];
         var box = document.createElement('div');
         box.innerHTML = withLang(lang || 'ar', function () { return attnBlockHtml(it); });
+        var srcs = Array.prototype.slice.call(box.querySelectorAll('.top-alert-src'));
+        // (١٠٠ — WCAG 1.4.12) السطر بيتقص بنقاط «…»: النص الكامل في title، للبند وللتنبيهات اللي جواه
+        ok(srcs.length && srcs.every(function (s) { return s.getAttribute('title') === s.textContent; }), 'every source line carries its full text as a title');
         return { sub: box.querySelector('summary .top-alert-src').textContent, rel: box.querySelectorAll('.attn-rel .top-alert').length };
       };
       try {
