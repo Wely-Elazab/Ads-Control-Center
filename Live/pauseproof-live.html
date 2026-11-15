@@ -614,6 +614,10 @@
      موسّع ٨٤٠px فأكتر = قائمة جانبية بأسماء في جهة البداية (اليمين بالعربي)، متوسط ٦٠٠–٨٣٩ = شريط جانبي ضيق،
      مضغوط أقل من ٦٠٠ = شريط سفلي بأربع وجهات. أيقونة + اسم دايماً (NN/g: الأيقونات من غير كلام بتزوّد الجهد) */
   :root { --nav-w: 0px; --nav-h: 0px; }
+  /* التنقل بزرار Tab بيحرّك الصفحة لحد ما العنصر يبان — ومن غير scroll-padding كان بيقف عند حافة الشاشة تحت الشريط السفلي الثابت في
+     الموبايل: زرار التنبيه وعناوين «المزيد» اتغطّت وهي متركّز عليها (قياس حي بعرض ٤٣٤ — WCAG 2.4.11، تقنية C43؛ التدقيق الشامل
+     ١٥ نوفمبر ٢٠٢٦). ونفس المسافة فوق للشريط العلوي اللاصق (--appbar-h من ui.js syncAppbarHeight) */
+  html { scroll-padding-top: calc(var(--appbar-h, 58px) + 8px); scroll-padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 8px); }
   .app-nav { position: fixed; z-index: 38; background: var(--card); }
   .app-nav-main { display: flex; }
   .nav-item { position: relative; border: none; background: none; font-family: inherit; color: var(--ink-soft); cursor: pointer; display: flex; align-items: center; gap: 12px; font-weight: 600; }

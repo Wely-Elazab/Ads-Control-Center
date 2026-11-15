@@ -7116,6 +7116,29 @@
         } finally { f.remove(); }
       });
     });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (WCAG 2.4.11 — العنصر المتركّز عليه ميستخبّاش ورا شريط ثابت): التنقل بـ Tab على الأداة الحية بعرض ٤٣٤ وقّف
+    // زرار التنبيه وعناوين «المزيد» تحت الشريط السفلي. الإظهار هنا بنفس طريقة المتصفح لما العنصر يتركّز عليه (أقرب حافة) ومحسوب فيها scroll-padding
+    testAsync('العنصر اللي بيتركّز عليه بـ Tab ميقفش تحت الشريط السفلي الثابت في الموبايل ولا تحت الشريط العلوي (WCAG 2.4.11)', function () {
+      return toolFrame(375, 700).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument;
+        try {
+          var main = d.querySelector('.app-main') || d.body, nav = d.querySelector('.app-nav'), bar = d.querySelector('.appbar');
+          var top = d.createElement('div'); top.style.height = '1500px';
+          var low = d.createElement('button'); low.type = 'button'; low.textContent = 'x'; low.style.height = '40px';
+          var tail = d.createElement('div'); tail.style.height = '1500px';
+          main.appendChild(top); main.appendChild(low); main.appendChild(tail);
+          w.scrollTo(0, 0);
+          low.scrollIntoView({ block: 'nearest' });
+          var r = low.getBoundingClientRect(), n = nav.getBoundingClientRect();
+          ok(n.height > 0 && r.bottom <= n.top, 'going down: the button ends above the bottom bar (' + Math.round(r.bottom) + ' <= ' + Math.round(n.top) + ')');
+          w.scrollTo(0, d.documentElement.scrollHeight);
+          low.scrollIntoView({ block: 'nearest' });
+          r = low.getBoundingClientRect();
+          var b = bar.getBoundingClientRect();
+          ok(r.top >= b.bottom, 'going up: the button ends below the top bar (' + Math.round(r.top) + ' >= ' + Math.round(b.bottom) + ')');
+        } finally { f.remove(); }
+      });
+    });
     // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (WCAG 2.5.8 — مساحة الضغط ٢٤×٢٤ على الأقل): قياس على الأداة الحية بعرض ٤٣٤ — الرابط والزرار النصي اللي
     // لوحده في سطر كانوا ١٦–١٨ بكسل طول (رابط الصفحة المقصودة و«المزيد» في تفاصيل الإعلان، وروابط التذييل)، وزرار «إزالة» في الإعدادات
     testAsync('مساحة الضغط ٢٤×٢٤ على الأقل (WCAG 2.5.8): روابط التذييل، ورابط الصفحة المقصودة و«المزيد»، وأزرار «إزالة» و«تعديل» النصية', function () {
