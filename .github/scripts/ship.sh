@@ -57,24 +57,43 @@ for i in $(seq 1 32); do
 done
 if [ "$build" != "success" ]; then echo "Cloudflare build ${build:-did not finish}: the site may still be on the previous commit"; exit 1; fi
 echo "Cloudflare build succeeded; checking the site"
-# الملفات اللي مبتتنشرش عن قصد (Live/.assetsignore — زي js/pricing.js) مبتتقارنش
-skip=$(git show "$sha:Live/.assetsignore" | tr -d '\r' | grep -E '^js/' | sed 's#^#Live/#' || true)
-# ٨ دقايق: توزيع Cloudflare على الحافة بياخد وقت أطول أحياناً، والنتيجة كانت «فشل» كاذب
-for i in $(seq 1 48); do
+# كل ملف نصي بيتنشر، مش Live/js بس (المرور الثاني للتدقيق الشامل ١٥ نوفمبر ٢٠٢٦): نشر d1e3a01 كان تعديل في pauseproof-live.html لوحدها،
+# والفحص القديم قال «every Live/js file matches» من أول لفة — ملفات js متغيّرتش أصلاً، فمكانش فيه أي دليل إن الصفحة نفسها وصلت.
+# اللي في Live/.assetsignore مبيتنشرش فمبيتقارنش (اسم ملف أو فولدر — زي js/pricing.js وapi). الصفحة بتتطلب من رابطها النظيف لو ليها
+# واحد (REWRITES في worker.js: /app و/login…؛ /pauseproof-live.html نفسه تحويل لـ /app من غير محتوى)، وتعليقات HTML بتتشال من
+# الناحيتين زي stripHtmlComments في العامل: برّه script وstyle وtextarea وtitle بس (جوّاهم «<!--» مش تعليق). الصور مش داخلة
+strip_html() {
+  perl -0777 -ne 'my $o = ""; while (/\G(.*?)(<(script|style|textarea|title)\b[^>]*>.*?<\/\3\s*>|\z)/gsi) { my ($t, $r) = ($1, $2); $t =~ s/<!--.*?-->//gs; $o .= $t . $r; last if $r eq "" } print $o'
+}
+norm() { if [ "${1##*.}" = html ]; then tr -d '\r' | strip_html; else tr -d '\r'; fi; }
+ignore=$(git show "$sha:Live/.assetsignore" | tr -d '\r' | grep -vE '^[[:space:]]*(#|$)' || true)
+rewrites=$(git show "$sha:Live/cloudflare/worker.js" | tr -d '\r' | grep -oE "^ *'/[^']*': '/[^']*'" | sed -E "s/^ *'([^']*)': '([^']*)'/\2 \1/" || true)
+want=""
+for f in $(git ls-tree -r --name-only "$sha" Live/ | grep -E '\.(js|html|css|svg|webmanifest)$'); do
+  rel=${f#Live/}; skipit=""
+  while IFS= read -r e; do
+    if [ -n "$e" ] && { [ "$rel" = "$e" ] || [ "${rel#"$e"/}" != "$rel" ]; }; then skipit=1; fi
+  done <<< "$ignore"
+  [ -z "$skipit" ] || continue
+  path=$(printf '%s\n' "$rewrites" | awk -v f="/$rel" '$1 == f { print $2; exit }')
+  want="$want${path:-/$rel} $rel $(git show "$sha:$f" | norm "$rel" | md5sum | cut -c1-32)"$'\n'
+done
+total=$(printf '%s' "$want" | grep -c . || true)
+# ٨ دقايق: توزيع Cloudflare على الحافة بياخد وقت أطول أحياناً، والنتيجة كانت «فشل» كاذب. SHIP_SITE_TRIES لاختبار السكربت بس (ship-test.sh)
+for i in $(seq 1 "${SHIP_SITE_TRIES:-48}"); do
   sleep 10
   diff=0
-  for f in $(git ls-tree --name-only "$sha" Live/js/ | grep '\.js$'); do
-    if echo "$skip" | grep -qx "$f"; then continue; fi
-    l=$(git show "$sha:$f" | tr -d '\r' | md5sum | cut -c1-32)
+  while read -r path rel l; do
+    [ -n "$path" ] || continue
     # عطل اتصال عابر (curl 35 يوم ٢٥ أكتوبر) يتحسب ملف مش مطابق ونعيد اللفة، بدل ما set -e يقفل السكربت
-    r=$({ curl -s --retry 3 "$site/${f#Live/}?v=$RANDOM" || true; } | tr -d '\r' | md5sum | cut -c1-32)
+    r=$({ curl -s --retry 3 --max-time 20 "$site$path?v=$RANDOM" || true; } | norm "$rel" | md5sum | cut -c1-32)
     [ "$l" = "$r" ] || diff=$((diff + 1))
-  done
-  if [ "$diff" -eq 0 ]; then echo "live: every Live/js file matches ${sha:0:7}"; exit 0; fi
-  echo "  $(date +%T) $diff file(s) not live yet"
+  done <<< "$want"
+  if [ "$diff" -eq 0 ]; then echo "live: all $total published files (pages, styles, scripts) match ${sha:0:7}"; exit 0; fi
+  echo "  $(date +%T) $diff of $total file(s) not live yet"
 done
 # main اتحدّث والبناء نجح فعلاً — اللي مكملش هو وصول الملفات للحافة. التكرار مش محتاج دفع تاني:
 # الفحص ده لوحده بيعيده (نفس اللفة فوق)، أو افتح الموقع وقارن
-echo "main IS updated to ${sha:0:7} and the Cloudflare build succeeded, but $diff file(s) are not live yet after 8 minutes."
+echo "main IS updated to ${sha:0:7} and the Cloudflare build succeeded, but $diff of $total file(s) are not live yet after 8 minutes."
 echo "nothing to push again — re-run this script to re-check, or compare the files on the site yourself."
 exit 1
