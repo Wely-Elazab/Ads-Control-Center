@@ -77,10 +77,6 @@
   a.brand { color: inherit; text-decoration: none; border-radius: 6px; }
   a.brand:hover .brand-mark { color: var(--verified); }
   a.brand:focus-visible { outline: 2px solid var(--verified); outline-offset: 3px; }
-  .brand-mark { font-size: 23px; font-weight: 700; letter-spacing: 0.2px; }
-  .brand-tag { font-size: 13px; color: var(--ink-soft); }
-  .icon-toggle { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; }
-  .lang-toggle { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 8px 15px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
   .icon-toggle:focus-visible, .lang-toggle:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 
   .platform-list { display: flex; flex-direction: column; gap: 10px; }
@@ -257,7 +253,6 @@
   .ghost-btn:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 
   /* ---------- التبويبات ---------- */
-  .tab-count { min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--pending); color: var(--on-pending); font-size: 12px; line-height: 1.6; }
   .tab-count.has-critical { background: var(--alert); }
   .tab-count:empty { display: none; }
 
@@ -570,7 +565,7 @@
   .acct-opt { display: flex; align-items: center; justify-content: flex-start; gap: 9px; width: 100%; min-height: 44px; text-align: start;
     font-family: inherit; font-size: 13.5px; color: var(--ink);
     background: none; border: none; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
-  .acct-opt:hover, .acct-opt:focus-visible { background: var(--sending-bg); outline: none; }
+  .acct-opt:hover, .acct-opt:focus-visible { background: var(--sending-bg); }
   .acct-opt:focus-visible { outline: 2px solid var(--verified); outline-offset: -2px; }
   .acct-opt-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* المختار بلون منصته — بعد قواعد .acct-opt عشان تسود عليها */
