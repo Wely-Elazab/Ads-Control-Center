@@ -2724,6 +2724,26 @@
   });
 
   describe('الواجهة', function () {
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٧): شارات المبالغ دي نصوصها مكانتش بتتطلب في أي اختبار — والشارة «السيئة» (المعرّض للهدر) عليها
+    // تلميح بيشرح المبلغ، والمحايدة (مبيعات الإعلان اللي وقف) من غير
+    test('شارات المبالغ: الخسارة وزيادة أمس والأيام بلا طلبات مسجّلة بنصها وتلميحها، والإعلان اللي كان بيبيع ووقف بمبيعاته مش إنفاقه', function () {
+      var saved = candidates;
+      try {
+        withLang('ar', function () {
+          var box = document.createElement('div');
+          box.innerHTML = moneyPill('loss', money(360, 'SAR'), true) + moneyPill('spike', money(50, 'SAR'), true) + moneyPill('unrecorded', money(200, 'SAR'), true);
+          var p = box.querySelectorAll('.top-alert-money.bad');
+          eq(Array.prototype.map.call(p, function (x) { return x.textContent; }),
+            ['المبيعات أقل من الإنفاق بـ' + money(360, 'SAR'), 'زيادة أمس ' + money(50, 'SAR'), money(200, 'SAR') + ' دون طلبات مسجّلة']);
+          eq(Array.prototype.map.call(p, function (x) { return x.getAttribute('title'); }), [t('attn.moneyTip.loss'), t('attn.moneyTip.spike'), t('attn.moneyTip.unrecorded')]);
+          // إعلان كان بيبيع ووقف: اللي على المحك مبيعاته في الأيام المكتملة (من غير النهارده)، والشارة محايدة من غير تلميح
+          candidates = [ad('st', { daily: [100, 100, 100, 100, 100, 100, 0], res: steady(3), sales: [900, 900, 900, 900, 900, 900, 500], active: false, pausedLevel: 'ad' })];
+          box.innerHTML = alertMoneyHtml({ code: 'top-stopped', adId: 'st', impact: { spend: 600 }, currency: 'SAR' });
+          var pill = box.querySelector('.top-alert-money');
+          eq([pill.textContent, pill.classList.contains('bad'), pill.getAttribute('title')], ['مبيعاته في ٧ أيام ' + money(5400, 'SAR'), false, null]);
+        });
+      } finally { candidates = saved; }
+    });
     test('حالة الكارت = حالة المنصة (من غير "مش بيصرف")', function () {
       eq(statusLabelOf(ad('x', { daily: steady(0) })), t('st.active'));
     });
