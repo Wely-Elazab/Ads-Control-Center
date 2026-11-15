@@ -2562,7 +2562,8 @@
     test('حد الإنفاق ٩٠٪: «عاجل» لو الباقي أسبوع أو أقل، «مهم» لو أكتر، ولا حاجة تحت ٩٠٪ (المبالغ بالهللة زي Meta)', function () {
       // إنفاق الحساب ٢٠٠ ر.س يومياً (baseAccount)، والمتبقي ١٠٠ ر.س = نص يوم
       var near = codes(engine(baseAccount(), META({ spendCap: 150000, amountSpent: 140000 })).alerts, 'spend-cap-near')[0];
-      ok(near && near.level === 'critical' && /أقل من يوم/.test(near.detail) && /٩٣٪/.test(near.detail), near && near.detail);
+      // (١٠٢) «لا يكفي يوماً كاملاً» — كانت «يكفي نحو أقل من يوم»
+      ok(near && near.level === 'critical' && /لا يكفي يوماً كاملاً/.test(near.detail) && !/نحو أقل من يوم/.test(near.detail) && /٩٣٪/.test(near.detail), near && near.detail);
       var far = codes(engine(baseAccount(), META({ spendCap: 10000000, amountSpent: 9100000 })).alerts, 'spend-cap-near')[0];
       eq(far && far.level, 'warning', 'the rest lasts ~45 days');
       eq(codes(engine(baseAccount(), META({ spendCap: 10000000, amountSpent: 5000000 })).alerts, 'spend-cap-near').length, 0);
@@ -10280,6 +10281,16 @@
       withLang('ar', function () {
         ok(a && a.level === 'warning' && /٩٥٪ من حد الإنفاق/.test(a.detail) && a.detail.indexOf(money(500, 'SAR')) > -1 && !/يكفي نحو/.test(a.detail), a ? a.level + ' | ' + a.detail : 'no alert');
       });
+    });
+    // (١٠٢) المتبقي ميكفيش يوم: جملة لوحدها — كانت «يكفي نحو أقل من يوم» / «lasts about less than a day»
+    test('حد الإنفاق والمتبقي ميكفيش يوم: «لا يكفي يوماً كاملاً» من غير «نحو أقل من يوم» — باللغتين', function () {
+      var meta = { 'meta:act_1': { label: 'Meta — T', currency: 'SAR', timeZone: 'UTC', metaAccountStatus: 1, spendCapReached: false, spendCap: 1000000, amountSpent: 995000 } };
+      var run = function (lang) { return withLang(lang, function () { return engine([ad('q', { daily: steady(100), res: steady(2) })], meta); }).alerts.filter(function (x) { return x.code === 'spend-cap-near'; })[0]; };
+      var a = run('ar'), e = run('en');
+      ok(a && a.level === 'critical' && /والمتبقي ٥٠ ر\.س لا يكفي يوماً كاملاً بمتوسط إنفاقك الحالي/.test(a.detail) && !/نحو أقل من يوم/.test(a.detail), a ? a.detail : 'no alert');
+      // ٩٩٫٥٪ = «٩٩٪» مش «١٠٠٪» والمتبقي ٥٠ ر.س في نفس الجملة
+      ok(a && /أنفق Meta — T ٩٩٪ من حد الإنفاق/.test(a.detail), a ? a.detail : 'no alert');
+      ok(e && /won't last a full day at your current spend/.test(e.detail) && !/about less than a day/.test(e.detail), e ? e.detail : 'no alert (en)');
     });
     // (٩٧) الحساب بلغ حد الإنفاق والإنفاق وقف النهارده بعد الضهر: «حتى الساعة ١٢ ظهراً» (al.cap.d وal.clock.noon مكانوش بيتطلبوا).
     // الساعة من التوقيت: منطقة Etc/GMT بفرق بيخلّي الساعة هناك ١٢ دلوقتي (ولو الساعة اتغيّرت أثناء الاختبار بيعيد مرة)

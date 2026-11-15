@@ -1398,8 +1398,10 @@
       // فالباقي «يكفي نحو ٧ أيام» وهو ٦٫٥ والتنبيه «مهم» بدل «عاجل» (مراجعة المرحلة ٤، ١٧ أكتوبر ٢٠٢٦)
       var perDay = acc.total7 / (YESTERDAY + 1), daysLeft = perDay > 0 ? left / perDay : null;
       alerts.push(makeIssue(daysLeft != null && daysLeft <= CAP_NEAR_DAYS ? 'critical' : 'warning', ['account'], t('al.capNear.t'),
-        t(daysLeft != null ? 'al.capNear.d' : 'al.capNear.dNoRate', { acc: accName, pct: fmt.int(meta.amountSpent / meta.spendCap * 100),
-          left: money(left), days: daysLeft != null && daysLeft < 1 ? t('al.capNear.lessDay') : daysText(Math.floor(daysLeft || 0), fmt) }),
+        // أقل من يوم: جملة لوحدها — «يكفي نحو أقل من يوم» كانت بتجمع «نحو» و«أقل من» (التدقيق الشامل ١٥ نوفمبر ٢٠٢٦، ١٠٢). والنسبة
+        // لتحت: ٩٩٫٥٪ كانت بتتقرّب «١٠٠٪» والجملة نفسها بتقول «والمتبقي ٥٠ ر.س» — ١٠٠٪ بس لما الحد يتبلغ فعلاً (spendCapReached فوق)
+        t(daysLeft == null ? 'al.capNear.dNoRate' : (daysLeft < 1 ? 'al.capNear.dLess' : 'al.capNear.d'), { acc: accName, pct: fmt.int(Math.floor(meta.amountSpent / meta.spendCap * 100)),
+          left: money(left), days: daysText(Math.floor(daysLeft || 0), fmt) }),
         t('al.capNear.a'), 0, 'spend-cap-near'));
     }
 
