@@ -1315,7 +1315,7 @@
         var view = mk(6, { maxCost: { purchase: 50 } });
         var v = view.alerts.filter(function (a) { return a.adId === 'W' && /^waste/.test(a.code); })[0];
         eq([v.code, v.level, v.atRisk, v.money.kind], ['waste-week', 'critical', true, 'waste']);
-        ok(/وتنسب له المنصة ٦ مشتريات بعد المشاهدة دون نقر، ولا نحتسبها/.test(v.detail), v.detail);
+        ok(/وتنسب له المنصة ٦ مشتريات، ولا يدخل ذلك في الحكم لأنه لا يوجد دليل كافٍ على أن الإعلان مصدره/.test(v.detail), v.detail);
         ok(view.summary.atRisk.SAR > 0, 'counted as waste');
         // من غير أقصى تكلفة: «مهم» وسببه بيقول إن تحديدها بيخلّيه عاجل
         var nm = mk(6).alerts.filter(function (a) { return a.adId === 'W' && /^waste/.test(a.code); })[0];
@@ -1332,7 +1332,7 @@
         var v = dry(engine([w, ad('X', { daily: steady(20) }), ad('Y', { daily: steady(20) })]));
         ok(v && v.level === 'warning', v ? v.level : 'none');
         ok(/مبلغ ٣٦٠ ر\.س خلال آخر ٦ أيام دون أي مشتريات/.test(v.detail), v.detail);   // نافذة الاختبارات القديمة: ٦ أيام مكتملة + النهارده
-        ok(/وتنسب له المنصة ٧ مشتريات بعد المشاهدة دون نقر/.test(v.detail), v.detail);
+        ok(/وتنسب له المنصة ٧ مشتريات، ولا يدخل ذلك في الحكم/.test(v.detail), v.detail);
         ok(/لم تحدد أقصى تكلفة لكل عملية شراء/.test(v.levelWhy), v.levelWhy);
         // وإعلان تاني جاب طلب واحد بس (مش كفاية لمتوسط ولا ليه قيمة): التنبيه كان بيختفي خالص
         var v2 = dry(engine([w, ad('Z', { daily: steady(20), res: [0, 0, 0, 1, 0, 0, 0] }), ad('Y', { daily: steady(20) })]));
@@ -1847,8 +1847,22 @@
       var mk = function (store) { return withLang('ar', function () { return engine(baseAccount().concat([ad('sv', { daily: steady(40), plat: { results: 3, sales: 0 }, baseStore: store })]), {}, { maxCost: { purchase: 20 } }); }); };
       var pick = function (r) { return r.byAd.sv.issues.filter(function (i) { return i.code === 'waste-week'; })[0]; };
       var st = pick(mk(true)), clk = pick(mk(false));
-      ok(st && st.level === 'critical' && /المسجّلة في متجرك/.test(st.detail) && !/دون نقر/.test(st.detail), st ? st.title + ' — ' + st.detail : list(mk(true), 'sv'));
-      ok(clk && clk.level === 'critical' && /بعد المشاهدة دون نقر/.test(clk.detail), clk ? clk.detail : list(mk(false), 'sv'));
+      ok(st && st.level === 'critical' && /لأننا لا نحتسب إلا ما يسجّله متجرك/.test(st.detail) && !/دليل كافٍ على أن الإعلان مصدره/.test(st.detail), st ? st.title + ' — ' + st.detail : list(mk(true), 'sv'));
+      ok(clk && clk.level === 'critical' && /لا يوجد دليل كافٍ على أن الإعلان مصدره/.test(clk.detail), clk ? clk.detail : list(mk(false), 'sv'));
+    });
+    // قرار صاحب المنتج ١٥ نوفمبر ٢٠٢٦ (التدقيق الشامل، ٩٣ — وقاعدة ٦ أكتوبر: نص العميل ميذكرش النقر ولا المشاهدة ولا نوافذ النسب): كل نصوص
+    // «لا طلب من الإعلان والمنصة بتنسب له» بصيغة «يثبت أنه جاء من الإعلان» — كانت «بعد النقر» و«بعد المشاهدة دون نقر» و«نوافذ النسب»
+    test('صياغة النسب: «لا طلب من الإعلان» من غير نقر ولا مشاهدة ولا نوافذ النسب، وبصيغة «يثبت أنه جاء من الإعلان» — باللغتين', function () {
+      var keys = ['attn.money.wasteClick', 'attn.money.wasteClickRes', 'attn.moneyTip.wasteClick', 'attn.moneyTip.wasteClickRes', 'al.wasteView.t', 'al.wasteView.tP',
+        'al.wasteView.d', 'al.wasteView.a', 'al.wasteViewStore.t', 'al.wasteViewStore.tP', 'al.wasteViewStore.d', 'al.wasteViewStore.a', 'al.platView', 'al.platViewStore'];
+      var bad = [];
+      withLang('ar', function () { keys.forEach(function (k) { var s = t(k); if (s === k || /نقر|مشاهد|نوافذ|نافذة/.test(s)) bad.push('ar ' + k + ': ' + s); }); });
+      withLang('en', function () { keys.forEach(function (k) { var s = t(k); if (s === k || /\bclick|\bview|attribution window/i.test(s)) bad.push('en ' + k + ': ' + s); }); });
+      eq(bad, []);
+      withLang('ar', function () {
+        ok(/يثبت أنه جاء من الإعلان/.test(t('al.wasteView.d')) && /يثبت أنه جاء من الإعلان/.test(t('attn.moneyTip.wasteClick')) && /لا دليل على أي/.test(t('al.wasteView.t')),
+          'the approved framing («يثبت أنه جاء من الإعلان»)');
+      });
     });
     // المرحلة ٥ ق٧: مصدرا حالة المجموعة الإعلانية فشلوا — التنبيه ميقولش إن العيب في الإعلان وهو ممكن يكون إعداد في المجموعة
     test('ق٧: حالة المجموعة غير مقروءة = تنبيه التوصيل بيقول إن السبب قد يكون من المجموعة', function () {
