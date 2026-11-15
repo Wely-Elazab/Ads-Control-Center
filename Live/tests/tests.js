@@ -2765,6 +2765,22 @@
     test('حالة الكارت = حالة المنصة (من غير "مش بيصرف")', function () {
       eq(statusLabelOf(ad('x', { daily: steady(0) })), t('st.active'));
     });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٧): ٦ من تسميات حالة الكارت (الحساب، والميزانية، والمدة، والمنصة، والمراجعة، والجدولة) مكانتش بتتطلب في
+    // أي اختبار — كل سبب وقوف ليه تسميته باللغتين، والسبب المجهول «متوقف»
+    test('حالة الكارت لكل سبب وقوف: تسميته الخاصة باللغتين، والسبب المجهول «متوقف»', function () {
+      var levels = ['campaign', 'adset', 'ad', 'ended', 'scheduled', 'pending', 'rejected', 'account', 'account-cap', 'not-eligible', 'budget', 'issue', 'ad-issue', 'adset-issue', 'campaign-issue'];
+      ['ar', 'en'].forEach(function (l) {
+        withLang(l, function () {
+          var bad = levels.filter(function (k) { var v = statusLabelOf(ad('s', { active: false, pausedLevel: k })); return v !== t('st.' + k) || v === 'st.' + k; });
+          eq(bad, [], l + ': every stop reason has its own label');
+          eq(statusLabelOf(ad('s', { active: false, pausedLevel: 'something-new' })), t('st.paused'), l + ': unknown reason = paused');
+        });
+      });
+      withLang('ar', function () {
+        eq(['account', 'budget', 'ended', 'issue', 'pending', 'scheduled'].map(function (k) { return statusLabelOf(ad('s', { active: false, pausedLevel: k })); }),
+          ['متوقف (مشكلة في الحساب)', 'نفدت ميزانية المجموعة', 'انتهت مدة الحملة', 'لا يظهر — سبب من المنصة', 'قيد المراجعة', 'مجدول — لم يبدأ بعد']);
+      });
+    });
     test('فلتر "متوقف" = الإعلانات المتوقفة كلها', function () {
       candidates = [ad('on'), ad('off', { active: false, pausedLevel: 'ad' })];
       runAnalysis();
