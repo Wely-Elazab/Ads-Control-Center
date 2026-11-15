@@ -638,7 +638,8 @@
     });
   }
 
-  var ALERT_FMT = { money: money, currencyLabel: currencyLabel, num: numAr, num2: numAr2, int: function (n) { return ar(Math.round(n || 0)); } };
+  // int بفاصل الآلاف زي الكروت (fmtNum): كانت ar() بس، فالتنبيه بيقول «١٥٠٠ نقرة» والكارت «١٬٥٠٠» (التدقيق الشامل ١٥ نوفمبر ٢٠٢٦، ١٠٦)
+  var ALERT_FMT = { money: money, currencyLabel: currencyLabel, num: numAr, num2: numAr2, int: function (n) { return fmtNum(Math.round(n || 0)); } };
   var analysis = PauseProofAlerts.analyze([], {}, {}, ALERT_FMT);
   // تحليلين (٣ نوفمبر ٢٠٢٦ — طلب صاحب المنتج: تقييم كل إعلان على فترة البيانات المختارة مش آخر ٧ أيام بس):
   //  - analysis = على الفترة المختارة: الكروت والتفاصيل والمجموعات والحملات وعدّاد الحالات

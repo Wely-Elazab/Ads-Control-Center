@@ -2655,6 +2655,26 @@
       var today = run(day('28', 100, 70, 10, 5, 3), day('29', 80, 0, 0, 0, 0));
       ok(today.length === 1 && /منذ بداية اليوم/.test(today[0].detail), JSON.stringify(today));
     });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (١٠٦): fmt.int في نصوص التنبيهات (الأداة والبريد) كان من غير فاصل الآلاف — «(٣٥٠٠)» والكارت «٣٬٥٠٠»
+    test('الأعداد الكبيرة في نص التنبيه بفاصل الآلاف زي الكروت: «(٣٬٥٠٠)» و«(3,500)»', function () {
+      var day = function (k, clicks, lpv, atc, ic, pur) { return { date: '2026-09-' + k, clicks: clicks, lpv: lpv, atc: atc, ic: ic, pur: pur }; };
+      var base = ['22', '23', '24', '25', '26', '27'].map(function (k) { return day(k, 5000, 3500, 500, 250, 150); });
+      var run = function (lang) { return withLang(lang, function () { return PauseProofAlerts.siteAlerts(base.concat([day('28', 5000, 3500, 0, 0, 0), day('29', 100, 70, 10, 5, 3)]), ALERT_FMT); }); };
+      var ar1 = run('ar')[0], en1 = run('en')[0];
+      ok(ar1 && ar1.code === 'checkout-off' && /\(٣٬٥٠٠\)/.test(ar1.detail) && !/٣٥٠٠/.test(ar1.detail), ar1 ? ar1.detail : 'no alert');
+      ok(en1 && /\(3,500\)/.test(en1.detail), en1 ? en1.detail : 'no alert (en)');
+      withLang('ar', function () { eq([ALERT_FMT.int(1500), ALERT_FMT.int(12), ALERT_FMT.int(1234567.4)], ['١٬٥٠٠', '١٢', '١٬٢٣٤٬٥٦٧']); });
+    });
+    // والبريد (runner.ts alertFmt) بنفس المنسّق — عقد على المصدر
+    testAsync('عقد المُشغّل: fmt.int في البريد بفاصل الآلاف (g.fmtNum) زي الأداة', function () {
+      return fetch('/__repo/supabase/functions/sync/runner.ts?t=' + Date.now()).then(function (r) {
+        if (!r.ok) throw new Error('runner.ts is not served (' + r.status + ') — run the tests with Live/tests/serve.ps1');
+        return r.text();
+      }).then(function (src) {
+        var body = (/function alertFmt\(\) \{([\s\S]*?)\n\}/.exec(src) || [])[1] || '';
+        ok(/int: \(n: number\) => g\.fmtNum\(Math\.round\(n \|\| 0\)\)/.test(body), body);
+      });
+    });
     test('تعديل كبير مفاجئ: الميزانية ×٢ أو النص والفرق ١٥٪ من إنفاق اليوم فأكتر، أو إيقاف عنصر ١٠٪ فأكتر — والصافي بس (حالة حقيقية)', function () {
       // الحساب بينفق ٢٠٠$ يومياً: ١٠$ ← ٥٠$ (+٤٠$ = ٢٠٪) كبير، و١$ ← ٥$ لأ، و١٠$ ← ١٥$ لأ، ورفع ورجوع في نفس الساعة = لا شيء
       var edits = [

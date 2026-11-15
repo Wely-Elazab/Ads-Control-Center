@@ -341,7 +341,8 @@ function analyzeUrgent(source: string, info: Record<string, unknown>, cands: any
   return { urgent: res.alerts.filter((a: any) => a.level === 'critical' && !a.minor), alive };
 }
 function alertFmt() {
-  return { money: g.money, currencyLabel: g.currencyLabel, num: g.numAr, num2: g.numAr2, int: (n: number) => g.ar(Math.round(n || 0)) };
+  // int بفاصل الآلاف زي الأداة والكروت (fmtNum — التدقيق الشامل ١٥ نوفمبر ٢٠٢٦، ١٠٦)
+  return { money: g.money, currencyLabel: g.currencyLabel, num: g.numAr, num2: g.numAr2, int: (n: number) => g.fmtNum(Math.round(n || 0)) };
 }
 
 // ---------- التنبيهات اللي محتاجة بيانات زيادة (قواعدها في js/alerts.js: siteAlerts / editAlerts / linkAlerts) ----------
