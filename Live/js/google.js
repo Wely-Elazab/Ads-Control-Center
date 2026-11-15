@@ -189,7 +189,7 @@
       if (isAuthFailure(res)) { markExpired('google'); return; }
       var data = res.data;
       if (!res.ok || data.error || !data.accounts) {
-        var failMsg = msg('s.googleAccountsFailed', { msg: data.error || data.code ? apiErrorText(res) : msg('s.checkBackend') });
+        var failMsg = msg('s.googleAccountsFailed', { msg: data.error || data.code ? apiErrorText(res) : msg('s.unexpected') });
         setPlatformState('google', { kind: 'error', msg: failMsg });
         setStatus(failMsg);
         render();

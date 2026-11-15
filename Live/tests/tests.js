@@ -206,6 +206,15 @@
             return !suf.some(function (s) { return k.length > s.length && k.slice(-s.length) === s && lit[k.slice(0, -s.length)]; });
           }).sort();
           eq(unused, [], 'texts nothing shows');
+          // والعكس (٩٨): مفتاح بيطلبه الكود بالاسم — t('x.y') أو msg('x.y') أو data-i18n="x.y" — ومش في القاموس، فالمستخدم بيشوف اسمه
+          // البرمجي (t بترجّع المفتاح نفسه). كان ممكن يحصل مع s.checkBackend لو google.js فضل يطلبه بعد ما نصه اتشال. البادئة اللي بعدها +
+          // ('s.' + نوع) مش مفتاح كامل
+          var have = {}, missing = [];
+          keys.forEach(function (k) { have[k] = true; });
+          var need = function (_m, k) { if (!/\.$/.test(k) && !have[k] && missing.indexOf(k) < 0) missing.push(k); return _m; };
+          code.replace(/(?:\bt|\bmsg)\(\s*['"]([A-Za-z0-9_.]+)['"](?!\s*\+)/g, need);
+          code.replace(/data-i18n(?:-[a-z]+)?="([A-Za-z0-9_.]+)"/g, need);
+          eq(missing.sort(), [], 'keys the code asks for by name that the dictionary lacks');
         });
       });
     });
@@ -1937,7 +1946,7 @@
         ad('fresh', Object.assign({ daily: [0, 0, 0, 0, 0, 20, 10], age: 1, aid: 'q1' }, snap))], {}, { maxCost: { purchase: 20 } });
       ok(has(r, 'old', 'cost-max', 'critical'), list(r, 'old'));
       var b = r.byAd.old.basis || '';
-      ok(/يتقاسمها إعلاناتها/.test(b) && !/مرحلة التعلّم/.test(b), 'أساس الحكم: ' + b);
+      ok(/تتقاسمها إعلاناتها/.test(b) && !/مرحلة التعلّم/.test(b), 'أساس الحكم: ' + b);
     });
     // ر٤٣ (مرحَّل من المرحلة ٤): أساس رقمنا في سناب شات = طلبات المتجر، فسبب الفرق مش «مشاهدة من غير نقر» زي Meta. ومن ٢٥ أكتوبر
     // رقم المنصة جملة للعلم جوه «إنفاق دون نتائج» (الحكم بالنقر — قرار صاحب المنتج)
@@ -6956,6 +6965,42 @@
         eq((files[3].match(/Have I Been Pwned/g) || []).length, 2, 'the privacy policy names the password-breach check, in both languages');
         ok(/لحساباتك في Meta وSnapchat/.test(files[2]) && /your Meta and Snapchat accounts/.test(files[2]), 'the terms: the email summary is for Meta and Snapchat');
         ok(/ولحسابات Meta وSnapchat يصلك/.test(files[0]) && /For Meta and Snapchat accounts, you also get/.test(files[0]), 'the home page too');
+      });
+    });
+    // نفس الجمل جوه الأداة نفسها (٩٨ — قراءة كل جملة): رسالتا فشل الدخول بـ Google كانوا لسه بيقولوا «هذا البريد لم يُفعَّل في التجربة بعد» عن
+    // «تم حظر الوصول» — وGoogle في الإنتاج من ٣١ أكتوبر ومفيش تفعيل بريد (قرار ١٥ نوفمبر). دلوقتي نفس سبب دليل البدء (مؤسسة / الحماية المتقدمة)
+    test('رسائل الأداة عن Google: ولا «لم يُفعَّل في التجربة» ولا وضع الاختبار، و«تم حظر الوصول» بنفس سبب دليل البدء — باللغتين', function () {
+      var bad = [];
+      ['ar', 'en'].forEach(function (l) {
+        withLang(l, function () {
+          I18N.allKeys().forEach(function (k) {
+            var v = t(k);
+            if (/Google/.test(v) && /لم يُفعَّل في التجربة|hasn't been activated in the pilot|وضع الاختبار|testing mode|Test users?\b|مستخدمي الاختبار/.test(v)) bad.push(l + ' ' + k + ': ' + v);
+          });
+        });
+      });
+      eq(bad, [], 'no Google-in-testing statement in the tool');
+      ['s.googleLoginFailed', 's.googleCancelled'].forEach(function (k) {
+        withLang('ar', function () { ok(/الحماية المتقدمة/.test(t(k)) && /تمنع التطبيقات غير الموثّقة/.test(t(k)), k); });
+        withLang('en', function () { ok(/Advanced Protection/.test(t(k)) && /blocks unverified apps/.test(t(k)), k + ' (en)'); });
+      });
+    });
+    // اتساق الصياغة (٩٨): الإنجليزي من غير مصطلحات مطوّرين (العربي بيقول «مكتبة Meta» و«الخادم»؛ وFYI اسم مستوى «للعلم» نفسه فمش منها)، واسم Snapchat بالحروف
+    // اللاتينية في كل النص العربي زي Meta وGoogle وTikTok (فيسبوك وإنستغرام بالعربي في كل مكان)، و«تتقاسمها إعلاناتها» (جمع مؤنث سالم
+    // لغير العاقل)، و«انتهت الجلسة» بمنصتين — {list} = «Meta and Snapchat» كانت بتبقى «its ads» و«log in again» والعربي «أعد الربط»
+    test('اتساق الصياغة: ولا SDK ولا backend بالإنجليزي، وSnapchat بالحروف اللاتينية في العربي، وجمل اتصلّحت', function () {
+      var bad = [];
+      withLang('en', function () { I18N.allKeys().forEach(function (k) { var v = t(k); if (/\bSDK\b|\bbackend\b/.test(v)) bad.push('en ' + k + ': ' + v); }); });
+      withLang('ar', function () { I18N.allKeys().forEach(function (k) { var v = t(k); if (/سناب ?شات/.test(v)) bad.push('ar ' + k + ': ' + v); }); });
+      eq(bad, []);
+      withLang('en', function () {
+        eq(t('s.metaSdkLoading'), 'The Meta library is still loading — try again in a second.');
+        var two = t('s.sessionExpired', { list: 'Meta and Snapchat' });
+        ok(!/\bits ads\b|log in again/.test(two) && /reconnect/.test(two), two);
+      });
+      withLang('ar', function () {
+        ok(/تتقاسمها إعلاناتها/.test(t('basis.relearnShare')), t('basis.relearnShare'));
+        eq(t('x.pv.snapPage'), 'شاهد الإعلان كما يظهر على Snapchat');
       });
     });
   });
