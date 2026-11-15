@@ -1727,6 +1727,30 @@
       eq([r.byAd.one.health, r.byAd.one.pending], ['pending', 'prelimWorse'], r.byAd.one.basis);
       ok(/^قراءة مبدئية: تكلفة كل عملية شراء فيه ٣٠ ر\.س مقابل/.test(r.byAd.one.basis), r.byAd.one.basis);
     });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٧): القراءتين المبدئيتين التانيتين مكانوش بيتطلبوا في أي اختبار. «أرخص من المتوسط» حالة ضيقة:
+    // طلب واحد (طلبين بإنفاق ≥ R = حكم كامل)، فتكلفته = إنفاقه، ولازم ≥ R وتحت ٨٥٪ من مرجعه — فـR لازم يبقى أقصى تكلفة حددها العميل،
+    // وإنفاقه أقل من متوسط تكلفة النتيجة فبيبقى «يأخذ إنفاقاً قليلاً» — إلا في فترة أقصر من أسبوع (أمس / اليوم / ٣ أيام) اللي مفيهاش
+    // حكم بقلة الإنفاق (SHORT_ON)، أو إعلان عمره مش معروف. هنا فترة قصيرة، والحد ١٣ والمتوسط ٢٠، وطلب واحد بـ١٣
+    test('حكم مبدئي: «مبدئياً: أرخص من متوسط …» في فترة أقصر من أسبوع (طلب بـ١٣ والحد ١٣ والمتوسط ٢٠)، وإعلان المبيعات تحت المستهدف بعد R = تنبيه مش قراءة مبدئية', function () {
+      var one = ad('two', { daily: [2, 2, 2, 2, 2, 3, 0], res: [0, 0, 0, 1, 0, 0, 0] });
+      var r = withLang('ar', function () { return PauseProofAlerts.analyze(baseAccount().concat([one]), {}, { roasTarget: 3, maxCost: { purchase: 13 } }, ALERT_FMT, { short: true }); });
+      eq([r.byAd.two.health, r.byAd.two.pending], ['pending', 'prelimBetter'], r.byAd.two.basis);
+      withLang('ar', function () {
+        ok(/^مبدئياً: أرخص من متوسط /.test(r.byAd.two.pendingTitle), r.byAd.two.pendingTitle);
+        ok(/^قراءة مبدئية: تكلفة كل عملية شراء فيه .*١٣ ر\.س مقابل ٢٠ ر\.س/.test(r.byAd.two.basis) && r.byAd.two.basis.indexOf('، أي ' + t('pend.cmp.prelimBetter') + '.') > -1 &&
+          /حين يبلغ إنفاقه ٢٦ ر\.س \(ضعف أقصى تكلفة حددتها لكل عملية شراء\)/.test(r.byAd.two.basis), r.byAd.two.basis);
+      });
+      // والأسبوع الكامل بنفس الأرقام: «يأخذ إنفاقاً قليلاً» زي ما القاعدة بتقول
+      eq(engine(baseAccount().concat([one]), {}, { maxCost: { purchase: 13 } }).byAd.two.pending, 'underspend', 'a full week: the underspend rule');
+      // «مبدئياً: عائده تحت المستهدف» (prelimBelow) مبيحصلش من ٨ نوفمبر (المستهدف الخط الوحيد): شروطه نفسها — إعلان مبيعات بطلب على الأقل
+      // وإنفاق ≥ R وعائده تحت المستهدف — بتطلّع «عائد أقل من المستهدف» قبله، فالحالة بتبقى تنبيه مش «لم يُحكم بعد». الفرع والنصين فاضلين
+      // حماية لو القاعدة اتغيرت (التدقيق الشامل ١٠٤)، والاختبار ده بيحرس القاعدة نفسها: طلب واحد بـ٧٠ وعائد ×١٫٤ والمستهدف ×٣
+      var low = ad('low', { daily: [10, 10, 10, 10, 10, 20, 0], res: [0, 0, 0, 1, 0, 0, 0], sales: [0, 0, 0, 100, 0, 0, 0], cid: 'kl' });
+      var base = [ad('sa', { daily: steady(100), res: [2, 2, 2, 2, 2, 2, 1], sales: steady(400), cid: 'ka' }), ad('sb', { daily: steady(100), res: [2, 2, 2, 2, 2, 2, 1], sales: steady(400), cid: 'kb' })];
+      var q = withLang('ar', function () { return engine(base.concat([low])); });
+      ok(q.byAd.low.pending !== 'prelimBelow' && q.byAd.low.issues.some(function (i) { return i.code === 'loss' && (i.level === 'warning' || i.level === 'critical'); }),
+        q.byAd.low.pending + ' | ' + q.byAd.low.issues.map(function (i) { return i.code + ':' + i.level; }).join(' '));
+    });
     test('الإعلان الصغير بيبقى مهم لو صرفه عدّى متوسط تكلفة النتيجة', function () {
       var ads = baseAccount().concat([ad('mid', { daily: [30, 30, 30, 30, 30, 0, 0], res: [0, 0, 0, 0, 0, 0, 0] })]);
       var r = engine(ads);
