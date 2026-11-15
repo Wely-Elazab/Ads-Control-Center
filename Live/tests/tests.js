@@ -7158,6 +7158,47 @@
         var tool = tokens(files[0]);
         var shape = function (arr) { var v = arr.map(function (x) { return x.toLowerCase(); }); return [v[0]].concat(v.slice(1).filter(function (x, i, a) { return a.indexOf(x) === i; })); };
         ['paper', 'card', 'ink', 'ink-soft', 'ink-faint', 'line', 'verified', 'verified-bg'].forEach(function (k) { eq(shape(site[k]), shape(tool[k]), 'same ' + k + ' (light, then every dark block) on the site and in the tool'); });
+        // على مستوى القواعد (التدقيق الشامل ١٥ نوفمبر ٢٠٢٦، ١٠٨): أزواج الألوان سليمة بس قواعد بتغيّر اللون فعلياً فاتت القياس —
+        // شفافية على النص («+٢» على الكارت ٣٫١٩–٤٫٣٢، ونص الإرشاد في خانة الحملة ٢٫٣)، وخلفيات color-mix (شارة الحالة ٣٫٩٢–٤٫٤٨، وعدد
+        // الحسابات على لون Snapchat ٤٫١٤) — والقياس الحي قرا الخلفية rgb() بس، وcolor-mix بترجع color(srgb …) فاتعاملت كأنها شفافة
+        var css = (files[0].match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+        var rules = [], rr = /([^{}]+)\{([^{}]*)\}/g, mm;
+        while ((mm = rr.exec(css.replace(/\/\*[\s\S]*?\*\//g, '')))) rules.push({ sel: mm[1].trim(), body: mm[2] });
+        // ١) الشفافية الجزئية (بين صفر وواحد — الصفر إخفاء، زي زرار «لأعلى» قبل ما يظهر) بس على المستثنى من شرط التباين: المعطّل وغير
+        //    المتاح، والشعارات والأيقونات، ورسوم الحركة
+        var EXEMPT = ['.platform-item.soon', '.cal-nav button:disabled', '.cal-day:disabled', '.acct-opt .plat-logo', '.bl-ch', '.bl-ch::after', '.active-filter::after'];
+        var faded = rules.filter(function (r) { var o = /(?:^|;)\s*opacity:\s*([0-9.]+)/.exec(r.body); return o && Number(o[1]) > 0 && Number(o[1]) < 1 && !/^(from|to|[0-9%, ]+)$/.test(r.sel) && EXEMPT.indexOf(r.sel) < 0; })
+          .map(function (r) { return r.sel; });
+        eq(faded, [], 'no opacity below 1 on text outside the exempt list');
+        // ٢) شارة الحالة: خلفية صلبة لكل حالة (--hb)، والنص عليها ≥ ٤٫٥ في الوضعين
+        var badge = rules.filter(function (r) { return r.sel === '.health-badge'; })[0];
+        ok(badge && !/color-mix/.test(badge.body) && /background:\s*var\(--hb/.test(badge.body), badge ? badge.body : 'no .health-badge rule');
+        var hb = {};
+        rules.forEach(function (r) { var m1 = /^\.h-([a-z]+)$/.exec(r.sel), a = /--h:\s*var\(--([a-z-]+)\)/.exec(r.body), b = /--hb:\s*var\(--([a-z-]+)\)/.exec(r.body); if (m1 && a) hb[m1[1]] = [a[1], b && b[1]]; });
+        eq(Object.keys(hb).sort(), ['good', 'improve', 'inactive', 'pending', 'review'], 'every health class');
+        check('tool', tool, Object.keys(hb).map(function (k) { return hb[k]; }));
+        // ٣) كل قاعدة فيها لون نص وخلفية color-mix (لون المنصة ١٢٪ مثلاً): النص على الخليط فوق الكارت ≥ ٤٫٥ لكل منصة وفي الوضعين
+        var brands = {};
+        rules.forEach(function (r) { var m2 = /^\.plat-([a-z]+)$/.exec(r.sel), b2 = /--brand:\s*(#[0-9A-Fa-f]{6})/.exec(r.body); if (m2 && b2) brands[m2[1]] = b2[1]; });
+        var hex = function (n) { return ('0' + Math.round(n).toString(16)).slice(-2); };
+        var mix = function (a, b, t) { var x = [1, 3, 5].map(function (i) { return parseInt(a.slice(i, i + 2), 16) * t + parseInt(b.slice(i, i + 2), 16) * (1 - t); }); return '#' + x.map(hex).join(''); };
+        var mixed = rules.filter(function (r) { return /background:\s*color-mix\(in srgb, var\(--brand/.test(r.body) && /(?:^|;)\s*color:\s*var\(--/.test(r.body); });
+        ok(mixed.length >= 1 && Object.keys(brands).length >= 3, 'brand-tinted rules: ' + mixed.length + ', brands: ' + Object.keys(brands).join(','));
+        var low = [];
+        mixed.forEach(function (r) {
+          var txt = /(?:^|;)\s*color:\s*var\(--([a-z-]+)\)/.exec(r.body)[1], pct = Number(/var\(--brand[^)]*\)\)?\s*([0-9]+)%/.exec(r.body)[1]) / 100;
+          // والعدد جوه نفس العنوان بلونه هو
+          var inner = rules.filter(function (x) { return x.sel.indexOf(r.sel + '-') === 0 && /(?:^|;)\s*color:\s*var\(--/.test(x.body); }).map(function (x) { return /(?:^|;)\s*color:\s*var\(--([a-z-]+)\)/.exec(x.body)[1]; });
+          [txt].concat(inner).forEach(function (t1) {
+            [0, 1].forEach(function (mode) {
+              Object.keys(brands).filter(function (b) { return b !== 'tiktok'; }).forEach(function (b) {
+                var bg = mix(brands[b], tool.card[mode] || tool.card[0], pct), fg = tool[t1][mode] || tool[t1][0];
+                if (ratio(fg, bg) < 4.5) low.push(r.sel + ' ' + t1 + ' on ' + b + (mode ? ' dark' : ' light') + ' ' + ratio(fg, bg).toFixed(2));
+              });
+            });
+          });
+        });
+        eq(low, [], 'text on brand tints');
       });
     });
 
