@@ -2595,9 +2595,21 @@
       ok(/تم إيقاف الحملة «Main»/.test(out[1].detail) && out[1].objectId === '4@2026-09-24T17:00:00', JSON.stringify(out[1]));
     });
     test('رابط معطّل: ٤٠٤ = صفحة غير موجودة، ومن غير رد = لا يستجيب، وأكتر من إعلان على نفس الرابط', function () {
-      var out = PauseProofAlerts.linkAlerts([{ key: 'k1', url: 'https://shop.example/p/1', status: 404, ads: ['Ad 1', 'Ad 2', 'Ad 3'] }, { key: 'k2', url: 'https://gone.example/', status: 0, ads: ['Ad 9'] }]);
-      ok(out[0].code === 'link-broken' && out[0].objectId === 'k1' && /صفحة غير موجودة/.test(out[0].detail) && /وإعلانات أخرى \(2\)/.test(out[0].detail), out[0].detail);
+      var out = PauseProofAlerts.linkAlerts([{ key: 'k1', url: 'https://shop.example/p/1', status: 404, ads: ['Ad 1', 'Ad 2', 'Ad 3'] }, { key: 'k2', url: 'https://gone.example/', status: 0, ads: ['Ad 9'] }], ALERT_FMT);
+      // (١٠١) العدد بأرقام اللغة زي كل الأعداد — كان «(2)» جوه البريد العربي؛ ورمز الخطأ رمز تقني لاتيني
+      ok(out[0].code === 'link-broken' && out[0].objectId === 'k1' && /صفحة غير موجودة/.test(out[0].detail) && /وإعلانات أخرى \(٢\)/.test(out[0].detail) && /خطأ 404/.test(out[0].detail), out[0].detail);
       ok(/لا يستجيب/.test(out[1].detail), out[1].detail);
+    });
+    // (١٠١) المُشغّل (البريد) هو اللي بيطلب linkAlerts — لازم يبعت fmt، وإلا العدد يرجع لاتيني في البريد العربي
+    testAsync('عقد المُشغّل: كل طلب لـ linkAlerts بيبعت fmt (أرقام اللغة في البريد)', function () {
+      return fetch('/__repo/supabase/functions/sync/runner.ts?t=' + Date.now()).then(function (r) {
+        if (!r.ok) throw new Error('runner.ts is not served (' + r.status + ') — run the tests with Live/tests/serve.ps1');
+        return r.text();
+      }).then(function (src) {
+        var calls = src.match(/linkAlerts\(await brokenLinks\(cands\)[^;]*;/g) || [];
+        eq(calls.length, 2, 'the two places the runner checks links: ' + calls.join(' | '));
+        ok(calls.every(function (c) { return /brokenLinks\(cands\), (fmt|alertFmt\(\))\)/.test(c); }), calls.join(' | '));
+      });
     });
   });
 

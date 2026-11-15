@@ -1686,10 +1686,13 @@
   // روابط إعلانات معطّلة (المُشغّل بيفتح الرابط بنفسه): results = [{ key, url, status, error, ads: [أسماء] }].
   // المعطّل بس: صفحة مش موجودة (404/410)، أو خطأ الخادم (5xx) أو عدم استجابة اتكرر مرتين — الحجب الأمني
   // (403/429، تحدّي Cloudflare) مش بيوصل هنا أصلاً
-  function linkAlerts(results) {
+  // fmt (التدقيق الشامل ١٥ نوفمبر ٢٠٢٦، ١٠١): عدد الإعلانات التانية بأرقام اللغة زي كل الأعداد — كان String() فبيطلع «وإعلانات أخرى (2)»
+  // في البريد العربي. رمز الخطأ (٤٠٤) رمز تقني بيفضل لاتيني زي ما بيظهر في المتصفح
+  function linkAlerts(results, fmt) {
     return (results || []).map(function (r) {
       var ads = r.ads || [], first = t('al.name', { name: ads[0] || '' });
-      var adsText = ads.length > 1 ? t('al.link.adsN', { a: first, n: String(ads.length - 1) }) : first;
+      var more = ads.length - 1;
+      var adsText = ads.length > 1 ? t('al.link.adsN', { a: first, n: fmt && fmt.int ? fmt.int(more) : String(more) }) : first;
       var url = String(r.url || '');
       if (url.length > 90) url = url.slice(0, 89) + '…';
       var key = r.status === 404 || r.status === 410 ? 'al.link.d404' : (r.status ? 'al.link.d5xx' : 'al.link.dNet');

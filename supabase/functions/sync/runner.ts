@@ -374,7 +374,7 @@ async function extraAlerts(accountId: string, acct: Acct, cands: any[], editsSin
       out.push(...g.PauseProofAlerts.editAlerts(edits, fmt, cur, accSpend / 7));
     }
   } catch (e) { fail('edits', e); }
-  try { out.push(...g.PauseProofAlerts.linkAlerts(await brokenLinks(cands))); } catch (e) { fail('links', e); }
+  try { out.push(...g.PauseProofAlerts.linkAlerts(await brokenLinks(cands), fmt)); } catch (e) { fail('links', e); }
   return { alerts: out, failed };
 }
 function eventMs(when: string): number {
@@ -1185,7 +1185,7 @@ async function snapUrgent(account: string, name: string, tz: string, cur: string
     spendCap: 0, amountSpent: 0 }, cands, target, sens);
   const failed: Failed = { site: false, edits: false, links: false };
   let links: any[] = [];
-  try { links = g.PauseProofAlerts.linkAlerts(await brokenLinks(cands)); } catch (e) {
+  try { links = g.PauseProofAlerts.linkAlerts(await brokenLinks(cands), alertFmt()); } catch (e) {
     failed.links = true;
     console.error('extra alerts links', String((e as Error).message || e).slice(0, 160));
   }
