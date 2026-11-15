@@ -15,6 +15,7 @@ import {
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
+import { activationMail, adminMail } from '../sync/join.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
 Deno.env.set('TOKEN_ENC_KEY', btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))));
@@ -1213,4 +1214,27 @@ Deno.test('رسائل الوصول والصلاحية: فيها رابط الإ�
 Deno.test('عدد الحسابات في عنوان البريد: «في حسابين» بعد حرف الجر، و«حسابان» خبراً لوحده (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦)', () => {
   assertEquals([accountsPhrase(2, false), accountsPhrase(2, false, true), accountsPhrase(2, true), accountsPhrase(2, true, true)],
     ['حسابين', 'حسابان', '2 accounts', '2 accounts']);
+});
+
+// التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٨٩–٩٠): تطبيق Google في الإنتاج من ٣١ أكتوبر وصاحب الأداة بطّل يضيف البريد في Test users — فالإشعار
+// مبيطلبش الخطوة دي، ورسالة التفعيل متقولش «فعّلنا البريد». والملخص بالبريد لـ Snapchat كمان من ٣١ أكتوبر، فخطوة «التنبيهات على بريدك»
+// بتظهر لعميل Snapchat لوحده
+Deno.test('join: Google من غير Test users ولا «فعّلنا البريد»، وخطوة الملخص بالبريد لعميل Meta أو Snapchat', async () => {
+  const base = { id: '0b8f6a2e-1c3d-4e5f-8a9b-0c1d2e3f4a5b', email: 'a@example.com', role: 'buyer', name: 'A', business: 'B', store_url: 'https://shop.example',
+    country: 'EG', fb_profile: null, google_email: 'g@example.com', snap_email: null, whatsapp: null, status: 'new', submissions: 1, activated_at: null,
+    created_at: '2026-11-15T00:00:00Z', updated_at: '2026-11-15T00:00:00Z' };
+  for (const lang of ['ar', 'en']) {
+    const g = activationMail({ ...base, lang, platforms: ['google'] } as any);
+    assert(!/فعّلنا البريد|activated <strong>[^<]*@|g@example\.com/.test(g.html + g.text), lang + ': no "we activated your email", and the Google email is not quoted');
+    assertMatch(g.html, lang === 'en' ? /the email you use to sign in to Google Ads/ : /البريد الذي تدخل به إلى Google Ads/);
+    assert(!/Automatic summary by email|الملخص التلقائي بالبريد/.test(g.html), lang + ': Google alone has no email-summary step');
+    for (const p of ['snapchat', 'meta']) {
+      const s = activationMail({ ...base, lang, platforms: [p] } as any);
+      assertMatch(s.html, lang === 'en' ? /Once your Meta or Snapchat account is connected/ : /بعد ربط حساب Meta أو Snapchat/, lang + ' ' + p + ': the email-summary step');
+    }
+  }
+  const admin = await adminMail({ ...base, lang: 'ar', platforms: ['meta', 'google'], fb_profile: 'https://facebook.com/x' } as any, false);
+  assert(!/Test users|auth\/audience/.test(admin.html + admin.text), 'the owner is not asked to add test users');
+  assertMatch(admin.html, /لا يحتاج إضافة/);
+  assertMatch(admin.html, /Tester/, 'Meta still needs the tester invitation');
 });

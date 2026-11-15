@@ -6827,6 +6827,23 @@
         ['paper', 'card', 'ink', 'ink-soft', 'ink-faint', 'line', 'verified', 'verified-bg'].forEach(function (k) { eq(shape(site[k]), shape(tool[k]), 'same ' + k + ' (light, then every dark block) on the site and in the tool'); });
       });
     });
+
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٨٩–٩١ — قرار صاحب المنتج «صحّحها باللغتين وانشرها»): الصفحات العامة كانت بتقول إن الملخص بالبريد
+    // لحسابات Meta بس (وهو لـ Snapchat من ٣١ أكتوبر)، وإن Google في وضع الاختبار (وهي في الإنتاج من ٣١ أكتوبر)، والخصوصية من غير Have I Been Pwned
+    testAsync('الصفحات العامة: الملخص بالبريد لـ Meta وSnapchat، وGoogle مش في وضع الاختبار، وكل طرف ثالث مذكور — باللغتين', function () {
+      var pages = ['/home.html', '/help.html', '/terms.html', '/privacy.html', '/data-deletion.html'];
+      return Promise.all(pages.map(function (u) { return fetch(u + '?t=' + Date.now()).then(function (r) { return r.text(); }); })).then(function (files) {
+        var all = files.join('\n').replace(/<!--[\s\S]*?-->/g, '');
+        var gone = [/لكل حساب Meta على حدة/, /per Meta account/, /وضع الاختبار/, /testing mode/, /كل ٧ أيام تقريباً/, /once every 7 days/, /Test users?\b/, /مستخدمي الاختبار/,
+          /لم يُفعَّل في التجربة/, /hasn't been activated in the pilot/, /بريدك الإلكتروني لدى Google/, /your email with Google/, /ولحسابات Meta (يصلك|يمكنك)/, /For Meta accounts,/,
+          /تفعّلها بنفسك لحساب Meta/, /for a Meta account,/, /بجانب Meta —/, /next to Meta —/, /حسابات Google وTikTok/, /Google and TikTok accounts/, /انتظر رسالتنا التي تؤكد/, /Wait for our message/]
+          .filter(function (re) { return re.test(all); }).map(String);
+        eq(gone, [], 'no outdated statement left');
+        eq((files[3].match(/Have I Been Pwned/g) || []).length, 2, 'the privacy policy names the password-breach check, in both languages');
+        ok(/لحساباتك في Meta وSnapchat/.test(files[2]) && /your Meta and Snapchat accounts/.test(files[2]), 'the terms: the email summary is for Meta and Snapchat');
+        ok(/ولحسابات Meta وSnapchat يصلك/.test(files[0]) && /For Meta and Snapchat accounts, you also get/.test(files[0]), 'the home page too');
+      });
+    });
   });
 
   // ---------- اختبار المستخدم: اللي ظهر وأنا بستخدم البرنامج كمختبِر ----------

@@ -128,7 +128,7 @@ function hoursAr(n: number): string {
 
 // إشعارنا بالطلب (لصاحب الأداة، عربي): البيانات + خطوات الإضافة على كل منصة + زرار «أرسلت الدعوة».
 // remind = تذكير الطلب المتأخر (joinReminders): نفس الإشعار بعنوان وتنبيه في أوله
-async function adminMail(r: Req, repeat: boolean, remind?: { elapsed: number; left: number }) {
+export async function adminMail(r: Req, repeat: boolean, remind?: { elapsed: number; left: number }) {
   const has = (p: string) => r.platforms.indexOf(p) > -1;
   const role = r.role ? ROLES[r.role] || r.role : '';
   const subject = remind
@@ -152,8 +152,9 @@ async function adminMail(r: Req, repeat: boolean, remind?: { elapsed: number; le
   const steps: string[] = [];
   if (has('meta')) steps.push('<strong>Meta:</strong> افتح ' + link('https://developers.facebook.com/apps/' + META_APP_ID + '/roles/roles/', 'أدوار التطبيق') +
     ' ← Add People ← Tester، والصق رابط حسابه على فيسبوك من الجدول أعلاه.');
-  if (has('google')) steps.push('<strong>Google:</strong> افتح ' + link('https://console.cloud.google.com/auth/audience', 'Google Auth Platform ← Audience') +
-    ' ← Test users ← Add users، وأضف: ' + esc(r.google_email || r.email));
+  // Google: مفيش خطوة — تطبيق Google في الإنتاج من ٣١ أكتوبر ٢٠٢٦، وقائمة Test users مبتتحكمش في الدخول فيه. صاحب الأداة بطّل يضيف
+  // البريد (إجابته ١٥ نوفمبر ٢٠٢٦ — التدقيق الشامل، ٩٠)، والعميل بيربط مباشرة
+  if (has('google')) steps.push('<strong>Google:</strong> لا يحتاج إضافة — يربط العميل حساب Google Ads مباشرة.');
   steps.push('بعد الإضافة اضغط الزر أدناه لإرسال رسالة التفعيل إليه. لن يصله أي شيء قبل ذلك. وعدناه في صفحة الطلب بالتفعيل <strong>خلال ٢٤ ساعة</strong> من إرساله.');
   const url = SITE + '/invited?r=' + r.id + '&s=' + (await sigOf(r.id));
   const lines = [
@@ -171,7 +172,7 @@ async function adminMail(r: Req, repeat: boolean, remind?: { elapsed: number; le
 
 // رسالة التفعيل للعميل (فصحى، بلغته): خطوات كل منصة طلبها. أهمها قبول دعوة فيسبوك — من الموبايل من جوه
 // التطبيق (الرابط هناك مبيوصلش لصفحة الدعوات)، ومن الكمبيوتر بالرابط
-function activationMail(r: Req) {
+export function activationMail(r: Req) {
   const en = r.lang === 'en', has = (p: string) => r.platforms.indexOf(p) > -1;
   const app = link(SITE + '/app', 'adscenter.online/app');
   const subject = en ? 'Your Ads Center pilot access is ready — one last step' : 'تم تفعيل حسابك في تجربة Ads Center — بقيت خطوة أخيرة';
@@ -212,8 +213,8 @@ function activationMail(r: Req) {
   if (has('google')) {
     lines.push(h('Google Ads'));
     lines.push(en
-      ? 'We\'ve activated <strong>' + esc(r.google_email || r.email) + '</strong>. Open ' + app + ' → "Connect your ad account" → <strong>Google Ads</strong> and choose that same email. You\'ll see "Google hasn\'t verified this app" — that\'s expected during the pilot: press "Continue", or "Advanced" then "Go to …" if there\'s no such button.'
-      : 'فعّلنا البريد <strong>' + esc(r.google_email || r.email) + '</strong>. افتح ' + app + ' ← «اربط حسابك الإعلاني» ← <strong>Google Ads</strong>، واختر هذا البريد نفسه. ستظهر رسالة «Google hasn\'t verified this app»، وهي طبيعية خلال التجربة: اضغط «Continue» (متابعة)، وإن لم يظهر فاضغط «Advanced» ثم «Go to …».');
+      ? 'Open ' + app + ' → "Connect your ad account" → <strong>Google Ads</strong> and choose the email you use to sign in to Google Ads. You\'ll see "Google hasn\'t verified this app" — that\'s expected during the pilot: press "Continue", or "Advanced" then "Go to …" if there\'s no such button.'
+      : 'افتح ' + app + ' ← «اربط حسابك الإعلاني» ← <strong>Google Ads</strong>، واختر البريد الذي تدخل به إلى Google Ads. ستظهر رسالة «Google hasn\'t verified this app»، وهي طبيعية خلال التجربة: اضغط «Continue» (متابعة)، وإن لم يظهر فاضغط «Advanced» ثم «Go to …».');
   }
   if (has('snapchat')) {
     lines.push(h('Snapchat'));
@@ -224,12 +225,13 @@ function activationMail(r: Req) {
     lines.push(h('TikTok'));
     lines.push(en ? 'TikTok isn\'t available yet. We\'ll let you know as soon as it is.' : 'ربط TikTok غير متاح بعد، وسنبلغك فور إتاحته.');
   }
-  // آخر خطوة: الملخص والتنبيهات على البريد (لحسابات Meta بس — digest.ts). من غيرها العميل ميعرفش اللي بيحصل غير لما يفتح الأداة
-  if (has('meta')) {
+  // آخر خطوة: الملخص والتنبيهات على البريد (لحسابات Meta وSnapchat — digest.ts؛ Snapchat من ٣١ أكتوبر ٢٠٢٦). من غيرها العميل ميعرفش
+  // اللي بيحصل غير لما يفتح الأداة
+  if (has('meta') || has('snapchat')) {
     lines.push(h(en ? 'Last step: get alerts by email' : 'الخطوة الأخيرة: التنبيهات على بريدك'));
     lines.push(en
-      ? 'Once your Meta account is connected, open "Settings" and the <strong>"Automatic summary by email"</strong> card, choose the days and time, then press "Turn on the automatic summary". From then on you\'ll get an immediate email if what brings you sales stops or an ad spends without orders, plus a summary of what you spent and what came back on the days you choose — without opening the tool.'
-      : 'بعد ربط حساب Meta، افتح «الإعدادات» ثم بطاقة <strong>«الملخص التلقائي بالبريد»</strong>، واختر الأيام والساعة، ثم اضغط «تفعيل الملخص التلقائي». بعدها يصلك بريد فوري إذا توقف ما يجلب لك المبيعات أو صرف إعلان دون طلبات، وملخص لما صرفته وما عاد عليك في الأيام التي تختارها، دون أن تفتح الأداة.');
+      ? 'Once your Meta or Snapchat account is connected, open "Settings" and the <strong>"Automatic summary by email"</strong> card, choose the days and time, then press "Turn on the automatic summary". From then on you\'ll get an immediate email if what brings you sales stops or an ad spends without orders, plus a summary of what you spent and what came back on the days you choose — without opening the tool.'
+      : 'بعد ربط حساب Meta أو Snapchat، افتح «الإعدادات» ثم بطاقة <strong>«الملخص التلقائي بالبريد»</strong>، واختر الأيام والساعة، ثم اضغط «تفعيل الملخص التلقائي». بعدها يصلك بريد فوري إذا توقف ما يجلب لك المبيعات أو صرف إعلان دون طلبات، وملخص لما صرفته وما عاد عليك في الأيام التي تختارها، دون أن تفتح الأداة.');
   }
   lines.push('<div style="margin:22px 0 14px;line-height:1.8">' + (en
     ? 'Every step is explained in the ' + link(SITE + '/help', 'getting-started guide') + '. Your password and sign-in code are typed only on the sign-in page at adscenter.online/login — we will never ask you for them by email or by phone.'
