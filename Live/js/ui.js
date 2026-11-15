@@ -1584,7 +1584,7 @@
     var body = Object.assign({ action: action }, extra || {});
     if (platform) {
       var proof = digestProof(platform);
-      if (!proof) { var e = new Error('no session'); e.code = 'session'; return Promise.reject(e); }
+      if (!proof) { var e = new Error('no session'); e.code = 'session'; e.platform = platform; return Promise.reject(e); }
       Object.assign(body, proof);
     }
     return syncCall(body);
@@ -1600,8 +1600,10 @@
   }
   function digestErrText(e) {
     var c = e && e.code;
-    return t(c === 'email' ? 'dx.auto.err.email' : c === 'days' ? 'dx.auto.err.days' : c === 'too many' ? 'dx.auto.err.tooMany'
-      : (c === 'session' || c === 'not verified') ? 'dx.auto.err.session' : 'dx.auto.err.generic');
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٩): الملخص بقى لـ Snapchat من ٣١ أكتوبر، والرسالة كانت بتقول «انتهت جلسة Meta» لحساب Snapchat ربطه
+    // انتهى. المنصة من الطلب نفسه (digestCall)، و«not verified» بيرجع من Meta بس (digest.ts)
+    if (c === 'session' || c === 'not verified') return t('dx.auto.err.session', { platform: PLATFORM_NAMES[(e && e.platform) || 'meta'] || 'Meta' });
+    return t(c === 'email' ? 'dx.auto.err.email' : c === 'days' ? 'dx.auto.err.days' : c === 'too many' ? 'dx.auto.err.tooMany' : 'dx.auto.err.generic');
   }
   // اسم الحساب في القائمة: من الحسابات المحمّلة في الأداة لو موجود، وإلا اللي رجع من السيرفر، وإلا رقمه
   function digestAcctName(a) {

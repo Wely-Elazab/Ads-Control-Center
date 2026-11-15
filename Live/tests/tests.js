@@ -169,6 +169,19 @@
       eq(I18N.missingKeys(), { missingInEn: [], missingInAr: [] }, 'the new grammar keys are Arabic-only by rule');
     });
     test('مفتاح مش موجود بيرجع نفسه (عشان يتلاحظ)', function () { eq(t('no.such.key'), 'no.such.key'); });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٩): فترة المقارنة ممكن تبقى السنة اللي فاتت أو فترة مخصصة (٣–٧ نوفمبر)، فـ«the previous one» في
+    // الإنجليزي غلط حيث العربي «فترة المقارنة» (كانت في سياق مناسبات الفترة، وعنوان «لا طلبات في … هذه الفترة»)
+    test('فترة المقارنة باللغتين: كل نص عربي فيه «فترة المقارنة» نظيره الإنجليزي بيقول comparison', function () {
+      var bad = [], n = 0;
+      I18N.allKeys().forEach(function (k) {
+        var a = withLang('ar', function () { return t(k); }), e = withLang('en', function () { return t(k); });
+        if (!/فترة المقارنة/.test(a)) return;
+        n++;
+        if (!/comparison/i.test(e)) bad.push(k + ': ' + e);
+      });
+      ok(n >= 30, 'texts checked: ' + n);
+      eq(bad, []);
+    });
     // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٤): ٢٩ نص في القاموس محدش بيعرضها — اتسابت لما مواضعها اتشالت (تنبيه waste-view ٢٥ أكتوبر،
     // «تراجع العائد» وحد الخسارة ٨ نوفمبر، خانة أقصى تكلفة القديمة في الإعدادات، زر «الملخص التلقائي» ١١ أكتوبر، وغيرهم)، و٩ منهم اتعادت
     // صياغتهم في ٩٣ على إنهم نصوص حية. كل مفتاح لازم يتذكر في كود الأداة أو مرسِل البريد: حرفياً ('x.y')، أو تحت بادئة بتتبني
@@ -11136,6 +11149,25 @@
     var panel = function () { return document.getElementById('dxAuto'); };
     // فتح صفحة «الإعدادات» = البطاقة بتجيب حالتها من السيرفر
     var openPanel = function () { showView('settings'); return tick2(); };
+
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٩): الملخص بقى لـ Snapchat من ٣١ أكتوبر، بس رسالة «الجلسة انتهت» كانت بتقول Meta دايماً — إضافة
+    // حساب Snapchat ربطه انتهى (مفيش نسخة مقفولة) كانت بتقول «انتهت جلسة Meta»
+    testAsync('الملخص بالبريد: رسالة انتهاء الجلسة باسم منصة الحساب — Snapchat مش Meta', function () {
+      var realSealed = window.sealedFor;
+      window.sealedFor = function () { return null; };
+      return digestCall('digest.add', {}, 'snapchat').then(function () {
+        window.sealedFor = realSealed;
+        ok(false, 'no Snapchat connection: the call must not go out');
+      }, function (e) {
+        window.sealedFor = realSealed;
+        eq(e.code, 'session');
+        withLang('ar', function () {
+          eq(digestErrText(e), 'انتهت جلسة Snapchat. أعد الربط ثم حاول مجدداً.');
+          eq(digestErrText({ code: 'not verified' }), 'انتهت جلسة Meta. أعد الربط ثم حاول مجدداً.', 'the server says «not verified» for Meta only');
+        });
+        withLang('en', function () { eq(digestErrText(e), 'Your Snapchat session ended. Reconnect, then try again.'); });
+      });
+    });
 
     // من ٣١ أكتوبر ٢٠٢٦ الملخص لكل مستخدم (قرار صاحب المنتج): ملخص واحد بحساباته (حتى ٥) وبإعداداته، والبطاقة بتعرضه أياً كان الحساب المفتوح
     testAsync('بطاقة الملخص التلقائي في «الإعدادات»: ملخص المستخدم أياً كان عرض الملخص، وبتشرح لو مفيش ملخص ولا Meta، ومخفية لو الميزة مقفولة', function () {
