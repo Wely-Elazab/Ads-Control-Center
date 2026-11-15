@@ -12,9 +12,7 @@
   var DICT = {
     ar: {
       // عام — كل النص العربي في الواجهة بالفصحى
-      'app.name': 'Ads Center',
       'app.tag': 'افهم ما يحدث في إعلانات متجرك الإلكتروني ولماذا',
-      'brand.home': 'الصفحة الرئيسية',
       'lang.toggle': 'EN',
       'theme.aria': 'المظهر',
       // التثبيت على شاشة الهاتف (installBtn في ui.js) — آيفون بيقفل «فتح كتطبيق ويب» لحد ما وضع التطبيق يتجرّب على جهاز حقيقي
@@ -251,7 +249,6 @@
       'card.snapCatalog': 'إعلان كتالوج',
       'card.snapStory': 'قصة من عدة لقطات',
       'card.pmaxSub': 'حملة كاملة — لا يعرض Google إعلاناتها منفصلة',
-      'card.adFallback': 'إعلان {platform} رقم {id}',
       'chip.spend': 'الإنفاق',
       'chip.results': 'النتائج',
       'chip.roas': 'العائد',
@@ -278,7 +275,6 @@
       'chip.freqTip': 'متوسط مرات ظهور الإعلان للشخص نفسه خلال آخر ٧ أيام',
       'chip.freqLife': 'ومنذ إطلاقه {v}',
       'chip.weakDelivery': 'وصول ضعيف',
-      'legend.aria': 'دليل الألوان',
 
       // المعرض والأرقام
       'gallery.login': 'اربط حساباً إعلانياً لعرض إعلاناتك',
@@ -491,8 +487,6 @@
       'n.problem.one': 'مشكلة', 'n.problem.acc': 'مشكلة', 'n.problem.many': 'مشكلات',
       'attn.money.waste': '{v} دون طلبات',
       'attn.money.wasteRes': '{v} دون نتائج',
-      'attn.money.wasteClick': '{v} دون طلب مُثبَت من الإعلان',
-      'attn.money.wasteClickRes': '{v} دون نتيجة مُثبَتة من الإعلان',
       'attn.money.unrecorded': '{v} دون طلبات مسجّلة',
       'attn.money.loss': 'المبيعات أقل من الإنفاق بـ{v}',
       'attn.money.extra': 'تكلفة زائدة {v}',
@@ -503,8 +497,6 @@
       'attn.money.short': 'المبيعات أقل من المستهدف بـ{v}',
       'attn.moneyTip.waste': 'ما صُرف دون أي طلب.',
       'attn.moneyTip.wasteRes': 'ما صُرف دون أي نتيجة.',
-      'attn.moneyTip.wasteClick': 'ما صُرف دون أي طلب يثبت أنه جاء من الإعلان، مع أن المنصة تنسب له طلبات.',
-      'attn.moneyTip.wasteClickRes': 'ما صُرف دون أي نتيجة يثبت أنها جاءت من الإعلان، مع أن المنصة تنسب له نتائج.',
       'attn.moneyTip.unrecorded': 'ما صُرف في الأيام التي لم يُسجَّل فيها أي طلب.',
       'attn.moneyTip.loss': 'الفرق بين الإنفاق وقيمة المبيعات التي جاءت منه.',
       'attn.moneyTip.extra': 'ما صُرف زيادةً على تكلفة الطلب أو النتيجة المعتادة (متوسط الحساب أو الفترة السابقة).',
@@ -591,11 +583,6 @@
       'set.accountSpikeMultiple.help': 'إجمالي إنفاق الحساب أمس مقارنةً بمتوسطه اليومي في الأيام السابقة، إن لم ترتفع النتائج بالنسبة نفسها تقريباً.',
       'set.accountDropRatio': 'انخفاض مفاجئ في إنفاق الحساب',
       'set.accountDropRatio.help': 'إجمالي إنفاق الحساب أمس مقارنةً بمتوسطه اليومي في الأيام السابقة. ويُستخدم أيضاً لتفسير ضعف وصول الإعلانات حين ينخفض إنفاق الحساب كله.',
-      // أقصى تكلفة مقبولة لكل نتيجة (قرار صاحب المنتج ٢٤ أكتوبر): للحساب لكل نوع نتيجة، ولكل حملة
-      'settings.maxCost': 'أقصى تكلفة مقبولة لكل نتيجة',
-      'settings.maxCost.help': 'لكل أنواع النتائج، ومنها المشتريات في إعلانات المبيعات. اتركها فارغة إن لم يكن لديك حد.',
-      'settings.maxCostCamp': 'لكل حملة',
-      'settings.maxCostCamp.help': 'إن اختلفت أسعار منتجاتك بين الحملات فحدّد لكل حملة تكلفتها المقبولة، وتُقدَّم على قيمة الحساب.',
       'pend.noTarget.t': 'حدّد هدف الربح',
       'pend.noTarget.d': 'لم نحكم على ربح هذا الإعلان بعد: حدّد لهذا الحساب العائد المستهدف من «الإعدادات»، فالحكم على الربح يحتاج إلى هامش ربح متجرك.',
       'basis.cprMax': 'تكلفة كل {one} فيه {wd} {cpr}، وأقصى التكلفة المقبولة {scope} {max}.',
@@ -793,7 +780,6 @@
       'al.noSpend7.t': 'إعلان نشط لم يُنفق شيئاً',
       'al.noSpend7.d': '{name} نشط، لكنه لم يُنفق شيئاً {wd}.',
       'al.noSpend7.a': 'إن كان يُفترض أن يعمل هذا الإعلان، فنقترح مراجعة سبب عدم ظهوره في المنصة.',
-      'al.waste.t': 'إنفاق دون نتائج في آخر يومين',
       'al.waste.d': 'أنفق {name} مبلغ {spend} خلال آخر يومين دون أي {label}. {refSpent}',
       'al.wasteWeek.dNoRef': 'أنفق {name} مبلغ {spend} {wd} دون أي {label}.',
       'al.waste.a': 'نقترح مراجعة الإعلان، وتعديله أو إيقافه إن لم تتحسن نتائجه، حتى لا تُهدر هذه الميزانية. وقد تتأخر بعض النتائج في الظهور لدى المنصة.',
@@ -803,14 +789,6 @@
       'al.wasteWeek.t': 'إنفاق دون نتائج طوال الأسبوع',
       // نسخ P = حكم فترة غير الأسبوع (alerts.js PERIOD_TEXT): {wd} «خلال الشهر الماضي» أو «أمس» أو «اليوم حتى الآن»
       'al.wasteWeek.tP': 'إنفاق دون نتائج {wd}',
-      'al.wasteView.t': 'لا دليل على أي {label} من الإعلان طوال الأسبوع',
-      'al.wasteView.tP': 'لا دليل على أي {label} من الإعلان {wd}',
-      'al.wasteView.d': 'أنفق {name} مبلغ {spend} {wd} دون دليل على أي {label} منه، بينما تنسب له المنصة {plat}. ولأننا لا نحتسب إلا ما يثبت أنه جاء من الإعلان، لا نعدّه هدراً مؤكداً قبل التحقق.',
-      'al.wasteView.a': 'نقترح مقارنة طلبات متجرك في هذه الأيام بما تنسبه المنصة لهذا الإعلان قبل أن تقرر؛ فإن لم يظهر له أثر في المتجر، فهو إنفاق دون طلبات.',
-      'al.wasteViewStore.t': 'لا {label} مسجّلة في متجرك طوال الأسبوع',
-      'al.wasteViewStore.tP': 'لا {label} مسجّلة في متجرك {wd}',
-      'al.wasteViewStore.d': 'أنفق {name} مبلغ {spend} {wd} دون أي {label} مسجّلة في متجرك في هذه الأيام، بينما تنسب له المنصة {plat}. ولأن أساسنا ما يُسجَّل في متجرك، لا نعدّه هدراً مؤكداً قبل التحقق.',
-      'al.wasteViewStore.a': 'نقترح مراجعة تتبّع الشراء في متجرك، ومقارنة طلبات هذه الأيام بما تنسبه المنصة للإعلان، قبل أن تقرر؛ فإن لم يظهر للإعلان أثر في متجرك، فهو إنفاق دون طلبات.',
       'al.wasteWeek.d': 'أنفق {name} مبلغ {spend} {wd} دون أي {label}. {refSpent}',
       'al.wasteWeekEarly.t': 'لا نتائج خلال الأسبوع حتى الآن',
       'al.wasteWeekEarly.tP': 'لا نتائج {wd}',
@@ -821,16 +799,11 @@
       // الإعلان أحسن من متوسط الحساب = متوسط باقي إعلانات المبيعات أضعف منه: خفض ميزانيته لوحده بيقلل المبيعات أكتر من غيره
       'al.zero3': ' ولم يحقق أي مبيعات في آخر ٣ أيام رغم إنفاق {spend}.',
       // الحكم بالربح على الأسبوع (الأيام المكتملة)، وجنبه عائد إعلانات الحساب في الفترة نفسها ({cmp})
-      'al.weekCtx': ' أما {wd} فبلغ عائده ×{roas}.',
-      'al.roasDrop.t': 'تراجع العائد في آخر ٣ أيام',
-      'al.roasDrop.d': 'بلغ عائد {name} {wd} ×{roasW}، لكنه في آخر ٣ أيام ×{roas3}: أنفق {spend} وحقق مبيعات بقيمة {sales}.',
-      'al.roasDrop.a': 'قد يكون التراجع مؤقتاً أو بسبب تأخر تسجيل بعض المبيعات؛ نقترح متابعته يوماً أو يومين قبل أي تعديل كبير.',
       'al.lowRoas.t': 'عائد أقل من المستهدف',
       'al.lowRoasWeek.d': 'أنفق {name} {wd} {spend} وحقق مبيعات بقيمة {sales} — {roasText}، بينما المستهدف ×{target}.{cmp}',
       'al.lowRoasWeekZero.d': 'أنفق {name} {wd} {spend} دون أي مبيعات، بينما المستهدف ×{target}.{cmp}',
       'al.lowRoas.a': 'نقترح مراجعة الإعلان: تحسينه أو الصفحة المقصودة أو الاستهداف، أو خفض ميزانيته. وقد تُسجَّل بعض المبيعات لدى المنصة متأخرة، فيُستحسن مراجعة الرقم بعد يوم أو يومين قبل أي قرار كبير.',
       'al.greatRoas.t': 'عائد ممتاز',
-      'al.greatRoas.d': 'أنفق {name} خلال آخر ٣ أيام {spend} وحقق مبيعات بقيمة {sales} — {roasText}، وهو أعلى بكثير من المستهدف.',
       'al.greatRoasWeek.d': 'أنفق {name} {wd} {spend} وحقق مبيعات بقيمة {sales} — {roasText}، وهو أعلى بكثير من المستهدف (×{target}).{cmp}',
       'al.greatRoas.a': 'قد يستحق اختبار زيادة ميزانيته تدريجياً، مع متابعة العائد بعد الزيادة.',
       'al.cpr.t': 'تكلفة مرتفعة لكل {one1}',
@@ -1062,7 +1035,6 @@
       'dx.ord.1': 'طلب واحد',
       'dx.ord.2': 'طلبين',
       'dx.title': 'ملخص المتجر',
-      'dx.subtitle': 'ما الذي تغيّر في نتائج إعلاناتك، وأين، ولماذا على الأرجح',
       'dx.compare': '{cur} مقارنةً بـ {prev}',
       // «اليوم» (٣ نوفمبر ٢٠٢٦): لحد آخر ساعة مكتملة، مقارنةً بأمس لحد نفس الساعة
       'dx.compareOpen': '{cur} حتى الآن مقارنةً بـ {prev}',
@@ -1083,7 +1055,6 @@
       'dx.more.verdict': 'تفاصيل الحكم',
       'dx.loading': 'جارٍ تحليل أداء الحساب…',
       'dx.failed': 'تعذّر تحليل الأداء الآن. حدّث البيانات بعد قليل.',
-      'dx.metaOnly': 'يعمل ملخص المتجر حالياً على حسابات Meta.',
       'dx.copy': 'انسخ الملخص',
       'dx.copyOne': 'انسخ لإرساله',
       'dx.copied': 'تم النسخ ✓',
@@ -1593,7 +1564,6 @@
       'dx.fb.notePh': 'اكتب بإيجاز ما حدث (اختياري)',
       'dx.fb.hint': 'توضيحك يساعد الأداة على تشخيص إعلاناتك القادمة بدقة أكبر. يُحفظ على هذا الجهاز ولدينا مرتبطاً بحسابك الإعلاني، لقياس دقة التشخيص وإظهاره على أجهزتك الأخرى، ولا نشاركه مع أي جهة.',
       'dx.fb.hintLocal': 'توضيحك يساعد الأداة على تشخيص إعلاناتك القادمة بدقة أكبر، ويُحفظ على هذا الجهاز فقط.',
-      'dx.auto.btn': 'الملخص التلقائي',
       'dx.auto.title': 'الملخص التلقائي بالبريد',
       'dx.auto.intro': 'يصلك ملخص أداء حساب {name}، ويمكنك إضافة حسابات أخرى إليه لاحقاً، في الأيام والساعة التي تختارها، وملخص للشهر السابق في أول أحد من كل شهر، إلى جانب تنبيه فوري حين يظهر أمر عاجل يحتاج إلى إجراء، وكلها بإعدادات التنبيهات الخاصة بك.',
       'dx.auto.email': 'البريد الذي يصل إليه الملخص',
@@ -1684,9 +1654,7 @@
     },
 
     en: {
-      'app.name': 'Ads Center',
       'app.tag': 'Understand what\'s happening in your online store\'s ads, and why',
-      'brand.home': 'Home page',
       'lang.toggle': 'العربية',
       'theme.aria': 'Theme',
       'install.btn': 'Install',
@@ -1876,7 +1844,6 @@
       'card.snapCatalog': 'Catalog ad',
       'card.snapStory': 'Multi-snap story',
       'card.pmaxSub': 'Whole campaign — Google doesn\'t report its ads separately',
-      'card.adFallback': '{platform} ad #{id}',
       'chip.spend': 'Spend',
       'chip.results': 'Results',
       'chip.roas': 'ROAS',
@@ -1901,7 +1868,6 @@
       'chip.freqTip': 'Average times the same person saw the ad in the last 7 days',
       'chip.freqLife': 'since launch {v}',
       'chip.weakDelivery': 'Weak delivery',
-      'legend.aria': 'Color legend',
 
       'gallery.login': 'Connect an ad account to see your ads',
       'gallery.loading': 'Loading…',
@@ -2073,8 +2039,6 @@
       'n.problem.one': 'problem', 'n.problem.many': 'problems',
       'attn.money.waste': '{v} with no orders',
       'attn.money.wasteRes': '{v} with no results',
-      'attn.money.wasteClick': '{v} with no proven order from the ad',
-      'attn.money.wasteClickRes': '{v} with no proven result from the ad',
       'attn.money.unrecorded': '{v} with no recorded orders',
       'attn.money.loss': 'sales {v} below spend',
       'attn.money.extra': '{v} extra cost',
@@ -2085,8 +2049,6 @@
       'attn.money.short': 'sales {v} below target',
       'attn.moneyTip.waste': 'Spent with no order at all.',
       'attn.moneyTip.wasteRes': 'Spent with no result at all.',
-      'attn.moneyTip.wasteClick': 'Spent with no order proven to come from the ad, although the platform credits it with orders.',
-      'attn.moneyTip.wasteClickRes': 'Spent with no result proven to come from the ad, although the platform credits it with results.',
       'attn.moneyTip.unrecorded': 'Spent on the days with no recorded order.',
       'attn.moneyTip.loss': 'The gap between spend and the sales it brought.',
       'attn.moneyTip.extra': 'Spent above the usual cost per order or result (account average or previous period).',
@@ -2167,10 +2129,6 @@
       'set.accountSpikeMultiple.help': 'Account spend yesterday compared with its daily average over the days before, when results didn\'t grow at roughly the same rate.',
       'set.accountDropRatio': 'Account spend dropped',
       'set.accountDropRatio.help': 'Account spend yesterday compared with its daily average over the days before. Also used to explain weak delivery on ads when the whole account\'s spend dropped.',
-      'settings.maxCost': 'Maximum acceptable cost per result',
-      'settings.maxCost.help': 'For every result type, including purchases in sales ads. Leave it empty if you have no limit.',
-      'settings.maxCostCamp': 'Per campaign',
-      'settings.maxCostCamp.help': 'If your product prices differ between campaigns, set each campaign\'s acceptable cost; it takes priority over the account value.',
       'pend.noTarget.t': 'Set your profit goal',
       'pend.noTarget.d': 'We haven\'t judged this ad\'s profit yet: set this account\'s target return in Settings — judging profit needs your store\'s margin.',
       'basis.cprMax': 'Each {one} cost {cpr} {wd}, and the most you accept {scope} is {max}.',
@@ -2355,7 +2313,6 @@
       'al.noSpend7.t': 'Active ad hasn\'t spent at all',
       'al.noSpend7.d': '{name} is active but hasn\'t spent anything {wd}.',
       'al.noSpend7.a': 'If this ad should be running, we suggest checking on the platform why it isn\'t showing.',
-      'al.waste.t': 'Spend with no results in the last 2 days',
       'al.waste.d': '{name} spent {spend} in the last 2 days with no {label}. {refSpent}',
       'al.wasteWeek.dNoRef': '{name} spent {spend} {wd} with no {label}.',
       'al.waste.a': 'We suggest reviewing the ad, and changing or pausing it if its results don\'t improve, so this budget isn\'t wasted. Some results can show up late on the platform.',
@@ -2363,14 +2320,6 @@
       'al.wasteEarly.a': 'We suggest watching it today — if it stays like this it will turn into wasted budget.',
       'al.wasteWeek.t': 'Spend with no results all week',
       'al.wasteWeek.tP': 'Spend with no results {wd}',
-      'al.wasteView.t': 'No evidence of any {label} from the ad all week',
-      'al.wasteView.tP': 'No evidence of any {label} from the ad {wd}',
-      'al.wasteView.d': '{name} spent {spend} {wd} with no evidence of any {label} from it, while the platform credits it with {plat}. Since we only count what is proven to come from the ad, we don\'t count it as confirmed waste before checking.',
-      'al.wasteView.a': 'We suggest comparing your store\'s orders over these days with what the platform credits this ad before you decide; if it leaves no trace in the store, it is spend with no orders.',
-      'al.wasteViewStore.t': 'No {label} recorded in your store all week',
-      'al.wasteViewStore.tP': 'No {label} recorded in your store {wd}',
-      'al.wasteViewStore.d': '{name} spent {spend} {wd} with no {label} recorded in your store on those days, while the platform credits it with {plat}. Since we go by what your store records, we don\'t count it as confirmed waste before checking.',
-      'al.wasteViewStore.a': 'We suggest checking your store\'s purchase tracking, and comparing these days\' orders with what the platform credits the ad, before you decide; if the ad leaves no trace in your store, it is spend with no orders.',
       'al.wasteWeek.d': '{name} spent {spend} {wd} with no {label}. {refSpent}',
       'al.wasteWeekEarly.t': 'No results this week so far',
       'al.wasteWeekEarly.tP': 'No results {wd}',
@@ -2379,16 +2328,11 @@
       'al.wasteNew.a': 'It\'s still learning, but we suggest reviewing the targeting and landing page if it stays without results.',
       'al.roasText': 'every {one} {cur} spent returned {roas} {cur}',
       'al.zero3': ' It brought no sales at all in the last 3 days despite spending {spend}.',
-      'al.weekCtx': ' Its return {wd} was ×{roas}.',
-      'al.roasDrop.t': 'Return dropped in the last 3 days',
-      'al.roasDrop.d': '{name} returned ×{roasW} {wd}, but ×{roas3} in the last 3 days: it spent {spend} and brought {sales} in sales.',
-      'al.roasDrop.a': 'The drop may be temporary or due to sales recorded late; we suggest watching it for a day or two before any big change.',
       'al.lowRoas.t': 'Return below target',
       'al.lowRoasWeek.d': '{name} spent {spend} {wd} and brought {sales} in sales — {roasText}, against a target of ×{target}.{cmp}',
       'al.lowRoasWeekZero.d': '{name} spent {spend} {wd} with no sales at all, against a target of ×{target}.{cmp}',
       'al.lowRoas.a': 'We suggest reviewing the ad: improving it, the landing page or the targeting, or cutting its budget. Some sales can be recorded late on the platform, so it\'s worth checking the figure again in a day or two before any big decision.',
       'al.greatRoas.t': 'Excellent return',
-      'al.greatRoas.d': '{name} spent {spend} in the last 3 days and brought {sales} in sales — {roasText}, well above target.',
       'al.greatRoasWeek.d': '{name} spent {spend} {wd} and brought {sales} in sales — {roasText}, well above the target (×{target}).{cmp}',
       'al.greatRoas.a': 'A gradual budget increase may be worth testing, watching the return afterwards.',
       'al.cpr.t': 'High cost per {one1}',
@@ -2602,7 +2546,6 @@
       'dx.ord.1': 'one order',
       'dx.ord.2': 'two orders',
       'dx.title': 'Store summary',
-      'dx.subtitle': 'What changed in your ad results, where, and most likely why',
       'dx.compare': '{cur} compared with {prev}',
       'dx.compareOpen': '{cur} so far compared with {prev}',
       'dx.fullDays': 'complete days',
@@ -2618,7 +2561,6 @@
       'dx.more.verdict': 'Verdict details',
       'dx.loading': 'Analysing the account…',
       'dx.failed': 'Could not analyse performance right now. Refresh the data in a little while.',
-      'dx.metaOnly': 'The store summary currently works with Meta accounts.',
       'dx.copy': 'Copy summary',
       'dx.copyOne': 'Copy to send',
       'dx.copied': 'Copied ✓',
@@ -3119,7 +3061,6 @@
       'dx.fb.notePh': 'Briefly describe what happened (optional)',
       'dx.fb.hint': 'Your explanation helps the tool diagnose your future ads more accurately. It is saved on this device and with us, linked to your ad account, to measure diagnosis accuracy and show it on your other devices. We never share it.',
       'dx.fb.hintLocal': 'Your explanation helps the tool diagnose your future ads more accurately. It is saved on this device only.',
-      'dx.auto.btn': 'Automatic summary',
       'dx.auto.title': 'Automatic summary by email',
       'dx.auto.intro': 'Get a performance summary for {name} (you can add more accounts later) on the days and time you choose, a summary of the previous month on the first Sunday of each month, plus an immediate alert whenever something urgent needs action, all using your own alert settings.',
       'dx.auto.email': 'Email to receive the summary',
@@ -3360,6 +3301,12 @@
       // مفاتيح الإعراب (.acc و resA. و resG. و resN1/resN2 للرفع، وcnt1/cntA1/cnt2/cntN2 للعدد والمعدود) قواعد عربية بس ومالهاش مقابل إنجليزي
       var diff = function (a, b) { return Object.keys(DICT[a]).filter(function (k) { return !(k in DICT[b]) && !/\.acc$|^res(A|G|One|2|N1|N2)\.|^cnt(1|A1|2|N2)\./.test(k); }); };
       return { missingInEn: diff('ar', 'en'), missingInAr: diff('en', 'ar') };
+    },
+    // للاختبارات: كل المفاتيح في اللغتين — اختبار «ولا نص ميت» بيدوّر على كل واحد منها في الكود
+    allKeys: function () {
+      var seen = {};
+      Object.keys(DICT.ar).concat(Object.keys(DICT.en)).forEach(function (k) { seen[k] = true; });
+      return Object.keys(seen);
     }
   };
 })(window);

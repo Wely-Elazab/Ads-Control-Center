@@ -169,6 +169,46 @@
       eq(I18N.missingKeys(), { missingInEn: [], missingInAr: [] }, 'the new grammar keys are Arabic-only by rule');
     });
     test('مفتاح مش موجود بيرجع نفسه (عشان يتلاحظ)', function () { eq(t('no.such.key'), 'no.such.key'); });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٤): ٢٩ نص في القاموس محدش بيعرضها — اتسابت لما مواضعها اتشالت (تنبيه waste-view ٢٥ أكتوبر،
+    // «تراجع العائد» وحد الخسارة ٨ نوفمبر، خانة أقصى تكلفة القديمة في الإعدادات، زر «الملخص التلقائي» ١١ أكتوبر، وغيرهم)، و٩ منهم اتعادت
+    // صياغتهم في ٩٣ على إنهم نصوص حية. كل مفتاح لازم يتذكر في كود الأداة أو مرسِل البريد: حرفياً ('x.y')، أو تحت بادئة بتتبني
+    // ('x.' + نوع)، أو أصل حرفي + لاحقة بتتضاف (k += 'P' / base + '.one'). ملفات الأداة من وسوم <script> في الصفحة نفسها، فملف جديد
+    // بيدخل لوحده؛ ملف جديد في دالة sync لازم يتضاف لـ SYNC هنا. الحد: نص تحت بادئة عامة ('res.' + نوع) ميتعرفش هنا لو نوعه بطّل يطلع
+    testAsync('القاموس: كل نص له مكان في الكود بيعرضه (ولا نص ميت)', function () {
+      var SYNC = ['index', 'lib', 'digest', 'join', 'runner', 'auth', 'metalink', 'settings', 'episodes'];
+      var get = function (f) {
+        return fetch(f + '?t=' + Date.now()).then(function (r) {
+          if (!r.ok) throw new Error(f + ' is not served (' + r.status + ') — run the tests with Live/tests/serve.ps1');
+          return r.text();
+        });
+      };
+      return get('/pauseproof-live.html').then(function (page) {
+        var files = [], m, re = /<script[^>]*\ssrc="(js\/[^"?]+\.js)"/g;
+        while ((m = re.exec(page))) files.push('/' + m[1]);
+        ok(files.indexOf('/js/i18n.js') > -1 && files.indexOf('/js/ui.js') > -1 && files.length >= 10, 'scripts of the tool page: ' + files.join(' '));
+        files = files.concat(SYNC.map(function (f) { return '/__repo/supabase/functions/sync/' + f + '.ts'; }));
+        return Promise.all(files.map(get)).then(function (texts) {
+          var DEF = /^\s*'[A-Za-z0-9_.]+':\s*['"`]/, code = page;
+          texts.forEach(function (s, i) {
+            // تعريفات القاموس نفسها مش استخدام — باقي i18n.js (countNoun / oneNoun …) كود عادي
+            code += '\n' + (files[i] === '/js/i18n.js' ? s.split('\n').filter(function (l) { return !DEF.test(l); }).join('\n') : s);
+          });
+          var lit = {}, pre = [], suf = [];
+          code.replace(/['"`]([A-Za-z0-9_.]+)['"`]/g, function (_m, s) { lit[s] = true; return _m; });
+          code.replace(/['"]([A-Za-z0-9_.]{3,})['"]\s*\+/g, function (_m, s) { pre.push(s); return _m; });
+          Object.keys(lit).forEach(function (s) { if (/\.$/.test(s)) pre.push(s); });
+          code.replace(/\+=?\s*['"]([A-Za-z0-9_.]+)['"]/g, function (_m, s) { suf.push(s); return _m; });
+          var keys = I18N.allKeys();
+          ok(keys.length > 1500, 'keys: ' + keys.length);
+          var unused = keys.filter(function (k) {
+            if (lit[k]) return false;
+            if (pre.some(function (p) { return k.indexOf(p) === 0; })) return false;
+            return !suf.some(function (s) { return k.length > s.length && k.slice(-s.length) === s && lit[k.slice(0, -s.length)]; });
+          }).sort();
+          eq(unused, [], 'texts nothing shows');
+        });
+      });
+    });
     test('تبديل اللغة بيغيّر الاتجاه', function () {
       withLang('en', function () { eq(document.documentElement.dir, 'ltr'); });
       eq(document.documentElement.dir, 'rtl');
@@ -1908,18 +1948,20 @@
       ok(st && st.level === 'critical' && /لأننا لا نحتسب إلا ما يسجّله متجرك/.test(st.detail) && !/دليل كافٍ على أن الإعلان مصدره/.test(st.detail), st ? st.title + ' — ' + st.detail : list(mk(true), 'sv'));
       ok(clk && clk.level === 'critical' && /لا يوجد دليل كافٍ على أن الإعلان مصدره/.test(clk.detail), clk ? clk.detail : list(mk(false), 'sv'));
     });
-    // قرار صاحب المنتج ١٥ نوفمبر ٢٠٢٦ (التدقيق الشامل، ٩٣ — وقاعدة ٦ أكتوبر: نص العميل ميذكرش النقر ولا المشاهدة ولا نوافذ النسب): كل نصوص
-    // «لا طلب من الإعلان والمنصة بتنسب له» بصيغة «يثبت أنه جاء من الإعلان» — كانت «بعد النقر» و«بعد المشاهدة دون نقر» و«نوافذ النسب»
-    test('صياغة النسب: «لا طلب من الإعلان» من غير نقر ولا مشاهدة ولا نوافذ النسب، وبصيغة «يثبت أنه جاء من الإعلان» — باللغتين', function () {
-      var keys = ['attn.money.wasteClick', 'attn.money.wasteClickRes', 'attn.moneyTip.wasteClick', 'attn.moneyTip.wasteClickRes', 'al.wasteView.t', 'al.wasteView.tP',
-        'al.wasteView.d', 'al.wasteView.a', 'al.wasteViewStore.t', 'al.wasteViewStore.tP', 'al.wasteViewStore.d', 'al.wasteViewStore.a', 'al.platView', 'al.platViewStore'];
+    // قاعدة ٦ أكتوبر (وقرار صاحب المنتج ١٥ نوفمبر ٢٠٢٦ — التدقيق الشامل ٩٣): نص العميل اللي بيقارن رقمنا برقم المنصة ميذكرش النقر ولا
+    // المشاهدة ولا السحب ولا نوافذ النسب، وبيقول «يثبت أنها جاءت من الإعلان». المرور التالي (٩٤): ٩ من الـ ١١ نص اللي اتعادت صياغتها في ٩٣
+    // كانوا نصوص ميتة (تنبيه waste-view اتدمج في «أسبوع دون نتائج» ٢٥ أكتوبر، ونوع المبلغ wasteClick مبقاش حد بيطلّعه) فاتشالوا — والحراسة
+    // دلوقتي على كل نص حي بيقارن: جملة الطلبات المستبعدة في الكارت، وملخص المتجر، و«وتنسب له المنصة» في تنبيه الإعلان اللي مالوش نتائج
+    test('صياغة النسب: كل نص حي بيقارن رقمنا برقم المنصة من غير نقر ولا مشاهدة ولا سحب ولا نوافذ النسب، وبالصيغة المعتمدة — باللغتين', function () {
+      var keys = ['cmp.note', 'cmp.noteZero', 'cmp.noteSame', 'cmp.noteMore', 'cmp.noteMoreNone', 'cmp.noteNone', 'cmp.noteOwn', 'cmp.noteValue',
+        'dx.platWhy', 'dx.platWhyAll', 'dx.noPurchases.plat', 'dx.head.noProven', 'al.platView', 'al.platViewStore'];
       var bad = [];
-      withLang('ar', function () { keys.forEach(function (k) { var s = t(k); if (s === k || /نقر|مشاهد|نوافذ|نافذة/.test(s)) bad.push('ar ' + k + ': ' + s); }); });
-      withLang('en', function () { keys.forEach(function (k) { var s = t(k); if (s === k || /\bclick|\bview|attribution window/i.test(s)) bad.push('en ' + k + ': ' + s); }); });
+      withLang('ar', function () { keys.forEach(function (k) { var s = t(k); if (s === k || /نقر|مشاهد|سحب|تمرير|نوافذ|نافذة/.test(s)) bad.push('ar ' + k + ': ' + s); }); });
+      withLang('en', function () { keys.forEach(function (k) { var s = t(k); if (s === k || /\bclick|\bview|\bswipe|attribution window/i.test(s)) bad.push('en ' + k + ': ' + s); }); });
       eq(bad, []);
       withLang('ar', function () {
-        ok(/يثبت أنه جاء من الإعلان/.test(t('al.wasteView.d')) && /يثبت أنه جاء من الإعلان/.test(t('attn.moneyTip.wasteClick')) && /لا دليل على أي/.test(t('al.wasteView.t')),
-          'the approved framing («يثبت أنه جاء من الإعلان»)');
+        ok(/يثبت أنها جاءت من هذا الإعلان/.test(t('cmp.note')) && /لا يثبت/.test(t('dx.head.noProven')) && /لا يوجد دليل كافٍ على أن الإعلان مصدره/.test(t('al.platView')),
+          'the approved framing («يثبت أنها جاءت من هذا الإعلان»)');
       });
     });
     // المرحلة ٥ ق٧: مصدرا حالة المجموعة الإعلانية فشلوا — التنبيه ميقولش إن العيب في الإعلان وهو ممكن يكون إعداد في المجموعة
@@ -1932,7 +1974,7 @@
     });
 
     // ---- المراجعة العميقة الثانية للمرحلة ٥: التوافق والتكامل بين التنبيهات (ISA-18.2 / EEMUA 191 — إنذار واحد لكل حالة) ----
-    var PERF_CODES = ['waste-week', 'waste', 'waste-early', 'waste-view', 'waste-new', 'cpr', 'loss', 'roas-drop', 'low-roas', 'spike', 'drop', 'fatigue'];
+    var PERF_CODES = ['waste-week', 'waste', 'waste-early', 'waste-new', 'cpr', 'loss', 'spike', 'drop', 'fatigue'];
     function perfOf(r, id) { return r.byAd[id].issues.filter(function (i) { return PERF_CODES.indexOf(i.code) > -1 && (i.level === 'critical' || i.level === 'warning'); }); }
     test('تنبيه أداء واحد للإعلان: «يومان دون نتائج» و«تكلفة مرتفعة» و«تشبّع الجمهور» بنفس الدليل = تنبيه واحد فيه التكرار', function () {
       // ٣ نتائج أول يوم وبعدها صفر، والشخص شاف الإعلان ٧ مرات: قبل الإصلاح ٣ تنبيهات عاجلة على نفس الإعلان (٣ خانات من ٥)
@@ -8280,7 +8322,7 @@
     });
 
     test('عنوان تنبيه الإنفاق دون نتائج بيقول الفترة (آخر يومين)', function () {
-      withLang('ar', function () { ok(/آخر يومين/.test(t('al.waste.t')) && /آخر يومين/.test(t('al.wasteEarly.t'))); });
+      withLang('ar', function () { ok(/آخر يومين/.test(t('al.wasteEarly.t')) && /آخر ٣ أيام/.test(t('al.waste3.t'))); });
     });
   });
 

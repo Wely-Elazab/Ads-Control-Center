@@ -2856,7 +2856,7 @@
   function alertMoneyHtml(a) {
     var c = a.adId ? findCandidate(a.adId) : null, m = a.money;
     // الهدر بالطلبات لإعلان المشتريات، و«بالنتائج» لغيره (رسائل، عملاء محتملين…)
-    var nonBuy = c && c.resultKey !== 'purchase', kind = m && (m.kind === 'waste' && nonBuy ? 'wasteRes' : (m.kind === 'wasteClick' && nonBuy ? 'wasteClickRes' : m.kind));
+    var nonBuy = c && c.resultKey !== 'purchase', kind = m && (m.kind === 'waste' && nonBuy ? 'wasteRes' : m.kind);
     if (m && m.v > 0) return moneyPill(kind, money(m.v, a.currency || null), true);
     var sp = a.impact && a.impact.spend;
     if (!(sp > 0)) return '';

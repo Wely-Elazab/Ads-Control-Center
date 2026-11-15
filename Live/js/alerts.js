@@ -76,7 +76,7 @@
   // حكم فترة غير الأسبوع (opts.phrase): العناوين اللي بتقول «الأسبوع» بالاسم بتاخد نسختها P بعبارة الفترة («إنفاق دون نتائج خلال الشهر
   // الماضي» مش «طوال الأسبوع»)، ومن غير opts النص زي ما هو حرفياً فالبريد مبيتغيرش. SHORT_ON = الفترة أقل من ٧ أيام (opts.short)
   var PERIOD_ON = false, SHORT_ON = false;
-  var PERIOD_TEXT = { 'al.wasteWeek.t': 1, 'al.wasteView.t': 1, 'al.wasteViewStore.t': 1, 'al.wasteWeekEarly.t': 1, 'lv.why.cap.weekStrong': 1, 'basis.trend.roas': 1, 'basis.trend.cpr': 1 };
+  var PERIOD_TEXT = { 'al.wasteWeek.t': 1, 'al.wasteWeekEarly.t': 1, 'lv.why.cap.weekStrong': 1, 'basis.trend.roas': 1, 'basis.trend.cpr': 1 };
   // {rest} = المرجع اللي الإعلان بيتقارن بيه («باقي إعلانات حملته» أو «باقي إعلاناتك»)، و{avgOf} = متوسط مين («حملته» أو «حسابك») —
   // REF_CAMP بيتحدد في evaluateAd لكل إعلان (التدقيق العميق ٢٤ أكتوبر ٢٠٢٦: المقارنة جوه الحملة نفسها)
   var REF_CAMP = false;
@@ -1021,7 +1021,7 @@
     //     «سبب الحكم». تكرار الظهور بس بيضيف معلومة مش موجودة (الجمهور شاف الإعلان كتير) فبيتكتب جوه المضيف هو ونصيحته، ومستوى
     //     المضيف بيعلى لمستواه لو أعلى (Meta: تكرار كتير + ضعف التكلفة = إرهاق)
     // و«إنفاق أعلى من المعتاد» و«انخفاض النتائج» بيطلعوا على نفس اليوم (أمس) لنفس السبب — من نفس العيلة
-    var PERF_ORDER = ['waste-week', 'waste', 'loss', 'cost-max', 'waste-view', 'cpr', 'waste-early', 'waste-new', 'roas-drop', 'low-roas', 'spike', 'drop', 'fatigue'];
+    var PERF_ORDER = ['waste-week', 'waste', 'loss', 'cost-max', 'cpr', 'waste-early', 'waste-new', 'spike', 'drop', 'fatigue'];
     var perf = issues.filter(function (i) { return PERF_ORDER.indexOf(i.code) > -1 && (i.level === 'critical' || i.level === 'warning'); });
     if (perf.length > 1) {
       // وفي نفس المستوى: اللي خطّه اتخطّى (تحت المستهدف، فوق أقصى تكلفة، دون نتائج) قبل اللي من غير خط — «أقل من
