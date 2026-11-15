@@ -1,0 +1,3 @@
+# سكربتات bash بنهايات LF دايماً، حتى على ويندوز (core.autocrlf = true في إعداد Git for Windows): ship.sh بنشغّله محلياً من Git Bash،
+# ولو اتسحب بـ CRLF في أي checkout جاي bash بيقف من أول سطر («set: pipefail\r: invalid option name») — المرور الثاني للتدقيق الشامل ١٥ نوفمبر ٢٠٢٦
+*.sh text eol=lf
