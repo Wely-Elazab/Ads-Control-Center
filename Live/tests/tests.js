@@ -1513,6 +1513,24 @@
       var small = ad('small', { daily: [10, 10, 10, 10, 10, 10, 2], res: [1, 1, 1, 0, 0, 0, 0], sales: [100, 100, 100, 0, 0, 0, 0] });
       ok(!issuesOf(engine(baseAccount().concat([small])), 'small').some(function (i) { return i.code === 'loss' || i.code === 'low-roas' || i.code === 'roas-drop'; }));
     });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٧ و١٠٥): سبب مستوى «تشبّع الجمهور» بيظهر بس لما التشبّع هو تنبيه الأداء الوحيد على الإعلان — وده بيحصل
+    // في فترة التعلّم (تنبيه «تكلفة مرتفعة» مبيطلعش فيها): «لم تبلغ ضعف المرجع». أما التشبّع اللي «بيضر» (التكلفة ضعف المرجع أو أكتر) فدايماً
+    // معاه «تكلفة مرتفعة» (×١٫٥ وإنفاق ضعف المرجع متحققين تلقائياً)، فهو المضيف والتشبّع جملة جواه — ٢٬٥٩٢ تركيبة ومفيش ولا مرة لوحده
+    test('تشبّع الجمهور: لوحده في فترة التعلّم «مهم — لم تبلغ تكلفته ضعف المرجع»، واللي بيضر دايماً جملة جوه «تكلفة مرتفعة»', function () {
+      var learn = ad('le', { daily: [2, 2, 2, 2, 2, 2, 2], res: [0, 0, 0, 1, 0, 0, 0], freq: 8, age: 2, key: 'lead' });
+      var hurt = ad('hu', { daily: [10, 10, 10, 10, 10, 10, 0], res: [0, 0, 0, 1, 0, 0, 0], freq: 7, key: 'lead' });
+      var base = [ad('g1', { daily: steady(5), res: steady(5), key: 'lead' }), ad('g2', { daily: steady(5), res: steady(5), key: 'lead' })];
+      var r = withLang('ar', function () { return engine(base.concat([learn])); });
+      var q = withLang('ar', function () { return engine(baseAccount().map(function (a) { a.resultKey = 'lead'; return a; }).concat([hurt])); });
+      var codesOf = function (res, id) { return res.byAd[id].issues.map(function (i) { return i.code + ':' + i.level; }).join(' '); };
+      var fl = r.byAd.le.issues.filter(function (i) { return i.code === 'fatigue'; })[0];
+      withLang('ar', function () {
+        ok(fl && fl.level === 'warning' && fl.levelWhy === t('lv.why.cap.fatigue'), fl ? fl.level + ' | ' + fl.levelWhy : 'le: ' + codesOf(r, 'le'));
+        var host = q.byAd.hu.issues.filter(function (i) { return i.code === 'cpr'; })[0];
+        ok(host && host.level === 'warning' && !q.byAd.hu.issues.some(function (i) { return i.code === 'fatigue'; }) && /وشاهد الشخص نفسه هذا الإعلان نحو/.test(host.detail),
+          'hu: ' + codesOf(q, 'hu') + ' | ' + (host ? host.detail : ''));
+      });
+    });
     test('انخفاض النتائج: إعلان ثابت وقع لصفر فجأة = مهم، وإعلان بيتذبذب طبيعي = لا', function () {
       var steadyDrop = ad('sd', { daily: steady(100), res: [5, 5, 5, 5, 5, 0, 4] });
       ok(issuesOf(engine(baseAccount().concat([steadyDrop])), 'sd').some(function (i) { return i.title === t('al.drop.t'); }), 'steady ad drop');
