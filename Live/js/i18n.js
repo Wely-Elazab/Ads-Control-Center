@@ -842,7 +842,9 @@
       'al.setMerge1': ' ومعه في المجموعة الإعلانية نفسها إعلان آخر عليه الملاحظة نفسها ({names})، فالسبب غالباً في المجموعة نفسها (الجمهور أو المزايدة أو الصفحة المقصودة) وليس في كل إعلان على حدة.',
       'al.setMerge2': ' ومعه في المجموعة الإعلانية نفسها إعلانان آخران عليهما الملاحظة نفسها ({names})، فالسبب غالباً في المجموعة نفسها (الجمهور أو المزايدة أو الصفحة المقصودة) وليس في كل إعلان على حدة.',
       'al.setMerge': ' ومعه في المجموعة الإعلانية نفسها {n} {ads} غيره عليها الملاحظة نفسها ({names})، فالسبب غالباً في المجموعة نفسها (الجمهور أو المزايدة أو الصفحة المقصودة) وليس في كل إعلان على حدة.',
-      'al.setMerge.more': ' و{n} غيرها',
+      // الباقي بعد أول ٣ أسماء (١٠٣): «و١ غيرها» كانت بتطلع للواحد — «وإعلان آخر» و«وإعلانان آخران»، ومن ٣ «و{n} {ads} غيرها» (غير مش محتاجة مطابقة)
+      'al.setMerge.more1': ' وإعلان آخر', 'al.setMerge.more2': ' وإعلانان آخران',
+      'al.setMerge.more': ' و{n} {ads} غيرها',
       'al.setMerge.a': ' ولأن السبب غالباً في المجموعة الإعلانية، راجع جمهورها ومزايدتها وصفحتها قبل إيقاف إعلاناتها واحداً واحداً.',
       'al.cpr.a': 'نقترح مقارنته بالإعلانات الأخرى في مجموعته: الميزانية عادةً للمجموعة أو الحملة لا للإعلان، فإن بقي أغلى منها فإيقافه أو استبدال تصميمه يترك إنفاق المجموعة للإعلانات الأرخص.',
       'al.drop.t': 'نتائج أقل من المعتاد',
@@ -2368,6 +2370,7 @@
       'al.setMerge1': ' One more ad in the same ad set has the same issue ({names}), so the cause is likely the ad set itself (audience, bidding or landing page) rather than each ad.',
       'al.setMerge2': ' {n} more ads in the same ad set have the same issue ({names}), so the cause is likely the ad set itself (audience, bidding or landing page) rather than each ad.',
       'al.setMerge': ' {n} more ads in the same ad set have the same issue ({names}), so the cause is likely the ad set itself (audience, bidding or landing page) rather than each ad.',
+      'al.setMerge.more1': ' and {n} more', 'al.setMerge.more2': ' and {n} more',
       'al.setMerge.more': ' and {n} more',
       'al.setMerge.a': ' Since the cause is likely the ad set, check its audience, bidding and landing page before pausing its ads one by one.',
       'al.cpr.a': 'Compare it with the other ads in its ad set: the budget usually belongs to the ad set or campaign, not the ad, so if it stays costlier, pausing it or replacing its creative leaves the ad set\'s spend to the cheaper ads.',

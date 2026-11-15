@@ -2124,6 +2124,22 @@
       // مجموعة فيها إعلان واحد عليه تنبيه: من غير دمج
       ok(!r.alerts.some(function (a) { return a.adsetId === 's1' && a.setMerged; }));
     });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٧ و١٠٣): الدمج بإعلان واحد تاني، وبأكتر من ٣ أسماء — «و١ غيرها» كانت بتطلع
+    test('دمج تنبيهات المجموعة: «إعلان آخر» للواحد، وبعد أول ٣ أسماء «وإعلان آخر» و«وإعلانان آخران» و«و٣ إعلانات غيرها» و«و١١ إعلاناً غيرها»', function () {
+      var mk = function (n, lang) {
+        var ads = [ad('g1', { aid: 's1', daily: steady(100), res: steady(5), key: 'lead' }), ad('g2', { aid: 's1', daily: steady(100), res: steady(5), key: 'lead' }),
+          ad('g3', { aid: 's1', daily: steady(100), res: steady(5), key: 'lead' })];
+        for (var k = 0; k < n; k++) ads.push(ad('m' + k, { aid: 's9', daily: steady(100), res: [2, 1, 2, 1, 2, 1, 2], key: 'lead' }));
+        var a = withLang(lang || 'ar', function () { return engine(ads, {}, { maxCost: { lead: 30 } }); }).alerts.filter(function (x) { return x.adsetId === 's9' && x.setMerged; })[0];
+        return a ? a.detail.slice(a.detail.indexOf(lang === 'en' ? ' One more' : ' ومعه')) : 'none';
+      };
+      ok(/^ ومعه في المجموعة الإعلانية نفسها إعلان آخر عليه الملاحظة نفسها \(«⁨Ad m1⁩»\)/.test(mk(2)), mk(2));
+      ok(/«⁨Ad m3⁩» وإعلان آخر\)/.test(mk(5)) && /^ ومعه في المجموعة الإعلانية نفسها ٤ إعلانات غيره/.test(mk(5)), mk(5));
+      ok(/«⁨Ad m3⁩» وإعلانان آخران\)/.test(mk(6)), mk(6));
+      ok(/«⁨Ad m3⁩» و٣ إعلانات غيرها\)/.test(mk(7)), mk(7));
+      ok(/«⁨Ad m3⁩» و١١ إعلاناً غيرها\)/.test(mk(15)), mk(15));
+      ok(!/و١ غيرها/.test(mk(5)), 'not «و١ غيرها»');
+    });
     test('«ارتفاع مفاجئ في إنفاق الحساب» بعد ما المعلن رفع الميزانية بنفسه: بيفضل «مهم» وبيقول السبب (ISA-18.2)', function () {
       var raise = [{ date: KEYS[5], kind: 'budget', level: 'campaign', from: 10000, to: 30000 }];
       var ads = [ad('a1', { daily: [100, 100, 100, 100, 100, 300, 100], res: steady(5), key: 'lead', edits: raise }), ad('a2', { daily: [100, 100, 100, 100, 100, 300, 100], res: steady(5), key: 'lead' })];

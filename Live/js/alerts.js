@@ -1245,8 +1245,11 @@
       g.sort(function (x, y) { return (LEVEL_RANK[y.level] - LEVEL_RANK[x.level]) || ((y.amount || 0) - (x.amount || 0)); });
       var host = g[0], others = g.slice(1), n = others.length;
       var sep = global.I18N && global.I18N.lang === 'en' ? ', ' : '، ';
+      // الباقي بعد أول ٣ أسماء بالعدد والمعدود (التدقيق الشامل ١٥ نوفمبر ٢٠٢٦، ١٠٣ — كانت «و١ غيرها»)
+      var more = n - 3;
       var names = others.slice(0, 3).map(function (o) { return t('al.name', { name: o.adName }); }).join(sep) +
-        (n > 3 ? t('al.setMerge.more', { n: fmt.int(n - 3) }) : '');
+        (more > 0 ? t(more === 1 ? 'al.setMerge.more1' : (more === 2 ? 'al.setMerge.more2' : 'al.setMerge.more'),
+          { n: fmt.int(more), ads: global.I18N ? global.I18N.noun(more, 'n.ad') : '' }) : '');
       host.detail += t(n === 1 ? 'al.setMerge1' : (n === 2 ? 'al.setMerge2' : 'al.setMerge'), { n: fmt.int(n), ads: global.I18N ? global.I18N.noun(n, 'n.ad') : '', names: names });
       host.advice += t('al.setMerge.a');
       host.setMerged = others.map(function (o) { return o.adId; });
