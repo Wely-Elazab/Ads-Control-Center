@@ -7422,6 +7422,27 @@
       eq(acct.accountName, 'Snapchat');
     });
 
+    // التدقيق الشامل ١٦ نوفمبر ٢٠٢٦ (١١٠): درج الفلاتر بيتحط في جهة البداية وبيدخل من نفس الجهة — بالعربي كان مكانه الشمال (flex-end في RTL)
+    // وحركته من اليمين، فكان بيطلع من نص الشاشة (مقيس على الموقع بعرض ١٢٨٠: بعد ٦٠ مللي ثانية [٣٨٠، ٧٦٠] ومكانه الأخير [٠، ٣٨٠])
+    testAsync('درج الفلاتر في جهة البداية وبيدخل منها: يمين بالعربي (app-drawer-r) وشمال بالإنجليزي (app-drawer-l) — كمبيوتر', function () {
+      var restore = keepStorage(['acc.lang']);
+      var side = function (query) {
+        return toolFrame(1280, 800, query).then(function (f) {
+          var d = f.contentDocument, drawer = d.querySelector('.drawer'), panel = d.querySelector('.drawer-panel');
+          drawer.classList.remove('hidden');
+          var out = { dir: d.documentElement.dir, anim: f.contentWindow.getComputedStyle(panel).animationName,
+            left: panel.offsetLeft, right: drawer.clientWidth - (panel.offsetLeft + panel.offsetWidth), width: panel.offsetWidth };
+          f.remove();
+          return out;
+        });
+      };
+      return side('&lang=ar').then(function (ar) {
+        ok(ar.dir === 'rtl' && ar.anim === 'app-drawer-r' && ar.right === 0 && ar.left > 0 && ar.width < 1280, 'Arabic: ' + JSON.stringify(ar));
+        return side('&lang=en');
+      }).then(function (en) {
+        ok(en.dir === 'ltr' && en.anim === 'app-drawer-l' && en.left === 0 && en.right > 0, 'English: ' + JSON.stringify(en));
+      }).then(restore, function (e) { restore(); throw e; });
+    });
     testAsync('الأداة بتفتح بالإنجليزي من ?lang=en وبتفتكرها', function () {
       var restore = keepStorage(['acc.lang']);
       return toolFrame(800, 600, '&lang=en').then(function (f) {
@@ -12448,6 +12469,39 @@
         d.getElementById('periodApply').click();
         eq([w.period.since, w.period.until, w.compare.since, w.compare.until], [a, b, c1, c2]);
         f.remove();
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+    // التدقيق الشامل ١٦ نوفمبر ٢٠٢٦ (١١١): سهمين التقويم لازم يشاوروا لبرّه في اللغتين. المتصفح بيقلب ‹ › لوحده في سياق RTL (الحرفين
+    // Bidi_Mirrored في يونيكود — اتأكدنا بصورة من Chrome)، فأي قلب زيادة (scaleX(-1) زي اللي كان، أو direction: ltr) بيخلّيهم يشاوروا لجوّه.
+    // الأسهم ← → مش بتتقلب لوحدها، فلو حد غيّر الحرف الاختبار بيحسبها صح؛ وحرف مش معروف بيوقّعه عشان حد يراجع
+    testAsync('سهمين التقويم بيشاوروا لبرّه: «السابق» على اليمين بسهم لليمين بالعربي، وعلى الشمال بسهم للشمال بالإنجليزي', function () {
+      var restore = keepKeys(['acc.period.v1', 'acc.compare.v1', 'acc.lang']);
+      var POINTS_LEFT = { '\u2039': true, '\u203A': false, '\u2190': true, '\u2192': false };
+      var MIRRORED = { '\u2039': true, '\u203A': true };
+      var look = function (query) {
+        return sized(1200, 800, '&view=ads&period=last7' + query).then(function (f) {
+          var w = f.contentWindow, d = f.contentDocument;
+          w.candidates = [ad('arw', { daily: steady(10), res: steady(1) })];
+          w.render();
+          d.getElementById('periodBtn').click();
+          var shownLeft = function (el) {
+            var ch = el.textContent.trim(), cs = w.getComputedStyle(el), m = cs.transform;
+            if (!(ch in POINTS_LEFT)) throw new Error('unknown arrow ' + JSON.stringify(ch) + ' on #' + el.id + ' — check its direction by eye, then add it here');
+            var flipped = m !== 'none' && parseFloat(m.replace(/^matrix\(/, '').split(',')[0]) < 0;
+            return POINTS_LEFT[ch] !== (cs.direction === 'rtl' && !!MIRRORED[ch]) !== flipped;
+          };
+          var prev = d.getElementById('calPrev'), next = d.getElementById('calNext');
+          var rp = prev.getBoundingClientRect(), rn = next.getBoundingClientRect();
+          var out = { dir: d.documentElement.dir, prevOnRight: rp.left > rn.left, prevLeft: shownLeft(prev), nextLeft: shownLeft(next), wide: rp.width > 0 && rn.width > 0 };
+          f.remove();
+          return out;
+        });
+      };
+      return look('&lang=ar').then(function (ar) {
+        ok(ar.wide && ar.dir === 'rtl' && ar.prevOnRight && !ar.prevLeft && ar.nextLeft, 'Arabic: ' + JSON.stringify(ar));
+        return look('&lang=en');
+      }).then(function (en) {
+        ok(en.wide && en.dir === 'ltr' && !en.prevOnRight && en.prevLeft && !en.nextLeft, 'English: ' + JSON.stringify(en));
       }).then(restore, function (e) { restore(); throw e; });
     });
     testAsync('المقارنة المحفوظة بترجع زي ما هي بعد فتح الأداة، والقيم الغريبة بتتجاهل', function () {
