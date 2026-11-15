@@ -1520,6 +1520,10 @@
       ok(!issuesOf(engine(baseAccount().concat([wobbly])), 'wb').some(function (i) { return i.title === t('al.drop.t'); }), 'had a zero day before and recovered');
       var noisy = ad('nz', { daily: steady(100), res: [2, 3, 2, 3, 2, 1, 2] });
       ok(!issuesOf(engine(baseAccount().concat([noisy])), 'nz').some(function (i) { return i.title === t('al.drop.t'); }), '1 vs ~2.5 can be chance');
+      // (٩٧) عدد مش صفر: «حقق … أمس عمليتي شراء فقط مقابل متوسط ١٠ يومياً» — جملته (al.drop.d) مكانتش بتتطلب في أي اختبار
+      var lowTwo = ad('lt', { daily: steady(100), res: [10, 10, 10, 10, 10, 2, 4] });
+      var d2 = withLang('ar', function () { return issuesOf(engine(baseAccount().concat([lowTwo])), 'lt').filter(function (i) { return i.code === 'drop'; })[0]; });
+      ok(d2 && d2.level === 'warning' && /أمس عمليتي شراء فقط مقابل متوسط ١٠ يومياً/.test(d2.detail), d2 ? d2.detail : 'no drop alert');
     });
     test('يومين من غير نتائج في إعلان أرخص من متوسط الحساب ونتائجه قليلة = مش هدر', function () {
       var lumpy = ad('lw', { daily: steady(10), res: [2, 1, 2, 1, 0, 0, 1] });
@@ -2498,6 +2502,19 @@
         ad('z', { daily: steady(100), res: [2, 2, 2, 2, 2, 2, 1], sales: steady(400), cid: 'k2' })]);
       ok(has(r, 'x', 'shift', 'info') && !has(r, 'x', 'no-spend-y'), list(r, 'x'));
       eq(health(r, 'x'), 'good');
+    });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٩٧): نفس النقل وأمس فيه إنفاق ضعيف (١٠ مقابل ١٠٠) مش صفر — جملته (al.shift.d) مكانتش بتتطلب في أي اختبار
+    test('المنصة نقلت إنفاقه وأمس فيه إنفاق ضعيف (مش صفر): «للعلم» بجملة «أنفق … أمس ١٠ ر.س بعد أن كان ينفق نحو ١٠٠ ر.س»', function () {
+      var r = withLang('ar', function () {
+        return engine([ad('x', { daily: [100, 100, 100, 100, 100, 10, 0], res: [2, 2, 2, 2, 2, 0, 0], sales: [400, 400, 400, 400, 400, 0, 0], cid: 'k' }),
+          ad('y', { daily: [100, 100, 100, 100, 100, 200, 150], res: [2, 2, 2, 2, 2, 4, 3], sales: [400, 400, 400, 400, 400, 800, 600], cid: 'k' }),
+          ad('z', { daily: steady(100), res: [2, 2, 2, 2, 2, 2, 1], sales: steady(400), cid: 'k2' })]);
+      });
+      var i = r.byAd.x.issues.filter(function (j) { return j.code === 'shift'; })[0];
+      withLang('ar', function () {
+        ok(i && i.level === 'info' && i.detail.indexOf(t('al.shift.d', { name: t('al.name', { name: 'Ad x' }), spend: money(10, 'SAR'), avg: money(100, 'SAR') })) === 0, i ? i.detail : list(r, 'x'));
+      });
+      ok(!has(r, 'x', 'weak-delivery'), 'not «weak delivery» on the ad itself: ' + list(r, 'x'));
     });
     // قرار صاحب المنتج ٣ نوفمبر ٢٠٢٦: «إعلان أداؤه جيد لفترة ثم انخفض بفرق كبير آخر يومين يظل الحكم على الفترة كاملة أنه جيد» —
     // فآخر ٣ أيام مالهاش تنبيه لوحدها (وسم «▼ آخر ٣ أيام» على الكارت هو اللي بيقول التراجع)، والفترة كلها هي الحكم
@@ -10255,6 +10272,36 @@
       var meta = { 'meta:act_1': { label: 'Meta — T', currency: 'SAR', timeZone: 'UTC', metaAccountStatus: 1, spendCapReached: false, spendCap: 1000000, amountSpent: 935000 } };
       var a = withLang('ar', function () { return engine(ads, meta); }).alerts.filter(function (x) { return x.code === 'spend-cap-near'; })[0];
       ok(a && a.level === 'critical' && /نحو ٦ أيام/.test(a.detail), a ? a.level + ' | ' + a.detail : 'no alert');
+    });
+    // (٩٧) حد الإنفاق قرب يخلص والحساب مصرفش ولا مليم في الأيام المكتملة: مفيش «يكفي نحو»، و«مهم» مش «عاجل» (al.capNear.dNoRate)
+    test('حد الإنفاق ٩٥٪ والإنفاق صفر: «مهم» والمتبقي من غير «يكفي نحو …»', function () {
+      var meta = { 'meta:act_1': { label: 'Meta — T', currency: 'SAR', timeZone: 'UTC', metaAccountStatus: 1, spendCapReached: false, spendCap: 1000000, amountSpent: 950000 } };
+      var a = withLang('ar', function () { return engine([ad('q', { daily: steady(0) })], meta); }).alerts.filter(function (x) { return x.code === 'spend-cap-near'; })[0];
+      withLang('ar', function () {
+        ok(a && a.level === 'warning' && /٩٥٪ من حد الإنفاق/.test(a.detail) && a.detail.indexOf(money(500, 'SAR')) > -1 && !/يكفي نحو/.test(a.detail), a ? a.level + ' | ' + a.detail : 'no alert');
+      });
+    });
+    // (٩٧) الحساب بلغ حد الإنفاق والإنفاق وقف النهارده بعد الضهر: «حتى الساعة ١٢ ظهراً» (al.cap.d وal.clock.noon مكانوش بيتطلبوا).
+    // الساعة من التوقيت: منطقة Etc/GMT بفرق بيخلّي الساعة هناك ١٢ دلوقتي (ولو الساعة اتغيّرت أثناء الاختبار بيعيد مرة)
+    test('حد الإنفاق اتبلغ والإنفاق وقف النهارده: «عاجل» و«حتى الساعة ١٢ ظهراً بتوقيت الحساب» — باللغتين', function () {
+      var zoneAtNoon = function () {
+        var k = ((12 - new Date().getUTCHours()) % 24 + 24) % 24;
+        if (k > 14) k -= 24;
+        return k === 0 ? 'Etc/GMT' : 'Etc/GMT' + (k > 0 ? '-' + k : '+' + (-k));
+      };
+      var run = function (lang) {
+        var tz = zoneAtNoon();
+        var meta = { 'meta:act_1': { label: 'Meta — T', currency: 'SAR', timeZone: tz, metaAccountStatus: 1, spendCapReached: true, spendCap: 1000000, amountSpent: 1000000 } };
+        var a = withLang(lang, function () { return engine([ad('cap', { daily: [100, 100, 100, 100, 100, 100, 0], res: [2, 2, 2, 2, 2, 2, 0] })], meta); }).alerts.filter(function (x) { return x.code === 'spend-cap'; })[0];
+        return { a: a, again: tz === zoneAtNoon() };
+      };
+      var ar1 = run('ar'); if (!ar1.again) ar1 = run('ar');
+      var en1 = run('en'); if (!en1.again) en1 = run('en');
+      withLang('ar', function () {
+        ok(ar1.a && ar1.a.level === 'critical' && ar1.a.title === t('al.cap.t') && ar1.a.detail.indexOf(t('al.cap.d', { acc: 'Meta — T' })) === 0 &&
+          /حتى الساعة ١٢ ظهراً بتوقيت الحساب/.test(ar1.a.detail) && ar1.a.detail.indexOf(money(100, 'SAR')) > -1, ar1.a ? ar1.a.detail : 'no alert');
+      });
+      ok(en1.a && /up to 12 noon account time/.test(en1.a.detail), en1.a ? en1.a.detail : 'no alert (en)');
     });
 
     // قرار صاحب المنتج ٢٥ أكتوبر (الجولة الرابعة): الحكم على أرقام الكارت دايماً — كان (١٠ أكتوبر) على الأيام اللي بعد التعديل بس، فإعلان
