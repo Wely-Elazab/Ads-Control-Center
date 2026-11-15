@@ -8,13 +8,13 @@
    الوضع الداكن: زي الجهاز، إلا لو العميل اختار غير كده من زرار الأداة (data-theme من js/theme.js) */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #8A929C; --line: #2B303A;
+    --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #949CA6; --line: #2B303A;
     --verified: #2BC4A4; --verified-bg: #123832;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #8A929C; --line: #2B303A;
+  --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #949CA6; --line: #2B303A;
   --verified: #2BC4A4; --verified-bg: #123832;
   color-scheme: dark;
 }

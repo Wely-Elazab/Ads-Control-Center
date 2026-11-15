@@ -43,11 +43,14 @@
     /* النص فوق الأزرار والشارات الملونة (الأخضر والأصفر والأحمر) */
     --on-verified: #FFFFFF; --on-pending: #FFFFFF; --on-alert: #FFFFFF;
   }
-  /* الألوان محسوبة على حد القراءة WCAG AA (٤٫٥:١ على الأقل للنص الصغير) في الوضعين — راجعها لو غيّرت أي لون */
+  /* الألوان محسوبة على حد القراءة WCAG AA (٤٫٥:١ على الأقل للنص الصغير) في الوضعين — راجعها لو غيّرت أي لون.
+     كل لون نص على كل خلفية، مش على الورقة والكارت بس: الحبر الخافت في الداكن (#8A929C) كان ٤٫٠٧ على الأخضر الفاتح و٤٫٣١ على الكهرماني —
+     عنوان الرقم في خانة التنبيه على الكارت (٢٩ خانة على حساب حقيقي) ومصدر الملاحظة في الملخص. #949CA6 أقل حاجة بنفس الدرجة بتعدّي
+     ٤٫٥ على كل الخلفيات الست (أقلها ٤٫٦٢) — التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (اختبار «الألوان» في tests.js بيلف على كل الأزواج) */
   :root { color-scheme: light; }
   /* الوضع الداكن: زي الجهاز افتراضياً، أو اختيار العميل من الزرار (data-theme على <html> من js/theme.js) */
   [data-theme="dark"] {
-    --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #8A929C; --line: #2B303A;
+    --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #949CA6; --line: #2B303A;
     --verified: #2BC4A4; --verified-bg: #123832; --pending: #E3A94A; --pending-bg: #3A2C13;
     --alert: #EC6952; --alert-bg: #3D1B15; --sending-bg: #262B34;
     --on-verified: #06231C; --on-pending: #2A1C05; --on-alert: #2A0C07;
@@ -55,7 +58,7 @@
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #8A929C; --line: #2B303A;
+      --paper: #14171C; --card: #1D2129; --ink: #ECEDEE; --ink-soft: #A9B0B9; --ink-faint: #949CA6; --line: #2B303A;
       --verified: #2BC4A4; --verified-bg: #123832; --pending: #E3A94A; --pending-bg: #3A2C13;
       --alert: #EC6952; --alert-bg: #3D1B15; --sending-bg: #262B34;
       --on-verified: #06231C; --on-pending: #2A1C05; --on-alert: #2A0C07;
@@ -295,7 +298,8 @@
   .candidate-card.h-improve { border-color: color-mix(in srgb, var(--pending) 45%, var(--line)); }
   .chip-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--h); margin-inline-end: 6px; vertical-align: middle; }
   .chip.active .chip-dot { box-shadow: 0 0 0 2px var(--on-verified); }
-  .chip-count { opacity: .75; font-size: 12px; }
+  /* العدد أخف بالوزن مش بالشفافية: الشفافية .75 كانت بتنزّل تباينه لـ ٣٫١٢ (WCAG 1.4.3 — التدقيق الشامل ١٥ نوفمبر ٢٠٢٦) */
+  .chip-count { font-size: 12px; font-weight: 400; }
   .chip-count:empty { display: none; }
   .health-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-soft); }
 
@@ -375,7 +379,7 @@
   .daily-table thead .col-total { color: var(--ink); font-weight: 700; }
   .daily-table .col-today { border-inline-start: 2px dashed var(--line); }
   .daily-table th.col-yesterday { color: var(--ink); font-weight: 700; }
-  .daily-table .col-today { opacity: .6; }
+  /* «اليوم» ناقص لسه: بيبان من عنوانه والخط المتقطّع قبله — مش بالشفافية (.6 كانت بتنزّل الأرقام لـ ٢٫٤٤–٣٫٦٥ — WCAG 1.4.3) */
 
   /* ---------- صفحة التنبيهات ---------- */
   .alerts-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -891,7 +895,8 @@
   .value-today { margin: 10px 0 0; }
   .value-notice { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--card); border: 1px dashed var(--line); font-size: 12.5px; line-height: 1.7; color: var(--ink-soft); }
   .value-notice a { color: var(--verified); font-weight: 700; }
-  .value-ack { font-family: inherit; font-size: 12.5px; font-weight: 700; color: #fff; background: var(--verified); border: none; border-radius: 999px; padding: 4px 14px; margin-inline-start: 4px; cursor: pointer; }
+  /* النص على الأزرار الملونة من --on-*: الأبيض الثابت على الأخضر والأحمر الفاتحين في الوضع الداكن كان ١٫٨٨ و٣٫١٣ (WCAG 1.4.3) */
+  .value-ack { font-family: inherit; font-size: 12.5px; font-weight: 700; color: var(--on-verified); background: var(--verified); border: none; border-radius: 999px; padding: 4px 14px; margin-inline-start: 4px; cursor: pointer; }
   .value-empty { margin: 0 0 10px; font-size: 13px; line-height: 1.7; color: var(--ink-soft); }
   .value-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
   .value-tile { display: flex; flex-direction: column; gap: 3px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
@@ -899,7 +904,7 @@
   .value-v { font-size: 20px; font-weight: 800; color: var(--verified); }
   .value-s { font-size: 12px; line-height: 1.6; color: var(--ink-soft); }
   .value-pending { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--alert-bg); border: 1px solid var(--alert); color: var(--alert); font-size: 13px; font-weight: 700; }
-  .value-cta { font-family: inherit; font-size: 13px; font-weight: 700; color: #fff; background: var(--alert); border: none; border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+  .value-cta { font-family: inherit; font-size: 13px; font-weight: 700; color: var(--on-alert); background: var(--alert); border: none; border-radius: 999px; padding: 6px 14px; cursor: pointer; }
   .value-ack:focus-visible, .value-cta:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   .value-how { margin-top: 10px; font-size: 12px; color: var(--ink-soft); }
   .value-how summary { cursor: pointer; font-weight: 700; color: var(--ink-soft); }
@@ -912,7 +917,7 @@
   /* أزرار صيغ معاينة Meta (showMedia في ui.js) */
   .pv-tabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 10px; }
   .pv-tab { font-family: inherit; font-size: 12.5px; font-weight: 700; color: var(--ink-soft); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 4px 14px; cursor: pointer; }
-  .pv-tab.on { color: #fff; background: var(--verified); border-color: var(--verified); cursor: default; }
+  .pv-tab.on { color: var(--on-verified); background: var(--verified); border-color: var(--verified); cursor: default; }
   .pv-tab:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   .pv-hint { margin: 8px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-faint); text-align: center; }
   /* منتجات كتالوج الإعلان (catalogGrid في ui.js) */
@@ -985,7 +990,7 @@
   /* اسم الحساب جنب المنصة في زرار العرض (ui.js renderDiagnosis) — مقصوص لو طويل، والاسم كامل في التلميح.
      المسافة بـ gap مش margin: الاسم اتجاهه حسب حروفه (dir=auto)، فـ margin-inline-start كانت بتيجي في الناحية الغلط بالعربي («Store OneMeta» لازقين) */
   .dx-views .chip { display: inline-flex; align-items: center; gap: 6px; }
-  .dx-view-acct { display: inline-block; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; opacity: .8; }
+  .dx-view-acct { display: inline-block; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
   .dx-views + .dx-notes { margin: -4px 2px 10px; }
   /* أزرار المنصات بلون كل منصة وشعارها (طلب صاحب المنتج ٢٥ أكتوبر) — الملخص وفلتر الإعلانات. ألوان العلامات: Meta ‎#0866FF،
      Google ‎#1A73E8 (أزرق Google الأغمق: الأبيض عليه ٤٫٥:١ — WCAG AA)، Snapchat ‎#FFFC00 بالأسود، TikTok أسود (أبيض في الداكن).

@@ -6809,13 +6809,22 @@
           });
         });
       };
+      // كل لون نص على كل خلفية (التدقيق الشامل ١٥ نوفمبر ٢٠٢٦): القائمة القديمة كانت الحبر الخافت على الورقة والكارت بس، فالداكن عدّى وهو
+      // ٤٫٠٧ و٤٫٣١ على الأخضر والكهرماني الفاتحين — وده بالظبط مكان عنوان الرقم في خانة التنبيه على الكارت
+      var every = function (texts, backs) { var out = []; texts.forEach(function (x) { backs.forEach(function (b) { out.push([x, b]); }); }); return out; };
       return Promise.all(['/pauseproof-live.html', '/legal.css', '/site.css'].map(function (u) { return fetch(u + '?t=' + Date.now()).then(function (r) { return r.text(); }); })).then(function (files) {
-        check('tool', tokens(files[0]), [['ink-faint', 'paper'], ['ink-faint', 'card'], ['ink-faint', 'sending-bg'], ['ink-soft', 'paper'],
-          ['pending', 'pending-bg'], ['alert', 'alert-bg'], ['verified', 'verified-bg'], ['on-verified', 'verified'], ['on-pending', 'pending'], ['on-alert', 'alert']]);
+        check('tool', tokens(files[0]), every(['ink', 'ink-soft', 'ink-faint'], ['paper', 'card', 'sending-bg', 'verified-bg', 'pending-bg', 'alert-bg'])
+          .concat(every(['verified'], ['paper', 'card', 'verified-bg'])).concat(every(['pending'], ['paper', 'card', 'pending-bg'])).concat(every(['alert'], ['paper', 'card', 'alert-bg']))
+          .concat([['on-verified', 'verified'], ['on-pending', 'pending'], ['on-alert', 'alert']]));
         var site = tokens(files[1]), extra = tokens(files[2]);
         Object.keys(extra).forEach(function (k) { site[k] = extra[k]; });
-        check('site', site, [['ink-faint', 'paper'], ['ink-faint', 'card'], ['ink-faint', 'band'], ['ink-soft', 'paper'],
-          ['pending', 'pending-bg'], ['verified', 'verified-bg'], ['on-verified', 'verified']]);
+        check('site', site, every(['ink', 'ink-soft', 'ink-faint'], ['paper', 'card', 'band', 'verified-bg', 'pending-bg', 'alert-bg'])
+          .concat([['pending', 'pending-bg'], ['alert', 'alert-bg'], ['verified', 'verified-bg'], ['verified', 'paper'], ['on-verified', 'verified']]));
+        // الأداة والموقع نفس الألوان (legal.css: «نفس ألوان وخطوط الأداة») — والوضع الداكن متعرّف مرتين في كل ملف (زي الجهاز، واختيار
+        // العميل)، فكل تعريف داكن لازم يبقى نفس القيمة: الفاتح، وبعده قيمة الداكن الوحيدة
+        var tool = tokens(files[0]);
+        var shape = function (arr) { var v = arr.map(function (x) { return x.toLowerCase(); }); return [v[0]].concat(v.slice(1).filter(function (x, i, a) { return a.indexOf(x) === i; })); };
+        ['paper', 'card', 'ink', 'ink-soft', 'ink-faint', 'line', 'verified', 'verified-bg'].forEach(function (k) { eq(shape(site[k]), shape(tool[k]), 'same ' + k + ' (light, then every dark block) on the site and in the tool'); });
       });
     });
   });
@@ -7043,6 +7052,58 @@
         });
       };
       return check('en').then(function () { return check('ar'); }).then(restore, function (e) { if (f) f.remove(); restore(); throw e; });
+    });
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (WCAG 1.4.3): قياس على حساب حقيقي بالوضعين لقى نصوص تحت ٤٫٥:١ مش بتبان في جدول الألوان — شفافية فوق
+    // اللون (اسم الحساب في شرائح الملخص ٣٫٦٢، عدّاد شرائح الفلاتر ٣٫١٢، عمود «اليوم» في الجدول اليومي ٢٫٤٤)، وأبيض ثابت على أزرار ملونة
+    // بتفتح في الوضع الداكن («راجعها» ٣٫١٣، «حسناً» وتبويب المعاينة ١٫٨٨)، والحبر الخافت على الخلفيات الملونة في الداكن. القياس هنا زي القياس
+    // الحي: لون النص فوق خلفيات كل العناصر اللي فوقه، والشفافية محسوبة
+    testAsync('المكوّنات اللي كانت تحت ٤٫٥:١ بقت فوقه في الوضعين (الشفافية والأبيض الثابت والحبر الخافت على الخلفيات الملونة)', function () {
+      return toolFrame(1000, 800).then(function (f) {
+        var w = f.contentWindow, d = f.contentDocument, de = d.documentElement;
+        var parse = function (c) { var m = String(c).match(/rgba?\(([^)]+)\)/); var p = m[1].split(/[\s,\/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
+        var over = function (x, b) { return { r: x.r * x.a + b.r * (1 - x.a), g: x.g * x.a + b.g * (1 - x.a), b: x.b * x.a + b.b * (1 - x.a), a: 1 }; };
+        var mix = function (x, y, q) { return { r: x.r * q + y.r * (1 - q), g: x.g * q + y.g * (1 - q), b: x.b * q + y.b * (1 - q), a: 1 }; };
+        var lin = function (v) { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+        var lum = function (c) { return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b); };
+        var contrast = function (el) {
+          var chain = []; for (var n = el; n; n = n.parentElement) chain.unshift(n);
+          var bg = { r: 255, g: 255, b: 255, a: 1 }, outer = null, op = 1;
+          chain.forEach(function (x) {
+            var s = w.getComputedStyle(x), o = parseFloat(s.opacity);
+            if (o < 1) { if (outer === null) outer = bg; op *= o; }
+            var b = parse(s.backgroundColor); if (b.a > 0) bg = over(b, bg);
+          });
+          var tx = over(parse(w.getComputedStyle(el).color), bg), back = bg;
+          if (op < 1) { tx = mix(tx, outer, op); back = mix(bg, outer, op); }
+          var x = lum(tx), y = lum(back);
+          return Math.round((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05) * 100) / 100;
+        };
+        try {
+          // من غير انتقالات: الألوان بتتغيّر على طول مع الوضع
+          var calm = d.createElement('style'); calm.textContent = '*, *::before, *::after { transition: none !important; animation: none !important; }'; d.head.appendChild(calm);
+          var box = d.createElement('div'); box.className = 'wrap';
+          box.innerHTML = '<div class="card-stats"><span class="card-stat mv-warning"><b class="card-stat-v">1</b><span class="card-stat-k" id="cx-k1">x</span></span>' +
+            '<span class="card-stat mv-opportunity"><b class="card-stat-v">1</b><span class="card-stat-k" id="cx-k2">x</span></span>' +
+            '<span class="card-stat mv-critical"><b class="card-stat-v">1</b><span class="card-stat-k" id="cx-k3">x</span></span></div>' +
+            '<div class="value-panel"><p class="value-notice">x <button class="value-ack" id="cx-ack">x</button></p><div class="value-pending"><span>x</span><button class="value-cta" id="cx-cta">x</button></div></div>' +
+            '<div class="pv-tabs"><button class="pv-tab on" id="cx-tab">x</button><button class="pv-tab" id="cx-tab2">x</button></div>' +
+            '<div class="dx-views"><button class="chip plat-chip"><span>x</span><span class="dx-view-acct" id="cx-acct">x</span></button>' +
+            '<button class="chip plat-chip active" data-plat-pick="all"><span class="dx-view-acct" id="cx-acct2">x</span></button></div>' +
+            '<div class="filter-group"><button class="chip"><span>x</span> <span class="chip-count" id="cx-cnt">3</span></button>' +
+            '<button class="chip active"><span>x</span> <span class="chip-count" id="cx-cnt2">3</span></button></div>' +
+            '<div class="daily-table-wrap"><table class="daily-table"><thead><tr><th>x</th><th class="col-today" id="cx-th">x</th></tr></thead>' +
+            '<tbody><tr><td>x</td><td class="col-today"><span class="mono" id="cx-td1">1</span></td></tr><tr><td>x</td><td>1</td></tr>' +
+            '<tr><td>x</td><td class="col-today"><span class="mono" id="cx-td2">1</span></td></tr></tbody></table></div>' +
+            '<div class="dx-verdict mixed"><article class="dx-block dx-note"><div class="dx-foot"><span class="dx-owner" id="cx-own">x</span></div></article></div>';
+          d.body.appendChild(box);
+          var ids = ['cx-k1', 'cx-k2', 'cx-k3', 'cx-ack', 'cx-cta', 'cx-tab', 'cx-tab2', 'cx-acct', 'cx-acct2', 'cx-cnt', 'cx-cnt2', 'cx-th', 'cx-td1', 'cx-td2', 'cx-own'];
+          ['light', 'dark'].forEach(function (mode) {
+            de.setAttribute('data-theme', mode);
+            var low = ids.map(function (id) { return [id, contrast(d.getElementById(id))]; }).filter(function (x) { return x[1] < 4.5; });
+            eq(low, [], mode + ': every one of them at least 4.5:1');
+          });
+        } finally { f.remove(); }
+      });
     });
     // iOS بيقرّب على أي حقل خطه أقل من ١٦px ومبيرجّعش التقريب. الإصلاح الأول كان جوه استعلام الموبايل، وقاعدة
     // .sort-select اللي بعده في الملف غلبته — قائمة الفترة فضلت ١٣px على الموقع (مقيس ٣ نوفمبر ٢٠٢٦). بنقيس الخط
