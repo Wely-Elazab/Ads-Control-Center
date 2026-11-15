@@ -91,12 +91,12 @@
   .filter-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .filter-label { font-size: 11.5px; color: var(--ink-faint); min-width: 46px; flex-shrink: 0; }
   .filter-group { display: flex; gap: 6px; flex-wrap: wrap; }
-  .chip { border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); font-size: 13px; font-weight: 500; padding: 8px 15px; border-radius: 999px; cursor: pointer; font-family: inherit; transition: background .12s ease, color .12s ease, border-color .12s ease; }
+  .chip { border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); font-size: 13px; font-weight: 500; padding: 8px 15px; border-radius: 999px; cursor: pointer; font-family: inherit; }
   .chip.active { background: var(--verified); border-color: var(--verified); color: var(--on-verified); }
   /* القائمة المنسدلة متزيدش عن حاويتها: عرضها الطبيعي = أطول اختيار فيها، وقائمة العملة بالإنجليزي (٤٧٥ بكسل) كانت بتخلّي صفحة الإعدادات
      تتحرك بالعرض على أي موبايل (المرور الثاني ١٤ نوفمبر ٢٠٢٦ — WCAG 1.4.10 Reflow: من غير تمرير بالعرض عند ٣٢٠ بكسل) */
   select { max-width: 100%; }
-  .text-filter, .date-input, .sort-select { border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; font-size: 16px; font-family: inherit; color: var(--ink); background: var(--paper); }
+  .text-filter, .date-input { border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; font-size: 16px; font-family: inherit; color: var(--ink); background: var(--paper); }
   .text-filter { flex: 1 1 220px; }
   .text-filter:focus-visible, .chip:focus-visible, .stop-btn:focus-visible, .ghost-btn:focus-visible, .date-input:focus-visible, .sort-select:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 
@@ -110,7 +110,7 @@
 
   .card-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 20px; }
   @media (min-width: 480px) { .card-grid { grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); } }
-  .candidate-card { position: relative; display: block; border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
+  .candidate-card { position: relative; display: block; border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); cursor: pointer; }
   .preview { position: relative; height: 126px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
   .preview::after { content: ''; position: absolute; width: 90px; height: 90px; border-radius: 50%; background: rgba(255,255,255,0.4); filter: blur(16px); top: -18px; inset-inline-end: -18px; }
   .pv-t0 { background: linear-gradient(150deg, #E1F0EA 0%, #AEDBC7 55%, #78BFA3 100%); }
@@ -250,11 +250,6 @@
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
   .candidate-card:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
-  .ghost-btn:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
-
-  /* ---------- التبويبات ---------- */
-  .tab-count.has-critical { background: var(--alert); }
-  .tab-count:empty { display: none; }
 
   /* ---------- تقييم الأداء: ألوان الحالة والمستويات ---------- */
   /* --hb = خلفية شارة الحالة: الخلفية الخفيفة الصلبة من نفس العائلة. كانت color-mix(لونها ١٤٪) — «يحتاج إلى تحسين» ٣٫٩٢ و«جيد» ٤٫٠٣
@@ -319,7 +314,7 @@
   .view-switch-btn { border: none; background: none; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--ink-soft); padding: 6px 12px; border-radius: 8px; cursor: pointer; }
   .view-switch-btn.active { background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
   .view-switch-btn:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
-  .campaign-card { position: relative; border: 1.5px solid var(--line); border-inline-start: 4px solid var(--h); border-radius: 12px; background: var(--card); padding: 13px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 8px; transition: border-color .15s ease, box-shadow .15s ease; }
+  .campaign-card { position: relative; border: 1.5px solid var(--line); border-inline-start: 4px solid var(--h); border-radius: 12px; background: var(--card); padding: 13px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 8px; }
   .campaign-card:hover { box-shadow: 0 2px 10px rgba(22,26,31,0.08); }
   .campaign-card:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   .camp-top { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-faint); }
@@ -605,7 +600,6 @@
     .acct-panel { position: fixed; top: 60px; inset-inline: 12px; width: auto; max-height: calc(100dvh - 150px); }
   }
 
-  .icon-toggle:focus-visible, .lang-toggle:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   .tab-count { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--pending); color: var(--on-pending); font-size: 11.5px; line-height: 18px; text-align: center; }
   .tab-count.has-critical { background: var(--alert); color: var(--on-alert); }
   .tab-count:empty { display: none; }
@@ -728,8 +722,6 @@
   .status-action { border: 1px solid var(--verified); background: var(--verified-bg); color: var(--verified); border-radius: 8px; padding: 4px 10px; font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
   .status-action:focus-visible, .ls-link:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
 
-  /* ---------- الموبايل: الشريط اللي فوق بيستخبى وإنت نازل ويرجع أول ما تطلع (ui.js) ---------- */
-  .appbar { transition: transform .2s ease; }
   /* قفل الصفحة وهي بتتحمّل: تحت الشريط العلوي (z-index أقل منه) — renderPageLock في ui.js بيحدد top */
   /* شاشة الانتظار: اسم الأداة بس بيتحرك (طلب صاحب المنتج ٨ نوفمبر ٢٠٢٦: «فقط يظهر اسم الاداة "Ads Center" ويتحرك بشكل انيميشن
      لذيذ لا يجعل المستخدم يمل من الانتظار، وبدون اي كلمات او جمل لحين انتهاء التحميل»). قبل كده دايرة وعنوان وسطر بيتبدّل ٦ مرات
@@ -777,16 +769,14 @@
   .preview-campaign .format-badge { background: var(--verified-bg); color: var(--verified); }
 
   /* ---------- أهم التنبيهات فوق الإعلانات ---------- */
-  .top-alerts { margin: 0 0 14px; }
   .top-alerts:empty { display: none; }
   .top-alerts-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
-  .top-alerts-title { font-size: 14px; font-weight: 700; }
   .top-alerts-all { background: none; border: none; font-family: inherit; font-size: 12.5px; font-weight: 600; color: var(--verified); cursor: pointer; padding: 4px 0; }
   .top-alert { display: flex; align-items: center; gap: 10px; width: 100%; text-align: start; font-family: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-inline-start: 4px solid var(--lv); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; cursor: pointer; }
   .top-alert:hover { box-shadow: 0 2px 8px rgba(22,26,31,0.06); }
   .top-alert:focus-visible, .top-alerts-all:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
   .top-alert-level { flex-shrink: 0; font-size: 11px; font-weight: 700; color: var(--lv); background: var(--lv-bg); padding: 2px 9px; border-radius: 999px; }
-  .top-alert-text { display: flex; flex-direction: column; min-width: 0; }
+  .top-alert-text { display: flex; flex-direction: column; }
   .top-alert-title { font-size: 13.5px; font-weight: 600; }
   .top-alert-src { font-size: 12px; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .top-alerts-ok { font-size: 13px; color: var(--verified); background: var(--verified-bg); border-radius: 10px; padding: 9px 12px; }
@@ -1038,7 +1028,8 @@
   .dx-evidence { margin-top: 10px; font-size: 12.5px; }
   .dx-evidence summary { cursor: pointer; color: var(--ink-soft); font-weight: 600; }
   .dx-evidence table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-  .dx-evidence th, .dx-evidence td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: start; font-weight: 400; }
+  .dx-evidence th, .dx-evidence td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: start; }
+  .dx-evidence td { font-weight: 400; }
   .dx-evidence th { color: var(--ink-soft); font-weight: 600; }
   .dx-foot { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--ink-faint); }
   .dx-foot .dx-copy-one { margin-inline-start: auto; }
@@ -1062,7 +1053,7 @@
   .period-bar { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
   .period-bar .date-input { background: var(--paper); }
 
-  /* الشريط اللي فوق بياخد ظل لما تنزل */
+  /* الشريط اللي فوق بياخد ظل لما تنزل، وعلى الموبايل بيستخبى وإنت نازل ويرجع أول ما تطلع (ui.js) */
   .appbar { transition: transform .2s ease, box-shadow .25s ease; }
   .appbar.is-scrolled { box-shadow: 0 8px 24px -18px rgba(22, 26, 31, .5); }
 

@@ -7119,6 +7119,43 @@
       eq(findCandidate('constructor'), undefined, 'no inherited properties');
     });
 
+    // التدقيق الشامل ١٥ نوفمبر ٢٠٢٦ (٨٧ و١٠٩): نفس المحدد ونفس الخاصية مرتين في نفس السياق (@media) — بقيمة مختلفة التانية بتغلب من غير ما
+    // تبان (٨٧ شال ٥)، وبنفس القيمة كود ميت (١٠٩ شال ٤: التركيز على .ghost-btn وزرّي المظهر واللغة، وعدّاد التبويب). والخاصية مرتين جوه
+    // نفس القاعدة بديل مقصود لمتصفح أقدم (rgba قبل color-mix، وخلفية صلبة قبل التدرّج) — المشكلة بين قاعدتين بس. و١٠٩ كمان: ١٢ خاصية
+    // تانية كانت بتتغلب (الانتقالات، وعناوين «يحتاج انتباهك»، وقائمة الترتيب في مجموعة الحقول — والـ١٦px على الموبايل في آخر قاعدة)
+    testAsync('الأنماط: مفيش خاصية متعرّفة مرتين لنفس المحدد في نفس السياق (لا بقيمة تانية ولا بنفس القيمة) — الأداة والموقع', function () {
+      return Promise.all(['/pauseproof-live.html', '/site.css', '/legal.css'].map(function (u) { return fetch(u + '?t=' + Date.now()).then(function (r) { return r.text(); }); })).then(function (files) {
+        var srcs = { tool: (files[0].match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '', 'site.css': files[1], 'legal.css': files[2] };
+        var twice = [];
+        Object.keys(srcs).forEach(function (name) {
+          // خطوات @keyframes (0% / from …) مش قواعد: بتتشال بالقوس المقفول بتاعها. وأداة ٨٧ (css-dups.pl) كانت بتقف من غير ما تقول عند أول
+          // @keyframes — فحصت ٦٤١ سطر من ١١٠٠ في الأداة بس
+          var raw = srcs[name].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\r/g, ''), at;
+          while ((at = raw.search(/@keyframes[^{]*\{/)) > -1) {
+            var j = raw.indexOf('{', at) + 1, depth = 1;
+            while (depth && j < raw.length) { if (raw[j] === '{') depth++; else if (raw[j] === '}') depth--; j++; }
+            raw = raw.slice(0, at) + raw.slice(j);
+          }
+          var css = raw, seen = {}, ctx = [], re = /\s*(?:(@(?:media|supports)[^{]+)\{|(\})|([^{}]+)\{([^{}]*)\})/g, m;
+          var ruleNo = 0;
+          while ((m = re.exec(css))) {
+            if (m[1]) { ctx.push(m[1].replace(/\s+/g, ' ').trim()); continue; }
+            if (m[2]) { ctx.pop(); continue; }
+            if (/^\s*@/.test(m[3])) continue;
+            ruleNo++;
+            m[3].split(',').map(function (x) { return x.trim().replace(/\s+/g, ' '); }).forEach(function (sel) {
+              m[4].split(';').forEach(function (d) {
+                var p = /^\s*([a-z-]+)\s*:/.exec(d); if (!p) return;
+                var k = ctx.join(' | ') + ' ' + sel + ' ' + p[1];
+                if (seen[k] && seen[k] !== ruleNo) twice.push(name + ': ' + (ctx.length ? '[' + ctx.join(' | ') + '] ' : '') + sel + ' { ' + p[1] + ' }');
+                seen[k] = ruleNo;
+              });
+            });
+          }
+        });
+        eq(twice, []);
+      });
+    });
     testAsync('الألوان: كل نص صغير مقروء (WCAG AA ٤٫٥:١) في الوضع الفاتح والداكن — في الموقع والأداة', function () {
       var L = function (h) {
         var c = [1, 3, 5].map(function (i) { return parseInt(h.slice(i, i + 2), 16) / 255; })
