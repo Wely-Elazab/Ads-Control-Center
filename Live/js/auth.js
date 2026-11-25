@@ -39,7 +39,10 @@
       .catch(function () { return { status: 0, ok: false, data: { code: 'NETWORK' } }; });
   }
 
-  // مفتاح دخول صالح (بيتجدد لوحده قبل ما يخلص بدقيقة)، أو null
+  // مفتاح دخول صالح (بيتجدد لوحده قبل ما يخلص بدقيقة)، أو null لو مفيش جلسة أو اتلغت. التجديد وقع بسبب عطل (النت، أو Supabase مردّش، أو
+  // «طلبات كتير» ٤٢٩، أو المهلة ٤٠٨) = بيرمي (code: NETWORK) والجلسة بتفضل — مش null (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١٢٣): null معناه
+  // «مش داخل»، والطلب كان بيتبعت من غير مفتاح فيرجع ٤٠١ والأداة تودّي العميل لصفحة الدخول، وهناك جلسته كانت بتتمسح. والـ ٤٢٩ كان بيمسحها هنا
+  // على طول (كان محسوب «الجلسة اتلغت» زي أي ٤xx)
   var refreshing = null;
   function token() {
     var s = read();
@@ -50,12 +53,13 @@
         refreshing = null;
         if (res.ok && res.data.access_token) { write(fromResponse(res.data, s.email)); return res.data.access_token; }
         // الجلسة اتلغت (خروج من جهاز تاني، أو انتهت) — مش عطل شبكة
-        if (res.status >= 400 && res.status < 500) write(null);
-        return null;
+        if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) { write(null); return null; }
+        var e = new Error('sign-in refresh unavailable'); e.code = 'NETWORK'; throw e;
       });
     }
     return refreshing;
   }
+  // بيرمي زي token() لو التجديد وقع بسبب عطل — اللي بيستدعيه ميبعتش الطلب من غير مفتاح (core.js loginHeaders وsync تحت)
   function headers() { return token().then(function (t) { return t ? { 'Authorization': 'Bearer ' + t } : {}; }); }
   // نفس headers() بس فوراً (الطلب بيتبعت في نفس اللحظة) — null لو المفتاح محتاج تجديد، وساعتها headers()
   function headersNow() {
@@ -64,15 +68,16 @@
     return s.expires_at - Date.now() > 60000 ? { 'Authorization': 'Bearer ' + s.access_token } : null;
   }
 
-  // عمليات login.* في دالة sync
+  // عمليات login.* في دالة sync. تجديد مفتاح الدخول وقع بسبب عطل = نفس رد انقطاع النت، من غير طلب (١٢٣)
   function sync(action, body) {
+    var network = function () { return { status: 0, ok: false, data: { error: 'network' } }; };
     return headers().then(function (h) {
       var all = { 'Content-Type': 'application/json' };
       Object.keys(h).forEach(function (k) { all[k] = h[k]; });
       return fetch(SYNC_URL, { method: 'POST', headers: all, body: JSON.stringify(Object.assign({ action: action, lang: lang() }, body || {})) })
         .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { status: r.status, ok: r.ok, data: j || {} }; }); })
-        .catch(function () { return { status: 0, ok: false, data: { error: 'network' } }; });
-    });
+        .catch(network);
+    }, network);
   }
 
   // الخطوة الأولى: البريد وكلمة المرور. الخطأ: 'credentials' (غلط) / 'network' / 'busy' (محاولات كتير)

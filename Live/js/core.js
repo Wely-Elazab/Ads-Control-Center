@@ -260,12 +260,17 @@
   // قبل كده انقطاع النت كان بيطلع خطأ تقني زي "Failed to fetch"، وطلب معلّق كان بيسيب مؤشر التحميل
   // يلف على طول — دلوقتي بعد دقيقة بيتلغي برسالة واضحة والعميل يقدر يضغط «حاول مرة أخرى»
   var API_TIMEOUT_MS = 60000;
-  // هيدر دخول الأداة (js/auth.js) — من غيره /api بيرد ٤٠١ code: LOGIN (api/_login.js)
+  // هيدر دخول الأداة (js/auth.js) — من غيره /api بيرد ٤٠١ code: LOGIN (api/_login.js). null = تجديد مفتاح الدخول وقع بسبب عطل (النت أو
+  // Supabase): الطلب مبيتبعتش من غير مفتاح — كان بيرجع ٤٠١ والأداة تودّي العميل لصفحة الدخول، وهناك جلسته كانت بتتمسح (التدقيق الشامل
+  // ٢٥ نوفمبر ٢٠٢٦، ١٢٣)
   function loginHeaders() {
-    return typeof window !== 'undefined' && window.AuthLogin ? window.AuthLogin.headers().catch(function () { return {}; }) : Promise.resolve({});
+    return typeof window !== 'undefined' && window.AuthLogin ? window.AuthLogin.headers().catch(function () { return null; }) : Promise.resolve({});
   }
   function apiPost(path, body) {
-    return loginHeaders().then(function (auth) { return apiSend(path, body, auth); }).then(function (res) {
+    return loginHeaders().then(function (auth) {
+      if (auth === null) return { status: 0, ok: false, data: { error: t('s.network'), code: 'NETWORK' } };
+      return apiSend(path, body, auth);
+    }).then(function (res) {
       // الدخول للأداة خلص أو مكتملش — صفحة الدخول، مش «ربط المنصة خلص»
       if (window.AuthLogin && AuthLogin.isLoginFailure(res)) AuthLogin.toLogin();
       return res;

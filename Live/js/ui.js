@@ -1451,9 +1451,14 @@
       Object.keys(auth || {}).forEach(function (k) { headers[k] = auth[k]; });
       return fetch(SYNC_URL, { method: 'POST', headers: headers, body: JSON.stringify(body) });
     };
-    // الطلب بيتبعت فوراً لو مفتاح الدخول لسه صالح، وبيستنى التجديد بس لو محتاجه
+    // الطلب بيتبعت فوراً لو مفتاح الدخول لسه صالح، وبيستنى التجديد بس لو محتاجه. التجديد وقع بسبب عطل (loginHeaders = null — ١٢٣) = زي
+    // انقطاع النت، من غير طلب من غير مفتاح
     var now = window.AuthLogin ? AuthLogin.headersNow() : {};
-    return (now ? send(now) : loginHeaders().then(send)).then(function (r) {
+    var renewed = function (auth) {
+      if (auth === null) { var e = new Error('network'); e.status = 0; throw e; }
+      return send(auth);
+    };
+    return (now ? send(now) : loginHeaders().then(renewed)).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         if (window.AuthLogin && AuthLogin.isLoginFailure({ status: r.status, data: j })) AuthLogin.toLogin();
         if (!r.ok) { var e = new Error('HTTP ' + r.status); e.status = r.status; e.code = j && j.error; throw e; }

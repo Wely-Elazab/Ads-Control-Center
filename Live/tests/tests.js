@@ -5053,6 +5053,29 @@
       return run(0).then(function () { restore(); }, function (e) { if (f) f.remove(); restore(); throw e; });
     });
 
+    // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١٢٣): جلسة محفوظة مفتاحها خلص والتجديد وقع بسبب عطل — الصفحة كانت بتسأل الدالة من غير مفتاح، فترجع ٤٠١
+    // والجلسة تتمسح (دخول من جديد بكلمة المرور ورمز جديد على البريد). دلوقتي مفيش سؤال من غير مفتاح والجلسة بتفضل؛ والملغية (٤٠٠) بتتمسح زي الأول
+    testAsync('صفحة الدخول بجلسة مفتاحها خلص: التجديد وقع بسبب عطل = الجلسة بتفضل ومفيش سؤال من غير مفتاح؛ والملغية بتتمسح', function () {
+      var restore = loginSnap(), f = null;
+      // [الحالة، رد التجديد، الجلسة بتفضل؟]
+      var cases = [['network', 'down', true], ['503', { status: 503, body: {} }, true], ['429', { status: 429, body: {} }, true],
+        ['revoked', { status: 400, body: { error_code: 'refresh_token_not_found' } }, false]];
+      var run = function (i) {
+        if (i >= cases.length) return Promise.resolve();
+        var c = cases[i];
+        localStorage.setItem('ac.login', JSON.stringify({ access_token: 'AT-9', refresh_token: 'RT-9', expires_at: Date.now() - 1000, email: 'owner@store.com' }));
+        return loginPage('', { '/token?grant_type=refresh_token': c[1], 'login.status': { status: 401, body: { code: 'LOGIN' } } }).then(function (fr) {
+          f = fr;
+          return loginWait(function () { return loginLog.some(function (x) { return x.key === '/token?grant_type=refresh_token'; }); });
+        }).then(function () { return new Promise(function (r) { setTimeout(r, 80); }); }).then(function () {
+          var asked = loginLog.filter(function (x) { return x.key === 'login.status'; });
+          if (c[2]) eq([asked.length, !!localStorage.getItem('ac.login'), loginState(f)], [0, true, 'signin'], c[0] + ': kept, nothing asked without a key');
+          else eq([localStorage.getItem('ac.login'), asked.length, !!(asked[0] && asked[0].headers.Authorization)], [null, 1, false], c[0] + ': signed out');
+        }).then(function () { f.remove(); f = null; return run(i + 1); });
+      };
+      return run(0).then(function () { restore(); }, function (e) { if (f) f.remove(); restore(); throw e; });
+    });
+
     testAsync('صفحة الدخول — خطوة الرمز: كل رد غلط برسالته، و«أعد إرسال الرمز» بعد خطأ الإرسال، و«الدخول بحساب آخر» بيقفل الجلسة', function () {
       var restore = loginSnap(), f, d, verify = null;
       localStorage.setItem('ac.login', LOGIN_SESSION('AT-4'));
@@ -6415,6 +6438,57 @@
         restore();
         eq([r.status, r.code], [503, 'SERVER'], 'database down: an outage, not LOGIN');
       }, function (e) { restore(); throw e; });
+    });
+
+    // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١٢٣): تجديد مفتاح الدخول وقع بسبب عطل (النت، أو Supabase ٥xx، أو ٤٢٩/٤٠٨) كان بيرجّع null زي «مش داخل»،
+    // فالطلب بيتبعت من غير مفتاح ويرجع ٤٠١ والأداة تودّي العميل لصفحة الدخول (وهناك جلسته كانت بتتمسح) — والـ ٤٢٩ كان بيمسح الجلسة هنا على
+    // طول. دلوقتي العطل بيرمي والجلسة بتفضل، وapiPost وsyncCall وsync بيردّوا «النت» من غير ما يبعتوا ولا يودّوا لصفحة الدخول؛ والملغية (٤٠٠) زي الأول
+    testAsync('تجديد مفتاح الدخول وقع بسبب عطل: الجلسة بتفضل، ومفيش طلب من غير مفتاح ولا نقل لصفحة الدخول؛ والجلسة الملغية بتتمسح', function () {
+      var realFetch = window.fetch, keep = localStorage.getItem('ac.login'), keepTo = AuthLogin.toLogin, toLogin = 0, sent = [], answer = null;
+      var restore = function () {
+        window.fetch = realFetch; AuthLogin.toLogin = keepTo;
+        if (keep == null) localStorage.removeItem('ac.login'); else localStorage.setItem('ac.login', keep);
+      };
+      var expired = function () {
+        localStorage.setItem('ac.login', JSON.stringify({ access_token: 'AT-old', refresh_token: 'RT-old', expires_at: Date.now() - 1000, email: 'owner@store.com' }));
+      };
+      var reply = function (status, body) { return function () { return Promise.resolve(new Response(JSON.stringify(body), { status: status })); }; };
+      AuthLogin.toLogin = function () { toLogin++; };
+      window.fetch = function (url) {
+        var u = String(url);
+        if (u.indexOf('/auth/v1/token?grant_type=refresh_token') > -1) return answer();
+        sent.push(u);
+        return Promise.resolve(new Response(JSON.stringify({ error: 'login', code: 'LOGIN' }), { status: 401 }));
+      };
+      var cases = [['network', function () { return Promise.reject(new TypeError('Failed to fetch')); }], ['503', reply(503, {})],
+        ['429', reply(429, { error_code: 'over_request_rate_limit' })], ['408', reply(408, {})]];
+      var run = function (i) {
+        if (i >= cases.length) return Promise.resolve();
+        var name = cases[i][0];
+        answer = cases[i][1]; expired(); sent.length = 0;
+        return AuthLogin.token().then(function () { ok(false, name + ': should not resolve'); }, function (e) {
+          eq([e && e.code, !!localStorage.getItem('ac.login')], ['NETWORK', true], name + ': an outage, the session stays');
+          return apiPost('/api/x', {});
+        }).then(function (res) {
+          eq([res.status, res.data.code], [0, 'NETWORK'], name + ': apiPost answers like a network failure');
+          return syncCall({ action: 'usettings.get' }).then(function () { ok(false, name + ': syncCall should fail'); },
+            function (e) { eq(e && e.status, 0, name + ': syncCall fails like the network'); });
+        }).then(function () {
+          return AuthLogin.status();
+        }).then(function (st) {
+          eq([st.status, sent, toLogin, !!localStorage.getItem('ac.login')], [0, [], 0, true], name + ': nothing sent without a key, no sign-in page, the session stays');
+        }).then(function () { return run(i + 1); });
+      };
+      return run(0).then(function () {
+        // الجلسة اتلغت (٤٠٠): بتتمسح زي الأول، والطلب بعدها من غير مفتاح = ٤٠١ وصفحة الدخول
+        answer = reply(400, { error_code: 'refresh_token_not_found' }); expired(); sent.length = 0;
+        return AuthLogin.token();
+      }).then(function (tk) {
+        eq([tk, localStorage.getItem('ac.login')], [null, null], 'revoked: signed out on this device');
+        return apiPost('/api/x', {});
+      }).then(function (res) {
+        eq([res.status, toLogin, sent.length], [401, 1, 1], 'no session: the request goes, 401 LOGIN, the sign-in page');
+      }).then(restore, function (e) { restore(); throw e; });
     });
 
     // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (OWASP ASVS 3.3.3): تغيير كلمة المرور كان بيقفل الجلسة المؤقتة بس، فأي جلسة مفتوحة بالكلمة القديمة
