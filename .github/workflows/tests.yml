@@ -79,7 +79,8 @@ jobs:
           set +e
           # باسم الملف: Deno لوحده بيدوّر على *_test.ts بس، واسم Supabase المقترح (sync-test.ts) مش منهم.
           # القراءة لملفات المحرك والمُشغّل بس: اختبار العقد بينهم بيحمّل المحرك الحقيقي ويقرا runner.ts (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٦)
-          deno test --allow-env --allow-read=Live/js,supabase/functions/sync --no-check supabase/functions/tests/sync-test.ts 2>&1 | tee deno-test.txt
+          # --coverage: التغطية بتتجمع في نفس التشغيل (خطوة التقرير تحت)
+          deno test --allow-env --allow-read=Live/js,supabase/functions/sync --no-check --coverage=cov supabase/functions/tests/sync-test.ts 2>&1 | tee deno-test.txt
           status=${PIPESTATUS[0]}
           echo "::notice title=sync tests::$(grep -E '^(ok|FAILED) \|' deno-test.txt | tail -1)"
           # كل اختبار فاشل ملاحظة (annotation) باسمه ورسالته — بتتقري من واجهة GitHub العامة من غير صلاحية السجل (سجل التشغيل نفسه محتاج
@@ -90,6 +91,15 @@ jobs:
               $x =~ s/%/%25/g; $x =~ s/\r/%0D/g; $x =~ s/\n/%0A/g; print "::error title=sync test failed::$x\n"; } }' deno-test.txt
           fi
           exit $status
+      # تغطية السطور والفروع في ملفات الدالة نفسها (للتقرير بس — مبتوقفش النشر): ملاحظة عامة بالنسب والسطور اللي متنفّذتش في أي اختبار
+      # (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٦ — تغطية الدوال اتقاست، والفروع جوه الدوال لأ)
+      - name: Sync function coverage (report only)
+        continue-on-error: true
+        env:
+          NO_COLOR: '1'
+        run: |
+          deno coverage cov --lcov --output=cov.lcov
+          perl .github/scripts/coverage-notice.pl cov.lcov
       # فحص الأنواع للتقرير بس: Supabase بتنشر من غيره، فأخطاؤه مش أعطال تشغيل — بس بتتسجّل عشان تتصلّح.
       # كل خطأ بيطلع ملاحظة (annotation) بمكانه، عشان يتقري من غير دخول للسجل
       - name: Type-check the sync function (report only)
