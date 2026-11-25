@@ -6,14 +6,14 @@
 
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
 import { authAdmin, corsHeaders, db, esc, isAppAdmin, reply, sendEmail, str, stripHidden, unsubHeaders } from '../sync/lib.ts';
-import { MAX_PER_PLATFORM, SNAP_ID, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, sealedAad, unseal } from '../sync/digest.ts';
+import { MAX_PER_PLATFORM, SNAP_ID, cleanEmail, daysText, hourText, handleDigest, linkSig, longLived, sameString, seal, sealedAad, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, counterMissing, handleLogin, newCode, requireLogin, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
   summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue, alertsCountAr, alertStatusHtml, linkAllowed, privateAddr, setResolverForTests, runAll, preview, previewSummary, snapEdits
 } from '../sync/runner.ts';
-import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
+import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanPrefs, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
 import { handle } from '../sync/handler.ts';
 import { activationMail, adminMail, handleJoin, joinReminders } from '../sync/join.ts';
@@ -3132,4 +3132,152 @@ Deno.test('حواف الانضمام: الحقول الفاضية، ورسالة
     console.error = realErr;
     restoreDigestEnv();
   }
+});
+// حواف سجل المشكلات (فروع متنفّذتش قبل كده — قياس الفروع ٢٥ نوفمبر ٢٠٢٦): بداية مش تاريخ = القرار مرفوض؛ جهاز تاني سجّل نفس المشكلة في نفس
+// اللحظة (الفهرس الفريد رفض الدفعة) = بنسجّل واحدة واحدة ونسيب المكررة من غير ما الطلب يفشل؛ «اتعالجت» بعد الـ ٢٤ ساعة = مبيتحفظش؛ وعملية
+// مش معروفة = ٤٠٠
+Deno.test('حواف سجل المشكلات: بداية مش تاريخ، وتسجيل جهازين في نفس اللحظة، وقرار برّه الـ ٢٤ ساعة، وعملية مش معروفة', async () => {
+  assert(!decisionOk('not a date', { handledAt: null }, Date.now()), 'no start date: never accepted');
+  const calls: { method: string; url: string; body: any }[] = [];
+  const first = new Date(Date.now() - 30 * 3600000).toISOString();
+  stubFetch((url, init) => {
+    if (url.indexOf('graph.facebook.com') > -1) return json({ id: 'act_123', name: 'X' });
+    if (url.indexOf('/rest/v1/alert_episodes') > -1) {
+      const method = (init && init.method) || 'GET', body = init && init.body ? JSON.parse(String(init.body)) : null;
+      calls.push({ method, url, body });
+      if (method === 'GET' && url.indexOf('ended_at=is.null') > -1) return json([]);
+      if (method === 'GET' && url.indexOf('decided_at=is.null') > -1) return json([{ id: 7, first_at: first }]);
+      if (method === 'GET') return json([]);
+      // الفهرس الفريد: الدفعة اللي فيها مشكلة سجّلها جهاز تاني بتترفض كلها، والصف المكرر لوحده بيترفض
+      if (method === 'POST') return (Array.isArray(body) ? body : [body]).some((r: any) => r.ad_id === '22') ? json({ code: '23505' }, 409) : new Response(null, { status: 201 });
+      return new Response(null, { status: 204 });
+    }
+    throw new Error('unexpected fetch ' + url);
+  });
+  try {
+    const who = { platform: 'meta', accountId: 'act_123', platformToken: 'TOKEN_abcdefghijklmnopqrstuvwxyz' }, U = '11111111-2222-3333-4444-555555555555';
+    const res = await handleEpisodes('episodes.sync', { ...who, open: [{ ad: '11', kind: 'waste' }, { ad: '22', kind: 'waste' }] }, U, null);
+    assertEquals(res.status, 200, 'the request does not fail');
+    assertEquals(calls.filter((c) => c.method === 'POST').map((c) => (Array.isArray(c.body) ? c.body.map((r: any) => r.ad_id) : c.body.ad_id)), [['11', '22'], '11', '22'],
+      'the batch, then one by one (the duplicate is left)');
+    calls.length = 0;
+    // «اتعالجت» بعد ٢٦ ساعة من التنبيه: برّه الـ ٢٤ ساعة — مبيتحفظش
+    const late = new Date(Date.parse(first) + 26 * 3600000).toISOString();
+    const dec = await handleEpisodes('episodes.decide', { ...who, decisions: [{ id: 7, handledAt: late, action: 'budget' }] }, U, null);
+    assertEquals([(await dec.json()).saved, calls.filter((c) => c.method === 'PATCH').length], [0, 0], 'outside the 24 hours: nothing saved');
+    assertEquals((await handleEpisodes('episodes.other', { ...who }, U, null)).status, 400);
+  } finally { restoreFetch(); }
+});
+// تفضيلات المستخدم (من ٣١ أكتوبر — عملة الأرقام المجمّعة، وموافقة ملاحظة لوحة «ما حققته مع الأداة») مكانش ليها أي اختبار (قياس الفروع ٢٥ نوفمبر
+// ٢٠٢٦): العملة كود من ٣ حروف كبيرة أو null (من غير تفضيل)، والموافقة true بس، وأي حاجة تانية بتتشال؛ وتفضيلات غلط في الحفظ = رفض الطلب كله؛
+// وسجل حساب إعلاني في الأساس بيتعدّ في حد المفاتيح؛ وطلب مش كائن، وأهداف مش كائن = رفض؛ ورد Snapchat مش JSON = مفيش إثبات وصول
+Deno.test('تفضيلات المستخدم: العملة كود أو null، والموافقة true بس، والغلط بيرفض الطلب كله؛ ورد Snapchat مش JSON = مفيش وصول', async () => {
+  assertEquals(cleanPrefs({ currency: 'SAR', valueAck: true, evil: 1 }), { currency: 'SAR', valueAck: true });
+  assertEquals(cleanPrefs({ currency: null }), { currency: null }, 'null = no preference');
+  assertEquals(cleanPrefs({ currency: 'sar', valueAck: 'yes' }), null, 'nothing valid = nothing');
+  assertEquals(cleanPrefs([1]), null);
+  assertEquals(cleanUserSettings({ all: { roasTarget: 4 }, prefs: { currency: 'USD', valueAck: false } }), { all: { roasTarget: 4 }, prefs: { currency: 'USD' } });
+  assertEquals(cleanUserWrite({ changes: { prefs: { valueAck: true } } }), { base: null, changes: { prefs: { valueAck: true } }, goals: null, asked: false });
+  assertEquals(cleanUserWrite({ changes: { prefs: { currency: 'XX' } } }), null, 'bad prefs refuse the whole request');
+  assertEquals(cleanUserWrite({ base: { all: { roasTarget: 5 }, acct: { 'meta:act_1': { roasTarget: 3 } } } }),
+    { base: { all: { roasTarget: 5 }, acct: { 'meta:act_1': { roasTarget: 3 } } }, changes: {}, goals: null, asked: false }, 'an account record in the base');
+  assertEquals([cleanUserWrite('x'), cleanUserWrite(null)], [null, null], 'not an object: refused, not thrown');
+  assertEquals(cleanUserWrite({ goals: [5] }), null);
+  // رد Snapchat ٢٠٠ بس مش JSON: مفيش إثبات وصول للحساب (٤٠٣)، ومفيش قراءة للسجل
+  let reads = 0;
+  stubFetch((url) => {
+    if (url.indexOf('adsapi.snapchat.com') > -1) return new Response('<html>oops</html>', { status: 200 });
+    if (url.indexOf('/rest/v1/account_settings') > -1) { reads++; return json([]); }
+    throw new Error('unexpected fetch ' + url);
+  });
+  try {
+    const r = await handleSettings('settings.get', { platform: 'snapchat', accountId: 'a1b2c3d4-e5f6-4a7b-8c9d-0123456789a0', platformToken: 'TOKEN_abcdefghijklmnopqrstuvwxyz' }, null);
+    assertEquals([r.status, reads], [403, 0]);
+  } finally { restoreFetch(); }
+});
+// حواف الملخص (فروع متنفّذتش قبل كده — قياس الفروع ٢٥ نوفمبر ٢٠٢٦): مفتاح التشفير بطول غلط = خطأ واضح، والفشل مبيتحفظش (المفتاح بيتشتق تاني لما
+// السر يتصلّح)؛ المفتاح الطويل من Meta: من غير سر التطبيق، أو الشبكة وقعت، أو Meta رفضت، أو رد من غير مفتاح أو مش JSON = null، ومن غير مدة = ٦٠
+// يوم؛ المفتاح الطويل مش شايف الحساب = ٥٠٢ ومفيش حاجة اتحفظت؛ أيام مش قائمة = ٤٠٠؛ توقيت Snapchat مش نص أو مش معروف = الرياض؛ تفعيل حساب تاني
+// = رسالة التأكيد فيها اسم الأول كمان؛ والصلاحية المحفوظة: مبتتفكش = «decrypt failed»، وMeta رفضتها = «meta rejected stored token» — «مش شغالة»
+Deno.test('حواف الملخص: مفتاح التشفير الغلط، والمفتاح الطويل من Meta، وحساب مش ظاهر للمفتاح الطويل، والأيام، وتوقيت Snapchat، والصلاحية المحفوظة', async () => {
+  const U = '11111111-2222-3333-4444-555555555555', T = 'TOKEN_abcdefghijklmnopqrstuvwxyz';
+  const keepKey = Deno.env.get('TOKEN_ENC_KEY') as string, keepSecret = Deno.env.get('META_APP_SECRET');
+  // ١) مفتاح التشفير بطول غلط: خطأ واضح، والفشل مبيتحفظش لنفس الغرض
+  try {
+    Deno.env.set('TOKEN_ENC_KEY', btoa('sixteen-byte-key'));
+    await assertRejects(() => linkSig('ads-center/edge-test/v1:', 'x'), Error, 'token key invalid');
+    Deno.env.set('TOKEN_ENC_KEY', keepKey);
+    const sig = await linkSig('ads-center/edge-test/v1:', 'x');
+    assert(typeof sig === 'string' && sig.length >= 20, 'derived again once the secret is right');
+  } finally { Deno.env.set('TOKEN_ENC_KEY', keepKey); }
+  // ٢) المفتاح الطويل من Meta
+  let answer: () => Response | Promise<Response> = () => json({});
+  stubFetch((url) => { if (url.indexOf('/oauth/access_token') > -1) return answer(); throw new Error('unexpected fetch ' + url); });
+  try {
+    answer = () => json({ access_token: 'LONG' });
+    Deno.env.delete('META_APP_SECRET');
+    assertEquals(await longLived(T), null, 'no app secret (even if Meta would answer)');
+    Deno.env.set('META_APP_SECRET', 'sec');
+    answer = () => json({ access_token: 'LONG' }, 500);
+    assertEquals(await longLived(T), null, 'a failed answer is never trusted');
+    answer = () => { throw new TypeError('network down'); };
+    assertEquals(await longLived(T), null, 'network down');
+    answer = () => json({ error: { code: 190 } }, 400);
+    assertEquals(await longLived(T), null, 'Meta refused');
+    answer = () => json({ token_type: 'bearer' });
+    assertEquals(await longLived(T), null, 'no token in the answer');
+    answer = () => new Response('oops', { status: 200 });
+    assertEquals(await longLived(T), null, 'not JSON');
+    answer = () => json({ access_token: 'LONG' });
+    const t0 = Date.now(), ll = await longLived(T);
+    const days = ll ? (Date.parse(ll.expiresAt) - t0) / 86400000 : 0;
+    assert(ll && ll.token === 'LONG' && days > 59.9 && days < 60.1, 'no expiry from Meta = 60 days: ' + days);
+  } finally {
+    restoreFetch();
+    if (keepSecret === undefined) Deno.env.delete('META_APP_SECRET'); else Deno.env.set('META_APP_SECRET', keepSecret);
+  }
+  // ٣) عمليات الملخص
+  const store = fakeDigestDb();
+  const marks: string[] = [];
+  let vaultRow: Record<string, string> | null = null, rejectStored = false;
+  const inner = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    // الحساب act_404 ظاهر للمفتاح القصير بس (المفتاح الطويل مش شايفه)
+    if (url.indexOf('/act_404?') > -1 && url.indexOf('LONG_lived') > -1) return Promise.resolve(json({ error: { code: 100 } }, 400));
+    if (rejectStored && url.indexOf('/act_1?') > -1 && url.indexOf('STORED_tok') > -1) return Promise.resolve(json({ error: { code: 190 } }, 400));
+    if (url.indexOf('/rest/v1/rpc/vault_user_get') > -1) return Promise.resolve(json(vaultRow ? [vaultRow] : []));
+    if (url.indexOf('/rest/v1/rpc/vault_user_mark_error') > -1) { marks.push(JSON.parse(String(init && init.body)).p_error); return Promise.resolve(new Response('', { status: 200 })); }
+    return inner(input, init);
+  }) as typeof fetch;
+  const call = async (action: string, body: Record<string, unknown>) => { const r = await handleDigest(action, body, null, U); return { status: r.status, body: await r.json() }; };
+  try {
+    // المفتاح الطويل مش شايف الحساب: ٥٠٢ ومفيش صلاحية ولا ملخص اتحفظوا
+    assertEquals(await call('digest.enable', { token: T, accountId: 'act_404', email: 'a@store.com', consent: true }), { status: 502, body: { error: 'meta exchange' } });
+    assertEquals([store.tokens.length, store.digests.length], [0, 0]);
+    // أيام مش قائمة
+    assertEquals(await call('digest.enable', { token: T, accountId: 'act_1', email: 'a@store.com', consent: true, days: 'mon' }), { status: 400, body: { error: 'days' } });
+    // التفعيل بحسابين ورا بعض: رسالة التأكيد التانية فيها اسم الأول كمان
+    assertEquals((await call('digest.enable', { token: T, accountId: 'act_1', email: 'a@store.com', consent: true })).status, 200);
+    assertEquals((await call('digest.enable', { token: T, accountId: 'act_2', email: 'a@store.com', consent: true })).status, 200);
+    const last = store.mails[store.mails.length - 1];
+    assert(String(last.html).indexOf('Store one') > -1 && String(last.html).indexOf('Store two') > -1, 'both accounts named');
+    // توقيت Snapchat مش نص، أو مش معروف = الرياض
+    const snap = (timezone: unknown) => call('digest.enable', { platform: 'snapchat', accountId: 'a1b2c3d4-e5f6-4a7b-8c9d-0123456789a0',
+      sealed: 'v2.' + 'A'.repeat(16) + '.' + 'B'.repeat(40), name: 'Snap store', timezone, email: 'a@store.com', consent: true });
+    for (const tz of [5, 'Mars/Phobos']) {
+      assertEquals((await snap(tz)).status, 200);
+      assertEquals(store.digests[0].timezone, 'Asia/Riyadh', 'timezone ' + JSON.stringify(tz));
+    }
+    // الصلاحية المحفوظة مبتتفكش: «decrypt failed» ومش شغالة
+    vaultRow = { ciphertext: 'AAAA', iv: 'BBBBBBBBBBBBBBBB' };
+    assertEquals((await call('digest.get', { accountId: 'act_1' })).body.current.tokenWorks, false);
+    // Meta رفضت الصلاحية المحفوظة: «meta rejected stored token» ومش شغالة
+    const s = await seal('STORED_tok_abcdefghijklmnop', 'act_1');
+    vaultRow = { ciphertext: s.ct, iv: s.iv }; rejectStored = true;
+    assertEquals((await call('digest.get', { accountId: 'act_1' })).body.current.tokenWorks, false);
+    assertEquals(marks, ['decrypt failed', 'meta rejected stored token']);
+    rejectStored = false;
+    assertEquals((await call('digest.get', { accountId: 'act_1' })).body.current.tokenWorks, true, 'works when Meta accepts it');
+  } finally { restoreDigestEnv(); }
 });
