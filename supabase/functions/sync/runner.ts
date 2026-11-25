@@ -139,7 +139,7 @@ let runUsage = freshUsage();   // التشغيل كله (بيطلع في سطر 
 let metaToken = '';
 // نهاية التشغيل الحالي (runAll بس — المعاينات من غير نهاية، بمهلة الطلب بس). صفر = مفيش
 let runDeadline = 0;
-// مفتاح المُشغّل (index.ts بيبعته لـ runAll من هيدر pg_cron) — بيروح للـ Worker مع طلبات Snapchat (Live/api/digest-fetch.js)
+// مفتاح المُشغّل (handler.ts بيبعته لـ runAll من هيدر pg_cron) — بيروح للـ Worker مع طلبات Snapchat (Live/api/digest-fetch.js)
 let runnerKey = '';
 // مهلة الطلب الجاي: ٤٠ ثانية، أو اللي فاضل للتشغيل لو أقل. الوقت خلص = الطلب ميتبعتش أصلاً
 export function callTimeout(deadline: number, now: number): number {
@@ -1614,7 +1614,7 @@ export async function previewSummary(token: string, accountId: string, lang: str
   });
 }
 
-// معاينة لمدير التطبيق بس (index.ts بيتأكد): الرسالة العاجلة اللي كانت هتتبعت للحساب دلوقتي — بمفتاح المدير نفسه وإعداداته،
+// معاينة لمدير التطبيق بس (handler.ts بيتأكد): الرسالة العاجلة اللي كانت هتتبعت للحساب دلوقتي — بمفتاح المدير نفسه وإعداداته،
 // من غير إرسال ولا بصمات. للتجربة قبل ما أي عميل يفعّل الملخص
 export async function preview(token: string, accountId: string, lang: string, user = ''): Promise<Record<string, unknown>> {
   const outdated = await loadEngine();

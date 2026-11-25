@@ -38,7 +38,7 @@ jobs:
         with:
           version: 2.120.0
 
-      # verify_jwt = false: الدالة بتعمل التحقق بنفسها (الدخول للأداة + صلاحية Meta — index.ts)، وفيها عمليات عامة
+      # verify_jwt = false: الدالة بتعمل التحقق بنفسها (الدخول للأداة + صلاحية Meta — handler.ts)، وفيها عمليات عامة
       # (النبض، رابط الإيقاف، طلب الانضمام). --use-api: التجميع على خوادم Supabase من غير Docker
       - name: Deploy sync
         run: |

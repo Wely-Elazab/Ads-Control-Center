@@ -343,7 +343,7 @@ async function storedTokenWorks(user: string, account: string): Promise<boolean 
 }
 
 // ---------- العمليات ----------
-// كل العمليات لصاحب الدخول (userId من index.ts requireLogin) — ملخصه هو بس. إضافة حساب Meta محتاجة مفتاحه (token) بيثبت إن صاحبه
+// كل العمليات لصاحب الدخول (userId من handler.ts requireLogin) — ملخصه هو بس. إضافة حساب Meta محتاجة مفتاحه (token) بيثبت إن صاحبه
 // شايف الحساب. رابط الإيقاف (stop) من غير دخول: توقيعه هو الإثبات
 // الحساب المفتوح (open) = Meta: { accountId, token }، أو Snapchat: { platform: 'snapchat', accountId, sealed, name?, timezone? }
 //   digest.get     ← { platform?, accountId? }  الملخص وحساباته (ولو الحساب المفتوح في الملخص: صلاحيته شغالة؟)

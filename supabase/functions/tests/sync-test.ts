@@ -7,7 +7,7 @@
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
 import { corsHeaders, esc, isAppAdmin, reply, str, stripHidden, unsubHeaders } from '../sync/lib.ts';
 import { MAX_PER_PLATFORM, SNAP_ID, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
-import { bearer, cleanCode, counterMissing, handleLogin, newCode, verifyJwt } from '../sync/auth.ts';
+import { bearer, cleanCode, counterMissing, handleLogin, newCode, requireLogin, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
@@ -15,6 +15,7 @@ import {
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
+import { handle } from '../sync/handler.ts';
 import { activationMail, adminMail, handleJoin } from '../sync/join.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
@@ -192,6 +193,98 @@ Deno.test('مفتاح الدخول: بيتقبل بس لو توقيعه ومُص
     assertEquals(await verifyJwt(await jwt(good(), { alg: 'ES256', kid: 'unknown-2' })), null, 'another unknown kid');
     assertEquals(jwksCalls, before + 1, 'not fetched again within a minute');
     assertEquals(((await verifyJwt(await jwt(good()))) || {}).sub, 'user-1', 'the real key still works');
+  } finally { restoreFetch(); }
+});
+// التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٦): بوابة كل العمليات بعد الدخول (requireLogin — handler.ts) مكانش ليها اختبار: مفتاح موقّع سليم «و» جلسة
+// لسه شغالة في قاعدة البيانات (الخروج من جهاز تاني أو تغيير كلمة المرور بيقفلها). الجلسة والمستخدم من المفتاح الموقّع مش من الطلب،
+// و«true» بالظبط بس، وقاعدة بيانات واقعة = مفيش دخول (مقفولة وقت الشك)، ومفتاح مرفوض مبيوصلش لقاعدة البيانات أصلاً
+Deno.test('بوابة الدخول: مفتاح موقّع وجلسة شغالة، والجلسة من المفتاح، و«true» بالظبط، وقاعدة بيانات واقعة = مفيش دخول', async () => {
+  let ok: unknown = true, asked: any[] = [];
+  stubFetch((url, init) => {
+    if (url === ISSUER + '/.well-known/jwks.json') return json({ keys: [{ ...publicJwk, kid: 'k1' }] });
+    if (url.indexOf('/rest/v1/rpc/session_ok') > -1) {
+      asked.push(JSON.parse(String(init && init.body)));
+      return ok === 'down' ? json({ message: 'down' }, 500) : new Response(JSON.stringify(ok), { status: 200 });
+    }
+    throw new Error('unexpected fetch ' + url);
+  });
+  const req = async (payload: Record<string, unknown> | null) => new Request('https://x.test', { method: 'POST',
+    headers: payload ? { authorization: 'Bearer ' + (await jwt(payload)) } : {}, body: JSON.stringify({ session_id: 'forged', sub: 'forged' }) });
+  try {
+    assertEquals(await requireLogin(await req({ ...good(), email: 'A@B.Co' })), { id: 'user-1', email: 'a@b.co' });
+    assertEquals(asked, [{ p_session: 'session-1', p_user: 'user-1' }], 'the session and user come from the signed key, not the request body');
+    asked = [];
+    assertEquals(await requireLogin(await req(null)), null, 'no key');
+    assertEquals(await requireLogin(await req({ ...good(), exp: now() - 5 })), null, 'an expired key');
+    assertEquals(asked.length, 0, 'a refused key never reaches the database');
+    for (const v of [false, 'true', 1, { ok: true }, null]) {
+      ok = v;
+      assertEquals(await requireLogin(await req(good())), null, 'session_ok ' + JSON.stringify(v) + ' is not a yes');
+    }
+    ok = 'down';
+    assertEquals(await requireLogin(await req(good())), null, 'the database down: no login (closed when unsure)');
+  } finally { restoreFetch(); }
+});
+// ---------- نقطة الدخول (handler.ts) — التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٦) ----------
+// المعالج كان جوه Deno.serve في index.ts فمكانش بيتختبر خالص. التوجيه والفحوص اللي قبل أي عملية: الطرق، وCORS للموقع بس، وحد حجم الجسم،
+// والعمليات العامة بس من غير دخول (النبض والإيقاف والانضمام والدخول)، والمُشغّل بمفتاحه، وكل الباقي دخول مكتمل الأول (٤٠١) قبل ما
+// يتسأل Meta عن أي حاجة، وبعد الدخول فحص المدخلات، والخطأ الداخلي ٥٠٢ من غير أي تفاصيل
+Deno.test('نقطة الدخول: الطرق وCORS وحد الحجم، والعامة بس من غير دخول، والمُشغّل بمفتاحه، والخطأ من غير تفاصيل', async () => {
+  const SITE_O = 'https://adscenter.online', TOK = 'EAAB' + 'x'.repeat(40), asked: string[] = [];
+  let sessionOk = false, beatFails = false;
+  stubFetch((url) => {
+    asked.push(url);
+    if (url === ISSUER + '/.well-known/jwks.json') return json({ keys: [{ ...publicJwk, kid: 'k1' }] });
+    if (url.indexOf('/rest/v1/rpc/beat') > -1) return beatFails ? json({ message: 'db said secret-XYZ' }, 500) : new Response('', { status: 200 });
+    if (url.indexOf('/rest/v1/rpc/runner_key_check') > -1) return json(false);
+    if (url.indexOf('/rest/v1/rpc/session_ok') > -1) return json(sessionOk);
+    if (url.indexOf('graph.facebook.com') > -1) return json({ error: { code: 190, message: 'invalid' } }, 400);
+    return json({ message: 'unexpected' }, 500);
+  });
+  // طلب بسيط بنفس الشكل اللي المعالج بيقراه: هيدر origin ممنوع في Request جوه المتصفح (الاختبارات المحلية) فبيتشال بصمت، وHeaders لوحده مسموح
+  const fake = (method: string, headers: Record<string, string>, raw = '') => ({ method, headers: new Headers(headers), text: () => Promise.resolve(raw) }) as unknown as Request;
+  const post = async (body: unknown, headers: Record<string, string> = {}, raw?: string) => {
+    const r = await handle(fake('POST', { origin: SITE_O, ...headers }, raw !== undefined ? raw : JSON.stringify(body)));
+    return { status: r.status, body: await r.json().catch(() => null), cors: r.headers.get('access-control-allow-origin') };
+  };
+  try {
+    // الطرق وCORS
+    const opt = await handle(fake('OPTIONS', { origin: SITE_O }));
+    assertEquals([opt.status, opt.headers.get('access-control-allow-origin')], [204, SITE_O]);
+    const evil = await handle(fake('OPTIONS', { origin: 'https://evil.example' }));
+    assertEquals(evil.headers.get('access-control-allow-origin'), null, 'another site gets no CORS');
+    assertEquals((await handle(fake('GET', { origin: SITE_O }))).status, 405);
+    // الجسم: JSON بس، و١٦ كيلو — إلا حفظ الإعدادات لحد ٢٥٦
+    assertEquals((await post(null, {}, '{bad')).status, 400);
+    assertEquals((await post(null, {}, JSON.stringify({ action: 'ping', pad: 'x'.repeat(17 * 1024) }))).status, 413, 'over 16 KB');
+    assertEquals((await post(null, {}, JSON.stringify({ action: 'usettings.set', pad: 'x'.repeat(100 * 1024) }))).status, 401, 'settings may be bigger (then the login check)');
+    assertEquals((await post(null, {}, JSON.stringify({ action: 'usettings.set', pad: 'x'.repeat(300 * 1024) }))).status, 413, 'but not over 256 KB');
+    // العامة من غير دخول، والمُشغّل بمفتاحه بس
+    const ping = await post({ action: 'ping' });
+    assertEquals([ping.status, ping.cors], [200, SITE_O]);
+    assertEquals((await post({ action: 'run' }, { 'x-runner-key': 'guess' })).status, 403, 'the runner only with its key');
+    // كل الباقي: دخول مكتمل الأول — حتى لو الطلب فيه مفتاح Meta، مفيش سؤال لـ Meta قبل الدخول
+    for (const action of ['seen', 'list', 'save', 'selfcheck', 'testmail', 'digest.preview', 'digest.previewSummary', 'digest.status', 'meta.seal', 'meta.renew',
+      'usettings.get', 'usettings.set', 'settings.get', 'episodes.sync', 'episodes.decide', 'nonsense', '']) {
+      asked.length = 0;
+      const r = await post({ action, token: TOK, accountId: 'act_1', viewKey: 'meta:act_1' });
+      assertEquals([r.status, r.body], [401, { error: 'login', code: 'LOGIN' }], JSON.stringify(action));
+      assert(asked.every((u) => u.indexOf('graph.facebook.com') < 0), action + ': nothing asked of Meta before the login check');
+    }
+    // بعد الدخول: مفتاح Meta بشكل غلط قبل أي حاجة، وعملية مش معروفة، والحساب والعرض بالشكل الصحيح بس، ورفض Meta = مفيش كتابة
+    sessionOk = true;
+    const auth = { authorization: 'Bearer ' + (await jwt(good())) };
+    assertEquals((await post({ action: 'nonsense' }, auth)).body, { error: 'token' }, 'a malformed Meta key first');
+    assertEquals((await post({ action: 'nonsense', token: TOK }, auth)).body, { error: 'action' });
+    assertEquals((await post({ action: 'seen', token: TOK, accountId: 'act_x' }, auth)).body, { error: 'account' });
+    assertEquals((await post({ action: 'list', token: TOK, viewKey: 'google:1' }, auth)).body, { error: 'view' }, 'only Meta views are kept on the server');
+    asked.length = 0;
+    assertEquals((await post({ action: 'seen', token: TOK, accountId: 'act_1' }, auth)).body, { error: 'not verified' });
+    assert(!asked.some((u) => u.indexOf('touch_account') > -1), 'Meta said no: nothing written');
+    // الخطأ الداخلي: ٥٠٢ من غير أي تفاصيل (ولا رسالة قاعدة البيانات)
+    beatFails = true;
+    const up = await post({ action: 'ping' });
+    assertEquals([up.status, up.body], [502, { error: 'upstream' }]);
   } finally { restoreFetch(); }
 });
 
@@ -410,7 +503,7 @@ Deno.test('قرار العاجل: الجديد مرة، وتذكير واحد ب
 });
 // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٦): بوابة العمليات الإدارية (isAppAdmin — معاينة الملخص والفحص الذاتي والرسالة التجريبية) مكانش ليها
 // اختبار: مدير تطبيق Meta بس (administrators) — مش المطوّر ولا مستخدم تاني ولا مفتاح من غير صاحب — والمفتاح مبيروحش غير Graph. ومن غير سر
-// التطبيق، أو لو قايمة الأدوار فشلت = null (منعرفش)، والمستدعي في index.ts بيرفض null بـ 503 زي false بـ 403: مقفولة وقت الشك
+// التطبيق، أو لو قايمة الأدوار فشلت = null (منعرفش)، والمستدعي في handler.ts بيرفض null بـ 503 زي false بـ 403: مقفولة وقت الشك
 Deno.test('بوابة المدير: مدير تطبيق Meta بس، والمفتاح لـ Graph بس، ومن غير سر أو لو القايمة فشلت = منعرفش', async () => {
   const real = globalThis.fetch, hadSecret = Deno.env.get('META_APP_SECRET'), asked: string[] = [];
   let roles: any = { data: [{ user: '111', role: 'administrators' }, { user: '222', role: 'developers' }, { user: 333, role: 'administrators' }] };
