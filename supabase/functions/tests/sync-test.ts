@@ -2741,3 +2741,74 @@ Deno.test('رسالة الملخص — التقرير كامل في البريد
     assertEquals(w.errs, []);
   });
 });
+// التوجيه بعد البوابات (handler.ts — فروع متنفّذتش قبل كده، قياس الفروع ٢٥ نوفمبر ٢٠٢٦): المُشغّل بمفتاحه الصحيح (والرد ٢٠٢ مع EdgeRuntime
+// والتشغيل في الخلفية)، والإيقاف والانضمام لمعالجهم من غير دخول، و«login.status»، وبعد الدخول: «seen» بيحفظ بيانات الحساب من رد Meta نفسها
+// منضّفة، و«list» إجابات المستخدم ده بس، وبوابة معاينة المدير (سر التطبيق مش صالح ٥٠٣، مش مدير ٤٠٣، حساب بشكل غلط ٤٠٠، والمدير = المعاينة)
+Deno.test('نقطة الدخول — التوجيه: المُشغّل بمفتاحه، والإيقاف والانضمام، وseen من رد Meta منضّف، وlist للمستخدم ده بس، وبوابة معاينة المدير', async () => {
+  const SITE_O = 'https://adscenter.online', TOK = 'EAAB' + 'x'.repeat(40), ADMIN = 'EAAB' + 'a'.repeat(40);
+  const RLM = String.fromCharCode(0x200f);   // علامة اتجاه مخفية في اسم الحساب اللي Meta بترجّعه (بتتبني وقت التشغيل — مش مكتوبة في الملف)
+  const asked: string[] = [], touched: any[] = [], jobs: Promise<unknown>[] = [];
+  let roles: unknown = { data: [{ user: '777', role: 'administrators' }] };
+  const eng = await engineFiles();
+  stubFetch((url, init) => {
+    asked.push(url);
+    if (url === ISSUER + '/.well-known/jwks.json') return json({ keys: [{ ...publicJwk, kid: 'k1' }] });
+    if (url.indexOf('/rest/v1/rpc/session_ok') > -1) return json(true);
+    if (url.indexOf('/rest/v1/rpc/runner_key_check') > -1) return json(true);
+    if (url.indexOf('/rest/v1/rpc/touch_account') > -1) { touched.push(JSON.parse(String(init && init.body))); return new Response('', { status: 200 }); }
+    if (url.indexOf('/rest/v1/app_access') > -1) return json([{ role: 'pilot' }]);
+    if (url.indexOf('/rest/v1/feedback') > -1) {
+      return json([{ block: 'b1', since: '2026-11-01', until: '2026-11-07', verdict: 'yes', reasons: null, note: null, answered_at: '2026-11-08T00:00:00Z' }]);
+    }
+    // المُشغّل من غير مستخدمين: تشغيل فاضي
+    if (url.indexOf('/rest/v1/user_digests') > -1 || url.indexOf('/rest/v1/digest_outbox') > -1 || url.indexOf('/rest/v1/rpc/digest_claim') > -1) return json([]);
+    if (url.indexOf('/rest/v1/rpc/beat') > -1) return new Response('', { status: 200 });
+    if (url.indexOf('/roles?') > -1) return roles ? json(roles) : json({ error: { message: 'bad secret' } }, 400);
+    if (url.indexOf('/me?') > -1) return json({ id: url.indexOf(encodeURIComponent(ADMIN)) > -1 ? '777' : '555' });
+    if (url.indexOf('/act_1?fields=id,name,currency,timezone_name&') > -1) {
+      return json({ id: 'act_1', name: 'Store' + RLM + ' One ' + 'x'.repeat(300), currency: 'SAR', timezone_name: 'Asia/Riyadh' });
+    }
+    if (url.indexOf('graph.facebook.com') > -1) return json({ error: { code: 190, message: 'invalid' } }, 400);
+    return eng(url) || json({ message: 'unexpected ' + url }, 500);
+  });
+  const fake = (headers: Record<string, string>, raw: string) => ({ method: 'POST', headers: new Headers(headers), text: () => Promise.resolve(raw) }) as unknown as Request;
+  const post = async (body: unknown, headers: Record<string, string> = {}) => {
+    const r = await handle(fake({ origin: SITE_O, ...headers }, JSON.stringify(body)));
+    return { status: r.status, body: await r.json().catch(() => null) };
+  };
+  const realLog = console.log;
+  console.log = () => {};
+  try {
+    // المُشغّل بمفتاحه: يستنى التشغيل (من غير EdgeRuntime) — ومع EdgeRuntime يرد ٢٠٢ على طول والتشغيل في الخلفية
+    assertEquals(await post({ action: 'run' }, { 'x-runner-key': 'right-key' }), { status: 200, body: { ok: true } });
+    (globalThis as any).EdgeRuntime = { waitUntil: (p: Promise<unknown>) => { jobs.push(p); } };
+    try {
+      assertEquals(await post({ action: 'run' }, { 'x-runner-key': 'right-key' }), { status: 202, body: { accepted: true } });
+      assertEquals(jobs.length, 1, 'the run goes on in the background');
+      await jobs[0];
+    } finally { delete (globalThis as any).EdgeRuntime; }
+    // من غير دخول: الإيقاف بتوقيعه والانضمام بتوقيعه — كل واحد لمعالجه
+    assertEquals(await post({ action: 'stop' }), { status: 400, body: { error: 'link' } });
+    assertEquals(await post({ action: 'join.peek' }), { status: 403, body: { error: 'link' } });
+    const auth = { authorization: 'Bearer ' + (await jwt(good())) };
+    assertEquals(await post({ action: 'login.status' }, auth), { status: 200, body: { ok: true, verified: true, access: true, email: 'a@b.co', role: 'pilot' } });
+    // seen: بيانات الحساب من رد Meta نفسها منضّفة (المحارف المخفية بتتشال والاسم ٢٠٠ حرف بالكتير)
+    assertEquals(await post({ action: 'seen', token: TOK, accountId: 'act_1' }, auth), { status: 200, body: { ok: true } });
+    assertEquals(touched.map((t) => [t.p_platform, t.p_account_id, t.p_name.length, t.p_name.indexOf(RLM), t.p_currency, t.p_timezone]),
+      [['meta', 'act_1', 200, -1, 'SAR', 'Asia/Riyadh']]);
+    // list: إجابات المستخدم ده بس (من الدخول، مش من الطلب)
+    asked.length = 0;
+    const list = await post({ action: 'list', token: TOK, viewKey: 'meta:act_1', user: 'someone-else' }, auth);
+    assertEquals(list, { status: 200, body: { entries: [{ block: 'b1', since: '2026-11-01', until: '2026-11-07', verdict: 'yes', reasons: [], note: '', at: '2026-11-08T00:00:00Z' }] } });
+    const q = asked.filter((u) => u.indexOf('/rest/v1/feedback') > -1);
+    assert(q.length === 1 && q[0].indexOf('user_id=eq.user-1&') > -1 && q[0].indexOf('someone-else') < 0, 'only this user: ' + q[0]);
+    // بوابة معاينة المدير
+    roles = null;
+    assertEquals((await post({ action: 'digest.preview', token: ADMIN, accountId: 'act_1' }, auth)).status, 503, 'the app secret check failed');
+    roles = { data: [{ user: '777', role: 'administrators' }] };
+    assertEquals(await post({ action: 'digest.preview', token: TOK, accountId: 'act_1' }, auth), { status: 403, body: { error: 'admins only' } });
+    assertEquals(await post({ action: 'digest.previewSummary', token: ADMIN, accountId: 'act_x' }, auth), { status: 400, body: { error: 'account' } });
+    assertEquals(await post({ action: 'digest.preview', token: ADMIN, accountId: 'act_1' }, auth), { status: 200, body: { error: 'lost' } }, 'the preview itself');
+    assertEquals(await post({ action: 'digest.previewSummary', token: ADMIN, accountId: 'act_1' }, auth), { status: 200, body: { error: 'lost' } });
+  } finally { console.log = realLog; restoreFetch(); }
+});
