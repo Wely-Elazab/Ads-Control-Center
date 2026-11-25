@@ -6,7 +6,7 @@
 
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
 import { corsHeaders, esc, isAppAdmin, reply, str, stripHidden, unsubHeaders } from '../sync/lib.ts';
-import { MAX_PER_PLATFORM, SNAP_ID, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
+import { MAX_PER_PLATFORM, SNAP_ID, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, sealedAad, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, counterMissing, handleLogin, newCode, requireLogin, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
@@ -1823,7 +1823,9 @@ async function repoText(path: string): Promise<string> {
 // حقيقية)، والتخزين تخزين صفحة الاختبارات — فبنحط العنصر وتخزين في الذاكرة. Deno مفيهوش document، والمُشغّل بيعمل بدائله هو
 function browserGuards(): void {
   const W = globalThis as any;
-  if (!W.document || typeof W.document.createElement !== 'function' || !W.document.body) return;
+  // DOM حقيقي بس: في Deno بعد تحميل المحرك المُشغّل نفسه معرّف document بديل (installShims) من غير appendChild — اختبار بينادي الدالة بعد
+  // التحميل كان بيقع في Deno بس (CI على 7665886)، والمتصفح فيه DOM حقيقي فمكانش بيبان محلياً
+  if (!W.document || typeof W.document.createElement !== 'function' || !W.document.body || typeof W.document.body.appendChild !== 'function') return;
   if (!W.document.getElementById('facebook-jssdk')) { const el = W.document.createElement('i'); el.id = 'facebook-jssdk'; W.document.body.appendChild(el); }
   for (const k of ['localStorage', 'sessionStorage']) {
     const m = new Map<string, string>();
@@ -2184,6 +2186,135 @@ Deno.test('المُشغّل كله لحساب Meta — المفتاح المحف
     const r2 = await runAll('runner-key');
     assertEquals([r2.outcomes, w.mails.length, w.st.user_alert_marks.map((m) => m.kind)], [{ 'meta:lost': 1 }, 1, ['connection']], 'log: ' + w.errs.join(' | '));
     assertEquals(w.seen.filter((x) => x.indexOf('graph ') === 0), [], 'Meta is never asked without a usable key');
+    assertEquals(w.errs, []);
+  });
+});
+// Snapchat من طريق الـ Worker (Live/api/digest-fetch.js): النسخة المقفولة بتروح له ويرجّع { status, data, sealed } — النسخة الجديدة بتتقفل تاني
+// بنفس الربط (sealedAad) وبتتحفظ مكان القديمة (vault_sealed_rotate)، والطلبات اللي بعدها بيها. ٤٠١ AUTH أو رد Snapchat ٤٠١/٤٠٣ = الوصول ضاع
+const SNAP_SEALED_1 = 'snap-sealed-v1', SNAP_SEALED_2 = 'snap-sealed-v2';
+// نفس حالة Meta: إعلانين كويسين، وإعلان صرف ٣٢٠ من غير طلب ٣ أيام — بشكل رد api/snapchat-ads-fetch.js (المبالغ بالمليون)
+function snapRunPayload(extra: Row = {}) {
+  const M = 1000000, n = (v: number) => [v, v, v, v, v, v, v];
+  const row = (id: string, spend: number[], buys: number[]) => ({ id, timeseries: RUN_KEYS.map((k, i) => ({ start_time: k + 'T00:00:00.000+03:00',
+    stats: { spend: spend[i] * M, swipes: 40, conversion_purchases: buys[i], conversion_purchases_value: buys[i] * 60 * M } })) });
+  const ad = (id: string) => ({ ad: { id, name: 'Snap ' + id, status: 'ACTIVE', ad_squad_id: 'sq1', creative_id: 'cr-' + id, created_at: '2026-09-01T00:00:00.000Z' } });
+  return {
+    ads: [ad('sgood1'), ad('sgood2'), ad('swaste')],
+    creatives: { 'cr-sgood1': { url: 'https://shop.example/s-sgood1' }, 'cr-sgood2': { url: 'https://shop.example/s-sgood2' }, 'cr-swaste': { url: 'https://shop.example/s-swaste' } },
+    media: null,
+    squads: [{ id: 'sq1', name: 'Squad', campaign_id: 'sc1', optimization_goal: 'PIXEL_PURCHASE', status: 'ACTIVE' }],
+    campaigns: [{ id: 'sc1', name: 'Snap camp', status: 'ACTIVE' }],
+    stats: { timeseries_stats: [{ timeseries_stat: { breakdown_stats: { ad: [row('sgood1', n(100), n(5)), row('sgood2', n(100), n(5)),
+      row('swaste', [100, 100, 100, 100, 100, 100, 20], [5, 5, 5, 0, 0, 0, 0])] } } }] },
+    statsError: null, periodStats: null, storeStats: null, periodStoreStats: null, period: null,
+    range: { since: '2026-11-11', until: '2026-11-18', timeZone: 'Asia/Riyadh' }, account: { timezone: 'Asia/Riyadh', currency: 'SAR' }, ...extra
+  };
+}
+async function snapWorld() {
+  const st = runState(), seen: string[] = [], mails: any[] = [], probes: string[] = [], vaultErrors: string[] = [], errs: string[] = [], claims: Row[] = [], rotations: Row[] = [];
+  st.user_digest_accounts = [{ user_id: RUN_U, platform: 'snapchat', account_id: 'S1', name: 'Snap Store', checked_at: '2026-11-18T06:00:00.000Z', claimed_until: null,
+    need_summary: null, need_monthly: null, edits_at: null, retry_after: null }];
+  st.user_settings = [{ user_id: RUN_U, settings: { acct: { 'snapchat:S1': { maxCost: { purchase: 20 } } } } }];
+  const ctl: { worker?: (body: any) => Response; expired?: boolean; payload: Row } = { payload: snapRunPayload() };
+  const aad = sealedAad(RUN_U, 'snapchat', 'S1'), first = await seal(SNAP_SEALED_1, aad), eng = await engineFiles();
+  // النسخة المحفوظة: vault_sealed_rotate بيبدّلها زي قاعدة البيانات الحقيقية، فالفحص الجاي بياخد الجديدة
+  let stored = { ct: first.ct, iv: first.iv };
+  const rest = fakeRest(st, {
+    digest_claim: () => { const a = claims.shift(); return a ? [a] : []; },
+    vault_sealed_get: (x) => (x.p_user === RUN_U && x.p_platform === 'snapchat' && x.p_account === 'S1'
+      ? [{ ciphertext: stored.ct, iv: stored.iv, expires_at: ctl.expired ? '2026-11-17T00:00:00Z' : '2027-01-15T00:00:00Z' }] : []),
+    vault_sealed_rotate: (x) => { rotations.push(x); stored = { ct: x.p_cipher, iv: x.p_iv }; return null; },
+    vault_sealed_mark_error: (x) => { vaultErrors.push(x.p_error); return null; },
+    beat: () => null
+  }, seen);
+  Deno.env.set('RESEND_API_KEY', 'test-resend-key');
+  stubFetch((url, init) => {
+    if (url.indexOf('/rest/v1/') > -1) return rest(url, init);
+    if (url.indexOf('https://api.resend.com/') === 0) { mails.push(JSON.parse(String(init && init.body))); return json({ id: 'mail-' + mails.length }); }
+    if (url.indexOf('https://shop.example/') === 0) { probes.push(url); return new Response('ok', { status: 200 }); }
+    if (url === 'https://adscenter.online/api/digest-fetch') {
+      const body = JSON.parse(String(init && init.body)), h = ((init && init.headers) || {}) as Record<string, string>;
+      seen.push('worker ' + body.call.action + ' key=' + (h['x-runner-key'] === 'runner-key') + ' user=' + (body.user === RUN_U) + ' sealed=' + body.sealed);
+      if (ctl.worker) return ctl.worker(body);
+      if (body.call.action === 'ads') return json({ status: 200, data: ctl.payload, sealed: SNAP_SEALED_2 });
+      if (body.call.action === 'changes') return json({ status: 200, data: { changes: [], done: [] }, sealed: body.sealed });
+      return json({ error: 'unexpected', code: 'SERVER' }, 500);
+    }
+    return eng(url) || json({ message: 'unexpected ' + url }, 500);
+  });
+  browserGuards();
+  const claim = () => {
+    Object.assign(st.user_digest_accounts[0], { claimed_until: new Date(Date.now() + 180000).toISOString() });
+    claims.push({ ...st.user_digest_accounts[0], urgent_due: true });
+  };
+  return { st, seen, mails, probes, vaultErrors, errs, rotations, aad, ctl, claim };
+}
+async function withSnapWorld(fn: (w: Awaited<ReturnType<typeof snapWorld>>) => Promise<void>) {
+  const undo = fixedClock(RUN_NOW), realErr = console.error;
+  const w = await snapWorld();
+  console.error = (...a: unknown[]) => { w.errs.push(a.map(String).join(' ')); };
+  try { await fn(w); } finally { console.error = realErr; restoreFetch(); undo(); }
+}
+Deno.test('المُشغّل كله لحساب Snapchat: من الـ Worker بالنسخة المقفولة، والنسخة الجديدة بتتقفل وتتحفظ وتتبعت بعدها؛ الإعلان المهدر بيتحط في الطابور ويتبعت', async () => {
+  await withSnapWorld(async (w) => {
+    w.claim();
+    const r1 = await runAll('runner-key');
+    assertEquals([r1.claimed, r1.outcomes, r1.sent], [1, { 'snapchat:ok': 1 }, {}], 'run 1 — log: ' + w.errs.join(' | '));
+    const worker = w.seen.filter((x) => x.indexOf('worker ') === 0);
+    assertEquals(worker, ['worker ads key=true user=true sealed=' + SNAP_SEALED_1, 'worker changes key=true user=true sealed=' + SNAP_SEALED_2],
+      'the week first with the stored copy, then the edit log with the new one');
+    assertEquals(w.rotations.length, 1, 'the new copy is saved once');
+    assertEquals([w.rotations[0].p_user, w.rotations[0].p_platform, w.rotations[0].p_account], [RUN_U, 'snapchat', 'S1']);
+    assertEquals(await unseal(w.rotations[0].p_cipher, w.rotations[0].p_iv, w.aad), SNAP_SEALED_2, 'sealed again for this user and account only');
+    const q1 = w.st.digest_outbox.filter((r) => r.kind === 'urgent' && r.period === '');
+    assertEquals(q1.map((r) => [r.platform, r.account_id]), [['snapchat', 'S1']]);
+    assertEquals(q1[0].payload.fresh.map((a: any) => a.code), ['waste'], 'the wasting ad, urgent: ' + JSON.stringify(q1[0].payload.fresh).slice(0, 300));
+    assertEquals(w.probes.slice().sort(), ['https://shop.example/s-sgood1', 'https://shop.example/s-sgood2', 'https://shop.example/s-swaste'], 'the landing pages are checked');
+    const a1 = w.st.user_digest_accounts[0];
+    assertEquals([a1.claimed_until, a1.retry_after, a1.checked_at], [null, null, RUN_NOW]);
+    const r2 = await runAll('runner-key');
+    assertEquals(r2.sent, { 'urgent-sent': 1 }, 'run 2 — log: ' + w.errs.join(' | '));
+    assert(String(w.mails[0].html).indexOf('Snap swaste') > -1 && String(w.mails[0].html).indexOf('Snap Store') > -1, 'the ad and the account in the mail');
+    assertEquals(w.st.user_alert_marks.map((m) => [m.platform, m.account_id, m.kind, m.times_sent]), [['snapchat', 'S1', familyOf('waste'), 1]]);
+    assertEquals([w.vaultErrors, w.errs], [[], []]);
+  });
+});
+Deno.test('المُشغّل كله لحساب Snapchat — الوصول: الـ Worker رفض (AUTH) أو Snapchat ردت ٤٠٣ = «الوصول»؛ عطل عند Snapchat أو أرقام الأسبوع فشلت = بعد ١٠ دقايق؛ النسخة انتهت = من غير الـ Worker', async () => {
+  await withSnapWorld(async (w) => {
+    const retryNow = async (label: string) => {
+      w.claim();
+      const r = await runAll('runner-key');
+      assertEquals([r.outcomes, w.mails.length, w.st.user_digest_accounts[0].retry_after], [{ 'snapchat:snap-retry': 1 }, 0, '2026-11-18T07:15:00.000Z'],
+        label + ' — log: ' + w.errs.join(' | '));
+      w.st.user_digest_accounts[0].retry_after = null;
+    };
+    w.ctl.worker = () => json({ error: 'refresh failed', code: 'UPSTREAM' }, 502);
+    await retryNow('upstream');
+    w.ctl.worker = undefined;
+    w.ctl.payload = snapRunPayload({ statsError: 'E1003', stats: null });
+    await retryNow('stats failed');
+    assertEquals(w.vaultErrors, [], 'a temporary failure is not a lost access');
+    // Snapchat نفسها ردت ٤٠٣ على الحساب: الوصول اتشال
+    w.ctl.worker = (b) => json({ status: 403, data: { request_status: 'ERROR' }, sealed: b.sealed });
+    w.claim();
+    const r3 = await runAll('runner-key');
+    assertEquals([r3.outcomes, w.vaultErrors, w.mails.length], [{ 'snapchat:lost': 1 }, ['snapchat rejected stored access'], 1], '403 — log: ' + w.errs.join(' | '));
+    assert(String(w.mails[0].html).indexOf('Snap Store') > -1, 'the access mail names the account');
+    // الـ Worker رفض النسخة (AUTH): نفس الحالة، والرسالة مبتتكررش قبل يومين
+    w.ctl.worker = () => json({ error: 'refresh rejected', code: 'AUTH' }, 401);
+    w.claim();
+    const r4 = await runAll('runner-key');
+    assertEquals([r4.outcomes, w.vaultErrors.length, w.mails.length], [{ 'snapchat:lost': 1 }, 2, 1], 'AUTH — log: ' + w.errs.join(' | '));
+    // النسخة عدّى عليها ٦٠ يوم من غير ما المستخدم يفتح الحساب: «الوصول» من غير ما نسأل الـ Worker أصلاً
+    const before = w.seen.filter((x) => x.indexOf('worker ') === 0).length;
+    w.ctl.expired = true;
+    w.claim();
+    const r5 = await runAll('runner-key');
+    assertEquals([r5.outcomes, w.seen.filter((x) => x.indexOf('worker ') === 0).length], [{ 'snapchat:lost': 1 }, before], 'expired copy: the Worker is not asked');
+    // الـ Worker جدّد الجلسة في فحص الأرقام اللي فشلت ورجّع نسخة جديدة: بتتحفظ برضه (القديمة ممكن تكون اتلغت عند Snapchat)، والفحوص اللي بعدها بيها
+    assertEquals(w.rotations.length, 1, 'the renewed copy is kept even when the numbers failed');
+    assertEquals(w.seen.filter((x) => x.indexOf('worker ') === 0).slice(-2).map((x) => x.slice(x.indexOf('sealed=') + 7)), [SNAP_SEALED_2, SNAP_SEALED_2],
+      'the later checks send the saved new copy');
     assertEquals(w.errs, []);
   });
 });
