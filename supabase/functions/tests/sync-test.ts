@@ -2090,11 +2090,14 @@ function runState() {
 async function runWorld() {
   const st = runState(), seen: string[] = [], mails: any[] = [], probes: string[] = [], vaultErrors: string[] = [], errs: string[] = [], claims: Row[] = [];
   const ctl: { account?: () => Response; vault: 'ok' | 'none' | 'garbage'; autoClaim?: boolean; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean;
-    broken?: string[]; byId?: Row[]; extraDaily?: Row[]; expiresAt?: string } = { vault: 'ok' };
+    broken?: string[]; byId?: Row[]; extraDaily?: Row[]; expiresAt?: string; appUsage?: number; fail?: { table: string; method: string } } = { vault: 'ok' };
+  // claimArgs = المنصات اللي اتطلب حجز منها في كل مرة (حد Meta للتطبيق كله بيشيل Meta من الباقي)
   let autoClaims = 0;
+  const claimArgs: string[][] = [];
   const sealed = await seal(RUN_TOKEN, 'act_1'), eng = await engineFiles();
   const rest = fakeRest(st, {
-    digest_claim: () => {
+    digest_claim: (x) => {
+      claimArgs.push(x.p_platforms);
       const a = claims.shift();
       if (a) return [a];
       // ctl.autoClaim: حجز قسم الملخص زي digest_claim الحقيقية — حساب محتاج قسمه، مش محجوز، ومش مستني بعد عطل (من غير فحص عاجل)
@@ -2117,13 +2120,24 @@ async function runWorld() {
   const meta = fakeMeta(metaRunData(), seen, ctl);
   Deno.env.set('RESEND_API_KEY', 'test-resend-key');
   stubFetch((url, init) => {
-    if (url.indexOf('/rest/v1/') > -1) return rest(url, init);
+    if (url.indexOf('/rest/v1/') > -1) {
+      // ctl.fail = جدول وطريقة بيفشلوا (قاعدة البيانات واقعة في النص)
+      if (ctl.fail && url.indexOf('/rest/v1/' + ctl.fail.table) > -1 && ((init && init.method) || 'GET') === ctl.fail.method) return json({ message: 'boom' }, 500);
+      return rest(url, init);
+    }
     if (url.indexOf('https://api.resend.com/') === 0) { mails.push(JSON.parse(String(init && init.body))); return json({ id: 'mail-' + mails.length }); }
     if (url.indexOf('https://shop.example/') === 0) {
       probes.push(url);
       return (ctl.broken || []).indexOf(url) > -1 ? new Response('gone', { status: 404 }) : new Response('ok', { status: 200 });
     }
-    return meta(url, init) || eng(url) || json({ message: 'unexpected ' + url }, 500);
+    const mr = meta(url, init);
+    // ctl.appUsage = استهلاك حد Meta للتطبيق كله في ترويسة كل رد (x-app-usage)
+    if (mr && ctl.appUsage != null) {
+      const h = new Headers(mr.headers);
+      h.set('x-app-usage', JSON.stringify({ call_count: ctl.appUsage, total_cputime: 1, total_time: 1 }));
+      return new Response(mr.body, { status: mr.status, headers: h });
+    }
+    return mr || eng(url) || json({ message: 'unexpected ' + url }, 500);
   });
   browserGuards();
   // الحجز زي digest_claim الحقيقية: الصف نفسه بيتحجز (claimed_until ٣ دقايق)، والمُشغّل لازم يفكّه في الآخر
@@ -2131,7 +2145,7 @@ async function runWorld() {
     Object.assign(st.user_digest_accounts[0], { claimed_until: new Date(Date.now() + 180000).toISOString() }, need ? { need_summary: need } : {});
     claims.push({ ...st.user_digest_accounts[0], urgent_due: urgent });
   };
-  return { st, seen, mails, probes, vaultErrors, errs, ctl, claim };
+  return { st, seen, mails, probes, vaultErrors, errs, ctl, claim, claimArgs, claims };
 }
 // الساعة متثبّتة، والسجل بيتجمع (الأخطاء بتطلع في رسالة الفشل)، وكل حاجة بترجع زي ما كانت. at() = الساعة دلوقتي في الاختبار
 async function withRunWorld(fn: (w: Awaited<ReturnType<typeof runWorld>>) => Promise<void>) {
@@ -2886,4 +2900,47 @@ Deno.test('الملخص — رسائل التفعيل وتغيير البريد 
     assertEquals(store.logs.map((l) => [l.type, l.status]), [['enabled', 'failed'], ['moved', 'failed'], ['enabled', 'failed'], ['disabled', 'failed']]);
     assert(store.logs.every((l) => typeof l.error === 'string' && l.error.indexOf('resend 500') === 0), 'with the reason: ' + JSON.stringify(store.logs.map((l) => l.error)));
   } finally { restoreDigestEnv(); }
+});
+// صمود المُشغّل (فروع متنفّذتش قبل كده، قياس الفروع ٢٥ نوفمبر ٢٠٢٦): حد Meta للتطبيق كله قرّب (٧٥٪ — مشترك بين كل المستخدمين والأداة نفسها) =
+// مفيش حسابات Meta تانية في التشغيل ده؛ حجز لمستخدم مبقاش مفعّل بيتفك من غير فحص؛ فحص الحساب وقع = «خطأ» ويرجع بعد ١٠ دقايق؛ تحديث الحساب في
+// الآخر وقع = الحجز بيخلص لوحده؛ تذكير الانضمام وقع = التشغيل بيكمّل — وكل فشل سطر في السجل من غير أي بيانات حساب
+Deno.test('صمود المُشغّل: حد Meta للتطبيق بيوقف حسابات Meta في التشغيل، وحجز من غير مستخدم بيتفك، والفشل في أي خطوة بيتسجّل والتشغيل بيكمّل', async () => {
+  await withRunWorld(async (w) => {
+    // ١) حد التطبيق: الحساب الأول رجّع استهلاك ٨٠٪ ← الحجز الجاي من Snapchat بس
+    w.ctl.appUsage = 80;
+    w.claim();
+    const r1 = await runAll('runner-key');
+    assertEquals([r1.outcomes, (r1.meta as any).appPct], [{ 'meta:ok': 1 }, 80], 'log: ' + w.errs.join(' | '));
+    assertEquals(w.claimArgs, [['meta', 'snapchat'], ['snapchat']], 'no more Meta accounts in this run');
+    w.ctl.appUsage = undefined;
+    // ٢) حجز لمستخدم مبقاش مفعّل (وقف ملخصه بعد ما الحساب اتحجز): الحجز بيتفك من غير فحص
+    const OTHER = '33333333-4444-5555-6666-777777777777';
+    w.st.user_digest_accounts.push({ user_id: OTHER, platform: 'meta', account_id: 'act_9', name: null, checked_at: null, claimed_until: '2026-11-18T07:08:00.000Z',
+      need_summary: null, need_monthly: null, edits_at: null, retry_after: null });
+    w.claims.push({ ...w.st.user_digest_accounts[1], urgent_due: true });
+    const r2 = await runAll('runner-key');
+    assertEquals([r2.claimed, r2.outcomes, w.st.user_digest_accounts[1].claimed_until], [1, {}, null], 'released without a check');
+    // ٣) فحص الحساب وقع (قاعدة البيانات رفضت قراءة البصمات): «خطأ»، والحساب بيرجع بعد ١٠ دقايق، والحجز اتفك
+    w.ctl.fail = { table: 'user_alert_marks', method: 'GET' };
+    w.claim();
+    const r3 = await runAll('runner-key');
+    const a = w.st.user_digest_accounts[0];
+    assertEquals([r3.outcomes, a.claimed_until, a.retry_after], [{ 'meta:error': 1 }, null, '2026-11-18T07:15:00.000Z']);
+    assert(w.errs.some((x) => x.indexOf('runner account failed') === 0), 'logged: ' + w.errs.join(' | '));
+    // ٤) تحديث الحساب في الآخر وقع: «خطأ» من التشغيل، والحجز بيفضل لحد ما يخلص لوحده (٣ دقايق)
+    w.ctl.fail = { table: 'user_digest_accounts', method: 'PATCH' };
+    w.claim();
+    const r4 = await runAll('runner-key');
+    assertEquals(r4.outcomes, { 'meta:error': 1 });
+    assert(w.errs.some((x) => x.indexOf('runner job failed') === 0), 'logged: ' + w.errs.join(' | '));
+    assert(w.st.user_digest_accounts[0].claimed_until > RUN_NOW, 'the claim runs out on its own');
+    w.ctl.fail = undefined;
+    // ٥) دقيقة تذكير الانضمام (كل ١٠ دقايق) والتذكير وقع: التشغيل بيكمّل
+    fixedClock('2026-11-18T07:10:00.000Z');
+    const r5 = await runAll('runner-key');
+    assertEquals(r5.joinReminded, 0);
+    assert(w.errs.some((x) => x.indexOf('join reminders failed') === 0), 'logged: ' + w.errs.join(' | '));
+    // ولا سطر من دول فيه بيانات حساب
+    assert(w.errs.every((x) => x.indexOf('act_') < 0 && x.indexOf(RUN_U) < 0 && x.indexOf(OTHER) < 0 && x.indexOf('@') < 0), 'no account data in the log: ' + w.errs.join(' | '));
+  });
 });
