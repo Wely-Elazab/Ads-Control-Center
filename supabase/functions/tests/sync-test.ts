@@ -3281,3 +3281,35 @@ Deno.test('حواف الملخص: مفتاح التشفير الغلط، وال�
     assertEquals((await call('digest.get', { accountId: 'act_1' })).body.current.tokenWorks, true, 'works when Meta accepts it');
   } finally { restoreDigestEnv(); }
 });
+// نقطة الدخول — التوجيه بعد الدخول (فروع متنفّذتش قبل كده — قياس الفروع ٢٥ نوفمبر ٢٠٢٦): كل عملية بدخول مكتمل بتوصل لمعالجها هو — ربط Meta المحفوظ،
+// وإعدادات المستخدم، وسجل الحساب القديم، وسجل المشكلات، والملخص. توجيه مكسور كان هيوقع العملية على فحص مفتاح Meta (٤٠٠ token) من غير ما أي اختبار يلاحظ
+Deno.test('نقطة الدخول — بعد الدخول كل عملية بتوصل لمعالجها: ربط Meta، وإعدادات المستخدم، والسجل القديم، وسجل المشكلات، والملخص', async () => {
+  stubFetch((url, init) => {
+    if (url === ISSUER + '/.well-known/jwks.json') return json({ keys: [{ ...publicJwk, kid: 'k1' }] });
+    if (url.indexOf('/rest/v1/rpc/session_ok') > -1) return json(true);
+    if (url.indexOf('/oauth/access_token') > -1) return json({ access_token: 'LONGTOKEN_abcdefghijklmnopqrstuvwxyz', expires_in: 5184000 });
+    if (url.indexOf('/me?') > -1) return json({ id: '42' });
+    if (url.indexOf('graph.facebook.com') > -1 && url.indexOf('/act_1?') > -1) return json({ id: 'act_1', name: 'X', currency: 'SAR', timezone_name: 'Asia/Riyadh' });
+    if (url.indexOf('/rest/v1/') > -1) return ((init && init.method) || 'GET') === 'GET' || url.indexOf('/rpc/') > -1 ? json([]) : new Response(null, { status: 204 });
+    throw new Error('unexpected fetch ' + url);
+  });
+  try {
+    const tok = await jwt({ ...good(), sub: '11111111-2222-3333-4444-555555555555' });   // معالجات المستخدم بتقبل رقم UUID بس
+    const post = async (body: Record<string, unknown>) => {
+      const r = await handle(({ method: 'POST', headers: new Headers({ origin: 'https://adscenter.online', authorization: 'Bearer ' + tok }),
+        text: () => Promise.resolve(JSON.stringify(body)) }) as unknown as Request);
+      return { status: r.status, body: await r.json() };
+    };
+    const who = { platform: 'meta', accountId: 'act_1', platformToken: 'TOKEN_abcdefghijklmnopqrstuvwxyz' };
+    const seal = await post({ action: 'meta.seal', token: 'SHORTTOKEN_abcdefghijklmnop' });
+    assert(seal.status === 200 && /^m1\./.test(seal.body.sealed), 'meta.seal: ' + JSON.stringify(seal));
+    const us = await post({ action: 'usettings.get' });
+    assert(us.status === 200 && 'settings' in us.body, 'usettings.get: ' + JSON.stringify(us));
+    const old = await post({ action: 'settings.get', ...who });
+    assert(old.status === 200 && 'settings' in old.body, 'settings.get: ' + JSON.stringify(old));
+    const ep = await post({ action: 'episodes.sync', ...who, open: null });
+    assert(ep.status === 200 && Array.isArray(ep.body.episodes), 'episodes.sync: ' + JSON.stringify(ep));
+    const dg = await post({ action: 'digest.get' });
+    assert(dg.status === 200 && Array.isArray(dg.body.accounts) && 'current' in dg.body, 'digest.get: ' + JSON.stringify(dg));
+  } finally { restoreFetch(); }
+});
