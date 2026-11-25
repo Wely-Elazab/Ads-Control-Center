@@ -1838,6 +1838,23 @@ function browserGuards(): void {
     try { Object.defineProperty(W, k, { configurable: true, writable: true, value: store }); } catch (_) { /* المتصفح رفض: يفضل الأصلي */ }
   }
 }
+// تحميل المحرك وقع (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ — فرع متنفّذش قبل كده): GitHub مردّش = خطأ باسم الملف، ومحرك ناقص (إيداع مثبّت ناقصه دالة) =
+// «engine incomplete» — وفي الحالتين الفشل مبيتحفظش، فالتشغيل الجاي بيحاول تاني. لازم يفضل قبل أول تحميل ناجح (المحرك بيتحفظ بعده)
+Deno.test('تحميل المحرك وقع: GitHub مردّش أو المحرك ناقص = خطأ واضح، والمرة الجاية بيحاول تاني', async () => {
+  let mode: 'down' | 'empty' = 'down', raw = 0;
+  stubFetch((url) => {
+    if (url.indexOf('https://raw.githubusercontent.com/') === 0) { raw++; return mode === 'down' ? new Response('down', { status: 503 }) : new Response('', { status: 200 }); }
+    if (url.indexOf('https://adscenter.online/js/') === 0) return new Response('', { status: 200 });
+    return json({ message: 'unexpected ' + url }, 500);
+  });
+  try {
+    await assertRejects(() => loadEngine(), Error, ' 503');
+    const first = raw;
+    mode = 'empty';
+    await assertRejects(() => loadEngine(), Error, 'engine incomplete');
+    assert(raw > first, 'tried again: the failure is not kept');
+  } finally { restoreFetch(); }
+});
 Deno.test('المحرك الحقيقي: المُشغّل بيقيّمه، وكل اسم بيستخدمه منه موجود، وبيعرف الملف اللي نسخته على الموقع أحدث (من غير فرق نهايات السطور)', async () => {
   const FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js', 'snapchat.js'], texts: Record<string, string> = {}, asked: string[] = [];
   for (const f of FILES) texts[f] = await repoText('Live/js/' + f);
@@ -2091,7 +2108,7 @@ function runState() {
 async function runWorld() {
   const st = runState(), seen: string[] = [], mails: any[] = [], probes: string[] = [], vaultErrors: string[] = [], errs: string[] = [], claims: Row[] = [];
   const ctl: { account?: () => Response; vault: 'ok' | 'none' | 'garbage'; autoClaim?: boolean; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean;
-    broken?: string[]; byId?: Row[]; extraDaily?: Row[]; expiresAt?: string; appUsage?: number; fail?: { table: string; method: string } } = { vault: 'ok' };
+    broken?: string[]; byId?: Row[]; extraDaily?: Row[]; expiresAt?: string; appUsage?: number; fail?: { table: string; method: string }; mailFails?: boolean } = { vault: 'ok' };
   // claimArgs = المنصات اللي اتطلب حجز منها في كل مرة (حد Meta للتطبيق كله بيشيل Meta من الباقي)
   let autoClaims = 0;
   const claimArgs: string[][] = [];
@@ -2126,7 +2143,11 @@ async function runWorld() {
       if (ctl.fail && url.indexOf('/rest/v1/' + ctl.fail.table) > -1 && ((init && init.method) || 'GET') === ctl.fail.method) return json({ message: 'boom' }, 500);
       return rest(url, init);
     }
-    if (url.indexOf('https://api.resend.com/') === 0) { mails.push(JSON.parse(String(init && init.body))); return json({ id: 'mail-' + mails.length }); }
+    if (url.indexOf('https://api.resend.com/') === 0) {
+      if (ctl.mailFails) return json({ name: 'internal_server_error', message: 'down' }, 503);   // ctl.mailFails = خدمة البريد واقعة
+      mails.push(JSON.parse(String(init && init.body)));
+      return json({ id: 'mail-' + mails.length });
+    }
     if (url.indexOf('https://shop.example/') === 0) {
       probes.push(url);
       return (ctl.broken || []).indexOf(url) > -1 ? new Response('gone', { status: 404 }) : new Response('ok', { status: 200 });
@@ -3312,4 +3333,25 @@ Deno.test('نقطة الدخول — بعد الدخول كل عملية بتو�
     const dg = await post({ action: 'digest.get' });
     assert(dg.status === 200 && Array.isArray(dg.body.accounts) && 'current' in dg.body, 'digest.get: ' + JSON.stringify(dg));
   } finally { restoreFetch(); }
+});
+// البريد وقع وقت إرسال العاجل (Resend): الوعد في تعليق sendUrgent — «لو الإرسال فشل البصمات المستنية متتحفظش، فالفحص الجاي بيلاقي التنبيه ويبعته
+// تاني» — مكانش ليه اختبار (فرع متنفّذش قبل كده — قياس الفروع ٢٥ نوفمبر ٢٠٢٦): «فشل» في السجل بسببه، ومفيش بصمة، والفحص الجاي بيرجّع التنبيه
+// للطابور والإرسال بينجح — التنبيه العاجل مبيضيعش لما خدمة البريد تقع
+Deno.test('المُشغّل — البريد وقع وقت إرسال العاجل: «فشل» في السجل، ومفيش بصمة، والفحص الجاي بيرجّعه والإرسال بينجح', async () => {
+  await withRunWorld(async (w) => {
+    w.claim();
+    await runAll('runner-key');                              // الفحص: العاجل في الطابور
+    w.ctl.mailFails = true;
+    const r2 = await runAll('runner-key');                   // الإرسال: البريد وقع
+    assertEquals(r2.sent, { 'urgent-failed': 1 }, 'log: ' + w.errs.join(' | '));
+    assertEquals(w.st.send_log.map((x) => [x.type, x.status, String(x.error).slice(0, 10)]), [['urgent', 'failed', 'resend 503']]);
+    assertEquals([w.mails.length, w.st.user_alert_marks, w.st.digest_outbox], [0, [], []], 'no mark kept; the queue was read');
+    w.ctl.mailFails = false;
+    fixedClock('2026-11-18T08:05:00.000Z');
+    w.claim();
+    await runAll('runner-key');                              // الفحص الجاي: التنبيه لسه قايم ومفيش بصمة = في الطابور تاني
+    const r4 = await runAll('runner-key');                   // الإرسال
+    assertEquals([r4.sent, w.mails.length], [{ 'urgent-sent': 1 }, 1], 'log: ' + w.errs.join(' | '));
+    assertEquals(w.st.user_alert_marks.map((x) => [x.object_id, x.times_sent]), [['waste', 1]], 'the mark is saved once the mail is out');
+  });
 });
