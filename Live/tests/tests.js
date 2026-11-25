@@ -547,6 +547,16 @@
       }).then(function () {
         window.fetch = realFetch;
         eq(cmpOf(candidates.filter(function (x) { return x.source === 'snapchat:acc-c'; })[0]).state, 'failed', 'another range = no comparison');
+        // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (٦٧ — dxReloaders.snapchat متنفّذتش): وملخص المتجر للحساب نفسه (تغيير المقارنة لوحده — ui.js
+        // applyCompare)، ومش لحساب اتبدّل (التسلسل اتغيّر = حساب تاني اتحمّل بعده)
+        var asked = [], prevDx = window.loadSnapchatDiagnosis, seq = loadSeq.snapchat;
+        window.loadSnapchatDiagnosis = function (id) { asked.push(id); };
+        try {
+          dxReloaders.snapchat();
+          loadSeq.snapchat = 'another-account';
+          dxReloaders.snapchat();
+        } finally { window.loadSnapchatDiagnosis = prevDx; loadSeq.snapchat = seq; }
+        eq(asked, ['acc-c'], 'the store summary of this account again, and nothing once another account loaded');
       }, function (e) { window.fetch = realFetch; throw e; });
     });
     test('شرح المقارنة من غير أي كلام تقني', function () {
@@ -3107,6 +3117,36 @@
         eq(pm.length, 2);
         eq(pm[0].source, 'google:999');
       }, function (e) { window.fetch = realFetch; throw e; });
+    });
+    // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (٦٧ — dxReloaders.google وcmpLoaders.google متنفّذوش): تغيير «قارن مع» لوحده بيعيد ملخص المتجر
+    // وأرقام المقارنة لكل منصة شغّالة (ui.js applyCompare — اتختبر لـ Meta بدالة بديلة بس). الحساب لما يتحمّل بيسجّل دواله للحساب نفسه،
+    // ودوال حساب اتبدّل مبتطلبش حاجة (رد قديم ميكتبش فوق الحساب الجديد)
+    testAsync('Google: تغيير المقارنة بيعيد ملخص المتجر وأرقام المقارنة للحساب الحالي بس', function () {
+      var realFetch = window.fetch, prevDx = window.loadGoogleDiagnosis, prevCmp = window.loadGoogleCompare, asked = [], first = {};
+      var restore = function () { window.fetch = realFetch; window.loadGoogleDiagnosis = prevDx; window.loadGoogleCompare = prevCmp; };
+      window.fetch = fakeFetch({ ads: [], metrics: [], periodMetrics: null, pmax: rows, pmaxPeriod: null, pmaxError: null, range: { since: KEYS[0], until: KEYS[6] } });
+      window.loadGoogleDiagnosis = function (id) { asked.push('dx:' + id); };
+      window.loadGoogleCompare = function (id) { asked.push('cmp:' + id); };
+      accountInfo['google:991'] = { currency: 'EGP' }; accountInfo['google:992'] = { currency: 'EGP' };
+      sessionTokens.google = { token: 'tok', expiresAt: Date.now() + 3600000 };
+      googleAccessToken = 'tok';
+      loadGoogleAdsForAccount('991');
+      return tick().then(tick).then(function () {
+        eq(asked, ['dx:991', 'cmp:991'], 'loading asks both once');
+        first = { dx: dxReloaders.google, cmp: cmpLoaders.google };
+        asked.length = 0;
+        first.dx(); first.cmp();
+        eq(asked, ['dx:991', 'cmp:991'], 'a comparison change asks both again for this account');
+        loadGoogleAdsForAccount('992');
+        return tick().then(tick);
+      }).then(function () {
+        asked.length = 0;
+        first.dx(); first.cmp();
+        eq(asked, [], 'the old account\'s reloaders ask nothing');
+        dxReloaders.google(); cmpLoaders.google();
+        eq(asked, ['dx:992', 'cmp:992'], 'the new account\'s do');
+        restore();
+      }, function (e) { restore(); throw e; });
     });
     testAsync('صرف إعلانات Google المحذوفة مبيضيعش (السيرفر بيدوّر عليها برقمها)', function () {
       return import('/api/_google.js').then(function (g) {
