@@ -2086,7 +2086,7 @@ function runState() {
 async function runWorld() {
   const st = runState(), seen: string[] = [], mails: any[] = [], probes: string[] = [], vaultErrors: string[] = [], errs: string[] = [], claims: Row[] = [];
   const ctl: { account?: () => Response; vault: 'ok' | 'none' | 'garbage'; autoClaim?: boolean; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean;
-    broken?: string[]; byId?: Row[]; extraDaily?: Row[] } = { vault: 'ok' };
+    broken?: string[]; byId?: Row[]; extraDaily?: Row[]; expiresAt?: string } = { vault: 'ok' };
   let autoClaims = 0;
   const sealed = await seal(RUN_TOKEN, 'act_1'), eng = await engineFiles();
   const rest = fakeRest(st, {
@@ -2104,7 +2104,8 @@ async function runWorld() {
     },
     vault_user_get: (x) => {
       if (ctl.vault === 'none' || x.p_user !== RUN_U || x.p_account !== 'act_1') return [];
-      return [{ ciphertext: ctl.vault === 'garbage' ? 'AAAA' : sealed.ct, iv: ctl.vault === 'garbage' ? 'BBBB' : sealed.iv, expires_at: '2027-01-15T00:00:00Z' }];
+      return [{ ciphertext: ctl.vault === 'garbage' ? 'AAAA' : sealed.ct, iv: ctl.vault === 'garbage' ? 'BBBB' : sealed.iv,
+        expires_at: ctl.expiresAt || '2027-01-15T00:00:00Z' }];
     },
     vault_user_mark_error: (x) => { vaultErrors.push(x.p_error); return null; },
     beat: () => null
@@ -2657,4 +2658,86 @@ Deno.test('رمز الدخول — الإرسال: الحجز قبل الإرس�
     try { assertEquals(await call(), { status: 200, body: { ok: true, sent: true } }); } finally { console.error = realErr; }
     assertEquals([saved[0].sends, typeof saved[0].last_sent_at], [2, 'string'], 'the old counter');
   } finally { restoreFetch(); }
+});
+// صلاحية Meta المحفوظة قربت تخلص (أقل من ٥ أيام — accessMarks): رسالة واحدة تطلب فتح الأداة، في الفحص العاجل بس (بالنهار — مش في حجز الملخص)،
+// ومبتتكررش طول ما هي قريبة؛ ولما الصلاحية تتجدد البصمة بتتقفل، ولو قربت تاني رسالة جديدة (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ — فرع متنفّذش قبل كده)
+Deno.test('المُشغّل كله لحساب Meta — الصلاحية قربت تخلص: رسالة واحدة في الفحص العاجل بس، ومبتتكررش، وبتتقفل لما تتجدد، وترجع لو قربت تاني', async () => {
+  await withRunWorld(async (w) => {
+    w.st.user_settings = [];   // من غير أقصى تكلفة: مفيش عاجل، والرسائل هنا رسائل الصلاحية بس
+    const expiry = () => w.st.send_log.filter((x) => x.type === 'expiry').length;
+    const mark = () => w.st.user_alert_marks.filter((m) => m.kind === 'expiry').map((m) => [m.times_sent, m.resolved_at]);
+    const at = (iso: string) => { fixedClock(iso); };
+    w.ctl.expiresAt = '2026-11-21T07:05:00.000Z';   // بعد ٣ أيام
+    // حجز من غير فحص عاجل (الملخص): مفيش رسالة
+    w.claim(false);
+    await runAll('runner-key');
+    assertEquals([expiry(), mark()], [0, []], 'not from a summary claim');
+    // أول فحص عاجل: الرسالة على طول (مش من الطابور)، وبصمتها
+    w.claim();
+    const r1 = await runAll('runner-key');
+    assertEquals([r1.outcomes, expiry(), mark()], [{ 'meta:ok': 1 }, 1, [[1, null]]], 'log: ' + w.errs.join(' | '));
+    const m = w.mails[w.mails.length - 1];
+    assert(String(m.html).indexOf('Store One') > -1 && m.to[0] === 'owner@store.example', 'the expiry mail names the account: ' + m.subject);
+    // فحص عاجل تاني وهي لسه قريبة: مفيش رسالة تانية
+    at('2026-11-19T07:05:00.000Z');
+    w.claim();
+    await runAll('runner-key');
+    assertEquals([expiry(), mark()], [1, [[1, null]]], 'once while it stays close');
+    // اتجددت (العميل فتح الأداة): البصمة بتتقفل
+    w.ctl.expiresAt = '2027-01-15T00:00:00Z';
+    at('2026-11-20T07:05:00.000Z');
+    w.claim();
+    await runAll('runner-key');
+    assertEquals(mark(), [[1, '2026-11-20T07:05:00.000Z']], 'closed once renewed');
+    // قربت تخلص تاني بعد شهرين: رسالة جديدة
+    w.ctl.expiresAt = '2027-01-17T00:00:00.000Z';
+    at('2027-01-13T07:05:00.000Z');
+    w.claim();
+    await runAll('runner-key');
+    assertEquals(expiry(), 2, 'a new mail the next time it gets close');
+    assertEquals(w.errs, []);
+  });
+});
+// رسالة الملخص بالتقرير كامل (summaryParts / blockHtml — فروع متنفّذتش قبل كده: كل الاختبارات كان تقريرها فاضي): جدول المؤشرات بعمود رقم المنصة،
+// والبطاقة بكل أجزائها، والتعديلات، والملاحظات — وكل نص فيها ممكن يكون فيه اسم إعلان أو حملة كتبه المعلن، فلازم يتهرّب (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦)
+Deno.test('رسالة الملخص — التقرير كامل في البريد: جدول المؤشرات برقم المنصة، والبطاقة بكل أجزائها، والتعديلات والملاحظات، وكل نص مُهرَّب', async () => {
+  await withRunWorld(async (w) => {
+    const evil = '<img src=x onerror="alert(1)">', KEY = '2026-11-10..2026-11-16';
+    Object.assign(w.st.user_digests[0], { summary_pending: KEY, summary_pending_at: '2026-11-18T07:00:00.000Z' });
+    const composed = {
+      period: 'PERIOD ' + evil, title: 'TITLE ' + evil, tone: 'mixed', basis: 'BASIS ' + evil, cmpLabel: 'CMP',
+      kpis: [{ label: 'Spend ' + evil, value: '1,000', prev: '900', plat: '1,111' }, { label: 'Orders', value: '10', prev: '8', plat: null }],
+      kpiNote: 'KPINOTE ' + evil, platCmp: 'PLATCMP ' + evil, costCmp: 'COSTCMP ' + evil,
+      blocks: [
+        { kind: 'why', title: 'WHY ' + evil, lines: ['LINE ' + evil], bullets: ['BULLET ' + evil],
+          items: [{ tone: 'bad', title: 'ITEM ' + evil, meta: 'META ' + evil, lines: ['ITEMLINE ' + evil] }],
+          after: ['AFTER ' + evil], causes: ['CAUSE ' + evil, 'OTHER'], check: 'CHECK ' + evil, next: 'NEXT ' + evil },
+        // بطاقة «مستقر» عنوانها نفس العنوان الرئيسي: العنوان مبيتكررش
+        { kind: 'note', title: 'TITLE ' + evil, lines: ['NOTE-SAME-TITLE'] }
+      ],
+      notes: ['FOOT ' + evil]
+    };
+    w.st.digest_outbox.push({ user_id: RUN_U, platform: 'meta', account_id: 'act_1', kind: 'summary', period: KEY, created_at: '2026-11-18T07:01:00.000Z', marks: null,
+      payload: { platform: 'meta', account: 'act_1', name: 'Store ' + evil,
+        sum: { composed, actions: { kind: 'actions', title: 'ACTIONS ' + evil, lines: [], after: ['ACTAFTER ' + evil] } }, alerts: '<p>ALERTS-HTML</p>' } });
+    const r = await runAll('runner-key');
+    assertEquals(r.sent, { summary: 1 }, 'log: ' + w.errs.join(' | '));
+    const html = String(w.mails[0].html);
+    assertEquals(html.indexOf('<img'), -1, 'no raw tag from the report or the account name');
+    const safe = ' &lt;img src=x onerror=&quot;alert(1)&quot;&gt;';
+    for (const k of ['Store', 'PERIOD', 'TITLE', 'BASIS', 'Spend', 'KPINOTE', 'PLATCMP', 'COSTCMP', 'WHY', 'LINE', 'BULLET', 'ITEM', 'META', 'ITEMLINE',
+      'AFTER', 'CAUSE', 'CHECK', 'NEXT', 'ACTIONS', 'ACTAFTER', 'FOOT']) {
+      assert(html.indexOf(k + safe) > -1, k + ' shown, escaped');
+    }
+    // جدول المؤشرات: عمود رقم المنصة للمؤشر اللي ليه رقم بس
+    const rows = html.split('<tr>').slice(1).map((x) => x.split('</tr>')[0]);
+    assertEquals(rows.map((x) => x.split('<td').length - 1), [4, 3], 'the platform column only where there is a platform figure');
+    assert(rows[0].indexOf('1,111') > -1, 'the platform figure');
+    assert(html.indexOf('<li style="line-height:1.8">BULLET' + safe + '</li>') > -1, 'bullets as a list');
+    // بطاقة «مستقر» بنفس العنوان: سطرها بيظهر من غير ما العنوان يتكرر جوه البطاقة
+    const note = html.lastIndexOf('<div style="border-inline-start:4px solid', html.indexOf('NOTE-SAME-TITLE'));
+    assert(note > -1 && html.slice(note, html.indexOf('NOTE-SAME-TITLE')).indexOf('TITLE' + safe) < 0, 'no repeated title in the note card');
+    assert(html.indexOf('<p>ALERTS-HTML</p>') > -1, 'the alerts section as built');
+    assertEquals(w.errs, []);
+  });
 });
