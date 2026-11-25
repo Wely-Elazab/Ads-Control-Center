@@ -221,8 +221,16 @@ export default {
         // دخول مكتمل للأداة (كلمة المرور + الرمز — api/_login.js) قبل أي طلب. code: LOGIN = الواجهة بتروح لصفحة الدخول.
         // OPTIONS (فحص المتصفح المسبق) مبيبقاش فيه دخول أصلاً — بيكمّل للدالة وguardRequest بترفض أي موقع تاني
         // صاحب الدخول بيوصل للدالة (req.user) — نسخ الربط المقفولة بتتربط بيه (api/_seal.js)
-        const user = request.method === 'OPTIONS' ? null : await loginUser(request);
-        if (request.method !== 'OPTIONS' && !user) return withSecurityHeaders(jsonError(401, 'سجّل الدخول إلى الأداة أولاً.', 'LOGIN'));
+        // التأكد من الدخول نفسه وقع (مفاتيح Supabase أو قاعدة البيانات مردّتش — api/_login.js بيرمي) = ٥٠٣ SERVER، مش ٤٠١ LOGIN: الـ ٤٠١ بيودّي
+        // العميل لصفحة الدخول، وهناك جلسته على الجهاز ممكن تتمسح — بسبب عطل مؤقت مش بسبب دخوله (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١٢٣)
+        let user = null;
+        if (request.method !== 'OPTIONS') {
+          try { user = await loginUser(request); } catch (e) {
+            console.error('login check failed', String(e && e.message ? e.message : e).slice(0, 120));
+            return withSecurityHeaders(jsonError(503, 'حدث خطأ غير متوقع في الخادم.', 'SERVER'));
+          }
+          if (!user) return withSecurityHeaders(jsonError(401, 'سجّل الدخول إلى الأداة أولاً.', 'LOGIN'));
+        }
         return withSecurityHeaders(await runVercelHandler(HANDLERS[name], request, env, user));
       }
       if (Object.prototype.hasOwnProperty.call(RUNNER_HANDLERS, name)) {

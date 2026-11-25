@@ -5,7 +5,7 @@
 // مكان الملف حسب توصية Supabase («Testing your Edge Functions»): supabase/functions/tests/<اسم الدالة>-test.ts
 
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
-import { corsHeaders, esc, isAppAdmin, reply, str, stripHidden, unsubHeaders } from '../sync/lib.ts';
+import { authAdmin, corsHeaders, db, esc, isAppAdmin, reply, sendEmail, str, stripHidden, unsubHeaders } from '../sync/lib.ts';
 import { MAX_PER_PLATFORM, SNAP_ID, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, sealedAad, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, counterMissing, handleLogin, newCode, requireLogin, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
@@ -199,7 +199,8 @@ Deno.test('مفتاح الدخول: بيتقبل بس لو توقيعه ومُص
 });
 // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٦): بوابة كل العمليات بعد الدخول (requireLogin — handler.ts) مكانش ليها اختبار: مفتاح موقّع سليم «و» جلسة
 // لسه شغالة في قاعدة البيانات (الخروج من جهاز تاني أو تغيير كلمة المرور بيقفلها). الجلسة والمستخدم من المفتاح الموقّع مش من الطلب،
-// و«true» بالظبط بس، وقاعدة بيانات واقعة = مفيش دخول (مقفولة وقت الشك)، ومفتاح مرفوض مبيوصلش لقاعدة البيانات أصلاً
+// و«true» بالظبط بس، وقاعدة بيانات واقعة = مفيش دخول (مقفولة وقت الشك — بس عطل بيرمي فالدالة بترد ٥٠٢، مش «مش داخل» ٤٠١: ١٢٣)، ومفتاح
+// مرفوض مبيوصلش لقاعدة البيانات أصلاً
 Deno.test('بوابة الدخول: مفتاح موقّع وجلسة شغالة، والجلسة من المفتاح، و«true» بالظبط، وقاعدة بيانات واقعة = مفيش دخول', async () => {
   let ok: unknown = true, asked: any[] = [];
   stubFetch((url, init) => {
@@ -224,7 +225,7 @@ Deno.test('بوابة الدخول: مفتاح موقّع وجلسة شغالة�
       assertEquals(await requireLogin(await req(good())), null, 'session_ok ' + JSON.stringify(v) + ' is not a yes');
     }
     ok = 'down';
-    assertEquals(await requireLogin(await req(good())), null, 'the database down: no login (closed when unsure)');
+    await assertRejects(async () => requireLogin(await req(good())), Error, 'db 500', 'the database down: no login (closed when unsure), as an outage not a sign-out');
   } finally { restoreFetch(); }
 });
 // ---------- نقطة الدخول (handler.ts) — التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٦) ----------
@@ -2943,4 +2944,113 @@ Deno.test('صمود المُشغّل: حد Meta للتطبيق بيوقف حسا
     // ولا سطر من دول فيه بيانات حساب
     assert(w.errs.every((x) => x.indexOf('act_') < 0 && x.indexOf(RUN_U) < 0 && x.indexOf(OTHER) < 0 && x.indexOf('@') < 0), 'no account data in the log: ' + w.errs.join(' | '));
   });
+});
+// حواف صغيرة متنفّذتش قبل كده (قياس الفروع ٢٥ نوفمبر ٢٠٢٦): مفتاح قاعدة البيانات بصيغتيه (الجديدة sb_secret_ من غير Authorization، والقديمة JWT
+// كمان Bearer، وJSON بايظ في SUPABASE_SECRET_KEYS = القديمة)، وإرسال البريد من غير مفتاحه = خطأ واضح مش طلب بمفتاح فاضي، وربط Meta اللي فاضل
+// في صلاحيته أقل من دقيقة = اربط من جديد (مش مفتاح هيخلص في الطريق)، وعملية ربط مش معروفة = ٤٠٠
+Deno.test('حواف: مفتاح قاعدة البيانات بصيغتيه، والبريد من غير مفتاحه، وربط Meta فاضل فيه أقل من دقيقة، وعملية ربط مش معروفة', async () => {
+  const seen: { apikey: string; auth: string }[] = [];
+  let life = 120;
+  const keep = ['SUPABASE_SECRET_KEYS', 'SUPABASE_SERVICE_ROLE_KEY', 'RESEND_API_KEY'].map((k) => [k, Deno.env.get(k)] as [string, string | undefined]);
+  const put = (k: string, v: string | undefined) => { if (v === undefined) Deno.env.delete(k); else Deno.env.set(k, v); };
+  stubFetch((url, init) => {
+    if (url.indexOf('/rest/v1/') > -1 || url.indexOf('/auth/v1/') > -1) {
+      const h = new Headers((init && init.headers) as HeadersInit);
+      seen.push({ apikey: h.get('apikey') || '', auth: h.get('authorization') || '' });
+      return json([]);
+    }
+    if (url.indexOf('/oauth/access_token') > -1) return json({ access_token: 'LONGTOKEN_abcdefghijklmnopqrstuvwxyz', expires_in: life });
+    if (url.indexOf('/me?') > -1) return json({ id: '42' });
+    throw new Error('unexpected fetch ' + url);
+  });
+  const OLD = 'eyJhbGciOiJIUzI1NiJ9.legacy.sig';
+  try {
+    put('SUPABASE_SECRET_KEYS', JSON.stringify({ default: 'sb_secret_abc' }));
+    put('SUPABASE_SERVICE_ROLE_KEY', OLD);
+    await db('x?select=1', { method: 'GET' });
+    await authAdmin('users', { method: 'GET' });
+    put('SUPABASE_SECRET_KEYS', '{bad json');
+    await db('x?select=1', { method: 'GET' });
+    put('SUPABASE_SECRET_KEYS', undefined);
+    await authAdmin('users', { method: 'GET' });
+    assertEquals(seen, [{ apikey: 'sb_secret_abc', auth: '' }, { apikey: 'sb_secret_abc', auth: '' }, { apikey: OLD, auth: 'Bearer ' + OLD }, { apikey: OLD, auth: 'Bearer ' + OLD }],
+      'the new key alone; the old JWT key also as Bearer; broken JSON falls back to the old key');
+    put('RESEND_API_KEY', undefined);
+    await assertRejects(() => sendEmail('a@b.co', 's', '<p>h</p>', 't'), Error, 'resend key missing');
+    // ربط Meta: مفتاح فاضل فيه دقيقتين بيتجدد عادي، وفاضل فيه ٣٠ ثانية = التجديد بيطلب ربط من جديد
+    const renewIn = async (secs: number) => {
+      life = secs;
+      const r = await handleMetaLink('meta.seal', { token: 'SHORTTOKEN_abcdefghijklmnop' }, 'user-a', null);
+      assertEquals(r.status, 200);
+      return (await handleMetaLink('meta.renew', { sealed: (await r.json()).sealed }, 'user-a', null)).status;
+    };
+    assertEquals([await renewIn(120), await renewIn(30)], [200, 410], 'less than a minute left = link again');
+    assertEquals((await handleMetaLink('meta.nonsense', {}, 'user-a', null)).status, 400);
+  } finally {
+    keep.forEach(([k, v]) => put(k, v));
+    restoreFetch();
+  }
+});
+// التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١٢٣ — RFC 9110 §15.5.2 و§15.6.3، ومبدأ OWASP «fail securely»: الرفض عند العطل، بس بسببه الصح): التأكد
+// من الدخول اتعطّل (مفاتيح التوقيع ماجتش من Supabase، أو قاعدة البيانات مردّتش) كان بيبان ٤٠١ «دخولك خلص» — والأداة بتودّي العميل لصفحة
+// الدخول، وهناك جلسته على الجهاز بتتمسح أو بيتبعت له رمز جديد على البريد. دلوقتي العطل بيرمي والدالة بترد ٥٠٢ (مفيش دخول من غير تأكد)،
+// والمفتاح البايظ لسه null؛ ولما المفاتيح ترجع الدخول بيشتغل على طول (الفشل مبيتحفظش ساعة)؛ والقائمة بتاخد EC P-256 برقمه بس.
+// الساعة بتتقدّم ساعتين عشان القائمة المحفوظة تتجاب تاني — والحفظ بيفضل على الساعة المتقدّمة، فده آخر اختبار بيلمس مفاتيح التوقيع
+Deno.test('الدخول — عطل مؤقت: مفاتيح التوقيع أو قاعدة البيانات مردّتش = ٥٠٢ مش ٤٠١، ولما ترجع الدخول بيشتغل على طول، والمفاتيح EC P-256 بس', async () => {
+  let jwksDown = true, sessionDown = false, sendDown = false, tryDown = false;
+  const XY = { x: publicJwk.x, y: publicJwk.y };
+  stubFetch((url) => {
+    if (url === ISSUER + '/.well-known/jwks.json') {
+      if (jwksDown) throw new TypeError('network down');
+      return json({ keys: [{ kty: 'RSA', crv: 'P-256', kid: 'r1', ...XY }, { kty: 'EC', crv: 'P-384', kid: 'p384', ...XY }, { kty: 'EC', crv: 'P-256', ...XY },
+        { ...publicJwk, kid: 'k1' }] });
+    }
+    if (url.indexOf('/rest/v1/app_access') > -1) return json([{ role: 'pilot' }]);
+    if (url.indexOf('/rest/v1/rpc/session_ok') > -1) return sessionDown ? json({ message: 'down' }, 503) : json(true);
+    if (url.indexOf('/rest/v1/login_sessions') > -1) {
+      return json([{ session_id: 'session-1', user_id: 'user-1', code_hash: 'h', code_expires_at: new Date(Date.now() + 60000).toISOString(), attempts: 0, sends: 0, verified_at: null }]);
+    }
+    if (url.indexOf('/rest/v1/rpc/login_send') > -1) return sendDown ? json({ message: 'down' }, 500) : json(1);
+    if (url.indexOf('/rest/v1/rpc/login_try') > -1) return tryDown ? json({ message: 'down' }, 500) : json(1);
+    throw new Error('unexpected fetch ' + url);
+  });
+  const undo = fixedClock(new Date(Date.now() + 2 * 3600000).toISOString());
+  const realErr = console.error, logged: string[] = [];
+  console.error = (...a: unknown[]) => { logged.push(a.map(String).join(' ')); };
+  try {
+    const tok = await jwt(good());
+    const req = () => new Request('https://x.test/', { method: 'POST', headers: { authorization: 'Bearer ' + tok } });
+    // ١) المفاتيح ماجتش: مش null (يعني مش «المفتاح غلط») — بيرمي، والدالة بترد ٥٠٢ من غير تفاصيل
+    await assertRejects(() => verifyJwt(tok));
+    await assertRejects(() => requireLogin(req()));
+    await assertRejects(() => handleLogin('login.status', {}, req(), null));
+    const viaHandle = await handle(({ method: 'POST', headers: new Headers({ origin: 'https://adscenter.online', authorization: 'Bearer ' + tok }),
+      text: () => Promise.resolve(JSON.stringify({ action: 'usettings.get' })) }) as unknown as Request);
+    assertEquals([viaHandle.status, await viaHandle.json()], [502, { error: 'upstream' }], 'not 401 LOGIN');
+    // ٢) رجعت: الدخول بيشتغل على طول (الفشل مااتحفظش لحد ساعة)، والقائمة: EC P-256 برقمه بس
+    jwksDown = false;
+    assertEquals(((await verifyJwt(tok)) || {}).sub, 'user-1', 'works right after the keys are back');
+    for (const kid of ['r1', 'p384', 'undefined']) assertEquals(await verifyJwt(await jwt(good(), { alg: 'ES256', kid })), null, 'skipped key ' + kid);
+    // مفتاح بايظ لسه null (مش عطل): توقيع مش base64، ومحتوى مش كائن حتى لو موقّع
+    assertEquals(await verifyJwt(tok.split('.').slice(0, 2).join('.') + '.@@@'), null, 'signature not base64');
+    assertEquals(await verifyJwt(await jwt(null as unknown as Record<string, unknown>)), null, 'signed null payload');
+    // ٣) قاعدة البيانات مردّتش على «الجلسة مأكَّدة؟»: عطل، مش «مش مأكَّدة» — صفحة الدخول كانت بتبعت رمز جديد على البريد
+    sessionDown = true;
+    await assertRejects(() => requireLogin(req()));
+    await assertRejects(() => handleLogin('login.status', {}, req(), null));
+    sessionDown = false;
+    assertEquals(await requireLogin(req()), { id: 'user-1', email: 'a@b.co' });
+    // ٤) حجز إرسال الرمز أو خصم المحاولة وقع بخطأ غير «الدالة مش موجودة»: عطل يطلع زي ما هو، مش العدّ القديم
+    sendDown = true;
+    await assertRejects(() => handleLogin('login.code', {}, req(), null), Error, 'db 500');
+    tryDown = true;
+    await assertRejects(() => handleLogin('login.verify', { code: '123456' }, req(), null), Error, 'db 500');
+    // ٥) عملية دخول مش معروفة
+    assertEquals((await handleLogin('login.nonsense', {}, req(), null)).status, 400);
+    assert(logged.some((x) => x.indexOf('sync failed usettings.get') === 0) && logged.every((x) => x.indexOf(tok) < 0), 'logged without the token: ' + logged.join(' | '));
+  } finally {
+    console.error = realErr;
+    undo();
+    restoreFetch();
+  }
 });

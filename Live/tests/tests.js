@@ -6379,6 +6379,44 @@
       }).then(restore, function (e) { restore(); throw e; });
     });
 
+    // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١٢٣ — RFC 9110 §15.5.2 و§15.6.4): التأكد من الدخول اتعطّل (مفاتيح Supabase أو قاعدة البيانات مردّتش) كان
+    // بيرد ٤٠١ LOGIN — والأداة بتودّي العميل لصفحة الدخول، وهناك جلسته ممكن تتمسح. دلوقتي ٥٠٣ SERVER (الرفض زي ما هو)، والمفتاح البايظ لسه
+    // ٤٠١، ولما المفاتيح ترجع الطلب بيعدّي على طول (الفشل مبيتحفظش)
+    testAsync('/api: عطل مؤقت في التأكد من الدخول = ٥٠٣ SERVER مش ٤٠١ LOGIN، والمفتاح البايظ لسه ٤٠١، والرجوع على طول', function () {
+      var w, realFetch = window.fetch, jwksDown = true, sessionDown = false;
+      var restore = function () { window.fetch = realFetch; };
+      var reply = function (status, o) { return Promise.resolve(new Response(JSON.stringify(o), { status: status, headers: { 'Content-Type': 'application/json' } })); };
+      return setupLogin().then(loadWorker).then(function (m) {
+        w = m;
+        return import('/api/_login.js');
+      }).then(function (mod) {
+        mod.resetLoginCache();
+        window.fetch = function (url) {
+          var u = String(url);
+          if (u.indexOf('/.well-known/jwks.json') > -1) {
+            return jwksDown ? Promise.reject(new TypeError('network down')) : reply(200, { keys: [Object.assign({ kid: 'test-kid', alg: 'ES256', use: 'sig' }, TEST_LOGIN.jwk)] });
+          }
+          if (u.indexOf('/rest/v1/rpc/session_ok') > -1) return sessionDown ? reply(503, { message: 'down' }) : reply(200, true);
+          return realFetch.apply(window, arguments);
+        };
+        return api(w, TEST_LOGIN.token);
+      }).then(function (r) {
+        eq([r.status, r.code], [503, 'SERVER'], 'signing keys unavailable: an outage, not LOGIN');
+        jwksDown = false;
+        return api(w, TEST_LOGIN.token);
+      }).then(function (r) {
+        eq(r.status, 400, 'keys back: the request goes through right away');
+        return api(w, TEST_LOGIN.token.split('.').slice(0, 2).join('.') + '.@@@');
+      }).then(function (r) {
+        eq([r.status, r.code], [401, 'LOGIN'], 'a broken signature is still not signed in');
+        sessionDown = true;
+        return tokenWith({ session_id: 's-down' }).then(function (t) { return api(w, t); });
+      }).then(function (r) {
+        restore();
+        eq([r.status, r.code], [503, 'SERVER'], 'database down: an outage, not LOGIN');
+      }, function (e) { restore(); throw e; });
+    });
+
     // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (OWASP ASVS 3.3.3): تغيير كلمة المرور كان بيقفل الجلسة المؤقتة بس، فأي جلسة مفتوحة بالكلمة القديمة
     // (حد تاني عرفها) كانت بتفضل مأكَّدة لحد ٣٠ يوم
     testAsync('تغيير كلمة المرور بيقفل كل جلسات الحساب، ولو ماتغيّرتش بيقفل الجلسة المؤقتة بس', function () {

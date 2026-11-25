@@ -55,14 +55,16 @@ function signingKeys(force = false): Promise<Record<string, CryptoKey>> {
   }
   return jwks;
 }
-// المحتوى لو التوقيع والمُصدِر والجمهور والصلاحية سليمين، وإلا null
+// المحتوى لو التوقيع والمُصدِر والجمهور والصلاحية سليمين، وإلا null. بيرمي بس لو مفاتيح التوقيع ماجتش من Supabase — يعني مش عارفين
+// نتأكد دلوقتي، مش «المفتاح غلط» — واللي بيستدعيه بيرد ٥٠٢ مش ٤٠١ (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١٢٣): الـ ٤٠١ بيودّي العميل لصفحة
+// الدخول، وهناك جلسته على الجهاز بتتمسح — بسبب عطل مؤقت مش بسبب دخوله. أي مفتاح دخول بايظ (حتى توقيعه) = null زي الأول
 export async function verifyJwt(token: string | null): Promise<any | null> {
   if (!token || token.length > 4096) return null;
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   let header: any, payload: any;
   try { header = JSON.parse(dec.decode(b64url(parts[0]))); payload = JSON.parse(dec.decode(b64url(parts[1]))); } catch (_) { return null; }
-  if (!header || header.alg !== 'ES256' || !header.kid) return null;
+  if (!header || header.alg !== 'ES256' || !header.kid || !payload || typeof payload !== 'object') return null;
   let key = (await signingKeys())[header.kid];
   // المفتاح اتغيّر عند Supabase: نجيب القائمة تاني — مرة في الدقيقة بالكتير. قبل كده أي مفتاح دخول مزوّر برقم مفتاح عشوائي كان بيخلّي
   // كل طلب يجيب القائمة من جديد (التدقيق الشامل ١١ نوفمبر ٢٠٢٦)
@@ -71,7 +73,9 @@ export async function verifyJwt(token: string | null): Promise<any | null> {
     key = (await signingKeys(true))[header.kid];
   }
   if (!key) return null;
-  const ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, b64url(parts[2]), new TextEncoder().encode(parts[0] + '.' + parts[1]));
+  let ok = false;
+  try { ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, b64url(parts[2]), new TextEncoder().encode(parts[0] + '.' + parts[1])); }
+  catch (_) { return null; }   // توقيع مش base64 = مفتاح بايظ، مش عطل
   if (!ok) return null;
   const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
   if (payload.iss !== ISSUER || aud.indexOf('authenticated') < 0 || !(payload.exp * 1000 > Date.now())) return null;
@@ -91,11 +95,12 @@ async function accessOf(email: string): Promise<{ role: string } | null> {
   const rows = await r.json();
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
 }
-// باقي عمليات sync: null = مفيش دخول مكتمل (والعملية بترد ٤٠١ code: LOGIN)
+// باقي عمليات sync: null = مفيش دخول مكتمل (والعملية بترد ٤٠١ code: LOGIN). مفاتيح التوقيع أو قاعدة البيانات مردّتش = بيرمي، وhandler.ts
+// بيرد ٥٠٢ — قبل كده العطل المؤقت كان بيبان «دخولك خلص» (١٢٣)
 export async function requireLogin(req: Request): Promise<{ id: string; email: string } | null> {
-  const p = await verifyJwt(bearer(req)).catch(() => null);
+  const p = await verifyJwt(bearer(req));
   if (!p) return null;
-  const ok = await rpc('session_ok', { p_session: p.session_id, p_user: p.sub }).catch(() => false);
+  const ok = await rpc('session_ok', { p_session: p.session_id, p_user: p.sub });
   return ok === true ? { id: p.sub, email: String(p.email).toLowerCase() } : null;
 }
 
@@ -203,13 +208,15 @@ export async function handleLogin(action: string, body: any, req: Request, origi
     return reply(200, { ok: true }, origin);
   }
 
-  const p = await verifyJwt(bearer(req)).catch(() => null);
+  // عطل مؤقت (مفاتيح التوقيع أو قاعدة البيانات) = بيرمي ← ٥٠٢ من handler.ts، مش ٤٠١ ولا «مش مأكَّدة»: صفحة الدخول بتمسح الجلسة عند الـ ٤٠١،
+  // وبتبعت رمز جديد على البريد لو الجلسة مش مأكَّدة (١٢٣)
+  const p = await verifyJwt(bearer(req));
   if (!p) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
   const email = String(p.email).toLowerCase();
   const access = await accessOf(email);
 
   if (action === 'login.status') {
-    const ok = access ? await rpc('session_ok', { p_session: p.session_id, p_user: p.sub }).catch(() => false) : false;
+    const ok = access ? await rpc('session_ok', { p_session: p.session_id, p_user: p.sub }) : false;
     return reply(200, { ok: true, verified: ok === true, access: !!access, email, role: access ? access.role : null }, origin);
   }
 

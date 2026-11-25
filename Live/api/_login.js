@@ -39,7 +39,8 @@ function signingKeys(force) {
   return keysP;
 }
 
-// المحتوى لو المفتاح سليم، وإلا null
+// المحتوى لو المفتاح سليم، وإلا null. بيرمي بس لو مفاتيح التوقيع ماجتش من Supabase (مش عارفين نتأكد دلوقتي — مش «المفتاح غلط»)،
+// والـ Worker ساعتها بيرد ٥٠٣ مش ٤٠١ (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١٢٣). أي مفتاح دخول بايظ (حتى توقيعه) = null
 export async function verifyJwt(token) {
   if (typeof token !== 'string' || !token || token.length > 4096) return null;
   const parts = token.split('.');
@@ -49,7 +50,7 @@ export async function verifyJwt(token) {
     header = JSON.parse(new TextDecoder().decode(b64url(parts[0])));
     payload = JSON.parse(new TextDecoder().decode(b64url(parts[1])));
   } catch (e) { return null; }
-  if (!header || header.alg !== 'ES256' || !header.kid) return null;
+  if (!header || header.alg !== 'ES256' || !header.kid || !payload || typeof payload !== 'object') return null;
   let key = (await signingKeys())[header.kid];
   // المفتاح اتغيّر عند Supabase: نجيب القائمة تاني — مرة في الدقيقة بالكتير. قبل كده أي مفتاح دخول مزوّر برقم مفتاح عشوائي كان بيخلّي كل
   // طلب يجيب القائمة من جديد (التدقيق الشامل ١١ نوفمبر ٢٠٢٦)
@@ -58,8 +59,10 @@ export async function verifyJwt(token) {
     key = (await signingKeys(true))[header.kid];
   }
   if (!key) return null;
-  const ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, b64url(parts[2]), new TextEncoder().encode(parts[0] + '.' + parts[1]));
-  if (!ok || !payload) return null;
+  let ok = false;
+  try { ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, b64url(parts[2]), new TextEncoder().encode(parts[0] + '.' + parts[1])); }
+  catch (e) { return null; }   // توقيع مش base64 = مفتاح بايظ، مش عطل
+  if (!ok) return null;
   const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
   if (payload.iss !== ISSUER || aud.indexOf('authenticated') < 0 || !(payload.exp * 1000 > Date.now())) return null;
   if (typeof payload.sub !== 'string' || typeof payload.session_id !== 'string') return null;
@@ -73,7 +76,9 @@ async function sessionOk(p) {
     method: 'POST', headers: { 'apikey': PUBLISHABLE_KEY, 'content-type': 'application/json' },
     body: JSON.stringify({ p_session: p.session_id, p_user: p.sub })
   });
-  const ok = r.ok && (await r.json().catch(function () { return false; })) === true;
+  // قاعدة البيانات مردّتش صح (٥xx، أو رد مش مفهوم) = عطل بيرمي، مش «الجلسة مش مأكَّدة» (١٢٣)
+  if (!r.ok) throw new Error('session_ok ' + r.status);
+  const ok = (await r.json()) === true;
   if (ok) {
     if (okUntil.size > 5000) okUntil.clear();
     okUntil.set(k, Date.now() + OK_TTL_MS);
@@ -81,16 +86,16 @@ async function sessionOk(p) {
   return ok;
 }
 
-// صاحب الطلب لو الدخول مكتمل ({ id })، وإلا null. الـ id بيربط نسخ الربط المقفولة بصاحبها (_seal.js — المرحلة ٣، أ١)
+// صاحب الطلب لو الدخول مكتمل ({ id })، وإلا null. الـ id بيربط نسخ الربط المقفولة بصاحبها (_seal.js — المرحلة ٣، أ١).
+// مفاتيح التوقيع أو قاعدة البيانات مردّتش = بيرمي، والـ Worker بيرد ٥٠٣ (١٢٣): قبل كده العطل المؤقت كان بيبان ٤٠١ «سجّل الدخول»، والأداة
+// تودّي العميل لصفحة الدخول، وهناك جلسته على الجهاز ممكن تتمسح
 export async function loginUser(request) {
   const h = request.headers.get('authorization') || '';
   const token = /^Bearer\s+/i.test(h) ? h.replace(/^Bearer\s+/i, '').trim() : null;
-  try {
-    const p = await verifyJwt(token);
-    return p && (await sessionOk(p)) ? { id: p.sub } : null;
-  } catch (e) { return null; }
+  const p = await verifyJwt(token);
+  return p && (await sessionOk(p)) ? { id: p.sub } : null;
 }
-// true = الطلب ده من دخول مكتمل
+// true = الطلب ده من دخول مكتمل (والعطل المؤقت بيرمي)
 export async function checkLogin(request) { return !!(await loginUser(request)); }
 
 // مفتاح المُشغّل (pg_cron ← supabase/functions/sync/runner.ts ← api/digest-fetch.js — الملخص التلقائي لكل المنصات، ٣١ أكتوبر ٢٠٢٦):
