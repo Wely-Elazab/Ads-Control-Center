@@ -117,8 +117,9 @@ function link(url: string, label?: string): string {
   return '<a href="' + esc(url) + '">' + esc(label || url) + '</a>';
 }
 
-// «٦ ساعات» / «ساعتان» / «١٢ ساعة» (تمييز العدد بالعربي)
-function arNum(n: number): string { return String(n).replace(/\d/g, (d) => '٠١٢٣٤٥٦٧٨٩'[Number(d)]); }
+// «٦ ساعات» / «ساعتان» / «١٢ ساعة» (تمييز العدد بالعربي). وكل رقم في نص عربي بالأرقام العربية زي باقي رسائلنا — حتى في إشعارات صاحب الأداة
+// (عدد مرات الإرسال، وتاريخ التفعيل، وسقف اليوم كانوا بأرقام لاتينية — التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١٢٤)
+function arNum(n: number | string): string { return String(n).replace(/\d/g, (d) => '٠١٢٣٤٥٦٧٨٩'[Number(d)]); }
 function hoursAr(n: number): string {
   if (n < 1) return 'أقل من ساعة';
   if (n === 1) return 'ساعة واحدة';
@@ -146,8 +147,8 @@ export async function adminMail(r: Req, repeat: boolean, remind?: { elapsed: num
     row('البريد', esc(r.email)),
     r.whatsapp ? row('واتساب', '<span dir="ltr">' + link('https://wa.me/' + r.whatsapp.replace(/\D/g, ''), r.whatsapp) + '</span>') : '',
     row('لغة الرسائل', r.lang === 'en' ? 'الإنجليزية' : 'العربية'),
-    r.submissions > 1 ? row('عدد مرات الإرسال', String(r.submissions)) : '',
-    r.activated_at ? row('الحالة', 'أُرسلت إليه رسالة التفعيل من قبل (' + esc(r.activated_at.slice(0, 10)) + ')') : ''
+    r.submissions > 1 ? row('عدد مرات الإرسال', arNum(r.submissions)) : '',
+    r.activated_at ? row('الحالة', 'أُرسلت إليه رسالة التفعيل من قبل (' + esc(arNum(r.activated_at.slice(0, 10))) + ')') : ''
   ].join('');
   const steps: string[] = [];
   if (has('meta')) steps.push('<strong>Meta:</strong> افتح ' + link('https://developers.facebook.com/apps/' + META_APP_ID + '/roles/roles/', 'أدوار التطبيق') +
@@ -249,8 +250,8 @@ async function joinMailAllowed(): Promise<boolean> {
   if (ok !== false) return true;
   try {
     if ((await rpc('mail_budget_take', { p_kind: 'join-capped', p_max: 1 })) === true) {
-      const subject = 'طلبات الانضمام: توقفت رسائل اليوم عند ' + JOIN_MAIL_DAILY;
-      const line = 'وصل عدد إشعارات طلبات الانضمام وتذكيراتها اليوم إلى ' + JOIN_MAIL_DAILY + '، فتوقفت حتى الغد حتى لا تُستنزف حصة البريد ' +
+      const subject = 'طلبات الانضمام: توقفت رسائل اليوم عند ' + arNum(JOIN_MAIL_DAILY);
+      const line = 'وصل عدد إشعارات طلبات الانضمام وتذكيراتها اليوم إلى ' + arNum(JOIN_MAIL_DAILY) + '، فتوقفت حتى الغد حتى لا تُستنزف حصة البريد ' +
         '(رموز الدخول والتنبيهات العاجلة). الطلبات الجديدة محفوظة في جدول pilot_requests، فراجعها من هناك.';
       await sendEmail(MAIL_REPLY_TO, subject, mailHtml(esc(subject), [esc(line)]), subject + '\n\n' + line);
     }

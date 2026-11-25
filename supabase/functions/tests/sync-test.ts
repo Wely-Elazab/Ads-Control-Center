@@ -3054,3 +3054,82 @@ Deno.test('الدخول — عطل مؤقت: مفاتيح التوقيع أو ق
     restoreFetch();
   }
 });
+// حواف الانضمام (فروع متنفّذتش قبل كده — قياس الفروع ٢٥ نوفمبر ٢٠٢٦): حقل مش نص أو فاضي بعد التنظيف بيترفض باسمه؛ سقف إشعارات اليوم = رسالة
+// واحدة لصاحب الأداة إن الإشعارات وقفت (من غير بيانات الطلب، وفشلها بيتسجّل والطلب محفوظ)؛ عدّاد السقف نفسه وقع = الإشعار بيتبعت زي الأول؛
+// الإشعار فشل = الطلب محفوظ والعميل بياخد «تم»؛ رسالة التفعيل فيها سطر TikTok لو طلبه؛ التذكير قبل الموعد بساعة = «ساعة واحدة»؛ والأرقام في
+// إشعارات صاحب الأداة عربية (١٢٤)
+Deno.test('حواف الانضمام: الحقول الفاضية، ورسالة سقف اليوم مرة واحدة، والعدّاد الواقع، والإشعار الفاشل، وTikTok في التفعيل، و«ساعة واحدة»، وأرقام عربية', async () => {
+  const good = { role: 'agency', name: 'سارة', business: 'متجر', store: 'shop.example', country: 'السعودية', platforms: ['meta'], fb: '@sara.k',
+    email: 'sara@x.example', consent: true, ms: 9000 };
+  const send = async (b: Record<string, unknown>) => { const r = await handleJoin('join', b, null); return [r.status, await r.json()]; };
+  const req = (o: Record<string, unknown>) => ({ id: JOIN_ID, email: 'sara@x.example', role: 'agency', name: 'سارة', business: 'B', store_url: 'https://shop.example/',
+    country: 'C', platforms: ['meta'], fb_profile: 'https://www.facebook.com/sara.k', google_email: null, snap_email: null, whatsapp: null, lang: 'ar', status: 'new',
+    submissions: 1, activated_at: null, created_at: '2026-11-20T09:00:00Z', updated_at: '2026-11-20T09:00:00Z', consent_at: '2026-11-20T09:00:00Z', ...o });
+  const realErr = console.error, logged: string[] = [];
+  console.error = (...a: unknown[]) => { logged.push(a.map(String).join(' ')); };
+  // عدّاد السقف بإجابة لكل نوع (fakeJoinDb بيرد نفس الإجابة للكل). 'down' = قاعدة البيانات وقعت
+  const budgetBy = (answer: Record<string, unknown>) => {
+    const inner = globalThis.fetch;
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.indexOf('/rest/v1/rpc/mail_budget_take') > -1) {
+        const a = answer[JSON.parse(String(init && init.body)).p_kind];
+        return Promise.resolve(a === 'down' ? json({ message: 'down' }, 500) : json(a));
+      }
+      return inner(input, init);
+    }) as typeof fetch;
+  };
+  try {
+    // ١) حقل مش نص، أو فاضي بعد التنظيف
+    let s = fakeJoinDb();
+    const bad: [Record<string, unknown>, string][] = [[{ name: 5 }, 'name'], [{ store: '   ' }, 'store'], [{ fb: '' }, 'fb'], [{ whatsapp: '   ' }, 'whatsapp']];
+    for (const [patch, field] of bad) assertEquals(await send({ ...good, ...patch }), [400, { error: 'field', field }], JSON.stringify(patch));
+    assertEquals(s.reqs.length, 0);
+    restoreDigestEnv();
+    // ٢) سقف اليوم خلص: الطلب محفوظ، ورسالة واحدة لصاحب الأداة إن الإشعارات وقفت — بأرقام عربية ومن غير بيانات الطلب
+    s = fakeJoinDb();
+    budgetBy({ 'join': false, 'join-capped': true });
+    assertEquals(await send(good), [200, { ok: true }]);
+    assertEquals([s.reqs.length, s.mails.length, s.mails[0].to, s.mails[0].subject], [1, 1, ['support@adscenter.online'], 'طلبات الانضمام: توقفت رسائل اليوم عند ٤٠']);
+    assert(String(s.mails[0].text).indexOf('إلى ٤٠،') > -1, 'Arabic digits in the body too');
+    assert(String(s.mails[0].html).indexOf('sara') < 0 && String(s.mails[0].text).indexOf('سارة') < 0, 'no request data in the cap notice');
+    restoreDigestEnv();
+    // ... ورسالة السقف فشلت: بتتسجّل، والطلب محفوظ، والعميل «تم»
+    s = fakeJoinDb({ mailFails: true });
+    budgetBy({ 'join': false, 'join-capped': true });
+    assertEquals([await send(good), s.reqs.length], [[200, { ok: true }], 1]);
+    assert(logged.some((x) => x.indexOf('join cap notice failed') === 0), logged.join(' | '));
+    restoreDigestEnv();
+    // ٣) عدّاد السقف نفسه وقع: الإشعار بيتبعت زي الأول (منخسرش طلب حقيقي بسبب عطل عندنا)
+    s = fakeJoinDb();
+    budgetBy({ 'join': 'down' });
+    assertEquals([await send(good), s.mails.length, s.mails[0] && s.mails[0].to], [[200, { ok: true }], 1, ['support@adscenter.online']]);
+    restoreDigestEnv();
+    // ٤) الإشعار نفسه فشل: الطلب محفوظ، والعميل «تم»، والسبب في السجل من غير بيانات الطلب
+    s = fakeJoinDb({ mailFails: true });
+    assertEquals([await send(good), s.reqs.length], [[200, { ok: true }], 1]);
+    assert(logged.some((x) => x.indexOf('join notify failed') === 0) && logged.every((x) => x.indexOf('sara') < 0), logged.join(' | '));
+    restoreDigestEnv();
+    // ٥) رسالة التفعيل لطلب فيه TikTok: سطر «غير متاح بعد»
+    s = fakeJoinDb();
+    s.reqs.push(req({ platforms: ['meta', 'tiktok'] }));
+    const sig = await linkSig('ads-center/join-invited/v1:', 'join:' + JOIN_ID);
+    assertEquals((await handleJoin('join.activate', { id: JOIN_ID, sig }, null)).status, 200);
+    assert(String(s.mails[0].text).indexOf('ربط TikTok غير متاح بعد') > -1, 'the TikTok line');
+    restoreDigestEnv();
+    // ٦) التذكير قبل الموعد بساعة: «ساعة واحدة»
+    s = fakeJoinDb();
+    const h23 = new Date(Date.now() - 23 * 3600000).toISOString();
+    s.reqs.push(req({ id: 'h23', email: 'h@x.example', name: 'Nh', created_at: h23, updated_at: h23, reminded_at: null }));
+    assertEquals(await joinReminders(), 1);
+    assertEquals(s.mails[0].subject.split(' — ')[0], 'تذكير: باقٍ ساعة واحدة على موعد تفعيل Nh');
+    restoreDigestEnv();
+    // ٧) (١٢٤) إشعار صاحب الأداة: عدد مرات الإرسال وتاريخ التفعيل بالأرقام العربية
+    const m = await adminMail(req({ submissions: 3, activated_at: '2026-11-21T09:00:00Z' }) as any, true);
+    assert(m.html.indexOf('>٣</td>') > -1, 'submissions in Arabic digits');
+    assert(m.html.indexOf('(٢٠٢٦-١١-٢١)') > -1, 'the activation date in Arabic digits');
+  } finally {
+    console.error = realErr;
+    restoreDigestEnv();
+  }
+});
