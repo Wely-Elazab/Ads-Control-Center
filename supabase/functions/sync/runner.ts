@@ -985,8 +985,8 @@ async function accessMarks(s: Settings, res: AcctResult, marks: Record<string, M
   return keep;
 }
 // التنبيهات العاجلة قصاد البصمات: الجديد بيتبعت، والمستمر يومين بعد أول رسالة بيتفكّر بيه مرة، والباقي بيتسجّل إنه لسه ظاهر،
-// واللي مبقاش ظاهر بيتقفل «حُلّت» بقاعدة resolveNow
-function urgentPass(res: AcctResult, all: { urgent: any[]; alive: Record<string, boolean>; failed: Failed }, marks: Record<string, Mark>, keep: Mark[], sentRows: Mark[]): void {
+// واللي مبقاش ظاهر بيتقفل «حُلّت» بقاعدة resolveNow. export للاختبارات (tests/sync-test.ts)
+export function urgentPass(res: AcctResult, all: { urgent: any[]; alive: Record<string, boolean>; failed: Failed }, marks: Record<string, Mark>, keep: Mark[], sentRows: Mark[]): void {
   const now = Date.now(), iso = new Date(now).toISOString();
   const fresh: any[] = [], remind: { a: any; m: Mark }[] = [], ongoing: Ongoing[] = [], seen: Record<string, boolean> = {};
   for (const al of all.urgent) {

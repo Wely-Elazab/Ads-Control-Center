@@ -11,7 +11,7 @@ import { bearer, cleanCode, counterMissing, handleLogin, newCode, verifyJwt } fr
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -362,6 +362,51 @@ Deno.test('«حُلّت» بس لما المشكلة تختفي فعلاً: «م
   assertEquals(resolveNow(track, false, { site: true, edits: false, links: false }, now), 'keep');
   assertEquals(resolveNow(track, false, { site: false, edits: false, links: true }, now), 'resolve');
   assertEquals(resolveNow({ kind: 'link-broken', last_seen_at: '2026-10-23T06:00:00Z' }, false, { site: false, edits: false, links: true }, now), 'keep');
+});
+// التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٦): قرار العاجل (urgentPass) مكانش ليه أي اختبار — وهو اللي بينفّذ الوعد اللي العميل شايفه في
+// الرسالة: «لن تصلك رسالة أخرى عن هذا التنبيه وحده إلا تذكيراً واحداً إذا استمر يومين». الجديد بيتبعت (والمكرر في نفس التشغيل مرة)،
+// والمستمر بعد يومين تذكير واحد بنصه الحالي، وبعدها «لسه قائم» بس، واللي اتقفل «حُلّت» ورجع جديد، واللي اختفى بيتقفل بقاعدة resolveNow،
+// وتنبيهات النظام (الربط) مبتتقفلش هنا
+Deno.test('قرار العاجل: الجديد مرة، وتذكير واحد بعد يومين، وبعدها «قائم» بس، واللي اختفى بيتقفل بقاعدة resolveNow', () => {
+  const H = 3600000, now = Date.now(), ago = (h: number) => new Date(now - h * H).toISOString();
+  const fam = familyOf('cpr'), famT = familyOf('tracking-off');
+  const mark = (kind: string, obj: string, o: Record<string, unknown> = {}) =>
+    ({ kind, object_id: obj, first_at: ago(100), last_sent_at: ago(10), last_seen_at: ago(1), times_sent: 1, resolved_at: null as string | null, last_code: 'cpr', ...o });
+  const al = (obj: string, title = 'T-' + obj) => ({ code: 'cpr', adId: obj, title, adName: 'N-' + obj });
+  const marks: Record<string, any> = {
+    [fam + '|Y']: mark(fam, 'Y', { last_sent_at: ago(49) }),                     // اتبعت مرة من ٤٩ ساعة: تذكير
+    [fam + '|Y2']: mark(fam, 'Y2', { last_sent_at: ago(47) }),                   // من ٤٧ ساعة: لسه بدري — قائم
+    [fam + '|Z']: mark(fam, 'Z', { times_sent: 2, last_sent_at: ago(200) }),     // اتبعت مرتين: قائم بس مهما طال
+    [fam + '|W']: mark(fam, 'W', { resolved_at: ago(30) }),                      // اتقفلت «حُلّت» ورجعت: جديد
+    [fam + '|V']: mark(fam, 'V'),                                                // مش عاجل دلوقتي بس «مهم»: لسه ظاهرة
+    [fam + '|U']: mark(fam, 'U', { last_seen_at: ago(25) }),                     // اختفت ٢٥ ساعة: حُلّت
+    [fam + '|U2']: mark(fam, 'U2', { last_seen_at: ago(23) }),                   // ٢٣ ساعة: لسه
+    [famT + '|S']: mark(famT, 'S', { last_code: 'tracking-off', last_seen_at: ago(30) }), // طلب الموقع فشل: منعرفش
+    ['connection|act_1']: mark('connection', 'act_1', { last_seen_at: ago(500), last_code: 'connection' })  // تنبيه نظام: مش هنا
+  };
+  const res: any = { platform: 'meta', account: 'act_1', name: 'A', section: null };
+  const keep: any[] = [], sent: any[] = [];
+  urgentPass(res, { urgent: [al('X'), al('X', 'dup'), al('Y', 'worse now'), al('Y2'), al('Z'), al('W')], alive: { [fam + '|V']: true },
+    failed: { site: true, edits: false, links: false } }, marks, keep, sent);
+  assertEquals(res.section.fresh.map((a: any) => a.adId), ['X', 'W'], 'new, and back after «resolved»; the duplicate once');
+  assertEquals(res.section.remind.map((r: any) => [r.a.adId, r.a.title]), [['Y', 'worse now']], 'one reminder, with the alert as it reads now');
+  assertEquals(res.ongoing.map((o: any) => o.name), ['N-Y2', 'N-Z'], 'the rest: still ongoing');
+  assertEquals(res.section.ongoing, res.ongoing);
+  assertEquals(sent.map((m) => [m.object_id, m.times_sent, m.first_at === m.last_sent_at]), [['X', 1, true], ['Y', 2, false], ['W', 1, true]],
+    'a fresh mark for the new; the reminder counts as the second (and last) send');
+  assertEquals(keep.map((m) => [m.object_id, !!m.resolved_at]), [['Y2', false], ['Z', false], ['V', false], ['U', true]],
+    'seen again (ongoing and «important»), resolved after 24h gone; not after 23h, not with a failed source, not a system alert');
+  // مفيش جديد ولا تذكير: مفيش قسم (مفيش رسالة عاجلة)، والقائم بيتسجّل بس
+  const res2: any = { platform: 'meta', account: 'act_1', name: 'A', section: null };
+  urgentPass(res2, { urgent: [al('Z')], alive: {}, failed: { site: false, edits: false, links: false } }, { [fam + '|Z']: marks[fam + '|Z'] }, [], []);
+  assertEquals([res2.section, res2.ongoing.map((o: any) => o.name)], [null, ['N-Z']]);
+  // تذكير لوحده (من غير جديد): رسالة عاجلة برضه
+  const res3: any = { platform: 'meta', account: 'act_1', name: 'A', section: null };
+  urgentPass(res3, { urgent: [al('Y')], alive: {}, failed: { site: false, edits: false, links: false } }, { [fam + '|Y']: marks[fam + '|Y'] }, [], []);
+  assertEquals([res3.section && res3.section.fresh.length, res3.section && res3.section.remind.length], [0, 1], 'a reminder alone is a message');
+  // القائم واللي لسه «مهم» بيتحدّث آخر ظهورهم دلوقتي — من غيره بيتقفلوا «حُلّت» بعد ٢٤ ساعة وهم لسه ظاهرين
+  const fresh = (m: any) => Date.parse(m.last_seen_at) >= now;
+  assertEquals(keep.filter((m) => !m.resolved_at).map((m) => [m.object_id, fresh(m)]), [['Y2', true], ['Z', true], ['V', true]]);
 });
 
 // ---------- إعدادات التنبيهات لكل حساب إعلاني (مراجعة الإعدادات ٢٤ أكتوبر) ----------
