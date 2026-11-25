@@ -7317,6 +7317,32 @@
       eq(valueForType([{ action_type: 'purchase', value: '3' }], 'purchase'), 3);
       eq([num('12.5'), num('x'), num(null)], [12.5, 0, 0]);
     });
+    // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (٦٧ — dxFirstP متنفّذتش في أي اختبار): صف ملخص المتجر من رد Meta نفسه (dxBundle) — «الأقرب للمتجر»
+    // (نقرة ٧ أيام، ومش أكتر من رقم المنصة) ورقم المنصة كما هو (ppur/prev — الرقم التالت جنب الأرقام، اتطابق مع Ads Manager حياً ٨ نوفمبر).
+    // اختبارات platCompare وplatTotals بتبدأ من ppur جاهز؛ هنا من الرد الخام
+    test('أرقام Meta: صف ملخص المتجر من الرد الخام — الأقرب للمتجر ورقم المنصة كما هو، ومن غير نوافذ مفيش رقم منصة', function () {
+      var row = { spend: '100.5', impressions: '5000', inline_link_clicks: '80',
+        actions: [{ action_type: 'omni_purchase', value: '9', '7d_click': '6', '1d_view': '3' }, { action_type: 'omni_add_to_cart', value: '20', '7d_click': '15' },
+          { action_type: 'omni_initiated_checkout', value: '12', '7d_click': '14' }],
+        action_values: [{ action_type: 'omni_purchase', value: '900.5', '7d_click': '600', '1d_view': '300.5' }] };
+      eq(dxBundle(row), { spend: 100.5, imp: 5000, clicks: 80, atc: 15, ic: 12, pur: 6, rev: 600, ppur: 9, prev: 900.5 },
+        'store = 7-day click, never above the platform number (checkout 14 > 12 -> 12); platform = the value as is');
+      // النوع الأول مش موجود: اللي بعده (purchase) — للرقمين
+      row.actions = [{ action_type: 'purchase', value: '4', '7d_click': '3' }];
+      row.action_values = [{ action_type: 'purchase', value: '400', '7d_click': '300' }];
+      var b = dxBundle(row);
+      eq([b.pur, b.rev, b.ppur, b.prev, b.atc, b.ic], [3, 300, 4, 400, 0, 0]);
+      // فيه نوافذ ومفيش value (Meta شالت الصفر): صفر، مش «مش معروف»
+      row.actions = [{ action_type: 'omni_purchase', '7d_click': '0', '1d_view': '2' }];
+      row.action_values = [];
+      b = dxBundle(row);
+      eq([b.pur, b.ppur, b.rev, b.prev], [0, 0, 0, 0]);
+      // من غير أي نافذة (طلب قديم أو نوع حدث مالوش نوافذ): الرقم هو رقم المنصة، ومفيش رقم منصة منفصل (null = مفيش سطر مقارنة)
+      row.actions = [{ action_type: 'omni_purchase', value: '5' }];
+      row.action_values = [{ action_type: 'omni_purchase', value: '500' }];
+      b = dxBundle(row);
+      eq([b.pur, b.rev, b.ppur, b.prev], [5, 500, null, null]);
+    });
 
     test('قارئ الشاشة: رسالة الحالة بتتقري، والقسم الحالي معلَّم في القائمة (aria-current)، والقائمة بتقول إنها بتتحمّل', function () {
       var status = document.getElementById('connectStatus');
@@ -8798,6 +8824,74 @@
           ok(el.querySelector('[data-pv="ig"].on'), 'falls back to preview tabs');
         });
       } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
+    });
+    // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (٦٧ — الضغط على التبويب متنفّذش في أي اختبار، و١١٥): تبويبات صيغ المعاينة في إعلان الكتالوج — الضغط بيحمّل
+    // الصيغة (ومن الذاكرة لو اتحمّلت)، والمختار مبيتطلبش تاني، وفشل صيغة اختارها العميل مبيروحش للي بعدها (ده لأول فتح بس)، والرد المتأخر
+    // لصيغة قديمة مبيتعرضش. و(١١٥) نمط التبويبات كامل (WAI-ARIA APG — Tabs، تفعيل يدوي): المختار بس في ترتيب Tab، واللوحة مربوطة
+    // بتبويبها، والأسهم بتنقّل التركيز (معكوسة في العربي) وHome/End، والتركيز ميضيعش لما التبويبات تتبني من جديد بعد الضغط
+    test('Meta: تبويبات صيغ المعاينة في الكتالوج — الضغط والذاكرة والرد المتأخر، والتركيز والأسهم (نمط التبويبات كامل)', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, asked = [], held = [], root = document.documentElement, prevDir = root.dir;
+      var overlay = document.getElementById('expandOverlay'), wasHidden = overlay.classList.contains('hidden');
+      var FRAME = function (f) { return { data: [{ body: '<iframe src="https://business.facebook.com/ads/api/preview_iframe.php?d=' + f + '" width="320" height="560"></iframe>' }] }; };
+      window.FB = { api: function (p, params, cb) { asked.push(params.ad_format); held.push({ f: params.ad_format, cb: cb }); } };
+      var answer = function (f, good) { var i = held.findIndex(function (h) { return h.f === f; }); held.splice(i, 1)[0].cb(good ? FRAME(f) : { error: { message: 'no' } }); };
+      var el = document.getElementById('expandPreview');
+      var tab = function (k) { return el.querySelector('[data-pv="' + k + '"]'); };
+      var state = function () { return [].map.call(el.querySelectorAll('[data-pv]'), function (b) { return b.getAttribute('data-pv') + (b.classList.contains('on') ? '*' : '') + ':' + b.tabIndex; }).join(' '); };
+      var shown = function () { var f = el.querySelector('.pv-body iframe'); return f ? (/d=([A-Z_]+)/.exec(f.getAttribute('src')) || [])[1] : null; };
+      var key = function (k) { document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); return document.activeElement.getAttribute('data-pv'); };
+      overlay.classList.remove('hidden');   // التركيز محتاج النافذة ظاهرة
+      try {
+        withLang('ar', function () {
+          root.dir = 'rtl';
+          showMedia({ id: 'TB1', platform: 'Meta', format: 'image', catalog: true, igPreview: false, themeClass: 'pv-t0' });
+          eq(asked, ['MOBILE_FEED_STANDARD'], 'Facebook first (no Instagram account)');
+          answer('MOBILE_FEED_STANDARD', true);
+          eq([state(), shown()], ['fb*:0 ig:-1 reels:-1', 'MOBILE_FEED_STANDARD'], 'only the chosen tab is in the Tab order');
+          var panel = el.querySelector('.pv-body');
+          eq([panel.getAttribute('role'), panel.getAttribute('aria-labelledby'), tab('fb').getAttribute('aria-controls')], ['tabpanel', tab('fb').id, panel.id], 'the panel is tied to its tab');
+          ok(tab('fb').id && panel.id && document.querySelectorAll('#' + panel.id).length === 1, 'ids exist and are unique');
+          // الضغط على المختار: مفيش طلب
+          tab('fb').focus(); tab('fb').click();
+          eq(asked.length, 1, 'the chosen tab asks nothing');
+          // الأسهم في العربي: الشمال = اللي بعده، واليمين = اللي قبله، ودايرة؛ وHome/End — التركيز بس من غير طلب
+          eq([key('ArrowLeft'), key('ArrowLeft'), key('ArrowLeft'), key('ArrowRight'), key('Home'), key('End')], ['ig', 'reels', 'fb', 'reels', 'fb', 'reels'], 'RTL arrows, wrap, Home/End');
+          eq(asked.length, 1, 'arrows move focus only (manual activation: each format is a request to Meta)');
+          // الضغط على ig: طلب، والتبويبات بتتبني من جديد والتركيز بيفضل على المختار
+          tab('ig').focus(); tab('ig').click();
+          eq([asked.slice(-1)[0], state()], ['INSTAGRAM_STANDARD', 'fb:-1 ig*:0 reels:-1']);
+          ok(document.activeElement === tab('ig'), 'focus stays on the chosen tab after the rebuild: ' + document.activeElement.tagName + '#' + document.activeElement.id);
+          // الضغط عليه تاني وهو لسه بيحمّل: مفيش طلب مكرر
+          tab('ig').click();
+          eq(asked.length, 2, 'clicking the chosen tab while it loads asks nothing more');
+          // ig فشلت (صيغة في النص اختارها العميل): الاختيار فاضل عليها، ومبيروحش لـ reels لوحده (الانتقال للي بعدها لأول فتح بس)
+          answer('INSTAGRAM_STANDARD', false);
+          eq([asked.length, state()], [2, 'fb:-1 ig*:0 reels:-1'], 'a failed chosen format stays chosen');
+          // reels، وقبل ما ترد العميل رجع لـ fb (من الذاكرة من غير طلب)، فرد reels المتأخر مبيتعرضش
+          tab('reels').click();
+          tab('fb').click();
+          eq([asked.length, shown(), state()], [3, 'MOBILE_FEED_STANDARD', 'fb*:0 ig:-1 reels:-1'], 'fb from memory');
+          answer('INSTAGRAM_REELS', true);
+          eq(shown(), 'MOBILE_FEED_STANDARD', 'a late reply for the previous format is not shown');
+          // أول فتح لإعلان تاني: fb فشلت فالأداة طلبت ig لوحدها، والعميل اختار reels قبل ما ig ترد — فشل ig المتأخر مبيكمّلش
+          // للي بعدها فوق اختيار العميل (من غير الحارس كان بيطلب reels تاني ويبني التبويبات من جديد)
+          asked.length = 0; held.length = 0;
+          showMedia({ id: 'TB2', platform: 'Meta', format: 'image', catalog: true, igPreview: false, themeClass: 'pv-t0' });
+          answer('MOBILE_FEED_STANDARD', false);
+          eq(asked, ['MOBILE_FEED_STANDARD', 'INSTAGRAM_STANDARD'], 'first open: the next format by itself');
+          tab('reels').click();
+          answer('INSTAGRAM_STANDARD', false);
+          eq([asked, state()], [['MOBILE_FEED_STANDARD', 'INSTAGRAM_STANDARD', 'INSTAGRAM_REELS'], 'fb:-1 ig:-1 reels*:0'], 'a late failure does not move past the customer\'s choice');
+          // بالإنجليزي الأسهم في اتجاهها العادي
+          root.dir = 'ltr';
+          tab('fb').focus();
+          eq([key('ArrowRight'), key('ArrowLeft'), key('ArrowLeft')], ['ig', 'fb', 'reels'], 'LTR arrows');
+        });
+      } finally {
+        root.dir = prevDir;
+        if (wasHidden) overlay.classList.add('hidden');
+        if (hadFB) window.FB = prevFB; else delete window.FB;
+      }
     });
     // التدقيق الشامل ١٦ نوفمبر ٢٠٢٦ (٦٧ — دوال متنفّذتش في أي اختبار): آخر بديل لفيديو الكتالوج لما كل صيغ المعاينة تفشل (videoFallback):
     // الملف المباشر بمشغّل المتصفح، وإلا إطار فيسبوك المعقّم، ورابط الفيديو على facebook.com بس — قيمة زي «@موقع-تاني/» كانت هتحوّل

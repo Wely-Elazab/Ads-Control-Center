@@ -3715,9 +3715,12 @@
     return PREVIEW_SIZES[k];
   }
   var previewCache = {}, previewSeq = 0;
+  // نمط التبويبات (WAI-ARIA APG — Tabs، بتفعيل يدوي لأن كل صيغة طلب لـ Meta): المختار بس في ترتيب Tab، والأسهم بتنقّل التركيز بينهم
+  // (tabs في showMedia)، واللوحة مربوطة بتبويبها. كان role="tab" من غير سلوكه (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٥)
   function previewTabsHtml(order, cur) {
     return '<div class="pv-tabs" role="tablist">' + order.map(function (k) {
-      return '<button type="button" role="tab" class="pv-tab' + (k === cur ? ' on' : '') + '" aria-selected="' + (k === cur) + '" data-pv="' + k + '">' + esc(t('x.pv.' + k)) + '</button>';
+      return '<button type="button" role="tab" id="pvTab-' + k + '" aria-controls="pvPanel" tabindex="' + (k === cur ? '0' : '-1') + '" class="pv-tab' + (k === cur ? ' on' : '') +
+        '" aria-selected="' + (k === cur) + '" data-pv="' + k + '">' + esc(t('x.pv.' + k)) + '</button>';
     }).join('') + '</div>';
   }
   // ---------- فيديو Meta: عرض واحد بالصوت يشتغل لوحده (طلب صاحب المنتج ٣ نوفمبر ٢٠٢٦) ----------
@@ -3815,6 +3818,7 @@
     var el = document.getElementById('expandPreview');
     el.innerHTML = previewMarkup(c);
     el.onclick = null;
+    el.onkeydown = null;
     if (c.platform === 'Snapchat' && (c.videoSrc || c.snapCreativeId)) { snapMediaView(c, el, openSeq); return; }
     if (c.platform !== 'Meta' || !(c.videoId || c.catalog)) return;
     // فيديو Meta (مش كتالوج): عرض واحد بالصوت بيشتغل لوحده، من غير تبويبات (metaVideoView — ٣ نوفمبر ٢٠٢٦)
@@ -3824,7 +3828,10 @@
     var hint = '<p class="pv-hint">' + esc(t('x.pv.hint') + (c.catalog ? ' ' + t('x.pv.catalog') : '')) + '</p>';
     var load = function (k, first) {
       var mine = ++previewSeq, key = c.id + '|' + k;
-      el.innerHTML = previewTabsHtml(order, k) + '<div class="pv-body">' + poster + '</div>' + hint;
+      // التبويبات بتتبني من جديد: لو التركيز كان على واحد منهم بيرجع للمختار — كان بيضيع مع الزرار القديم (١١٥)
+      var hadFocus = !!(document.activeElement && el.contains(document.activeElement) && document.activeElement.hasAttribute('data-pv'));
+      el.innerHTML = previewTabsHtml(order, k) + '<div class="pv-body" id="pvPanel" role="tabpanel" aria-labelledby="pvTab-' + k + '">' + poster + '</div>' + hint;
+      if (hadFocus) el.querySelector('[data-pv="' + k + '"]').focus();
       var body = el.querySelector('.pv-body');
       var show = function (frame) { body.innerHTML = '<div class="video-embed-wrap">' + frame + '</div>'; fitEmbeds(body); };
       if (previewCache[key]) { show(previewCache[key]); return; }
@@ -3843,6 +3850,17 @@
     };
     var tabs = function () {
       el.onclick = function (e) { var b = e.target.closest('[data-pv]'); if (b && !b.classList.contains('on')) load(b.getAttribute('data-pv'), false); };
+      // الأسهم بين التبويبات (معكوسة في العربي) وHome/End — بتنقّل التركيز بس، والاختيار بـ Enter أو المسافة (ضغطة الزرار نفسه)
+      el.onkeydown = function (e) {
+        var cur = e.target.closest && e.target.closest('[data-pv]');
+        if (!cur) return;
+        var list = Array.prototype.slice.call(el.querySelectorAll('[data-pv]')), i = list.indexOf(cur);
+        var back = document.documentElement.dir === 'rtl' ? 'ArrowRight' : 'ArrowLeft', fwd = back === 'ArrowRight' ? 'ArrowLeft' : 'ArrowRight';
+        var to = e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : e.key === back ? i - 1 : e.key === fwd ? i + 1 : null;
+        if (to == null) return;
+        e.preventDefault();
+        list[(to + list.length) % list.length].focus();
+      };
       load(order[0], true);
     };
     // الكتالوج: معاينة Meta بتقول «Preview Not Available» بكل الصيغ في إعلانات الكتالوج (حساب حقيقي ١٠ أكتوبر ٢٠٢٦)، فبنعرض
