@@ -2108,7 +2108,7 @@ function runState() {
 async function runWorld() {
   const st = runState(), seen: string[] = [], mails: any[] = [], probes: string[] = [], vaultErrors: string[] = [], errs: string[] = [], claims: Row[] = [];
   const ctl: { account?: () => Response; vault: 'ok' | 'none' | 'garbage'; autoClaim?: boolean; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean;
-    broken?: string[]; byId?: Row[]; extraDaily?: Row[]; expiresAt?: string; appUsage?: number; fail?: { table: string; method: string }; mailFails?: boolean } = { vault: 'ok' };
+    broken?: string[]; byId?: Row[]; extraDaily?: Row[]; expiresAt?: string; appUsage?: number; fail?: { table: string; method: string }; mailFails?: boolean; down?: Record<string, number[]> } = { vault: 'ok' };
   // claimArgs = المنصات اللي اتطلب حجز منها في كل مرة (حد Meta للتطبيق كله بيشيل Meta من الباقي)
   let autoClaims = 0;
   const claimArgs: string[][] = [];
@@ -2150,6 +2150,9 @@ async function runWorld() {
     }
     if (url.indexOf('https://shop.example/') === 0) {
       probes.push(url);
+      // ctl.down = ردود الصفحة بالترتيب لحد ما تخلص (٠ = مفيش رد خالص)، وبعدها ٢٠٠
+      const q = ctl.down && ctl.down[url];
+      if (q && q.length) { const code = q.shift() as number; if (!code) throw new TypeError('connection reset'); return new Response('down', { status: code }); }
       return (ctl.broken || []).indexOf(url) > -1 ? new Response('gone', { status: 404 }) : new Response('ok', { status: 200 });
     }
     const mr = meta(url, init);
@@ -3353,5 +3356,22 @@ Deno.test('المُشغّل — البريد وقع وقت إرسال العاج
     const r4 = await runAll('runner-key');                   // الإرسال
     assertEquals([r4.sent, w.mails.length], [{ 'urgent-sent': 1 }, 1], 'log: ' + w.errs.join(' | '));
     assertEquals(w.st.user_alert_marks.map((x) => [x.object_id, x.times_sent]), [['waste', 1]], 'the mark is saved once the mail is out');
+  });
+});
+// صفحة الإعلان وقعت مؤقتاً (٥xx أو مفيش رد خالص): بنستنى ثانيتين ونص ونجرّب تاني — رجعت = مفيش تنبيه، لسه واقعة = «الرابط معطّل» (فرع متنفّذش
+// قبل كده — قياس الفروع ٢٥ نوفمبر ٢٠٢٦). من غير المحاولة التانية كان أي عطل لحظي في متجر العميل هيبعت له تنبيه عاجل. (٤٠٤ = معطّل من أول مرة)
+Deno.test('المُشغّل — صفحة وقعت مؤقتاً: محاولة تانية بعد ثانيتين ونص — رجعت = مفيش تنبيه، لسه واقعة = «الرابط معطّل»', async () => {
+  await withRunWorld(async (w) => {
+    w.ctl.down = { 'https://shop.example/p-good1': [503], 'https://shop.example/p-good2': [0, 502] };
+    w.claim();
+    const r1 = await runAll('runner-key');
+    assertEquals(r1.outcomes, { 'meta:ok': 1 }, 'log: ' + w.errs.join(' | '));
+    const fresh = w.st.digest_outbox.filter((r) => r.kind === 'urgent' && r.period === '')[0].payload.fresh as any[];
+    const links = fresh.filter((a) => a.code === 'link-broken');
+    assertEquals(links.length, 1, 'only the page that is still down: ' + JSON.stringify(links).slice(0, 300));
+    assert(String(links[0].detail).indexOf('https://shop.example/p-good2') > -1, 'the page still down: ' + links[0].detail);
+    const count = (u: string) => w.probes.filter((p) => p === u).length;
+    assertEquals([count('https://shop.example/p-good1'), count('https://shop.example/p-good2'), count('https://shop.example/p-waste')], [2, 2, 1],
+      'tried again only when it failed');
   });
 });
