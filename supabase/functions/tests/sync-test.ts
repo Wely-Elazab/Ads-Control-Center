@@ -1952,15 +1952,23 @@ Deno.test('عدد التنبيهات في البريد بالعدد والمعد
 // واحد، والمحرك الحقيقي (اتحمّل في اختبار العقد فوق — ولو الاختبار ده اتشغّل لوحده بيتحمّل هنا من الملفات نفسها). أي طلب مش متوقع = خطأ
 type Row = Record<string, any>;
 function fakeRest(tables: Record<string, Row[]>, rpcs: Record<string, (args: any) => unknown>, seen: string[]) {
-  const match = (row: Row, filters: [string, string][]) => filters.every(([k, v]) => {
+  const one = (row: Row, k: string, v: string): boolean => {
     const cell = row[k] == null ? null : String(row[k]);
     if (v.indexOf('eq.') === 0) return cell === decodeURIComponent(v.slice(3));
     if (v.indexOf('neq.') === 0) return cell !== decodeURIComponent(v.slice(4));
+    if (v.indexOf('lt.') === 0) return cell != null && cell < decodeURIComponent(v.slice(3));
     if (v === 'is.null') return cell == null;
     if (v === 'is.true') return row[k] === true;
     if (v.indexOf('in.(') === 0) return decodeURIComponent(v.slice(4, -1)).split(',').indexOf(String(cell)) > -1;
     throw new Error('fake db: filter ' + k + '=' + v);
+  };
+  // or=(a.op.v,b.op.v) — القيمة ممكن تبقى بين علامتين، وفيها نقط (فترة الملخص «..») ونقطتين (الوقت)
+  const any = (row: Row, v: string) => decodeURIComponent(v).replace(/^\(|\)$/g, '').split(',').some((part) => {
+    const m = /^(\w+)\.(eq|neq|lt|is)\.(.*)$/.exec(part);
+    if (!m) throw new Error('fake db: or ' + part);
+    return one(row, m[1], m[2] + '.' + m[3].replace(/^"(.*)"$/, '$1'));
   });
+  const match = (row: Row, filters: [string, string][]) => filters.every(([k, v]) => (k === 'or' ? any(row, v) : one(row, k, v)));
   return (url: string, init?: RequestInit): Response => {
     const method = (init && init.method) || 'GET', [path, query] = url.slice(url.indexOf('/rest/v1/') + 9).split('?');
     const body = init && init.body ? JSON.parse(String(init.body)) : null;
@@ -2015,11 +2023,15 @@ function metaRunData() {
   const n = (v: number) => [v, v, v, v, v, v, v];
   return {
     ads: [ad('good1'), ad('good2'), ad('waste')],
-    daily: [...days('good1', n(100), n(5)), ...days('good2', n(100), n(5)), ...days('waste', [100, 100, 100, 100, 100, 100, 20], [5, 5, 5, 0, 0, 0, 0])]
+    daily: [...days('good1', n(100), n(5)), ...days('good2', n(100), n(5)), ...days('waste', [100, 100, 100, 100, 100, 100, 20], [5, 5, 5, 0, 0, 0, 0])],
+    // أرقام فترة الملخص صف لكل إعلان (سطر «التكلفة مقابل الحد» — costLine)
+    period: [{ ad_id: 'good1', spend: '700', actions: [{ action_type: 'omni_purchase', value: '35' }], action_values: [{ action_type: 'omni_purchase', value: '2100' }] },
+      { ad_id: 'good2', spend: '700', actions: [{ action_type: 'omni_purchase', value: '35' }], action_values: [{ action_type: 'omni_purchase', value: '2100' }] },
+      { ad_id: 'waste', spend: '320', actions: [], action_values: [] }]
   };
 }
 // Graph لحساب Meta واحد: الحساب، والإعلانات، وأرقامها يوم بيوم — وأي قايمة أو أرقام تانية فاضية. ctl.account = رد مختلف للحساب نفسه
-function fakeMeta(data: { ads: Row[]; daily: Row[] }, seen: string[], ctl: { account?: () => Response }) {
+function fakeMeta(data: { ads: Row[]; daily: Row[]; period?: Row[] }, seen: string[], ctl: { account?: () => Response }) {
   return (url: string): Response | null => {
     if (url.indexOf('https://graph.facebook.com/') !== 0) return null;
     const u = new URL(url), p = u.pathname.replace(/^\/v[\d.]+/, ''), q = u.searchParams;
@@ -2028,6 +2040,9 @@ function fakeMeta(data: { ads: Row[]; daily: Row[] }, seen: string[], ctl: { acc
       return ctl.account ? ctl.account() : json({ id: 'act_1', name: 'Store One', account_status: 1, timezone_name: 'Asia/Riyadh', currency: 'SAR', spend_cap: '0', amount_spent: '0' });
     }
     if (p === '/act_1/ads') return json({ data: data.ads });
+    if (p === '/act_1/insights' && q.get('level') === 'ad' && !q.get('time_increment') && String(q.get('fields')).indexOf('ad_id,spend,') === 0) {
+      return json({ data: data.period || [] });
+    }
     if (p === '/act_1/insights' && q.get('level') === 'ad' && q.get('time_increment') === '1' && String(q.get('fields')).indexOf('ad_id,date_start') === 0) {
       return json({ data: data.daily });
     }
@@ -2038,21 +2053,34 @@ function fakeMeta(data: { ads: Row[]; daily: Row[] }, seen: string[], ctl: { acc
 function runState() {
   return {
     user_digests: [{ user_id: RUN_U, email: 'owner@store.example', lang: 'ar', timezone: 'Asia/Riyadh', summary_days: [0], summary_hour: 9, last_summary_until: '2026-11-14',
-      last_monthly: '2026-10', summary_pending: null, summary_pending_at: null, monthly_pending: null, monthly_pending_at: null, enabled: true }] as Row[],
+      last_monthly: '2026-10', summary_pending: null, summary_pending_at: null, monthly_pending: null, monthly_pending_at: null, sending_until: null, enabled: true }] as Row[],
     user_digest_accounts: [{ user_id: RUN_U, platform: 'meta', account_id: 'act_1', name: null, checked_at: '2026-11-18T06:00:00.000Z', claimed_until: null,
       need_summary: null, need_monthly: null, edits_at: null, retry_after: null }] as Row[],
     user_settings: [{ user_id: RUN_U, settings: { acct: { 'meta:act_1': { maxCost: { purchase: 20 } } } } }] as Row[],
-    user_alert_marks: [] as Row[], digest_outbox: [] as Row[], send_log: [] as Row[], ad_accounts: [{ platform: 'meta', account_id: 'act_1', name: 'Store One' }] as Row[]
+    user_alert_marks: [] as Row[], digest_outbox: [] as Row[], send_log: [] as Row[], ad_accounts: [{ platform: 'meta', account_id: 'act_1', name: 'Store One' }] as Row[],
+    feedback: [] as Row[]
   };
 }
 // كل اللي الاختبار محتاجه: الحالة، والطلبات اللي اتبعتت، والرسائل، وروابط الهبوط اللي اتفحصت، وأخطاء السجل. ctl = رد Meta للحساب والمفتاح
 // المحفوظ (ok / none = مفيش / garbage = مبيتفكّش). claim(urgent, need) = الحجز الجاي: فحص عاجل (بالنهار) أو قسم ملخص بس
 async function runWorld() {
   const st = runState(), seen: string[] = [], mails: any[] = [], probes: string[] = [], vaultErrors: string[] = [], errs: string[] = [], claims: Row[] = [];
-  const ctl: { account?: () => Response; vault: 'ok' | 'none' | 'garbage' } = { vault: 'ok' };
+  const ctl: { account?: () => Response; vault: 'ok' | 'none' | 'garbage'; autoClaim?: boolean } = { vault: 'ok' };
+  let autoClaims = 0;
   const sealed = await seal(RUN_TOKEN, 'act_1'), eng = await engineFiles();
   const rest = fakeRest(st, {
-    digest_claim: () => { const a = claims.shift(); return a ? [a] : []; },
+    digest_claim: () => {
+      const a = claims.shift();
+      if (a) return [a];
+      // ctl.autoClaim: حجز قسم الملخص زي digest_claim الحقيقية — حساب محتاج قسمه، مش محجوز، ومش مستني بعد عطل (من غير فحص عاجل)
+      // حد ٨ حجزات: الساعة متثبّتة فحد التشغيل (٩٠ ثانية) مبيخلصش أبداً — حساب بيرجع يتحجز على طول (عيب) يفشّل الاختبار بدل ما يعلّقه
+      if (!ctl.autoClaim || ++autoClaims > 8) return [];
+      const now = new Date().toISOString(), r = st.user_digest_accounts.find((x) => (x.need_summary || x.need_monthly) &&
+        (!x.claimed_until || x.claimed_until < now) && (!x.retry_after || x.retry_after < now));
+      if (!r) return [];
+      r.claimed_until = new Date(Date.now() + 180000).toISOString();
+      return [{ ...r, urgent_due: false }];
+    },
     vault_user_get: (x) => {
       if (ctl.vault === 'none' || x.p_user !== RUN_U || x.p_account !== 'act_1') return [];
       return [{ ciphertext: ctl.vault === 'garbage' ? 'AAAA' : sealed.ct, iv: ctl.vault === 'garbage' ? 'BBBB' : sealed.iv, expires_at: '2027-01-15T00:00:00Z' }];
@@ -2315,6 +2343,82 @@ Deno.test('المُشغّل كله لحساب Snapchat — الوصول: الـ 
     assertEquals(w.rotations.length, 1, 'the renewed copy is kept even when the numbers failed');
     assertEquals(w.seen.filter((x) => x.indexOf('worker ') === 0).slice(-2).map((x) => x.slice(x.indexOf('sealed=') + 7)), [SNAP_SEALED_2, SNAP_SEALED_2],
       'the later checks send the saved new copy');
+    assertEquals(w.errs, []);
+  });
+});
+// الملخص كله من المُشغّل (plan ← قسم كل حساب ← الإرسال من الطابور): ميعاده جه (الأحد ٩ الصبح بتوقيت المستخدم) → الفترة على المستخدم وعلى
+// حساباته، والقسم بيتبني ويتحط في الطابور، والتشغيل الجاي بيبعت الرسالة مرة واحدة ويسجّل آخر يوم فيها
+Deno.test('المُشغّل كله — الملخص: ميعاده جه = الفترة على المستخدم وحساباته، والقسم بيتبني ومعاه سطر التكلفة مقابل الحد، والرسالة مرة واحدة وآخر يوم بيتسجّل', async () => {
+  await withRunWorld(async (w) => {
+    fixedClock('2026-11-22T07:05:00.000Z');   // الأحد ١٠:٠٥ بالرياض: ميعاد الملخص، ومش أول أحد في الشهر (مفيش شهري)
+    w.ctl.autoClaim = true;
+    w.st.user_digest_accounts[0].checked_at = '2026-11-22T06:50:00.000Z';   // اتفحص من ربع ساعة: مفيش فحص عاجل
+    const KEY = '2026-11-15..2026-11-21', u = w.st.user_digests[0];
+    // قسم من فترة قديمة اتساب في الطابور (ملخص ماتبعتش): الفترة الجديدة بتغطي أيامه، فبيتمسح
+    w.st.digest_outbox.push({ user_id: RUN_U, platform: 'meta', account_id: 'act_1', kind: 'summary', period: '2026-11-08..2026-11-14', payload: { name: 'old' }, marks: null,
+      created_at: '2026-11-15T07:00:00.000Z' });
+    const r1 = await runAll('runner-key');
+    assertEquals([r1.claimed, r1.outcomes, r1.sent], [1, { 'meta:ok': 1 }, { 'summary-waiting': 1 }], 'run 1 — log: ' + w.errs.join(' | '));
+    assertEquals([u.summary_pending, u.summary_pending_at], [KEY, '2026-11-22T07:05:00.000Z'], 'the period is on the user');
+    assertEquals(w.st.digest_outbox.filter((r) => r.period === '2026-11-08..2026-11-14'), [], 'the old period section is dropped');
+    const q = w.st.digest_outbox.filter((r) => r.kind === 'summary');
+    assertEquals(q.map((r) => [r.platform, r.account_id, r.period]), [['meta', 'act_1', KEY]], 'one section for the period');
+    const sec = q[0].payload;
+    assertEquals(sec.name, 'Store One');
+    assert(sec.sum && sec.sum.composed && typeof sec.sum.composed.title === 'string', 'the report itself: ' + JSON.stringify(sec.sum).slice(0, 300));
+    assert(typeof sec.sum.composed.costCmp === 'string' && sec.sum.composed.costCmp.length > 0, 'the cost vs your limit line: ' + JSON.stringify(sec.sum.composed.costCmp));
+    assertEquals([w.st.user_digest_accounts[0].need_summary, w.st.user_digest_accounts[0].retry_after], [null, null], 'the account does not wait any more');
+    assertEquals(w.mails.length, 0, 'the mail goes out from the queue, next run');
+    const r2 = await runAll('runner-key');
+    assertEquals([r2.claimed, r2.sent], [0, { summary: 1 }], 'run 2 — log: ' + w.errs.join(' | '));
+    assertEquals(w.mails.length, 1);
+    assertEquals(w.mails[0].to, ['owner@store.example']);
+    assert(String(w.mails[0].html).indexOf('Store One') > -1, 'the account in the summary mail: ' + String(w.mails[0].subject));
+    assert(String(w.mails[0].headers && w.mails[0].headers['List-Unsubscribe']).indexOf('/stop?u=' + RUN_U + '&s=') > -1, 'one-click stop');
+    assertEquals([u.summary_pending, u.summary_pending_at, u.last_summary_until, u.sending_until], [null, null, '2026-11-21', null], 'the period is closed as sent');
+    assertEquals([w.st.digest_outbox, w.st.send_log.map((x) => [x.type, x.status])], [[], [['summary', 'sent']]]);
+    const r3 = await runAll('runner-key');
+    assertEquals([r3.claimed, r3.sent, w.mails.length], [0, {}, 1], 'once only');
+    assertEquals(w.errs, []);
+  });
+});
+// حساب بتوقيت متأخر (لوس أنجلوس): ميعاد الملخص بتوقيت المستخدم، وآخر يوم في الفترة لسه مخلصش بتوقيت الحساب — «أيام مكتملة» لازم تبقى صح
+// (مراجعة ١ نوفمبر، ر٥): القسم بيستنى من غير ما الإعلانات تتحمّل (طلبات مهدرة من حد Meta)، وبيتبني أول ما اليوم يخلص هناك
+Deno.test('المُشغّل كله — الملخص لحساب بتوقيت متأخر: اليوم الأخير لسه مخلصش هناك = القسم بيستنى ١٠ دقايق من غير ما الإعلانات تتحمّل، وبعد ما يخلص بيتبني', async () => {
+  await withRunWorld(async (w) => {
+    fixedClock('2026-11-22T07:05:00.000Z');   // الرياض ١٠:٠٥ الأحد — لوس أنجلوس ٢٣:٠٥ السبت ٢١، آخر يوم في الفترة لسه شغّال هناك
+    w.ctl.autoClaim = true;
+    w.st.user_digest_accounts[0].checked_at = '2026-11-22T06:50:00.000Z';
+    w.ctl.account = () => json({ id: 'act_1', name: 'Store One', account_status: 1, timezone_name: 'America/Los_Angeles', currency: 'USD', spend_cap: '0', amount_spent: '0' });
+    const r1 = await runAll('runner-key');
+    assertEquals([r1.claimed, r1.outcomes], [1, { 'meta:ok': 1 }], 'log: ' + w.errs.join(' | '));
+    const a = w.st.user_digest_accounts[0];
+    assertEquals([a.need_summary, a.retry_after, a.checked_at], ['2026-11-15..2026-11-21', '2026-11-22T07:15:00.000Z', '2026-11-22T06:50:00.000Z'],
+      'the section waits ten minutes for the day to end there (not an urgent check)');
+    assertEquals(w.st.digest_outbox.filter((r) => r.kind === 'summary'), []);
+    assertEquals(w.seen.filter((x) => x.indexOf('graph /act_1/') === 0), [], 'only the account itself was asked — the ads are not loaded');
+    // اليوم خلص هناك (الأحد ٠٠:٠٥ لوس أنجلوس = ٠٨:٠٥ UTC)
+    fixedClock('2026-11-22T08:05:00.000Z');
+    const r2 = await runAll('runner-key');
+    assertEquals([r2.claimed, r2.outcomes], [1, { 'meta:ok': 1 }], 'log: ' + w.errs.join(' | '));
+    assertEquals(w.st.digest_outbox.filter((r) => r.kind === 'summary').map((r) => r.period), ['2026-11-15..2026-11-21'], 'built once the day is complete there');
+    assertEquals([w.st.user_digest_accounts[0].need_summary, w.st.user_digest_accounts[0].retry_after], [null, null]);
+    assertEquals(w.errs, []);
+  });
+});
+// فحص عاجل وقسم ملخص في نفس الحجز، واليوم الأخير لسه مخلصش بتوقيت الحساب: الفحص العاجل بيتم (التنبيهات اللي اتلاقت متضيعش)، والقسم لوحده
+// بيستنى (summarySections — الخروج المبكر في checkMetaAccount للحجز من غير فحص عاجل بس)
+Deno.test('المُشغّل كله — فحص عاجل وقسم ملخص في نفس الحجز واليوم لسه مخلصش هناك: العاجل بيتم والقسم لوحده بيستنى', async () => {
+  await withRunWorld(async (w) => {
+    fixedClock('2026-11-22T07:05:00.000Z');
+    w.ctl.account = () => json({ id: 'act_1', name: 'Store One', account_status: 1, timezone_name: 'America/Los_Angeles', currency: 'USD', spend_cap: '0', amount_spent: '0' });
+    w.claim(true, '2026-11-15..2026-11-21');
+    const r1 = await runAll('runner-key');
+    assertEquals([r1.claimed, r1.outcomes], [1, { 'meta:ok': 1 }], 'log: ' + w.errs.join(' | '));
+    const a = w.st.user_digest_accounts[0];
+    assertEquals([a.edits_at, a.checked_at], ['2026-11-22T07:05:00.000Z', '2026-11-22T07:05:00.000Z'], 'the urgent check ran (edit log read now)');
+    assertEquals([a.need_summary, a.retry_after], ['2026-11-15..2026-11-21', '2026-11-22T07:15:00.000Z'], 'the summary section alone waits');
+    assertEquals(w.st.digest_outbox.filter((r) => r.kind === 'summary'), [], 'no section for an incomplete day');
     assertEquals(w.errs, []);
   });
 });
