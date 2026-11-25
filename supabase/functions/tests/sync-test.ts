@@ -2031,7 +2031,9 @@ function metaRunData() {
   };
 }
 // Graph لحساب Meta واحد: الحساب، والإعلانات، وأرقامها يوم بيوم — وأي قايمة أو أرقام تانية فاضية. ctl.account = رد مختلف للحساب نفسه
-function fakeMeta(data: { ads: Row[]; daily: Row[]; period?: Row[] }, seen: string[], ctl: { account?: () => Response }) {
+// ctl.activities = سجل التعديلات، ctl.objDaily = أرقام الحملات يوم بيوم (حصة التعديل من الإنفاق)، ctl.siteFail = طلب أرقام الموقع بيفشل
+function fakeMeta(data: { ads: Row[]; daily: Row[]; period?: Row[] }, seen: string[],
+  ctl: { account?: () => Response; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean }) {
   return (url: string): Response | null => {
     if (url.indexOf('https://graph.facebook.com/') !== 0) return null;
     const u = new URL(url), p = u.pathname.replace(/^\/v[\d.]+/, ''), q = u.searchParams;
@@ -2042,6 +2044,14 @@ function fakeMeta(data: { ads: Row[]; daily: Row[]; period?: Row[] }, seen: stri
     if (p === '/act_1/ads') return json({ data: data.ads });
     if (p === '/act_1/insights' && q.get('level') === 'ad' && !q.get('time_increment') && String(q.get('fields')).indexOf('ad_id,spend,') === 0) {
       return json({ data: data.period || [] });
+    }
+    if (p === '/act_1/activities' && ctl.activities) return json({ data: ctl.activities });
+    if (p === '/act_1/insights' && q.get('level') === 'campaign' && q.get('time_increment') === '1' && ctl.objDaily) {
+      const tr = JSON.parse(q.get('time_range') || '{}');   // الأيام اللي اتطلبت بس — زي Graph
+      return json({ data: ctl.objDaily.filter((r) => r.date_start >= tr.since && r.date_start <= tr.until) });
+    }
+    if (p === '/act_1/insights' && ctl.siteFail && !q.get('level') && String(q.get('fields')).indexOf('date_start,inline_link_clicks') === 0) {
+      return json({ error: { message: 'Please reduce the amount of data', code: 1 } }, 500);
     }
     if (p === '/act_1/insights' && q.get('level') === 'ad' && q.get('time_increment') === '1' && String(q.get('fields')).indexOf('ad_id,date_start') === 0) {
       return json({ data: data.daily });
@@ -2065,7 +2075,8 @@ function runState() {
 // المحفوظ (ok / none = مفيش / garbage = مبيتفكّش). claim(urgent, need) = الحجز الجاي: فحص عاجل (بالنهار) أو قسم ملخص بس
 async function runWorld() {
   const st = runState(), seen: string[] = [], mails: any[] = [], probes: string[] = [], vaultErrors: string[] = [], errs: string[] = [], claims: Row[] = [];
-  const ctl: { account?: () => Response; vault: 'ok' | 'none' | 'garbage'; autoClaim?: boolean } = { vault: 'ok' };
+  const ctl: { account?: () => Response; vault: 'ok' | 'none' | 'garbage'; autoClaim?: boolean; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean;
+    broken?: string[] } = { vault: 'ok' };
   let autoClaims = 0;
   const sealed = await seal(RUN_TOKEN, 'act_1'), eng = await engineFiles();
   const rest = fakeRest(st, {
@@ -2093,7 +2104,10 @@ async function runWorld() {
   stubFetch((url, init) => {
     if (url.indexOf('/rest/v1/') > -1) return rest(url, init);
     if (url.indexOf('https://api.resend.com/') === 0) { mails.push(JSON.parse(String(init && init.body))); return json({ id: 'mail-' + mails.length }); }
-    if (url.indexOf('https://shop.example/') === 0) { probes.push(url); return new Response('ok', { status: 200 }); }
+    if (url.indexOf('https://shop.example/') === 0) {
+      probes.push(url);
+      return (ctl.broken || []).indexOf(url) > -1 ? new Response('gone', { status: 404 }) : new Response('ok', { status: 200 });
+    }
     return meta(url) || eng(url) || json({ message: 'unexpected ' + url }, 500);
   });
   browserGuards();
@@ -2420,5 +2434,40 @@ Deno.test('المُشغّل كله — فحص عاجل وقسم ملخص في ن
     assertEquals([a.need_summary, a.retry_after], ['2026-11-15..2026-11-21', '2026-11-22T07:15:00.000Z'], 'the summary section alone waits');
     assertEquals(w.st.digest_outbox.filter((r) => r.kind === 'summary'), [], 'no section for an incomplete day');
     assertEquals(w.errs, []);
+  });
+});
+// التنبيهات اللي محتاجة بيانات زيادة (extraAlerts): «إيقاف عنصر كبير» من سجل تعديلات Meta — بنصيبه من إنفاق الحساب في الـ٧ أيام المكتملة (١٢١)
+// ووقته بتوقيت الحساب، والتعديل اللي اتقيّم قبل كده مبيتكررش؛ والرابط المعطّل (٤٠٤ من أول مرة)؛ ومصدر فشل (أرقام الموقع) بيتكتب في السجل
+// والفحص بيكمّل بالباقي
+Deno.test('المُشغّل كله لحساب Meta — بيانات زيادة: إيقاف حملة كبيرة بنصيبها في الأيام المكتملة ووقتها بتوقيت الحساب، ورابط معطّل، ومصدر فاشل والفحص بيكمّل', async () => {
+  await withRunWorld(async (w) => {
+    const pause = (id: string, name: string, at: string) => ({ event_type: 'update_campaign_group_run_status', event_time: at, object_id: id, object_name: name,
+      object_type: 'CAMPAIGN_GROUP', extra_data: JSON.stringify({ old_value: 'ACTIVE', new_value: 'PAUSED' }), actor_name: 'Sara' });
+    // الحملة اللي فيها الإعلانات التلاتة اتوقفت ٦:٣٠ UTC (٩:٣٠ بالرياض)، وحملة تانية قبل آخر قراءة لسجل التعديلات (٦:٠٠) — اتقيّمت قبل كده
+    w.ctl.activities = [pause('c1', 'Camp', '2026-11-18T06:30:00+0000'), pause('c2', 'Old camp', '2026-11-18T05:00:00+0000')];
+    // إنفاق الحملة يوم بيوم: ١٥٠ كل يوم (نص إنفاق الحساب)، والنهارده لحد دلوقتي ١١٠
+    // وc2 (اللي اتقيّمت قبل كده) ليها نصيب كبير كمان — لو اتحسبت تاني كانت هتطلع تنبيه زيادة
+    w.ctl.objDaily = RUN_KEYS.map((k, i) => ({ date_start: k, campaign_id: 'c1', spend: i === RUN_KEYS.length - 1 ? '110' : '150' }))
+      .concat(RUN_KEYS.map((k) => ({ date_start: k, campaign_id: 'c2', spend: '100' })));
+    w.ctl.broken = ['https://shop.example/p-good2'];
+    w.ctl.siteFail = true;
+    w.claim();
+    const r1 = await runAll('runner-key');
+    assertEquals([r1.claimed, r1.outcomes], [1, { 'meta:ok': 1 }], 'log: ' + w.errs.join(' | '));
+    const sec = w.st.digest_outbox.filter((r) => r.kind === 'urgent' && r.period === '')[0];
+    const fresh = sec.payload.fresh as any[];
+    assertEquals(fresh.map((a) => a.code).sort(), ['big-edit', 'link-broken', 'waste'], 'the three urgent alerts: ' + JSON.stringify(fresh).slice(0, 500));
+    const edit = fresh.find((a) => a.code === 'big-edit'), link = fresh.find((a) => a.code === 'link-broken');
+    assertEquals(edit.objectId, 'c1@2026-11-18T06:30:00', 'the paused campaign, once per edit');
+    // نصيبها من إنفاق الحساب في الـ٧ أيام المكتملة (١١–١٧): ٩٠٠ من ١٨٠٠ = ٥٠٪ — كان «٥٦٪» (من ١٢ لحد النهارده قصاد الأيام المكتملة)
+    assert(String(edit.detail).indexOf('٥٠٪') > -1, 'its share of the spend in the last 7 complete days: ' + edit.detail);
+    assert(String(edit.detail).indexOf('Sara') > -1 && String(edit.detail).indexOf('٠٩:٣٠') > -1, 'who and when, in the account time zone: ' + edit.detail);
+    assert(/^u:[0-9a-f]{24}$/.test(String(link.objectId)), 'the broken page key: ' + link.objectId);
+    assert(String(link.detail).indexOf('https://shop.example/p-good2') > -1, 'the broken page: ' + link.detail);
+    assertEquals(sec.marks.map((m: any) => m.object_id).sort(), [link.objectId, 'c1@2026-11-18T06:30:00', 'waste'].sort(), 'a mark for each');
+    // المصدر الفاشل اتكتب مرة، والتعديلات اتقرت (العلامة اتحركت)
+    assertEquals(w.errs.filter((x) => x.indexOf('extra alerts site') === 0).length, 1, 'log: ' + w.errs.join(' | '));
+    assertEquals(w.errs.filter((x) => x.indexOf('extra alerts site') !== 0), [], 'nothing else in the log');
+    assertEquals(w.st.user_digest_accounts[0].edits_at, RUN_NOW, 'the edit log was read');
   });
 });

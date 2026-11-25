@@ -367,10 +367,13 @@ async function extraAlerts(accountId: string, acct: Acct, cands: any[], editsSin
         const ids = [...new Set(edits.filter((ev: any) => ev.level === l).map((ev: any) => ev.id))];
         if (ids.length) groups.push({ level: l, ids });
       });
-      const objDaily = await g.metaObjectDaily(accountId, groups, g.shiftKey(today, -6), today);
+      // «نصيبه من إنفاق حسابك في آخر ٧ أيام»: نفس الأيام في الاتنين — الـ٧ أيام المكتملة (زي إنفاق الإعلانات c.spend، وزي الأداة). كان العنصر
+      // من «النهارده − ٦» لحد النهارده اللي لسه شغّال، والحساب بالـ٧ المكتملة: النسبة منحازة، وحملة كبيرة اتعملت النهارده كانت ممكن تطلع
+      // فوق ١٠٠٪ (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١٢١). والحد الأعلى ١ احتياط
+      const objDaily = await g.metaObjectDaily(accountId, groups, g.shiftKey(today, -7), g.shiftKey(today, -1));
       const accSpend = cands.reduce((s0: number, c: any) => s0 + (c.spend || 0), 0);
       edits.forEach((ev: any) => {
-        ev.share = accSpend > 0 ? (objDaily[ev.id] || []).reduce((s0: number, r: any) => s0 + (r.spend || 0), 0) / accSpend : 0;
+        ev.share = accSpend > 0 ? Math.min(1, (objDaily[ev.id] || []).reduce((s0: number, r: any) => s0 + (r.spend || 0), 0) / accSpend) : 0;
         ev.when = whenText(ev.time, tz);
       });
       out.push(...g.PauseProofAlerts.editAlerts(edits, fmt, cur, accSpend / 7));
