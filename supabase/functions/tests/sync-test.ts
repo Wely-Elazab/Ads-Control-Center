@@ -2575,3 +2575,86 @@ Deno.test('المُشغّل — إعلان صرف في الأسبوع ووقف �
     assertEquals(w.errs, []);
   });
 });
+// إرسال رمز الدخول (login.code — بعد كلمة المرور، التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٦ — codeMail مكانش متنفّذ في أي اختبار): الحجز في قاعدة البيانات
+// قبل الإرسال (login_send)، والرمز اللي في الرسالة هو اللي بصمته اتحفظت وصالح ١٠ دقايق؛ والإرسال فشل = الحجز بيرجع زي ما كان؛ وحدود اليوم والمهلة
+// والجلسة؛ والجلسة المتأكدة من غير رمز؛ ومن غير كلمة مرور أو من غير وصول = لأ؛ وقاعدة بيانات من غير login_send = العدّ القديم
+Deno.test('رمز الدخول — الإرسال: الحجز قبل الإرسال، والرمز في الرسالة هو اللي بصمته اتحفظت، والفشل بيرجّع الحجز، والحدود', async () => {
+  let sendReply: unknown = 1, sendStatus = 200, row: any = null, access = true, mailFails = false;
+  const saved: any[] = [], patched: any[] = [], mails: any[] = [], sendArgs: any[] = [];
+  Deno.env.set('RESEND_API_KEY', 'test-resend-key');
+  stubFetch((url, init) => {
+    if (url === ISSUER + '/.well-known/jwks.json') return json({ keys: [{ ...publicJwk, kid: 'k1' }] });
+    if (url.indexOf('/rest/v1/app_access') > -1) return json(access ? [{ role: 'pilot' }] : []);
+    if (url.indexOf('/rest/v1/login_sessions') > -1) {
+      const m = (init && init.method) || 'GET';
+      if (m === 'POST') { saved.push(JSON.parse(String(init && init.body))); return new Response(null, { status: 201 }); }
+      if (m === 'PATCH') { patched.push(JSON.parse(String(init && init.body))); return new Response(null, { status: 204 }); }
+      return json(row ? [row] : []);
+    }
+    if (url.indexOf('/rest/v1/rpc/login_send') > -1) {
+      sendArgs.push(JSON.parse(String(init && init.body)));
+      return sendStatus === 200 ? json(sendReply) : json({ code: 'PGRST202' }, sendStatus);
+    }
+    if (url.indexOf('https://api.resend.com/') === 0) {
+      if (mailFails) return json({ name: 'internal_server_error' }, 500);
+      mails.push(JSON.parse(String(init && init.body)));
+      return json({ id: 'm' + mails.length });
+    }
+    throw new Error('unexpected fetch ' + url);
+  });
+  const call = async (lang = 'ar', claims: Record<string, unknown> = {}) => {
+    const req = new Request('https://x.test/', { method: 'POST', headers: { authorization: 'Bearer ' + (await jwt({ ...good(), ...claims })) } });
+    const r = await handleLogin('login.code', { lang }, req, null);
+    return { status: r.status, body: await r.json() };
+  };
+  try {
+    const t0 = Date.now();
+    assertEquals(await call(), { status: 200, body: { ok: true, sent: true } });
+    assertEquals(sendArgs[0], { p_session: 'session-1', p_user: 'user-1', p_max: 5, p_gap_secs: 60, p_day_max: 15 }, 'reserved in the database first');
+    const m0 = mails[0], code = /^رمز الدخول إلى Ads Center: (\d{6})$/.exec(String(m0.subject));
+    assert(code, 'the code in the subject: ' + m0.subject);
+    assertEquals(m0.to, ['a@b.co']);
+    assert(String(m0.html).indexOf('dir="ltr"') > -1 && String(m0.html).indexOf('>' + code![1] + '</span>') > -1, 'the code in its own left-to-right box');
+    assert(String(m0.text).indexOf(code![1]) > -1 && String(m0.text).indexOf('<') < 0, 'plain text without tags');
+    // الرمز اللي في الرسالة هو اللي بصمته اتحفظت، وصالح ١٠ دقايق، ومحاولاته من الصفر — والعدّ في قاعدة البيانات مش في الصف ده
+    assertEquals(saved[0].code_hash, await linkSig('ads-center/login-code/v1:', 'session-1:' + code![1]));
+    const ttl = Date.parse(saved[0].code_expires_at) - t0;
+    assert(ttl >= 600000 && ttl < 605000, 'ten minutes: ' + ttl);
+    assertEquals([saved[0].attempts, 'sends' in saved[0]], [0, false]);
+    await call('en');
+    assert(/^Your Ads Center sign-in code: \d{6}$/.test(String(mails[1].subject)), String(mails[1].subject));
+    // الإرسال فشل: الحجز بيرجع زي ما كان (عدد الإرسال ووقت آخر رمز)، والخطأ بيطلع
+    row = { session_id: 'session-1', user_id: 'user-1', sends: 2, last_sent_at: '2026-01-01T00:00:00.000Z', verified_at: null };
+    sendReply = 3; mailFails = true;
+    await assertRejects(() => call());
+    assertEquals(patched, [{ sends: 2, last_sent_at: '2026-01-01T00:00:00.000Z' }], 'the reservation is given back');
+    mailFails = false;
+    // الحدود: حد اليوم للمستخدم (-1)، وطلب تاني سبق (مش رقم)، والمهلة بين رمزين، وحد الجلسة — من غير أي رسالة
+    const sentBefore = mails.length;
+    sendReply = -1;
+    assertEquals(await call(), { status: 429, body: { error: 'locked' } });
+    sendReply = null;
+    assertEquals(await call(), { status: 429, body: { error: 'wait', retryIn: 60 } });
+    row = { ...row, last_sent_at: new Date(Date.now() - 20000).toISOString() };
+    const w = await call();
+    assert(w.status === 429 && w.body.error === 'wait' && w.body.retryIn >= 39 && w.body.retryIn <= 41, 'about 40 s left: ' + JSON.stringify(w));
+    row = { ...row, last_sent_at: '2026-01-01T00:00:00.000Z', sends: 5 };
+    assertEquals(await call(), { status: 429, body: { error: 'sends' } });
+    // الجلسة اتأكدت قريب: مفيش رمز تاني
+    row = { ...row, sends: 1, verified_at: new Date().toISOString() };
+    assertEquals(await call(), { status: 200, body: { ok: true, verified: true } });
+    // من غير كلمة مرور (دخول Google مثلاً)، أو بريد مالوش وصول
+    row = null; sendReply = 1;
+    assertEquals((await call('ar', { amr: [{ method: 'oauth' }] })).status, 401);
+    access = false;
+    assertEquals((await call()).status, 403);
+    assertEquals(mails.length, sentBefore, 'no mail past any limit');
+    // قاعدة بيانات من غير login_send (الترحيل ماتطبّقش): العدّ القديم في صف الجلسة نفسه
+    access = true; sendStatus = 404; saved.length = 0;
+    row = { session_id: 'session-1', user_id: 'user-1', sends: 1, last_sent_at: '2026-01-01T00:00:00.000Z', verified_at: null };
+    const realErr = console.error;
+    console.error = () => {};
+    try { assertEquals(await call(), { status: 200, body: { ok: true, sent: true } }); } finally { console.error = realErr; }
+    assertEquals([saved[0].sends, typeof saved[0].last_sent_at], [2, 'string'], 'the old counter');
+  } finally { restoreFetch(); }
+});
