@@ -287,6 +287,82 @@ Deno.test('نقطة الدخول: الطرق وCORS وحد الحجم، والع
     assertEquals([up.status, up.body], [502, { error: 'upstream' }]);
   } finally { restoreFetch(); }
 });
+// إجابة «هل كان التشخيص صحيحاً؟» (save — cleanEntry): أي حقل غريب بيترفض أو بيتشال قبل قاعدة البيانات، والمستخدم من الدخول مش من الطلب.
+// و(١١٧) الملاحظة كانت بتتحفظ بالمحارف المخفية (علامات الاتجاه والصفرية العرض) خلافاً لكل النصوص التانية — دلوقتي بتتشال، والسطور بتفضل
+Deno.test('إجابة التشخيص: الحقول الغريبة بتترفض أو بتتشال، والمستخدم من الدخول، والملاحظة من غير محارف مخفية وسطورها باقية', async () => {
+  const TOK = 'EAAB' + 'x'.repeat(40), saved: any[] = [];
+  stubFetch((url, init) => {
+    if (url === ISSUER + '/.well-known/jwks.json') return json({ keys: [{ ...publicJwk, kid: 'k1' }] });
+    if (url.indexOf('/rest/v1/rpc/session_ok') > -1) return json(true);
+    if (url.indexOf('graph.facebook.com') > -1) return json({ id: 'act_1', name: 'A', currency: 'SAR', timezone_name: 'Asia/Riyadh' });
+    if (url.indexOf('/rest/v1/feedback') > -1) { saved.push(JSON.parse(String(init && init.body))); return new Response(null, { status: 201 }); }
+    return json({ message: 'unexpected' }, 500);
+  });
+  const auth = { authorization: 'Bearer ' + (await jwt(good())) };
+  const save = async (entry: unknown, info: unknown = {}) => {
+    const r = await handle(({ method: 'POST', headers: new Headers(auth), text: () => Promise.resolve(JSON.stringify({ action: 'save', token: TOK, viewKey: 'meta:act_1', entry, info })) }) as unknown as Request);
+    return [r.status, await r.json()];
+  };
+  const ok = { block: 'why|cpa', since: '2026-11-01', until: '2026-11-07', verdict: 'no', reasons: ['price', 'evil', 'stock'], note: 'السعر\u202e اتغيّر\r\nوالمخزون\u200b خلص', at: '2099-01-01T00:00:00Z', user_id: 'forged' };
+  try {
+    assertEquals(await save(ok, { kind: 'why', title: 'عنوان\u2066', head: 'cpa', lang: 'ar' }), [200, { ok: true }]);
+    const row = saved[0];
+    assertEquals([row.user_id, row.view_key, row.block, row.verdict, row.reasons, row.block_kind, row.head_type, row.lang], ['user-1', 'meta:act_1', 'why|cpa', 'no', ['stock', 'price'], 'why', 'cpa', 'ar'],
+      'the user from the login; unknown reasons dropped, the rest in the known order');
+    assertEquals(row.note, 'السعر  اتغيّر\nوالمخزون  خلص', 'hidden characters out, lines kept');
+    assertEquals(row.block_title, 'عنوان ');
+    assert(Date.parse(row.answered_at) <= Date.now(), 'an answer time in the future becomes the time it arrived');
+    // كل حقل غلط = ٤٠٠ ومفيش كتابة
+    for (const bad of [null, { ...ok, block: '' }, { ...ok, block: 'a\u0001b' }, { ...ok, block: 'x'.repeat(201) }, { ...ok, since: '2026-02-30' }, { ...ok, until: '2026-10-31' },
+      { ...ok, since: '1/11/2026' }, { ...ok, verdict: 'maybe' }]) {
+      assertEquals(await save(bad), [400, { error: 'entry' }], JSON.stringify(bad && { block: (bad as any).block, since: (bad as any).since, until: (bad as any).until, verdict: (bad as any).verdict }));
+    }
+    assertEquals(saved.length, 1, 'nothing written from a bad answer');
+    // معلومات الكتلة الغريبة بتتشال من غير ما ترفض الإجابة
+    assertEquals(await save(ok, { kind: 'evil', head: 'a b', lang: 'fr' }), [200, { ok: true }]);
+    assertEquals([saved[1].block_kind, saved[1].head_type, saved[1].lang, saved[1].block_title], [null, null, null, null]);
+  } finally { restoreFetch(); }
+});
+// الفحص الذاتي والرسالة التجريبية (لمدير التطبيق بس): الرد بيقول السر موجود وشكله سليم من غير أي جزء منه، وأسماء المتغيرات من غير قيمها،
+// والرسالة التجريبية لعنوان الدعم الثابت بس (مبتاخدش مستلم من الطلب — مش أداة إرسال لأي حد)
+Deno.test('الفحص الذاتي والرسالة التجريبية: للمدير بس، من غير أي قيمة سر في الرد، والمستلم ثابت', async () => {
+  const TOK = 'EAAB' + 'x'.repeat(40), mails: any[] = [], hadResend = Deno.env.get('RESEND_API_KEY');
+  Deno.env.set('RESEND_API_KEY', 're_SECRET_resend_value_123');
+  let admin = true;
+  stubFetch((url, init) => {
+    if (url === ISSUER + '/.well-known/jwks.json') return json({ keys: [{ ...publicJwk, kid: 'k1' }] });
+    if (url.indexOf('/rest/v1/rpc/session_ok') > -1) return json(true);
+    if (url.indexOf('/roles?') > -1) return json({ data: [{ user: '111', role: 'administrators' }] });
+    if (url.indexOf('/me?') > -1) return json({ id: admin ? '111' : '222' });
+    if (url.indexOf('api.resend.com/domains') > -1) return json({ data: [{ name: 'adscenter.online', status: 'verified', region: 'eu-west-1' }] });
+    if (url.indexOf('api.resend.com/emails') > -1) { mails.push(JSON.parse(String(init && init.body))); return json({ id: 'm1' }); }
+    return json({ message: 'unexpected' }, 500);
+  });
+  const auth = { authorization: 'Bearer ' + (await jwt(good())) };
+  const call = async (action: string, extra: Record<string, unknown> = {}) => {
+    const r = await handle(({ method: 'POST', headers: new Headers(auth), text: () => Promise.resolve(JSON.stringify({ action, token: TOK, ...extra })) }) as unknown as Request);
+    return [r.status, await r.json()];
+  };
+  try {
+    const [st, out] = await call('selfcheck');
+    assertEquals([st, out.ok, out.metaSecretValid, out.tokenKey.set, out.tokenKey.ok, out.metaSecret.set, out.resend.set, out.resend.domains[0].status], [200, true, true, true, true, true, true, 'verified']);
+    assert(out.custom.indexOf('META_APP_SECRET') > -1 && out.custom.indexOf('RESEND_API_KEY') > -1, 'variable names are listed');
+    const text = JSON.stringify(out);
+    for (const secret of [Deno.env.get('TOKEN_ENC_KEY') as string, Deno.env.get('META_APP_SECRET') as string, 're_SECRET_resend_value_123']) {
+      assert(text.indexOf(secret) < 0 && text.indexOf(secret.slice(0, 8)) < 0, 'no secret value, not even its start, in the reply');
+    }
+    // الرسالة التجريبية: لعنوان الدعم بس، حتى لو الطلب فيه مستلم
+    assertEquals((await call('testmail', { to: 'someone@evil.example', email: 'someone@evil.example' }))[0], 200);
+    assertEquals(mails.map((m) => m.to), [['support@adscenter.online']]);
+    // غير المدير: ٤٠٣ ومفيش رسالة
+    admin = false;
+    assertEquals((await call('selfcheck'))[0], 403);
+    assertEquals([(await call('testmail'))[0], mails.length], [403, 1]);
+  } finally {
+    restoreFetch();
+    if (hadResend === undefined) Deno.env.delete('RESEND_API_KEY'); else Deno.env.set('RESEND_API_KEY', hadResend);
+  }
+});
 // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٦): «نسيت كلمة المرور» على الخادم (forgotMail) مكانش ليه أي اختبار — والرد واحد في كل الحالات (التدقيق
 // ١١ نوفمبر، ٢: فرق الزمن كان بيقول مين مسجّل). بريد مش مسموح له مبيوصلوش حاجة، ورابط واحد كل دقيقتين و٥ في اليوم، وأول مرة الحساب
 // بيتعمل، والرابط على موقعنا بالرمز اللي شكله سليم بس (رمز غريب عمره ما يدخل رابط)

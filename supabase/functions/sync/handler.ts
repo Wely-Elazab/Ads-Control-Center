@@ -1,7 +1,7 @@
 // معالج دالة sync — العمليات ووصفها والأمان في رأس index.ts. هنا عشان يتختبر (tests/sync-test.ts): index.ts بيشغّل Deno.serve
 // أول ما يتحمّل، فالاختبار مكانش يقدر يستورده (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٦). نفس الأسطر اللي كانت هناك بالظبط
 
-import { META_ID, TOKEN, corsHeaders, reply, db, rpc, metaAccount, isAppAdmin, str, sendEmail, mailHtml, MAIL_REPLY_TO } from './lib.ts';
+import { META_ID, TOKEN, corsHeaders, reply, db, rpc, metaAccount, isAppAdmin, str, stripHidden, sendEmail, mailHtml, MAIL_REPLY_TO } from './lib.ts';
 import { handleDigest } from './digest.ts';
 import { handleJoin } from './join.ts';
 import { runAll, preview, previewSummary } from './runner.ts';
@@ -41,7 +41,8 @@ function cleanEntry(viewKey: string, e: any, info: any): Record<string, unknown>
   const i = info && typeof info === 'object' ? info : {};
   return {
     view_key: viewKey, block: e.block, since: e.since, until: e.until, verdict: e.verdict, reasons,
-    note: typeof e.note === 'string' ? e.note.slice(0, 500) : '',
+    // المحارف المخفية بتتشال زي باقي النصوص (lib.ts stripHidden) — سطر سطر عشان الملاحظة ممكن تبقى أكتر من سطر (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٧)
+    note: typeof e.note === 'string' ? e.note.replace(/\r\n?/g, '\n').split('\n').map(stripHidden).join('\n').slice(0, 500) : '',
     block_kind: KINDS.indexOf(i.kind) > -1 ? i.kind : null,
     block_title: str(i.title, 300),
     head_type: typeof i.head === 'string' && /^[A-Za-z]{1,40}$/.test(i.head) ? i.head : null,
