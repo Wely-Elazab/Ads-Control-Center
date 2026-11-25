@@ -77,8 +77,9 @@ jobs:
           NO_COLOR: '1'
         run: |
           set -o pipefail
-          # باسم الملف: Deno لوحده بيدوّر على *_test.ts بس، واسم Supabase المقترح (sync-test.ts) مش منهم
-          deno test --allow-env --no-check supabase/functions/tests/sync-test.ts 2>&1 | tee deno-test.txt
+          # باسم الملف: Deno لوحده بيدوّر على *_test.ts بس، واسم Supabase المقترح (sync-test.ts) مش منهم.
+          # القراءة لملفات المحرك والمُشغّل بس: اختبار العقد بينهم بيحمّل المحرك الحقيقي ويقرا runner.ts (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٦)
+          deno test --allow-env --allow-read=Live/js,supabase/functions/sync --no-check supabase/functions/tests/sync-test.ts 2>&1 | tee deno-test.txt
           echo "::notice title=sync tests::$(grep -E '^(ok|FAILED) \|' deno-test.txt | tail -1)"
       # فحص الأنواع للتقرير بس: Supabase بتنشر من غيره، فأخطاؤه مش أعطال تشغيل — بس بتتسجّل عشان تتصلّح.
       # كل خطأ بيطلع ملاحظة (annotation) بمكانه، عشان يتقري من غير دخول للسجل

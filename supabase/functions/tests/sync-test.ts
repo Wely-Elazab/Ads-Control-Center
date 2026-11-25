@@ -11,7 +11,7 @@ import { bearer, cleanCode, counterMissing, handleLogin, newCode, requireLogin, 
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -1698,4 +1698,61 @@ Deno.test('join: Google من غير Test users ولا «فعّلنا البري�
   assert(!/Test users|auth\/audience/.test(admin.html + admin.text), 'the owner is not asked to add test users');
   assertMatch(admin.html, /لا يحتاج إضافة/);
   assertMatch(admin.html, /Tester/, 'Meta still needs the tester invitation');
+});
+
+// ---------- المحرك الحقيقي في المُشغّل — التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٦). في آخر الملف عشان بيتقيّم في النطاق العام بعد كل الاختبارات اللي
+// بتستخدم محرك وهمي ----------
+// المُشغّل بيحمّل ملفات المحرك من GitHub (ENGINE_COMMIT) ويقيّمها، وبيتأكد بنفسه من ٩ أسماء بس — وهو بيستخدم أكتر (last7Days وLIVE_STATUSES
+// وDX.pegRate وsettingsForAccount…): اسم يختفي من المحرك كان بيوقّع المُشغّل في الإنتاج من غير ما أي اختبار يكشفه. هنا الملفات الحالية من
+// المستودع، وكل g.* في runner.ts نفسه — فدالة المُشغّل محتاجها لو اتشالت، الاختبار بيقع قبل ما ENGINE_COMMIT يتنقل لها
+async function repoText(path: string): Promise<string> {
+  const D = (globalThis as any).Deno;
+  // Deno (CI): من القرص (--allow-read=Live/js,supabase/functions/sync). المتصفح (الاختبارات المحلية، من غير Deno): من الخادم المحلي
+  if (D && typeof D.readTextFile === 'function') return await D.readTextFile(new URL('../../../' + path, import.meta.url));
+  return await (await realFetch(path.indexOf('Live/') === 0 ? '/' + path.slice(5) : '/__repo/' + path)).text();
+}
+// في المتصفح الصفحة حقيقية: meta.js بيحقن مكتبة فيسبوك أول ما يتقيّم لو مفيش عنصر «facebook-jssdk» (والمكتبة الحقيقية كانت هتبعت طلبات Graph
+// حقيقية)، والتخزين تخزين صفحة الاختبارات — فبنحط العنصر وتخزين في الذاكرة. Deno مفيهوش document، والمُشغّل بيعمل بدائله هو
+function browserGuards(): void {
+  const W = globalThis as any;
+  if (!W.document || typeof W.document.createElement !== 'function' || !W.document.body) return;
+  if (!W.document.getElementById('facebook-jssdk')) { const el = W.document.createElement('i'); el.id = 'facebook-jssdk'; W.document.body.appendChild(el); }
+  for (const k of ['localStorage', 'sessionStorage']) {
+    const m = new Map<string, string>();
+    const store = { getItem: (x: string) => (m.has(x) ? m.get(x) : null), setItem: (x: string, v: unknown) => { m.set(x, String(v)); }, removeItem: (x: string) => { m.delete(x); }, clear: () => m.clear() };
+    try { Object.defineProperty(W, k, { configurable: true, writable: true, value: store }); } catch (_) { /* المتصفح رفض: يفضل الأصلي */ }
+  }
+}
+Deno.test('المحرك الحقيقي: المُشغّل بيقيّمه، وكل اسم بيستخدمه منه موجود، وبيعرف الملف اللي نسخته على الموقع أحدث (من غير فرق نهايات السطور)', async () => {
+  const FILES = ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js', 'snapchat.js'], texts: Record<string, string> = {}, asked: string[] = [];
+  for (const f of FILES) texts[f] = await repoText('Live/js/' + f);
+  const runnerSrc = await repoText('supabase/functions/sync/runner.ts');
+  stubFetch((url) => {
+    const f = url.split('/').pop() as string;
+    if (url.indexOf('https://raw.githubusercontent.com/Wely-Elazab/Ads-Control-Center/') === 0 && texts[f]) { asked.push('raw:' + f); return new Response(texts[f], { status: 200 }); }
+    if (url.indexOf('https://adscenter.online/js/') === 0 && texts[f]) {
+      asked.push('site:' + f);
+      return new Response(f === 'alerts.js' ? texts[f] + '\n// newer on the site' : texts[f].replace(/\r?\n/g, '\r\n'), { status: 200 });
+    }
+    return json({ message: 'unexpected ' + url }, 500);
+  });
+  browserGuards();
+  try {
+    assertEquals(await loadEngine(), ['alerts.js'], 'only the file that really differs — not the one with other line endings');
+    assertEquals([asked.filter((a) => a.indexOf('raw:') === 0).length, asked.filter((a) => a.indexOf('site:') === 0).length], [6, 6], 'six files from the pinned commit, six compared');
+    // كل g.* في runner.ts (والمستوى التاني زي g.DX.pegRate) موجود بعد التحميل — إلا اللي المُشغّل بيعرّفه بنفسه
+    const G = globalThis as any;
+    const own = new Set(['window', 'document', 'localStorage', 'sessionStorage', 'location', 'history', 'FB']);
+    for (const m of runnerSrc.matchAll(/\bg\.(\w+)\s*=(?!=)/g)) own.add(m[1]);
+    const missing: string[] = [], seen = new Set<string>();
+    for (const m of runnerSrc.matchAll(/\bg\.(\w+)(?:\.(\w+))?/g)) {
+      const key = m[1] + (m[2] ? '.' + m[2] : '');
+      if (own.has(m[1]) || seen.has(key)) continue;
+      seen.add(key);
+      if (G[m[1]] === undefined || G[m[1]] === null) missing.push(m[1]);
+      else if (m[2] && (G[m[1]] as any)[m[2]] === undefined) missing.push(key);
+    }
+    assert(seen.size > 20, 'the runner uses many engine names: ' + seen.size);
+    assertEquals(missing, [], 'every engine name the runner uses exists');
+  } finally { restoreFetch(); }
 });

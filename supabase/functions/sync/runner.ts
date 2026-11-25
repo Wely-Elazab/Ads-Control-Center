@@ -181,8 +181,8 @@ function exclusive<T>(fn: () => Promise<T>): Promise<T> {
 
 // ---------- تحميل المحرك ----------
 let engine: Promise<string[]> | null = null;
-// بيرجّع الملفات اللي نسختها على الموقع دلوقتي مختلفة عن ENGINE_COMMIT (يعني الأداة بقت أحدث من المُشغّل)
-function loadEngine(): Promise<string[]> {
+// بيرجّع الملفات اللي نسختها على الموقع دلوقتي مختلفة عن ENGINE_COMMIT (يعني الأداة بقت أحدث من المُشغّل). export للاختبارات
+export function loadEngine(): Promise<string[]> {
   if (!engine) {
     engine = (async () => {
       const texts = await Promise.all(ENGINE_FILES.map(async (f) => {
