@@ -11,7 +11,7 @@ import { bearer, cleanCode, counterMissing, handleLogin, newCode, requireLogin, 
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue, alertsCountAr, alertStatusHtml
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue, alertsCountAr, alertStatusHtml, linkAllowed, privateAddr, setResolverForTests
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -29,6 +29,8 @@ function stubFetch(route: Route) {
     Promise.resolve().then(() => route(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, init))) as typeof fetch;
 }
 function restoreFetch() { globalThis.fetch = realFetch; }
+// DNS الحقيقي مقفول في كل الاختبارات (CI مفيهوش صلاحية شبكة، والمتصفح مفيهوش DNS) — اختبار DNS بيحط واحد مزيف ويرجّعه null (١١٩)
+setResolverForTests(null);
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 // ---------- lib.ts ----------
@@ -1630,6 +1632,103 @@ Deno.test('فحص الروابط: التحويلات بتتتبع قفزة قف�
     assertEquals(await probe('https://shop.example/loop'), { status: 0, blocked: false }, 'an endless redirect = no answer');
     assert(seen.length - before === 21, 'as many hops as fetch itself followed (20), then it gives up: ' + (seen.length - before));
   } finally { restoreFetch(); }
+});
+// التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٩): الاسم كان بيتفحص بالنص بس — «localhost.» (النقطة في الآخر) و«foo.internal.» كانوا بيعدّوا، والأسماء اللي
+// بتتحلّ لعنوان داخلي («127.0.0.1.nip.io» و«localtest.me») كمان. دلوقتي النقطة بتتشال قبل الفحص، والعنوان بيتصنّف بسجلات IANA (RFC 6890)
+Deno.test('فحص الروابط: النقطة في آخر الاسم، وتصنيف العناوين بسجلات IANA — الخاص والمحجوز وIPv4 جوه IPv6 والصيغ الغلط', () => {
+  const ok = (s: string) => linkAllowed(new URL(s));
+  assertEquals(['http://localhost./', 'http://LOCALHOST./x', 'http://foo.internal./', 'http://%6c%6f%63%61%6c%68%6f%73%74./', 'http://shop.local../'].map(ok),
+    [false, false, false, false, false], 'a trailing dot');
+  assertEquals(['https://shop.example/a', 'https://shop.example./a'].map(ok), [true, true], 'a normal shop, with or without the trailing dot');
+  const inside = [
+    '0.0.0.0', '10.1.2.3', '100.64.0.1', '100.127.255.255', '127.0.0.1', '169.254.169.254', '172.16.0.1', '172.31.255.255', '192.0.0.8', '192.0.2.1',
+    '192.168.1.1', '198.18.0.1', '198.19.255.255', '198.51.100.7', '203.0.113.9', '224.0.0.1', '240.0.0.1', '255.255.255.255',
+    '::', '::1', '::7f00:1', '1::', '1:2:3:4:5:6:7::', 'fc00::1', 'fd00:ec2::254', 'FE80::1', 'febf::1', 'fec0::1', 'ff02::1', '100::1', '5f00::1',
+    '2001:db8::1', '2001:0:4136:e378:8000:63bf:3fff:fdd2', '2001:2::1', '3fff::1', '3fff:fff::1',
+    '::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:a9fe:a9fe', '0:0:0:0:0:ffff:10.0.0.1', '::ffff:0:7f00:1',
+    '64:ff9b::7f00:1', '64:ff9b::169.254.169.254', '64:ff9b:1::1', '2002:7f00:1::1', '2002:a00:1::',
+    // ترتيب البايتات في الـ IPv4 المتشال: عناوين مش متماثلة (10.1.1.1 بالمقلوب 1.10.1.1 عام، و192.0.2.1 بالمقلوب 192.0.1.2 عام)
+    '::ffff:10.1.1.1', '::ffff:a01:101', '::ffff:192.0.2.1', '::ffff:c000:201', '64:ff9b::a01:101', '64:ff9b::c000:201', '2002:a01:101::', '2002:c000:201::',
+    'fe80::1%eth0', '1.2.3.256', '1.2.3', 'not-an-ip', '', ':::', '1::2::3', '2001:4860:4860:0:0:0:0:8888::', '2001:4860:4860:0:0:0:0:8888::::',
+    '1:2:3:4:5:6:7:8:9', '::ffff:1.2.3.256', '2001:4860:4860::88888'];
+  assertEquals(inside.filter((ip) => !privateAddr(ip)), [], 'not public');
+  const outside = ['8.8.8.8', '1.1.1.1', '93.184.216.34', '100.63.255.255', '100.128.0.1', '172.15.255.255', '172.32.0.1', '192.0.1.1', '192.0.3.1',
+    '192.169.0.1', '198.17.255.255', '198.20.0.1', '198.51.101.1', '203.0.114.1', '223.255.255.255', '2606:4700::1111', '2A03:2880:F12F:83:FACE:B00C::25DE',
+    '2001:4860:4860::8888', '2001:4860:4860:0:0:0:0:8888', '2000::1', '2001:3::1', '2001:2:1::1', '3fff:1000::1', '::ffff:8.8.8.8', '::ffff:808:808',
+    '64:ff9b::808:808', '64:ff9b::8.8.8.8', '2002:808:808::1'];
+  assertEquals(outside.filter(privateAddr), [], 'public');
+});
+// (١١٩) DNS قبل كل طلب وكل تحويل (OWASP SSRF)، ولو DNS مش متاح بنكمّل بالاسم زي الأول (عطل DNS ميبقاش «كل الروابط معطّلة» في البريد)
+// ونكتبه في السجل مرة، وDNS المعلّق بيتقفل بمهلة الفحص نفسها
+Deno.test('فحص الروابط: DNS قبل كل طلب وكل تحويل، وDNS مش متاح = بالاسم زي الأول ومرة في السجل، وDNS المعلّق بيتقفل بالمهلة', async () => {
+  const notFound = () => Object.assign(new Error('no records'), { name: 'NotFound' });
+  const DNS: Record<string, string[]> = { 'shop.example': ['93.184.216.34', '2606:4700::1111'], '127.0.0.1.nip.io': ['127.0.0.1'], 'localtest.me': ['127.0.0.1', '::1'],
+    'evil.example': ['10.0.0.5'], 'v6only.example': ['fd00::1'], 'mapped.example': ['93.184.216.34', '::ffff:169.254.169.254'] };
+  const asked: string[] = [], fetched: string[] = [], errs: string[] = [];
+  const realError = console.error, realTimeout = AbortSignal.timeout;
+  console.error = (...a: unknown[]) => { errs.push(a.map(String).join(' ')); };
+  setResolverForTests((h, type) => {
+    asked.push(h + '/' + type);
+    const a = (DNS[h] || []).filter((x) => (type === 'A') === (x.indexOf(':') < 0));
+    return a.length ? Promise.resolve(a) : Promise.reject(notFound());
+  });
+  stubFetch((url) => {
+    fetched.push(url);
+    if (url === 'https://shop.example/hop') return new Response(null, { status: 302, headers: { location: 'https://evil.example/x' } });
+    return new Response('ok', { status: 200 });
+  });
+  try {
+    for (const u of ['http://127.0.0.1.nip.io/', 'https://localtest.me/', 'https://v6only.example/', 'https://mapped.example/']) {
+      assertEquals(await probe(u), { status: 0, blocked: true }, u);
+    }
+    assertEquals(fetched, [], 'none of them is ever requested');
+    assertEquals(await probe('https://shop.example./a'), { status: 200, blocked: false }, 'a public shop is checked (trailing dot too)');
+    assertEquals(asked.slice(-2).sort(), ['shop.example/A', 'shop.example/AAAA'], 'both record types, for the name without the dot');
+    assertEquals(await probe('https://shop.example/hop'), { status: 0, blocked: true }, 'a redirect to a name that resolves inside is not followed');
+    assertEquals(fetched, ['https://shop.example./a', 'https://shop.example/hop'], 'evil.example never requested');
+    assertEquals(await probe('https://gone.example/'), { status: 200, blocked: false }, 'no records at all (NotFound): fetch decides, as before');
+    assertEquals(errs, [], 'NotFound is normal, nothing logged');
+    // DNS مش متاح (صلاحية، أو DNS واقع): بالاسم لوحده زي الأول، ومرة واحدة في السجل مهما اتكرر
+    setResolverForTests(() => Promise.reject(Object.assign(new Error('denied'), { name: 'PermissionDenied' })));
+    fetched.length = 0;
+    assertEquals(await probe('https://shop.example/a'), { status: 200, blocked: false });
+    assertEquals(await probe('https://shop.example/b'), { status: 200, blocked: false });
+    assertEquals(fetched, ['https://shop.example/a', 'https://shop.example/b'], 'DNS unavailable: checked by the name alone, as before');
+    assertEquals(errs.length, 1, 'logged once: ' + errs.join(' | '));
+    assert(errs[0].indexOf('link check: dns unavailable') === 0 && errs[0].indexOf('PermissionDenied') > -1, errs[0]);
+    // وكل resolver جديد بيبدأ من غير «اتكتب قبل كده» (اختبار ورا التاني ميخبّيش السطر)
+    setResolverForTests(() => Promise.reject(Object.assign(new Error('timed out'), { name: 'TimedOut' })));
+    assertEquals(await probe('https://shop.example/c'), { status: 200, blocked: false });
+    assertEquals(errs.length, 2, 'logged again after a new resolver: ' + errs.join(' | '));
+    assert(errs[1].indexOf('TimedOut') > -1, errs[1]);
+    // DNS معلّق: مهلة الفحص بتقفله هو كمان (الحقيقية ٨ ثواني — هنا ٣٠ ملّي)، من غير طلب ولا سطر في السجل
+    setResolverForTests(() => new Promise<string[]>(() => {}));
+    (AbortSignal as any).timeout = (_ms: number) => realTimeout.call(AbortSignal, 30);
+    fetched.length = 0;
+    errs.length = 0;
+    let timer = 0;
+    const res = await Promise.race([probe('https://slow.example/'), new Promise((r) => { timer = setTimeout(() => r('hung'), 2000); })]);
+    clearTimeout(timer);
+    assertEquals(res, { status: 0, blocked: false }, 'a hung DNS ends with the check timeout = no answer');
+    assertEquals([fetched, errs], [[], []]);
+    // والمهلة لو خلصت في نص سلسلة تحويلات: القفزة اللي بعدها مبتستناش DNS معلّق (resolver مبيحترمش الإشارة)
+    setResolverForTests((h) => (h === 'late.example' ? new Promise<string[]>(() => {}) : Promise.reject(notFound())));
+    stubFetch((url) => {
+      fetched.push(url);
+      return url === 'https://first.example/'
+        ? new Promise<Response>((r) => setTimeout(() => r(new Response(null, { status: 301, headers: { location: 'https://late.example/' } })), 60))
+        : new Response('ok', { status: 200 });
+    });
+    const res2 = await Promise.race([probe('https://first.example/'), new Promise((r) => { timer = setTimeout(() => r('hung'), 2000); })]);
+    clearTimeout(timer);
+    assertEquals(res2, { status: 0, blocked: false }, 'the deadline passed mid-chain = no answer, without waiting on DNS');
+    assertEquals([fetched, errs], [['https://first.example/'], []]);
+  } finally {
+    setResolverForTests(null);
+    restoreFetch();
+    console.error = realError;
+    (AbortSignal as any).timeout = realTimeout;
+  }
 });
 
 Deno.test('الطابور — ملخص بحسابات كتير: سطر لكل حساب بحكمه، والتفاصيل للي محتاج انتباه بس، والرسالة تحت حد قصّ Gmail', async () => {

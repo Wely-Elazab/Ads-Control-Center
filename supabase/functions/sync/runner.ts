@@ -400,10 +400,92 @@ function whenText(when: string, tz: string): string {
 // Cloudflare) مش عطل. الروابط من إعلانات العميل: http/https ونطاقات عادية بس (مش عناوين IP ولا شبكات داخلية)
 const LINK_MAX = 10, LINK_TIMEOUT_MS = 8000;
 const LINK_UA = 'Mozilla/5.0 (compatible; AdsCenterLinkCheck/1.0; +https://adscenter.online)';
-function linkAllowed(u: URL): boolean {
-  const h = u.hostname.toLowerCase();
+// النقطة في آخر الاسم بتتشال قبل الفحص: «localhost.» اسم DNS كامل للجهاز نفسه، وكان بيعدّي (فيه نقطة، ومبينتهيش بـ localhost) — زيه
+// «foo.internal.» (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٩). export للاختبارات
+export function linkAllowed(u: URL): boolean {
+  const h = u.hostname.toLowerCase().replace(/\.+$/, '');
   return (u.protocol === 'https:' || u.protocol === 'http:') && h.indexOf('.') > 0 && !/^[\d.]+$/.test(h) && h.indexOf(':') < 0 &&
     !/(^|\.)(localhost|local|internal|lan|home|corp)$/.test(h);
+}
+// عنوان مش عام = مبيتفتحش (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٩): اسم عادي ممكن يتحلّ لعنوان داخلي («127.0.0.1.nip.io» و«localtest.me»
+// بيعدّوا linkAllowed) — OWASP SSRF Prevention: «ensure that the domain name resolves to a public IP». المرجع سجلات IANA (RFC 6890):
+// في IPv4 كل سطر «مش عام» فيها، والبث المتعدد والمحجوز (224 وفوق). IPv6 العام كله من 2000::/3، فأي حاجة براه مش عامة (::1 وfc00::/7
+// وfe80::/10 وff00::/8 …)، وجواه Teredo و2001:2::/48 والتوثيق (2001:db8::/32 و3fff::/20). والـ IPv4 المتشال جوه IPv6 (::ffff: — وNAT64
+// 64:ff9b::/96 — و6to4 2002::/16) بيتفحص هو نفسه: «::ffff:127.0.0.1» زي «127.0.0.1». أي صيغة مش مفهومة = مش عامة. export للاختبارات
+function v4Parts(s: string): number[] | null {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);
+  const p = m ? m.slice(1).map(Number) : null;
+  return p && p.every((x) => x <= 255) ? p : null;
+}
+function v4Private(p: number[]): boolean {
+  const [a, b, c] = p;
+  return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+    (a === 198 && (b === 18 || b === 19)) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113);
+}
+// IPv6 لتماني مجموعات ١٦ بت: بيفهم «::» وآخر ٣٢ بت مكتوبين IPv4 — غير كده null
+function v6Groups(ip: string): number[] | null {
+  let s = ip;
+  const m = /^(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/.exec(s);
+  if (m) {
+    const p = v4Parts(m[2]);
+    if (!p) return null;
+    s = m[1] + ((p[0] << 8) | p[1]).toString(16) + ':' + ((p[2] << 8) | p[3]).toString(16);
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const part = (x: string) => (x ? x.split(':') : []);
+  const head = part(halves[0]), tail = halves.length === 2 ? part(halves[1]) : [];
+  const fill = 8 - head.length - tail.length;
+  if (halves.length === 2 ? fill < 1 : fill !== 0) return null;
+  const all = [...head, ...Array(halves.length === 2 ? fill : 0).fill('0'), ...tail];
+  return all.every((x) => /^[0-9a-f]{1,4}$/.test(x)) ? all.map((x) => parseInt(x, 16)) : null;
+}
+export function privateAddr(ip: string): boolean {
+  const s = ip.toLowerCase(), v4 = v4Parts(s);
+  if (v4) return v4Private(v4);
+  const g = v6Groups(s);
+  if (!g) return true;
+  const inner = (hi: number, lo: number) => v4Private([hi >> 8, hi & 255, lo >> 8, lo & 255]);
+  if (g[0] === 0) return g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0xffff ? inner(g[6], g[7]) : true;
+  if (g[0] === 0x64 && g[1] === 0xff9b) return g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0 ? inner(g[6], g[7]) : true;
+  if (g[0] === 0x2002) return inner(g[1], g[2]);
+  return (g[0] & 0xe000) !== 0x2000 || (g[0] === 0x2001 && (g[1] === 0 || g[1] === 0xdb8 || (g[1] === 2 && g[2] === 0))) ||
+    (g[0] === 0x3fff && g[1] < 0x1000);
+}
+// DNS قبل كل طلب (وكل تحويل): اسم بيتحلّ لعنوان مش عام = مبيتفتحش. Deno.resolveDns متاح في دوال Supabase (denoOverrides في
+// supabase/edge-runtime، ومش في قايمة الواجهات المقفولة على دوال المستخدمين). لو مش متاح أو اترفض بنكمّل بالاسم لوحده زي الأول — عطل
+// DNS ميبقاش «كل الروابط معطّلة» في بريد العملاء — وبنكتبه في السجل مرة لكل تشغيل، عشان الحماية متقفش من غير ما نعرف.
+// الباقي من الخطر: اسم بيتحلّ لعام وقت السؤال ولخاص وقت الطلب (DNS rebinding) — قفله محتاج الاتصال بالعنوان اللي سألنا عنه نفسه، وfetch مفيهوش ده
+type Resolver = (host: string, type: 'A' | 'AAAA', signal: AbortSignal) => Promise<string[]>;
+const denoNs = (globalThis as any).Deno;
+let resolver: Resolver | null = denoNs && typeof denoNs.resolveDns === 'function' ? (h, t, signal) => denoNs.resolveDns(h, t, { signal }) : null;
+if (denoNs && !resolver) console.error('link check: no Deno.resolveDns, name-only');
+let dnsWarned = false;
+// للاختبارات: CI مفيهوش صلاحية شبكة، والمتصفح (الاختبارات المحلية) مفيهوش DNS
+export function setResolverForTests(r: Resolver | null): void { resolver = r; dnsWarned = false; }
+// الوعد بيخلص مع المهلة حتى لو الـ resolver نفسه مبيحترمهاش: DNS بطيء ميأخرش المُشغّل بعد مهلة الفحص
+function untilAbort<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((ok, fail) => {
+    const stop = () => fail(signal.reason);
+    signal.addEventListener('abort', stop, { once: true });
+    p.then((v) => { signal.removeEventListener('abort', stop); ok(v); }, (e) => { signal.removeEventListener('abort', stop); fail(e); });
+    if (signal.aborted) stop();
+  });
+}
+async function resolvesPublic(host: string, signal: AbortSignal): Promise<boolean> {
+  const r = resolver;
+  if (!r) return true;
+  const found = await Promise.all((['A', 'AAAA'] as const).map((type) => untilAbort(r(host, type, signal), signal).catch((e) => {
+    // NotFound = مفيش سجل من النوع ده (عادي — مواقع كتير من غير IPv6). غير كده (صلاحية، أو DNS واقع) = بالاسم لوحده، ونكتبه مرة
+    if (!signal.aborted && (e as Error)?.name !== 'NotFound' && !dnsWarned) {
+      dnsWarned = true;
+      console.error('link check: dns unavailable, name-only', String((e as Error)?.name || e).slice(0, 60));
+    }
+    return [] as string[];
+  })));
+  signal.throwIfAborted();
+  return !found.flat().some(privateAddr);
 }
 // التحويلات بنتبعها بنفسنا، وكل قفزة بتتراجع بنفس linkAllowed (OWASP SSRF Prevention Cheat Sheet — التدقيق الشامل ١١ نوفمبر ٢٠٢٦):
 // كان fetch بيتبعها لوحده، فرابط إعلان مسموح يقدر يحوّل لعنوان IP أو اسم داخلي والدالة تفتحه. قفزة لعنوان مش مسموح = مش عطل
@@ -416,6 +498,7 @@ export async function probe(url: string): Promise<{ status: number; blocked: boo
     const deadline = AbortSignal.timeout(LINK_TIMEOUT_MS);
     let at = url;
     for (let hop = 0; hop <= LINK_HOPS; hop++) {
+      if (!(await resolvesPublic(new URL(at).hostname.replace(/\.+$/, ''), deadline))) return { status: 0, blocked: true };
       const r = await fetch(at, { redirect: 'manual', signal: deadline, headers: { 'user-agent': LINK_UA, 'accept': 'text/html,*/*' } });
       try { await r.body?.cancel(); } catch (_) { /* مش مهم */ }
       const to = r.status >= 300 && r.status < 400 ? r.headers.get('location') : null;
