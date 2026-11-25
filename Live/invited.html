@@ -26,11 +26,11 @@
 
 <main class="legal" aria-live="polite">
 <article class="doc">
-  <section data-inv-state="busy">
+  <section data-inv-state="busy" tabindex="-1">
     <h1>جارٍ تحميل الطلب…</h1>
   </section>
 
-  <section data-inv-state="view" hidden>
+  <section data-inv-state="view" hidden tabindex="-1">
     <h1>إرسال رسالة التفعيل</h1>
     <p>تأكد أنك أضفت العميل على المنصات المطلوبة قبل الإرسال: ستصله رسالة فيها خطوات قبول الدعوة والربط، بلغته.</p>
     <table><tbody id="invDetails"></tbody></table>
@@ -40,21 +40,21 @@
     </div>
   </section>
 
-  <section data-inv-state="sending" hidden>
+  <section data-inv-state="sending" hidden tabindex="-1">
     <h1>جارٍ الإرسال…</h1>
   </section>
 
-  <section data-inv-state="done" hidden>
+  <section data-inv-state="done" hidden tabindex="-1">
     <h1>أُرسلت رسالة التفعيل</h1>
     <p id="invDoneText"></p>
   </section>
 
-  <section data-inv-state="bad" hidden>
+  <section data-inv-state="bad" hidden tabindex="-1">
     <h1>الرابط غير صالح</h1>
     <p>ربما نُسخ الرابط ناقصاً، أو حُذف الطلب. افتح الرابط من رسالة الإشعار نفسها.</p>
   </section>
 
-  <section data-inv-state="error" hidden>
+  <section data-inv-state="error" hidden tabindex="-1">
     <h1>تعذّر إتمام العملية الآن</h1>
     <p>حاول مرة أخرى بعد قليل. إن تكرر ذلك، فراجع سجلات دالة sync في Supabase.</p>
     <div class="cta-row"><button type="button" class="btn btn-primary" id="invRetry">إعادة المحاولة</button></div>

@@ -4475,6 +4475,200 @@
         ok(before < barBottom && after >= barBottom, 'a link under the bar comes out when focused: top ' + before + ' -> ' + after + ' (the bar ends at ' + barBottom + ')');
       }).then(restore, function (e) { restore(); throw e; });
     });
+    // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (٦٧): صفحة إيقاف الرسائل (stop.html + js/stop.js) مكانش ليها أي اختبار في المتصفح — سكربتها
+    // متحمّلش في أي اختبار قبل (١١٢)، فمظهرش في التغطية خالص. بتتفتح من الرابط اللي في آخر كل ملخص (و«List-Unsubscribe»). الإيقاف بعد
+    // الضغط بس (برامج البريد بتفحص الروابط لوحدها)، والتوقيع بيتشال من شريط العنوان. و(١١٣) التحقق والإرسال بنفس الشرط، و(١١٤) التركيز
+    // بيروح للقسم الجديد لما الزرار اللي اتضغط يتخبّى (زي #joinDone و#sentBox). الطلب مش بيخرج: fetch وهمي بعد التحميل وقبل أي ضغطة
+    testAsync('صفحة إيقاف الرسائل: الإيقاف بعد الضغط بس، والطلب بالمعرّف الصالح، والحالات، والتركيز، والتوقيع بيتشال من العنوان', function () {
+      var U = '11111111-2222-3333-4444-555555555555', S = 'abcdefghijklmnopqrstuvwxyz_-0123', SYNC = 'https://rhrrnxsgodiideqeollo.supabase.co/functions/v1/sync';
+      var page = function (query) {
+        return framePage('/stop.html' + query, 434, 700).then(function (f) {
+          var w = f.contentWindow, d = f.contentDocument, asked = [], replies = [];
+          w.fetch = function (u, o) {
+            asked.push({ url: String(u), method: o && o.method, body: JSON.parse(o.body) });
+            var r = replies.shift();
+            return r === 'down' ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve(new w.Response('{}', { status: r || 200 }));
+          };
+          return { f: f, w: w, d: d, asked: asked, replies: replies,
+            state: function () { return [].filter.call(d.querySelectorAll('[data-stop-state]'), function (s) { return !s.hidden; }).map(function (s) { return s.getAttribute('data-stop-state'); }).join(','); },
+            focusOn: function (st) { return d.activeElement === d.querySelector('[data-stop-state="' + st + '"]'); },
+            click: function (id) { var b = d.getElementById(id); b.focus(); b.click(); } };
+        });
+      };
+      var settle = function () { return new Promise(function (r) { setTimeout(r, 30); }); };
+      var p;
+      return page('?u=' + U + '&s=' + S).then(function (x) {
+        p = x;
+        eq([p.state(), p.w.location.search, p.asked.length], ['ask', '', 0], 'the link asks first (no request), and the signature leaves the address bar');
+        ok(p.d.activeElement === p.d.body, 'opening the page does not move focus');
+        p.click('stopBtn');
+        eq(p.state(), 'busy', 'busy at once');
+        ok(p.focusOn('busy'), 'focus follows the hidden button to the busy box: ' + p.d.activeElement.tagName);
+        return settle();
+      }).then(function () {
+        eq(p.state(), 'done');
+        eq(p.asked, [{ url: SYNC, method: 'POST', body: { action: 'stop', u: U, sig: S } }]);
+        ok(p.focusOn('done'), 'then to the result: ' + p.d.activeElement.tagName);
+        p.f.remove();
+        // 500 ← «تعذّر»، وإعادة المحاولة بتبعت نفس الطلب
+        return page('?u=' + U + '&s=' + S);
+      }).then(function (x) {
+        p = x; p.replies.push(500, 200);
+        p.click('stopBtn');
+        return settle();
+      }).then(function () {
+        eq(p.state(), 'error');
+        ok(p.focusOn('error'), 'focus on the error box (its retry button is next)');
+        p.click('stopRetry');
+        return settle();
+      }).then(function () {
+        eq([p.state(), p.asked.length, p.asked[1].body], ['done', 2, { action: 'stop', u: U, sig: S }]);
+        p.f.remove();
+        // روابط قبل ٣١ أكتوبر بالحساب؛ و403 ← الرابط غير صالح
+        return page('?a=act_123&s=' + S);
+      }).then(function (x) {
+        p = x; p.replies.push(403);
+        p.click('stopBtn');
+        return settle();
+      }).then(function () {
+        eq([p.state(), p.asked[0].body], ['bad', { action: 'stop', account: 'act_123', sig: S }], 'account links: by account; 403 = bad link');
+        p.f.remove();
+        return page('?a=act_123&s=' + S);
+      }).then(function (x) {
+        p = x; p.replies.push('down');
+        p.click('stopBtn');
+        return settle();
+      }).then(function () {
+        eq(p.state(), 'error', 'network down');
+        p.f.remove();
+        // (١١٣) u غلط مع a صح: التحقق عدّى بالحساب، فالطلب بالحساب (كان بيبعت u الغلط)
+        return page('?u=nope&a=act_123&s=' + S);
+      }).then(function (x) {
+        p = x;
+        p.click('stopBtn');
+        return settle();
+      }).then(function () {
+        eq(p.asked[0] && p.asked[0].body, { action: 'stop', account: 'act_123', sig: S }, 'the id that passed the check is the one sent');
+        p.f.remove();
+        // روابط غلط ← «غير صالح» على طول، من غير زرار ولا طلب
+        return Promise.all(['', '?u=' + U, '?u=' + U + '&s=short', '?a=act_x&s=' + S, '?u=' + U + '&s=' + S + '%3Cx', '?a=act_123&s=' + S + '&u=x%40y'].map(function (q) {
+          return page(q).then(function (x) {
+            var r = [q, x.state(), x.asked.length];
+            x.f.remove();
+            return r;
+          });
+        }));
+      }).then(function (rows) {
+        rows.forEach(function (r) { eq(r.slice(1), r[0] === '?a=act_123&s=' + S + '&u=x%40y' ? ['ask', 0] : ['bad', 0], 'link ' + JSON.stringify(r[0])); });
+      });
+    });
+    // وصفحة الدعوة (invited.html + js/invited.js) — لصاحب الأداة: بتعرض طلب الانضمام (من نموذج عام، فبـ textContent بس) وبتبعت رسالة
+    // التفعيل بعد الضغط. بتطلب الطلب أول ما تفتح، فالشبكة الوهمية لازم تتحط قبل أي سكربت (srcdoc) — والإطار ده مالوش عنوان
+    // (replaceState فيه بيرمي SecurityError — اتجرّب)، فمعاملات الرابط بتتحط في URLSearchParams اللي الصفحة بتقرا بيه
+    testAsync('صفحة الدعوة: بتعرض الطلب نص بس، والتفعيل بعد الضغط، وإعادة المحاولة بتعيد آخر خطوة، والتركيز بيتبع الزرار', function () {
+      var R = '11111111-2222-3333-4444-555555555555', S = 'abcdefghijklmnopqrstuvwxyz_-0123', net = window.__invNet = { asked: [], replies: [] };
+      var page = function () {
+        net.asked = [];
+        return framePage('/invited.html', 900, 900,
+          'var __U = URLSearchParams; window.URLSearchParams = function (s) { return new __U(s ? s : "?r=' + R + '&s=' + S + '"); };' +
+          'window.fetch = function (u, o) { var n = parent.__invNet, r = n.replies.shift() || { status: 200, body: {} }; n.asked.push({ url: String(u), body: JSON.parse(o.body) });' +
+          ' return r === "down" ? Promise.reject(new TypeError("Failed to fetch")) : Promise.resolve(new Response(JSON.stringify(r.body || {}), { status: r.status || 200 })); };'
+        ).then(function (f) {
+          var d = f.contentDocument;
+          return { f: f, d: d,
+            state: function () { return [].filter.call(d.querySelectorAll('[data-inv-state]'), function (s) { return !s.hidden; }).map(function (s) { return s.getAttribute('data-inv-state'); }).join(','); },
+            focusOn: function (st) { return d.activeElement === d.querySelector('[data-inv-state="' + st + '"]'); },
+            click: function (id) { var b = d.getElementById(id); b.focus(); b.click(); },
+            rows: function () { return [].map.call(d.querySelectorAll('#invDetails tr'), function (tr) { return [tr.querySelector('th').textContent, tr.querySelector('td').textContent, tr.querySelector('td').dir]; }); } };
+        });
+      };
+      var settle = function () { return new Promise(function (r) { setTimeout(r, 40); }); };
+      var REQ = { role: 'مسؤول إعلانات', name: '<img src=x onerror="parent.__invXss=1">سارة', business: 'متجر', store: 'https://shop.example/a', country: 'السعودية',
+        platforms: ['meta', 'snapchat', 'other'], fb: '', googleEmail: '', snapEmail: 's@x.example', email: 'sara@x.example', whatsapp: '+966500000000', lang: 'en',
+        createdAt: '2026-11-20T09:15:00Z', activatedAt: '2026-11-21T10:00:00Z' };
+      var p;
+      delete window.__invXss;
+      net.replies = [{ status: 200, body: { request: REQ } }];
+      return page().then(function (x) {
+        p = x;
+        return settle();
+      }).then(function () {
+        eq(p.state(), 'view');
+        eq(net.asked, [{ url: 'https://rhrrnxsgodiideqeollo.supabase.co/functions/v1/sync', body: { action: 'join.peek', id: R, sig: S } }], 'one peek, nothing sent to the client yet');
+        ok(!p.d.querySelector('#invDetails img') && !window.__invXss, 'form text stays text');
+        eq(p.rows(), [
+          ['الصفة', 'مسؤول إعلانات', ''], ['الاسم', '<img src=x onerror="parent.__invXss=1">سارة', ''], ['النشاط', 'متجر', ''], ['المتجر', 'https://shop.example/a', 'ltr'],
+          ['البلد', 'السعودية', ''], ['المنصات', 'Meta، Snapchat، other', ''], ['بريد Snapchat', 's@x.example', 'ltr'], ['البريد', 'sara@x.example', 'ltr'],
+          ['واتساب', '+966500000000', 'ltr'], ['لغة الرسائل', 'الإنجليزية', ''], ['تاريخ الطلب', '2026-11-20', '']], 'empty fields left out; links, emails and WhatsApp left-to-right');
+        ok(!p.d.getElementById('invNote').hidden && /2026-11-21/.test(p.d.getElementById('invNote').textContent), 'already activated: the note');
+        eq(p.d.getElementById('invSend').textContent, 'أعد إرسال رسالة التفعيل');
+        ok(p.d.activeElement === p.d.body, 'loading does not move focus');
+        net.replies = [{ status: 200, body: { request: { email: 'sara@x.example' } } }];
+        p.click('invSend');
+        eq(p.state(), 'sending');
+        ok(p.focusOn('sending'), 'focus follows the hidden button');
+        return settle();
+      }).then(function () {
+        eq([p.state(), net.asked[1].body], ['done', { action: 'join.activate', id: R, sig: S }]);
+        eq(p.d.getElementById('invDoneText').textContent, 'أُرسلت الرسالة إلى sara@x.example، وأصبحت حالة الطلب «مفعّل».');
+        ok(p.focusOn('done'), 'then to the result');
+        p.f.remove();
+        // فشل الطلب: 403 ← غير صالح؛ 500 ← تعذّر وإعادة المحاولة بتعيد الطلب نفسه؛ وفشل الإرسال بيعيد الإرسال (مش الطلب)
+        net.replies = [{ status: 403 }];
+        return page();
+      }).then(function (x) {
+        p = x;
+        return settle();
+      }).then(function () {
+        eq(p.state(), 'bad', '403 = bad link');
+        p.f.remove();
+        net.replies = [{ status: 500 }, { status: 200, body: { request: { name: 'ن' } } }, { status: 500 }, { status: 200, body: { request: {} } }];
+        return page();
+      }).then(function (x) {
+        p = x;
+        return settle();
+      }).then(function () {
+        eq(p.state(), 'error');
+        p.click('invRetry');
+        return settle();
+      }).then(function () {
+        eq([p.state(), net.asked.map(function (a) { return a.body.action; })], ['view', ['join.peek', 'join.peek']], 'retry after a failed load loads again');
+        ok(p.focusOn('view'), 'focus to the request after the retry button hides');
+        eq(p.d.getElementById('invSend').textContent, 'أرسل رسالة التفعيل', 'not activated yet: the first-time label');
+        p.click('invSend');
+        return settle();
+      }).then(function () {
+        eq(p.state(), 'error');
+        p.click('invRetry');
+        return settle();
+      }).then(function () {
+        eq([p.state(), net.asked.map(function (a) { return a.body.action; })], ['done', ['join.peek', 'join.peek', 'join.activate', 'join.activate']], 'retry after a failed send sends again (not peek)');
+        eq(p.d.getElementById('invDoneText').textContent, 'أُرسلت الرسالة إلى العميل، وأصبحت حالة الطلب «مفعّل».', 'no email in the reply: «العميل»');
+        p.f.remove();
+        net.replies = ['down'];
+        return page();
+      }).then(function (x) {
+        p = x;
+        return settle();
+      }).then(function () {
+        eq(p.state(), 'error', 'network down');
+        p.f.remove();
+        delete window.__invNet;
+      }, function (e) { delete window.__invNet; throw e; });
+    });
+    // والرابط الغلط: «غير صالح» على طول من غير أي طلب، والتوقيع بيتشال من العنوان (هنا الصفحة بعنوانها الحقيقي — من غير طلب، فمفيش شبكة)
+    testAsync('صفحة الدعوة: الرابط الغلط «غير صالح» من غير طلب، والتوقيع بيتشال من العنوان', function () {
+      return Promise.all(['?r=11111111-2222-3333-4444-555555555555&s=short', '?r=nope&s=abcdefghijklmnopqrstuvwxyz', ''].map(function (q) {
+        return framePage('/invited.html' + q, 900, 700).then(function (f) {
+          var d = f.contentDocument, r = { q: q, search: f.contentWindow.location.search,
+            visible: [].filter.call(d.querySelectorAll('[data-inv-state]'), function (s) { return !s.hidden; }).map(function (s) { return s.getAttribute('data-inv-state'); }).join(',') };
+          f.remove();
+          return r;
+        });
+      })).then(function (rows) {
+        rows.forEach(function (r) { eq([r.visible, r.search], ['bad', ''], 'link ' + JSON.stringify(r.q)); });
+      });
+    });
     // js/join-form.js على مقاس موبايل: الطلب بيتبعت لدالة sync (fetch وهمي هنا — مفيش طلب حقيقي)
     testAsync('نموذج الانضمام: «أنت:» إجباري، وحقل فيسبوك مع Meta بس، والغلط بيظهر على الحقل، والطلب بيتبعت كامل', function () {
       var f;

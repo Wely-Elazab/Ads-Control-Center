@@ -9,9 +9,13 @@
   var last = 'load';
 
   function show(state) {
+    var had = document.activeElement;
     Array.prototype.forEach.call(document.querySelectorAll('[data-inv-state]'), function (el) {
       el.hidden = el.getAttribute('data-inv-state') !== state;
     });
+    // الزرار اللي اتضغط اتخبّى مع قسمه: التركيز بيروح للقسم الجديد (زي #joinDone و#sentBox) بدل ما يضيع — ومش أول ما الصفحة تفتح
+    // (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٤)
+    if (had && had !== document.body && !had.getClientRects().length) document.querySelector('[data-inv-state="' + state + '"]').focus();
   }
   function call(action) {
     return fetch(SYNC_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action, id: id, sig: sig }) })

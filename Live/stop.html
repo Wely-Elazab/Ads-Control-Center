@@ -32,7 +32,7 @@
 </header>
 
 <main class="nf" aria-live="polite">
-  <section data-stop-state="ask">
+  <section data-stop-state="ask" tabindex="-1">
     <h1><span class="only-ar">إيقاف الملخص التلقائي</span><span class="only-en">Stop the automatic summary</span></h1>
     <p><span class="only-ar">سيتوقف إرسال الملخص والتنبيهات إلى بريدك، وتُحذف صلاحية القراءة المحفوظة لدينا فوراً. يمكنك تفعيله مجدداً في أي وقت من داخل الأداة.</span><span class="only-en">Summaries and alerts will stop, and the read access we keep will be deleted right away. You can turn it on again at any time inside the tool.</span></p>
     <div class="cta-row">
@@ -40,19 +40,19 @@
       <a class="btn btn-ghost" href="/app"><span class="only-ar">دخول الأداة</span><span class="only-en">Open the tool</span></a>
     </div>
   </section>
-  <section data-stop-state="busy" hidden>
+  <section data-stop-state="busy" hidden tabindex="-1">
     <h1><span class="only-ar">جارٍ الإيقاف…</span><span class="only-en">Stopping…</span></h1>
   </section>
-  <section data-stop-state="done" hidden>
+  <section data-stop-state="done" hidden tabindex="-1">
     <h1><span class="only-ar">تم الإيقاف</span><span class="only-en">Stopped</span></h1>
     <p><span class="only-ar">لن يصلك الملخص أو التنبيهات بعد الآن، وحُذفت صلاحية القراءة المحفوظة لدينا.</span><span class="only-en">You won't receive summaries or alerts anymore, and the stored read access has been deleted.</span></p>
     <div class="cta-row"><a class="btn btn-ghost" href="/app"><span class="only-ar">دخول الأداة</span><span class="only-en">Open the tool</span></a></div>
   </section>
-  <section data-stop-state="bad" hidden>
+  <section data-stop-state="bad" hidden tabindex="-1">
     <h1><span class="only-ar">الرابط غير صالح</span><span class="only-en">This link isn't valid</span></h1>
     <p><span class="only-ar">ربما نُسخ الرابط ناقصاً. استخدم رابط الإيقاف من آخر رسالة وصلتك، أو أوقف الملخص من داخل الأداة، أو راسلنا على <a href="mailto:support@adscenter.online">support@adscenter.online</a>.</span><span class="only-en">The link may have been copied incompletely. Use the stop link from the latest email you received, turn the summary off inside the tool, or email us at <a href="mailto:support@adscenter.online">support@adscenter.online</a>.</span></p>
   </section>
-  <section data-stop-state="error" hidden>
+  <section data-stop-state="error" hidden tabindex="-1">
     <h1><span class="only-ar">تعذّر الإيقاف الآن</span><span class="only-en">Couldn't stop it right now</span></h1>
     <p><span class="only-ar">حاول مرة أخرى بعد قليل، أو راسلنا على <a href="mailto:support@adscenter.online">support@adscenter.online</a> وسنوقفه لك.</span><span class="only-en">Please try again shortly, or email us at <a href="mailto:support@adscenter.online">support@adscenter.online</a> and we'll stop it for you.</span></p>
     <div class="cta-row"><button type="button" class="btn btn-primary" id="stopRetry"><span class="only-ar">إعادة المحاولة</span><span class="only-en">Try again</span></button></div>

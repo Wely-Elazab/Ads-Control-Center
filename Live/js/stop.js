@@ -5,13 +5,19 @@
   var SYNC_URL = 'https://rhrrnxsgodiideqeollo.supabase.co/functions/v1/sync';
   var q = new URLSearchParams(location.search);
   var user = q.get('u') || '', account = q.get('a') || '', sig = q.get('s') || '';
-  var valid = (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user) || /^act_\d{1,30}$/.test(account)) && /^[A-Za-z0-9_-]{20,100}$/.test(sig);
-  var payload = user ? { action: 'stop', u: user, sig: sig } : { action: 'stop', account: account, sig: sig };
+  var uOk = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user), aOk = /^act_\d{1,30}$/.test(account);
+  var valid = (uOk || aOk) && /^[A-Za-z0-9_-]{20,100}$/.test(sig);
+  // الطلب بنفس المعرّف اللي عدّى التحقق: u غلط مع a صح كانت بتعدّي التحقق وتبعت u الغلط (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٣)
+  var payload = uOk ? { action: 'stop', u: user, sig: sig } : { action: 'stop', account: account, sig: sig };
 
   function show(state) {
+    var had = document.activeElement;
     Array.prototype.forEach.call(document.querySelectorAll('[data-stop-state]'), function (el) {
       el.hidden = el.getAttribute('data-stop-state') !== state;
     });
+    // الزرار اللي اتضغط اتخبّى مع قسمه: التركيز بيروح للقسم الجديد (زي #joinDone و#sentBox) بدل ما يضيع — ومش أول ما الصفحة تفتح
+    // (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٤)
+    if (had && had !== document.body && !had.getClientRects().length) document.querySelector('[data-stop-state="' + state + '"]').focus();
   }
   function stop() {
     show('busy');

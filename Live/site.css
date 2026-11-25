@@ -317,7 +317,7 @@ html[dir="rtl"] .join-form input[dir="ltr"] { text-align: right; }
 #joinSubmit:disabled { opacity: .75; cursor: progress; }
 .next-steps { padding-inline-start: 22px; }
 .doc .next-steps li { margin: 10px 0; }
-#joinDone:focus { outline: none; }
+#joinDone:focus, [data-stop-state]:focus, [data-inv-state]:focus { outline: none; }
 .join-alt-contact { text-align: center; font-size: 13.5px; color: var(--ink-faint); margin: 18px 0 0; }
 .join-alt-contact a { color: var(--verified); }
 
