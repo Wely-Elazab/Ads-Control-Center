@@ -11,7 +11,7 @@ import { bearer, cleanCode, counterMissing, handleLogin, newCode, requireLogin, 
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue, alertsCountAr, alertStatusHtml, linkAllowed, privateAddr, setResolverForTests
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue, alertsCountAr, alertStatusHtml, linkAllowed, privateAddr, setResolverForTests, runAll
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -1943,4 +1943,247 @@ Deno.test('عدد التنبيهات في البريد بالعدد والمعد
   for (const [n, line] of [[1, 'وحُلّ تنبيه آخر.'], [2, 'وحُلّ تنبيهان آخران.'], [3, 'وحُلّت ٣ تنبيهات أخرى.'], [11, 'وحُلّ ١١ تنبيهاً آخر.']] as [number, string][]) {
     assert(html(n).indexOf(line) > -1, n + ' more resolved: «' + line + '»');
   }
+});
+
+// ---------- المُشغّل كله من أوله لآخره (runAll — طور الفحص، التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٦) ----------
+// قاعدة بيانات وهمية بفلاتر PostgREST اللي المُشغّل بيستخدمها (eq/neq/is/in، وon_conflict للإدخال)، ودوال rpc، وردود Graph وهمية لحساب Meta
+// واحد، والمحرك الحقيقي (اتحمّل في اختبار العقد فوق — ولو الاختبار ده اتشغّل لوحده بيتحمّل هنا من الملفات نفسها). أي طلب مش متوقع = خطأ
+type Row = Record<string, any>;
+function fakeRest(tables: Record<string, Row[]>, rpcs: Record<string, (args: any) => unknown>, seen: string[]) {
+  const match = (row: Row, filters: [string, string][]) => filters.every(([k, v]) => {
+    const cell = row[k] == null ? null : String(row[k]);
+    if (v.indexOf('eq.') === 0) return cell === decodeURIComponent(v.slice(3));
+    if (v.indexOf('neq.') === 0) return cell !== decodeURIComponent(v.slice(4));
+    if (v === 'is.null') return cell == null;
+    if (v === 'is.true') return row[k] === true;
+    if (v.indexOf('in.(') === 0) return decodeURIComponent(v.slice(4, -1)).split(',').indexOf(String(cell)) > -1;
+    throw new Error('fake db: filter ' + k + '=' + v);
+  });
+  return (url: string, init?: RequestInit): Response => {
+    const method = (init && init.method) || 'GET', [path, query] = url.slice(url.indexOf('/rest/v1/') + 9).split('?');
+    const body = init && init.body ? JSON.parse(String(init.body)) : null;
+    const prefer = String((((init && init.headers) || {}) as Record<string, string>).prefer || '');
+    seen.push(method + ' ' + path);
+    if (path.indexOf('rpc/') === 0) {
+      const fn = rpcs[path.slice(4)];
+      if (!fn) throw new Error('fake db: rpc ' + path);
+      return json(fn(body) ?? null);
+    }
+    if (!tables[path]) throw new Error('fake db: table ' + path);
+    const params = (query || '').split('&').filter(Boolean).map((p) => [p.slice(0, p.indexOf('=')), p.slice(p.indexOf('=') + 1)] as [string, string]);
+    const conflict = params.find(([k]) => k === 'on_conflict');
+    const hit = tables[path].filter((r) => match(r, params.filter(([k]) => ['select', 'order', 'limit', 'on_conflict'].indexOf(k) < 0)));
+    if (method === 'GET') return json(hit.map((r) => ({ ...r })));
+    if (method === 'PATCH') {
+      hit.forEach((r) => Object.assign(r, body));
+      return prefer.indexOf('return=representation') > -1 ? json(hit) : new Response(null, { status: 204 });
+    }
+    if (method === 'DELETE') { tables[path] = tables[path].filter((r) => hit.indexOf(r) < 0); return json(hit); }
+    if (method === 'POST') {
+      const keys = conflict ? decodeURIComponent(conflict[1]).split(',') : null;
+      (Array.isArray(body) ? body : [body]).forEach((nr: Row) => {
+        const old = keys ? tables[path].find((r) => keys.every((k) => String(r[k]) === String(nr[k]))) : null;
+        if (old) Object.assign(old, nr); else tables[path].push({ ...nr });
+      });
+      return new Response(null, { status: 201 });
+    }
+    throw new Error('fake db: ' + method + ' ' + path);
+  };
+}
+// ملفات المحرك من المستودع (لو المحرك لسه متحمّلش في التشغيل ده)
+async function engineFiles(): Promise<(url: string) => Response | null> {
+  const texts: Record<string, string> = {};
+  for (const f of ['i18n.js', 'alerts.js', 'core.js', 'diagnosis.js', 'meta.js', 'snapchat.js']) texts[f] = await repoText('Live/js/' + f);
+  return (url: string) => {
+    const f = url.split('/').pop() as string;
+    return (url.indexOf('https://raw.githubusercontent.com/') === 0 || url.indexOf('https://adscenter.online/js/') === 0) && texts[f] ? new Response(texts[f], { status: 200 }) : null;
+  };
+}
+const RUN_U = '22222222-3333-4444-5555-666666666666', RUN_TOKEN = 'EAA-runner-test-token', RUN_NOW = '2026-11-18T07:05:00.000Z';
+// آخر ٧ أيام بتوقيت الرياض والساعة متثبّتة على RUN_NOW (الأربعاء ١٨ نوفمبر ١٠:٠٥) — آخرهم النهارده
+const RUN_KEYS = [12, 13, 14, 15, 16, 17, 18].map((d) => '2026-11-' + d);
+// نفس الحالة اللي في اختبار قرار العاجل فوق، بس من ردود Graph نفسها: إعلانين كويسين، وإعلان صرف ٣٢٠ من غير طلب ٣ أيام
+function metaRunData() {
+  const ad = (id: string) => ({ id, name: 'Ad ' + id, effective_status: 'ACTIVE', created_time: '2026-09-01T00:00:00+0000', adset_id: 's1', campaign_id: 'c1',
+    adset: { id: 's1', name: 'Set', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c1', name: 'Camp' },
+    creative: { title: 'T ' + id, body: 'B', object_story_spec: { link_data: { link: 'https://shop.example/p-' + id } } } });
+  const days = (id: string, spend: number[], buys: number[]) => RUN_KEYS.map((k, i) => ({ ad_id: id, date_start: k, spend: String(spend[i]),
+    actions: buys[i] ? [{ action_type: 'omni_purchase', value: String(buys[i]) }] : [],
+    action_values: buys[i] ? [{ action_type: 'omni_purchase', value: String(buys[i] * 60) }] : [] }));
+  const n = (v: number) => [v, v, v, v, v, v, v];
+  return {
+    ads: [ad('good1'), ad('good2'), ad('waste')],
+    daily: [...days('good1', n(100), n(5)), ...days('good2', n(100), n(5)), ...days('waste', [100, 100, 100, 100, 100, 100, 20], [5, 5, 5, 0, 0, 0, 0])]
+  };
+}
+// Graph لحساب Meta واحد: الحساب، والإعلانات، وأرقامها يوم بيوم — وأي قايمة أو أرقام تانية فاضية. ctl.account = رد مختلف للحساب نفسه
+function fakeMeta(data: { ads: Row[]; daily: Row[] }, seen: string[], ctl: { account?: () => Response }) {
+  return (url: string): Response | null => {
+    if (url.indexOf('https://graph.facebook.com/') !== 0) return null;
+    const u = new URL(url), p = u.pathname.replace(/^\/v[\d.]+/, ''), q = u.searchParams;
+    seen.push('graph ' + p + ' token=' + (q.get('access_token') === RUN_TOKEN));
+    if (p === '/act_1') {
+      return ctl.account ? ctl.account() : json({ id: 'act_1', name: 'Store One', account_status: 1, timezone_name: 'Asia/Riyadh', currency: 'SAR', spend_cap: '0', amount_spent: '0' });
+    }
+    if (p === '/act_1/ads') return json({ data: data.ads });
+    if (p === '/act_1/insights' && q.get('level') === 'ad' && q.get('time_increment') === '1' && String(q.get('fields')).indexOf('ad_id,date_start') === 0) {
+      return json({ data: data.daily });
+    }
+    if (p === '/act_1/adsets' || p === '/act_1/insights' || p === '/act_1/activities') return json({ data: [] });
+    return json({ error: { message: 'unexpected graph ' + p, code: 100 } }, 400);
+  };
+}
+function runState() {
+  return {
+    user_digests: [{ user_id: RUN_U, email: 'owner@store.example', lang: 'ar', timezone: 'Asia/Riyadh', summary_days: [0], summary_hour: 9, last_summary_until: '2026-11-14',
+      last_monthly: '2026-10', summary_pending: null, summary_pending_at: null, monthly_pending: null, monthly_pending_at: null, enabled: true }] as Row[],
+    user_digest_accounts: [{ user_id: RUN_U, platform: 'meta', account_id: 'act_1', name: null, checked_at: '2026-11-18T06:00:00.000Z', claimed_until: null,
+      need_summary: null, need_monthly: null, edits_at: null, retry_after: null }] as Row[],
+    user_settings: [{ user_id: RUN_U, settings: { acct: { 'meta:act_1': { maxCost: { purchase: 20 } } } } }] as Row[],
+    user_alert_marks: [] as Row[], digest_outbox: [] as Row[], send_log: [] as Row[], ad_accounts: [{ platform: 'meta', account_id: 'act_1', name: 'Store One' }] as Row[]
+  };
+}
+// كل اللي الاختبار محتاجه: الحالة، والطلبات اللي اتبعتت، والرسائل، وروابط الهبوط اللي اتفحصت، وأخطاء السجل. ctl = رد Meta للحساب والمفتاح
+// المحفوظ (ok / none = مفيش / garbage = مبيتفكّش). claim(urgent, need) = الحجز الجاي: فحص عاجل (بالنهار) أو قسم ملخص بس
+async function runWorld() {
+  const st = runState(), seen: string[] = [], mails: any[] = [], probes: string[] = [], vaultErrors: string[] = [], errs: string[] = [], claims: Row[] = [];
+  const ctl: { account?: () => Response; vault: 'ok' | 'none' | 'garbage' } = { vault: 'ok' };
+  const sealed = await seal(RUN_TOKEN, 'act_1'), eng = await engineFiles();
+  const rest = fakeRest(st, {
+    digest_claim: () => { const a = claims.shift(); return a ? [a] : []; },
+    vault_user_get: (x) => {
+      if (ctl.vault === 'none' || x.p_user !== RUN_U || x.p_account !== 'act_1') return [];
+      return [{ ciphertext: ctl.vault === 'garbage' ? 'AAAA' : sealed.ct, iv: ctl.vault === 'garbage' ? 'BBBB' : sealed.iv, expires_at: '2027-01-15T00:00:00Z' }];
+    },
+    vault_user_mark_error: (x) => { vaultErrors.push(x.p_error); return null; },
+    beat: () => null
+  }, seen);
+  const meta = fakeMeta(metaRunData(), seen, ctl);
+  Deno.env.set('RESEND_API_KEY', 'test-resend-key');
+  stubFetch((url, init) => {
+    if (url.indexOf('/rest/v1/') > -1) return rest(url, init);
+    if (url.indexOf('https://api.resend.com/') === 0) { mails.push(JSON.parse(String(init && init.body))); return json({ id: 'mail-' + mails.length }); }
+    if (url.indexOf('https://shop.example/') === 0) { probes.push(url); return new Response('ok', { status: 200 }); }
+    return meta(url) || eng(url) || json({ message: 'unexpected ' + url }, 500);
+  });
+  browserGuards();
+  // الحجز زي digest_claim الحقيقية: الصف نفسه بيتحجز (claimed_until ٣ دقايق)، والمُشغّل لازم يفكّه في الآخر
+  const claim = (urgent = true, need: string | null = null) => {
+    Object.assign(st.user_digest_accounts[0], { claimed_until: new Date(Date.now() + 180000).toISOString() }, need ? { need_summary: need } : {});
+    claims.push({ ...st.user_digest_accounts[0], urgent_due: urgent });
+  };
+  return { st, seen, mails, probes, vaultErrors, errs, ctl, claim };
+}
+// الساعة متثبّتة، والسجل بيتجمع (الأخطاء بتطلع في رسالة الفشل)، وكل حاجة بترجع زي ما كانت. at() = الساعة دلوقتي في الاختبار
+async function withRunWorld(fn: (w: Awaited<ReturnType<typeof runWorld>>) => Promise<void>) {
+  const undo = fixedClock(RUN_NOW), realErr = console.error;
+  const w = await runWorld();
+  console.error = (...a: unknown[]) => { w.errs.push(a.map(String).join(' ')); };
+  try { await fn(w); } finally { console.error = realErr; restoreFetch(); undo(); }
+}
+Deno.test('المُشغّل كله (runAll) لحساب Meta: إعلان صرف ضعف أقصى التكلفة من غير طلبات — بيتحط في الطابور، والتشغيل الجاي بيبعته مرة واحدة، وبعدها «قائم» من غير رسالة', async () => {
+  await withRunWorld(async (w) => {
+    // ١) الفحص: الإعلان المهدر عاجل (أقصى تكلفة ٢٠ للطلب)، وبيتحط في الطابور — مفيش رسالة في نفس التشغيل (الإرسال من الطابور أول كل تشغيل)
+    w.claim();
+    const r1 = await runAll('runner-key');
+    assertEquals([r1.users, r1.claimed, r1.outcomes, r1.sent], [1, 1, { 'meta:ok': 1 }, {}], 'run 1 — log: ' + w.errs.join(' | '));
+    assertEquals(w.mails.length, 0, 'nothing sent in the same run');
+    const q1 = w.st.digest_outbox.filter((r) => r.kind === 'urgent' && r.period === '');
+    assertEquals(q1.length, 1, 'one urgent section waiting: ' + JSON.stringify(w.st.digest_outbox).slice(0, 400));
+    assertEquals(q1[0].payload.fresh.map((a: any) => [a.adId, a.code]), [['waste', 'waste']], 'the wasting ad, urgent');
+    assertEquals(q1[0].marks.map((m: any) => [m.kind, m.object_id, m.times_sent]), [[familyOf('waste'), 'waste', 1]], 'its mark waits for the mail');
+    assertEquals(w.st.user_alert_marks, [], 'no mark saved before the mail goes out');
+    const a1 = w.st.user_digest_accounts[0];
+    assertEquals([a1.claimed_until, a1.retry_after, a1.checked_at, a1.edits_at], [null, null, RUN_NOW, RUN_NOW], 'claim released, checked now, edit log read now');
+    const graphCalls = w.seen.filter((x) => x.indexOf('graph ') === 0);
+    assert(graphCalls.length > 4 && graphCalls.every((x) => x.endsWith('token=true')), 'every Graph call with the stored token: ' + graphCalls.join(', '));
+    assertEquals(w.probes.slice().sort(), ['https://shop.example/p-good1', 'https://shop.example/p-good2', 'https://shop.example/p-waste'], 'the landing pages are checked');
+    assertEquals([w.vaultErrors, w.errs], [[], []]);
+
+    // ٢) التشغيل الجاي: الرسالة مرة واحدة للمستخدم، والبصمة بعد الإرسال بس، والطابور فاضي
+    const r2 = await runAll('runner-key');
+    assertEquals([r2.claimed, r2.sent], [0, { 'urgent-sent': 1 }], 'run 2 — log: ' + w.errs.join(' | '));
+    assertEquals(w.mails.length, 1);
+    const m = w.mails[0];
+    assertEquals(m.to, ['owner@store.example']);
+    assert(String(m.html).indexOf('Ad waste') > -1 && String(m.html).indexOf('Store One') > -1, 'the ad and the account in the mail: ' + String(m.text).slice(0, 300));
+    assert(String(m.headers && m.headers['List-Unsubscribe']).indexOf('https://adscenter.online/stop?u=' + RUN_U + '&s=') === 1, 'one-click stop header for this user');
+    assertEquals(w.st.digest_outbox, [], 'the queue is empty after sending');
+    assertEquals(w.st.user_alert_marks.map((x) => [x.user_id, x.platform, x.account_id, x.kind, x.object_id, x.times_sent, x.resolved_at]),
+      [[RUN_U, 'meta', 'act_1', familyOf('waste'), 'waste', 1, null]], 'the mark is saved once the mail is out');
+    assertEquals(w.st.send_log.map((x) => [x.type, x.status]), [['urgent', 'sent']]);
+
+    // ٣) فحص تاني بعدها والمشكلة لسه قائمة: مش جديد ولا وقت التذكير (يومين) — بيتسجّل إنه لسه ظاهر، وصف «قائم» من غير رسالة لوحده
+    w.claim();
+    const r3 = await runAll('runner-key');
+    assertEquals([r3.claimed, r3.outcomes, r3.sent], [1, { 'meta:ok': 1 }, {}], 'run 3 — log: ' + w.errs.join(' | '));
+    assertEquals(w.st.digest_outbox.map((r) => [r.kind, r.period, (r.payload.ongoing || []).length]), [['urgent', 'ctx', 1]], 'ongoing context only');
+    const r4 = await runAll('runner-key');
+    assertEquals([r4.claimed, r4.sent, w.mails.length], [0, {}, 1], 'context alone is not a message');
+    assertEquals(w.errs, []);
+  });
+});
+// الوصول (lostAccess / accessMarks): رسالة «الوصول» على طول (مش من الطابور) مرة واحدة وتذكير واحد بعد يومين — وبالنهار بس. حجز الملخص ممكن
+// يبقى بالليل، وكانت الرسالة بتطلع ساعتها (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١٢٠)
+Deno.test('المُشغّل كله لحساب Meta — الوصول: عطل مؤقت = بعد ١٠ دقايق من غير رسالة؛ المفتاح اترفض = رسالة «الوصول» بالنهار بس، مرة وتذكير بعد يومين؛ ورجع = البصمة بتتقفل', async () => {
+  await withRunWorld(async (w) => {
+    const at = (iso: string) => { fixedClock(iso); };
+    // ١) عطل مؤقت عند Meta: مفيش رسالة ولا بصمة ولا طابور، والحساب بيرجع بعد ١٠ دقايق — مش «الوصول ضاع»
+    w.ctl.account = () => json({ error: { code: 2, message: 'Service temporarily unavailable' } }, 500);
+    w.claim();
+    const r1 = await runAll('runner-key');
+    assertEquals([r1.outcomes, w.mails.length, w.st.user_alert_marks.length, w.st.digest_outbox.length, w.vaultErrors], [{ 'meta:meta-retry': 1 }, 0, 0, 0, []],
+      'transient — log: ' + w.errs.join(' | '));
+    const a = w.st.user_digest_accounts[0];
+    assertEquals([a.claimed_until, a.retry_after, a.checked_at], [null, '2026-11-18T07:15:00.000Z', RUN_NOW], 'back in ten minutes');
+    // ٢) Meta رفضت المفتاح (١٩٠) في حجز ملخص بالليل (٠٠:٣٥ بالرياض — مفيش فحص عاجل، ومش دقيقة تذكير الانضمام): السبب بيتسجّل، والقسم «لم نستطع قراءة الأرقام»، ومفيش رسالة
+    w.ctl.account = () => json({ error: { code: 190, message: 'Error validating access token' } }, 400);
+    at('2026-11-18T21:35:00.000Z');
+    w.claim(false, '2026-11-15..2026-11-17');
+    const r2 = await runAll('runner-key');
+    assertEquals([r2.outcomes, w.vaultErrors, w.mails.length, w.st.user_alert_marks.length], [{ 'meta:lost': 1 }, ['meta rejected stored token'], 0, 0],
+      'night: no mail — log: ' + w.errs.join(' | '));
+    assertEquals(w.st.digest_outbox.map((r) => [r.kind, r.period, r.payload.missing]), [['summary', '2026-11-15..2026-11-17', true]], 'the summary says the numbers could not be read');
+    assertEquals([w.st.user_digest_accounts[0].need_summary, w.st.user_digest_accounts[0].retry_after], [null, null]);
+    // ٣) أول فحص عاجل الصبح (١٠:٠٥): رسالة «الوصول» على طول، وبصمتها
+    at('2026-11-19T07:05:00.000Z');
+    w.claim();
+    const r3 = await runAll('runner-key');
+    assertEquals([r3.outcomes, w.mails.length], [{ 'meta:lost': 1 }, 1], 'day: the access mail — log: ' + w.errs.join(' | '));
+    assert(String(w.mails[0].html).indexOf('Store One') > -1, 'the account name in the mail: ' + String(w.mails[0].subject));
+    assertEquals(w.mails[0].to, ['owner@store.example']);
+    assertEquals(w.st.user_alert_marks.map((m) => [m.kind, m.object_id, m.times_sent, m.resolved_at]), [['connection', '', 1, null]]);
+    // ٤) لسه مرفوض بعد ساعة: مفيش رسالة تانية؛ التذكير الوحيد بعد يومين بالظبط؛ وبعده مفيش
+    at('2026-11-19T08:05:00.000Z'); w.claim(); await runAll('runner-key');
+    assertEquals([w.mails.length, w.st.user_alert_marks[0].last_seen_at], [1, '2026-11-19T08:05:00.000Z'], 'no second mail within two days, still seen');
+    at('2026-11-21T07:05:00.000Z'); w.claim(); await runAll('runner-key');
+    assertEquals([w.mails.length, w.st.user_alert_marks[0].times_sent], [2, 2], 'one reminder after two days');
+    at('2026-11-23T07:05:00.000Z'); w.claim(); await runAll('runner-key');
+    assertEquals(w.mails.length, 2, 'and nothing after that');
+    // ٥) الوصول رجع: بصمة «الوصول» بتتقفل والفحص بيكمّل عادي
+    w.ctl.account = undefined;
+    at('2026-11-23T08:05:00.000Z'); w.claim();
+    const r5 = await runAll('runner-key');
+    assertEquals(r5.outcomes, { 'meta:ok': 1 }, 'log: ' + w.errs.join(' | '));
+    assertEquals(w.st.user_alert_marks.map((m) => [m.kind, m.resolved_at]), [['connection', '2026-11-23T08:05:00.000Z']], 'the access mark is closed');
+    assertEquals([w.mails.length, w.errs], [2, []]);
+  });
+});
+Deno.test('المُشغّل كله لحساب Meta — المفتاح المحفوظ: مبيتفكّش = عطل عندنا (مفيش رسالة للعميل ولا طلب لـ Meta)؛ مفيش مفتاح خالص = رسالة «الوصول»', async () => {
+  await withRunWorld(async (w) => {
+    w.ctl.vault = 'garbage';
+    w.claim(true, '2026-11-15..2026-11-17');
+    const r1 = await runAll('runner-key');
+    assertEquals([r1.outcomes, w.vaultErrors, w.mails.length, w.st.user_alert_marks.length], [{ 'meta:decrypt-failed': 1 }, ['decrypt failed'], 0, 0],
+      'log: ' + w.errs.join(' | '));
+    assertEquals([w.st.user_digest_accounts[0].retry_after, w.st.user_digest_accounts[0].need_summary], [null, null], 'not a retry, and the summary does not wait for it');
+    assertEquals(w.st.digest_outbox.map((r) => [r.kind, r.payload.missing]), [['summary', true]], 'its summary section says the numbers could not be read');
+    w.st.digest_outbox = [];
+    w.ctl.vault = 'none';
+    w.claim();
+    const r2 = await runAll('runner-key');
+    assertEquals([r2.outcomes, w.mails.length, w.st.user_alert_marks.map((m) => m.kind)], [{ 'meta:lost': 1 }, 1, ['connection']], 'log: ' + w.errs.join(' | '));
+    assertEquals(w.seen.filter((x) => x.indexOf('graph ') === 0), [], 'Meta is never asked without a usable key');
+    assertEquals(w.errs, []);
+  });
 });

@@ -1053,8 +1053,13 @@ async function lostAccess(s: Settings, res: AcctResult, marks: Record<string, Ma
   const user = s.user_id, now = Date.now(), iso = new Date(now).toISOString();
   res.outcome = 'lost';
   const m = marks['connection|'];
-  const due = !m || m.resolved_at || (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS);
-  if (!due) { await saveMarks(user, res.platform, res.account, [{ ...m, last_seen_at: iso }]); return res; }
+  // الرسالة وتذكيرها في الفحص العاجل بس — وده بالنهار بتوقيت المستخدم (digest_claim: من ٧ لـ ٢٢)، زي التنبيهات ورسالة الصلاحية (accessMarks).
+  // حجز الملخص ممكن يبقى بالليل (قسم بيتعاد بعد عطل مؤقت)، وكانت الرسالة بتطلع ساعتها؛ دلوقتي بتستنى أول فحص عاجل بعده (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١٢٠)
+  const due = o.doUrgent && (!m || m.resolved_at || (m.times_sent < 2 && now - Date.parse(m.last_sent_at) >= REMIND_AFTER_MS));
+  if (!due) {
+    if (m && !m.resolved_at) await saveMarks(user, res.platform, res.account, [{ ...m, last_seen_at: iso }]);
+    return res;
+  }
   if (await send(user, res.account, 'urgent', s.email, connectionMail(res.platform, res.account, res.name, s.lang === 'en', o.stop))) {
     await saveMarks(user, res.platform, res.account, [m && !m.resolved_at ? { ...m, last_sent_at: iso, last_seen_at: iso, times_sent: m.times_sent + 1 } : newMark('connection', '', iso)]);
   }
