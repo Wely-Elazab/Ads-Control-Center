@@ -11,7 +11,7 @@ import { bearer, cleanCode, counterMissing, handleLogin, newCode, requireLogin, 
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue, alertsCountAr, alertStatusHtml, linkAllowed, privateAddr, setResolverForTests, runAll, preview, previewSummary
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue, alertsCountAr, alertStatusHtml, linkAllowed, privateAddr, setResolverForTests, runAll, preview, previewSummary, snapEdits
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -2811,4 +2811,40 @@ Deno.test('نقطة الدخول — التوجيه: المُشغّل بمفتا
     assertEquals(await post({ action: 'digest.preview', token: ADMIN, accountId: 'act_1' }, auth), { status: 200, body: { error: 'lost' } }, 'the preview itself');
     assertEquals(await post({ action: 'digest.previewSummary', token: ADMIN, accountId: 'act_1' }, auth), { status: 200, body: { error: 'lost' } });
   } finally { console.log = realLog; restoreFetch(); }
+});
+// وسم «عُدّل…» على إعلانات Snapchat (snapEdits — فرع متنفّذش قبل كده، قياس الفروع ٢٥ نوفمبر ٢٠٢٦): سجل التغييرات للشغّالة بس في دفعات ٢٠،
+// وكل تغيير لإعلانه أو مجموعته أو حملته، والأقدم من ٨ أيام بيتشال، والدفعة اللي فشلت عناصرها من غير وسم منها (زي الأداة js/snapchat.js)
+Deno.test('Snapchat — وسم «عُدّل»: الشغّالة بس في دفعات ٢٠، وكل تغيير لإعلانه أو مجموعته أو حملته، والأقدم من ٨ أيام بيتشال، والدفعة الفاشلة من غير وسم', async () => {
+  const undo = fixedClock(RUN_NOW);
+  const calls: any[] = [];
+  stubFetch((url, init) => {
+    if (url !== 'https://adscenter.online/api/digest-fetch') return json({ message: 'unexpected ' + url }, 500);
+    const body = JSON.parse(String(init && init.body)), ids = body.call.ids;
+    calls.push(ids);
+    if (calls.length === 2) return json({ error: 'refresh failed', code: 'UPSTREAM' }, 502);
+    const keys = ['campaign', 'adsquad', 'ad'].flatMap((l) => (ids[l] || []).map((id: string) => l + ':' + id));
+    return json({ status: 200, sealed: body.sealed, data: { done: keys, changes: [
+      { level: 'ad', id: 'a1', at: '2026-11-17T09:00:00.000Z', fields: { creative_id: { before: 'cr1', after: 'cr2' } } },
+      { level: 'campaign', id: 'c1', at: '2026-11-16T09:00:00.000Z', fields: { daily_budget_micro: { before: 100000000, after: 200000000 } } },
+      // من ١٣ يوم: أقدم من ٨ أيام
+      { level: 'adsquad', id: 'sq1', at: '2026-11-05T09:00:00.000Z', fields: { targeting: { before: 'x', after: 'y' } } }
+    ] } });
+  });
+  try {
+    const ad = (id: string, sq: string, c: string, active = true) => ({ nativeId: id, adsetId: sq, campaignId: c, active }) as any;
+    const cands = [...Array.from({ length: 21 }, (_, i) => ad('a' + (i + 1), 'sq1', 'c1')), ad('b1', 'sq2', 'c2'), ad('z', 'sq1', 'c1', false)];
+    await snapEdits({ user: RUN_U, account: 'S1', sealed: 'sealed-x' }, cands, 'Asia/Riyadh');
+    // الشغّالة بس: حملتين ومجموعتين و٢٢ إعلان = ٢٦، في دفعتين (٢٠ و٦) — والإعلان المتوقف مش منهم
+    assertEquals(calls.map((x) => [x.campaign.length, x.adsquad.length, x.ad.length]), [[2, 2, 16], [0, 0, 6]]);
+    assert(calls.every((x) => x.ad.indexOf('z') < 0), 'the stopped ad is not asked');
+    const kinds = (id: string) => {
+      const c = cands.find((x) => x.nativeId === id);
+      return c.edits ? c.edits.map((e: any) => e.kind + '@' + e.level) : null;
+    };
+    assertEquals(kinds('a1'), ['budget@campaign', 'creative@ad'], 'its campaign and its own edit, by time');
+    assertEquals(kinds('a2'), ['budget@campaign'], 'its campaign edit; the 13-day-old ad-set edit is dropped');
+    assertEquals(kinds('a21'), ['budget@campaign'], 'its own batch failed: only what came from the batch that worked');
+    assertEquals(kinds('b1'), null, 'nothing changed in its campaign or ad set, and its own batch failed');
+    assertEquals(kinds('z'), ['budget@campaign'], 'a stopped ad still shows its campaign edit');
+  } finally { restoreFetch(); undo(); }
 });

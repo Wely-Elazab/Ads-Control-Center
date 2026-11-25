@@ -1253,7 +1253,8 @@ async function snapCandidates(ctx: SnapCtx, tz: string, period: Record<string, u
 // الشغّالة في دفعات ٢٠ ورا بعض (حد طلبات Cloudflare وحد سرعة Snapchat)، وتعديلات آخر ٨ أيام على الإعلان ومجموعته وحملته.
 // دفعة فشلت = عناصرها من غير وسم (زي الأداة). الوقت قرّب يخلص = منكمّلش الدفعات
 const SNAP_CHANGE_BATCH = 20, SNAP_EDIT_DAYS = 8;
-async function snapEdits(ctx: SnapCtx, cands: any[], tz: string): Promise<void> {
+// export للاختبارات (tests/sync-test.ts — الوسم بيتحط على الإعلان نفسه، فبيتشاف من غير المحرك)
+export async function snapEdits(ctx: SnapCtx, cands: any[], tz: string): Promise<void> {
   const want: Record<string, Record<string, number>> = { campaign: {}, adsquad: {}, ad: {} };
   cands.forEach((c) => {
     if (!c.active) return;
