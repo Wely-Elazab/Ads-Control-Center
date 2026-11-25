@@ -1072,7 +1072,7 @@ Deno.test('البريد بيقرا سجل الحساب بس — من غيره أ
 function restoreDigestEnv() { Deno.env.delete('RESEND_API_KEY'); restoreFetch(); }
 function fakeDigestDb() {
   const store = {
-    digests: [] as any[], accounts: [] as any[], tokens: [] as any[], sealed: [] as any[], marks: 0, logs: [] as any[], mails: [] as any[], outboxCleared: [] as any[],
+    digests: [] as any[], accounts: [] as any[], tokens: [] as any[], sealed: [] as any[], marks: 0, logs: [] as any[], mails: [] as any[], outboxCleared: [] as any[], mailFails: false,
     names: { act_1: 'Store one', act_2: 'Store two' } as Record<string, string>, legacyOwner: {} as Record<string, string>
   };
   const q = (url: string) => new URLSearchParams(url.split('?')[1] || '');
@@ -1086,7 +1086,11 @@ function fakeDigestDb() {
       const m = url.match(/\/(act_\d+)\?/);
       return m ? json({ id: m[1], name: store.names[m[1]] || m[1], currency: 'SAR', timezone_name: 'Asia/Riyadh' }) : json({ error: { code: 100 } }, 400);
     }
-    if (url.indexOf('api.resend.com') > -1) { store.mails.push(body); return json({ id: 'mail-' + store.mails.length }); }
+    if (url.indexOf('api.resend.com') > -1) {
+      if (store.mailFails) return json({ name: 'internal_server_error', message: 'down' }, 500);   // خدمة البريد واقعة
+      store.mails.push(body);
+      return json({ id: 'mail-' + store.mails.length });
+    }
     const p = q(url), u = eqv(p, 'user_id');
     if (url.indexOf('/rest/v1/rpc/vault_user_put') > -1) {
       store.tokens = store.tokens.filter((t) => !(t.user === body.p_user && t.account === body.p_account)).concat([{ user: body.p_user, account: body.p_account, expires_at: body.p_expires }]);
@@ -2847,4 +2851,39 @@ Deno.test('Snapchat — وسم «عُدّل»: الشغّالة بس في دفع
     assertEquals(kinds('b1'), null, 'nothing changed in its campaign or ad set, and its own batch failed');
     assertEquals(kinds('z'), ['budget@campaign'], 'a stopped ad still shows its campaign edit');
   } finally { restoreFetch(); undo(); }
+});
+// رسائل الملخص التلاتة بالإنجليزي (التفعيل، وتغيير البريد للعنوان القديم الأول، والإيقاف — فروع متنفّذتش قبل كده، قياس الفروع ٢٥ نوفمبر ٢٠٢٦)،
+// وفشل إرسالها بيتسجّل في send_log بسببه والعملية نفسها بتنجح (الملخص اتفعّل أو اتغيّر أو وقف حتى لو خدمة البريد واقعة)
+Deno.test('الملخص — رسائل التفعيل وتغيير البريد والإيقاف بالإنجليزي، وفشل إرسالها بيتسجّل والعملية بتكمّل', async () => {
+  const A = '11111111-2222-3333-4444-555555555555', T = 'TOKEN_abcdefghijklmnopqrstuvwxyz';
+  const store = fakeDigestDb();
+  const call = async (action: string, body: Record<string, unknown>) => {
+    const r = await handleDigest(action, body, null, A);
+    return { status: r.status, body: await r.json() };
+  };
+  try {
+    assertEquals((await call('digest.enable', { token: T, accountId: 'act_1', email: 'a@store.com', days: [0, 3], hour: 9, lang: 'en', consent: true })).status, 200);
+    const on = store.mails[store.mails.length - 1];
+    assertEquals([on.subject, on.to], ['Automatic summary turned on', ['a@store.com']]);
+    assert(String(on.html).indexOf('lang="en"') > -1 && String(on.html).indexOf('dir="ltr"') > -1, 'an English, left-to-right mail');
+    assert(String(on.html).indexOf('Store one') > -1 && String(on.html).indexOf('/stop?u=' + A + '&') > -1, 'names the account, stop link for this user');
+    // تغيير البريد: إشعار للعنوان القديم الأول، وبعده التأكيد للجديد
+    const before = store.mails.length;
+    assertEquals((await call('digest.update', { email: 'new@store.com', lang: 'en' })).status, 200);
+    const [moved, again] = store.mails.slice(before);
+    assertEquals([moved.subject, moved.to, again.subject, again.to],
+      ['Your summary email address was changed', ['a@store.com'], 'Automatic summary turned on', ['new@store.com']]);
+    assert(String(moved.html).indexOf('lang="en"') > -1, 'English too');
+    assertEquals((await call('digest.disable', {})).status, 200);
+    const off = store.mails[store.mails.length - 1];
+    assertEquals([off.subject, off.to], ['Automatic summary turned off', ['new@store.com']]);
+    // خدمة البريد واقعة: كل رسالة فشلها بيتسجّل بسببه، والعملية نفسها بتنجح
+    store.mailFails = true;
+    store.logs.length = 0;
+    assertEquals((await call('digest.enable', { token: T, accountId: 'act_1', email: 'a@store.com', lang: 'en', consent: true })).status, 200);
+    assertEquals((await call('digest.update', { email: 'b@store.com' })).status, 200);
+    assertEquals((await call('digest.disable', {})).status, 200);
+    assertEquals(store.logs.map((l) => [l.type, l.status]), [['enabled', 'failed'], ['moved', 'failed'], ['enabled', 'failed'], ['disabled', 'failed']]);
+    assert(store.logs.every((l) => typeof l.error === 'string' && l.error.indexOf('resend 500') === 0), 'with the reason: ' + JSON.stringify(store.logs.map((l) => l.error)));
+  } finally { restoreDigestEnv(); }
 });
