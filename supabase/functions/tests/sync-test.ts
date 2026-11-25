@@ -16,7 +16,7 @@ import {
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
 import { handle } from '../sync/handler.ts';
-import { activationMail, adminMail, handleJoin } from '../sync/join.ts';
+import { activationMail, adminMail, handleJoin, joinReminders } from '../sync/join.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
 Deno.env.set('TOKEN_ENC_KEY', btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))));
@@ -287,6 +287,64 @@ Deno.test('نقطة الدخول: الطرق وCORS وحد الحجم، والع
     assertEquals([up.status, up.body], [502, { error: 'upstream' }]);
   } finally { restoreFetch(); }
 });
+// التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٦): «نسيت كلمة المرور» على الخادم (forgotMail) مكانش ليه أي اختبار — والرد واحد في كل الحالات (التدقيق
+// ١١ نوفمبر، ٢: فرق الزمن كان بيقول مين مسجّل). بريد مش مسموح له مبيوصلوش حاجة، ورابط واحد كل دقيقتين و٥ في اليوم، وأول مرة الحساب
+// بيتعمل، والرابط على موقعنا بالرمز اللي شكله سليم بس (رمز غريب عمره ما يدخل رابط)
+Deno.test('نسيت كلمة المرور: رد واحد في كل الحالات، والرابط للمسموح له بس، ودقيقتين بين الرسائل و٥ في اليوم، وأول مرة الحساب بيتعمل', async () => {
+  const st = { access: true, userId: 'u1' as string | null, log: [] as any[], made: [] as any[], links: 0, hashed: 'abcDEF_123-xyz', mails: [] as any[], logged: [] as any[] };
+  Deno.env.set('RESEND_API_KEY', 'test-resend-key');
+  stubFetch((url, init) => {
+    const body = init && init.body ? JSON.parse(String(init.body)) : null;
+    if (url.indexOf('api.resend.com') > -1) { st.mails.push(body); return json({ id: 'm' + st.mails.length }); }
+    if (url.indexOf('/rest/v1/app_access') > -1) return json(st.access ? [{ role: 'pilot' }] : []);
+    if (url.indexOf('/rest/v1/auth_mail_log') > -1) {
+      if (init && init.method === 'POST') { st.logged.push(body); return new Response(null, { status: 201 }); }
+      return json(st.log);
+    }
+    if (url.indexOf('/rest/v1/rpc/auth_user_id') > -1) return json(st.userId);
+    if (url.indexOf('/auth/v1/admin/users') > -1) { st.made.push(body); return json({ id: 'new' }); }
+    if (url.indexOf('/auth/v1/admin/generate_link') > -1) { st.links++; return json({ properties: { hashed_token: st.hashed } }); }
+    return json({ message: 'unexpected ' + url }, 500);
+  });
+  const forgot = async (email: string, lang = 'ar') => {
+    const r = await handleLogin('login.forgot', { email, lang }, new Request('https://x.test'), null);
+    return [r.status, await r.json()];
+  };
+  try {
+    // بريد مش مسموح له: «تم» زي أي حد، ومفيش رابط ولا حساب
+    st.access = false;
+    assertEquals(await forgot('who@x.example'), [200, { ok: true }]);
+    assertEquals([st.mails.length, st.links, st.made.length], [0, 0, 0], 'not allowed: nothing sent, nothing made');
+    // مسموح له، أول مرة: الحساب بيتعمل (بريد مأكَّد — هو اللي هيستقبل الرابط) والرابط على موقعنا
+    st.access = true; st.userId = null;
+    assertEquals(await forgot('Sara@X.example', 'en'), [200, { ok: true }]);
+    assertEquals(st.made, [{ email: 'sara@x.example', email_confirm: true }]);
+    assertEquals([st.mails.length, st.mails[0].to, st.mails[0].subject], [1, ['sara@x.example'], 'Set your Ads Center password']);
+    assert(st.mails[0].html.indexOf('href="https://adscenter.online/login?reset=abcDEF_123-xyz&amp;lang=en"') > -1, 'the link on our site, escaped in the button');
+    assert(st.mails[0].text.indexOf('https://adscenter.online/login?reset=abcDEF_123-xyz&lang=en') > -1, 'and in the plain text');
+    assertEquals(st.logged, [{ email: 'sara@x.example', kind: 'password' }]);
+    // الحساب موجود: مفيش حساب جديد، والرسالة بالعربي
+    st.userId = 'u1'; st.made = []; st.mails = [];
+    await forgot('sara@x.example');
+    assertEquals([st.made.length, st.mails.length, st.mails[0].subject], [0, 1, 'إنشاء كلمة مرور الدخول إلى Ads Center']);
+    // آخر رابط من أقل من دقيقتين، أو ٥ في آخر ٢٤ ساعة: مفيش رابط جديد — والرد «تم» برضه
+    st.mails = [];
+    st.log = [{ sent_at: new Date(Date.now() - 60000).toISOString() }];
+    assertEquals(await forgot('sara@x.example'), [200, { ok: true }]);
+    st.log = Array.from({ length: 5 }, (_, i) => ({ sent_at: new Date(Date.now() - (i + 1) * 3600000).toISOString() }));
+    assertEquals(await forgot('sara@x.example'), [200, { ok: true }]);
+    assertEquals(st.mails.length, 0, 'within two minutes, or the fifth today: no new link');
+    st.log = [{ sent_at: new Date(Date.now() - 3 * 60000).toISOString() }];
+    await forgot('sara@x.example');
+    assertEquals(st.mails.length, 1, 'after two minutes: a new link');
+    // رمز الرابط بشكل غريب: مفيش رسالة، والرد «تم»
+    st.mails = []; st.log = []; st.hashed = 'x"><script>';
+    assertEquals(await forgot('sara@x.example'), [200, { ok: true }]);
+    assertEquals(st.mails.length, 0, 'an odd token never goes into a link');
+    // بريد بشكل غلط: ٤٠٠ قبل أي بحث
+    assertEquals((await forgot('nope'))[0], 400);
+  } finally { restoreDigestEnv(); }
+});
 
 // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (NIST SP 800-63B §5.2.2): عدّاد المحاولات كان بيتقري وبعدين يتكتب، فطلبات في نفس اللحظة تعدّي الحد،
 // ومفيش حد لكل مستخدم عبر جلساته. دلوقتي الخصم في قاعدة البيانات قبل المقارنة (login_try)
@@ -541,7 +599,7 @@ Deno.test('بوابة المدير: مدير تطبيق Meta بس، والمفت
 // النموذج عام (أي حد يبعته) والتحقق في المتصفح بيتعدّى بسهولة، فالخادم هو الحاجز — ومكانش ليه أي اختبار: التنظيف (ورابط فيسبوك بيتفتح
 // من إشعار صاحب الأداة: أي دومين تاني مرفوض)، وفخ البرامج، والموافقة، وحد الساعة، والطلب المكرر، وحصة البريد؛ ورابط الدعوة الموقّع
 const JOIN_ID = '1a2b3c4d-2222-3333-4444-555555555555';   // فيه حروف: الرقم بحروف كبيرة لازم يترفض
-function fakeJoinDb(opts: { budget?: boolean; recent?: number; mailFails?: boolean } = {}) {
+function fakeJoinDb(opts: { budget?: boolean; recent?: number; mailFails?: boolean; race?: string } = {}) {
   const store = { reqs: [] as any[], mails: [] as any[], access: [] as any[], budget: [] as string[] };
   Deno.env.set('RESEND_API_KEY', 'test-resend-key');
   stubFetch((url, init) => {
@@ -557,6 +615,11 @@ function fakeJoinDb(opts: { budget?: boolean; recent?: number; mailFails?: boole
       const p = new URLSearchParams(url.split('?')[1] || '');
       if (method === 'GET') {
         if (p.get('updated_at')) return json(Array.from({ length: opts.recent || 0 }, (_, i) => ({ id: 'r' + i })));
+        if (p.get('status') === 'eq.new' && p.get('reminded_at') === 'is.null') {
+          const range = p.getAll('created_at'), lte = range.find((x) => x.indexOf('lte.') === 0), gte = range.find((x) => x.indexOf('gte.') === 0);
+          return json(store.reqs.filter((r) => r.status === 'new' && !r.reminded_at && (!lte || r.created_at <= lte.slice(4)) && (!gte || r.created_at >= gte.slice(4)))
+            .sort((a, b) => (a.created_at < b.created_at ? -1 : 1) * (String(p.get('order')).indexOf('.desc') > -1 ? -1 : 1)).slice(0, Number(p.get('limit') || 1000)));
+        }
         return json(store.reqs.filter((r) => p.get('email') === 'eq.' + r.email || p.get('id') === 'eq.' + r.id).slice(0, 1));
       }
       if (method === 'POST') {
@@ -566,6 +629,12 @@ function fakeJoinDb(opts: { budget?: boolean; recent?: number; mailFails?: boole
       }
       if (method === 'PATCH') {
         const r = store.reqs.find((x) => p.get('id') === 'eq.' + x.id);
+        // الحجز: «لسه من غير تذكير» شرط في نفس التحديث — race = تشغيل تاني حجزه في نفس اللحظة
+        if (p.get('reminded_at') === 'is.null') {
+          if (!r || r.reminded_at || opts.race === r.id) return json([]);
+          Object.assign(r, body);
+          return json([r]);
+        }
         if (r) Object.assign(r, body);
         return new Response(null, { status: 204 });
       }
@@ -645,6 +714,38 @@ Deno.test('رابط الدعوة: بالتوقيع بس، والعرض من غي
     s2.reqs.push({ ...s.reqs[0], status: 'new', activated_at: null });
     assertEquals(await call('join.activate', { id: JOIN_ID, sig }), [502, { error: 'mail' }]);
     assertEquals([s2.access.length, s2.reqs[0].status], [1, 'new']);
+  } finally { restoreDigestEnv(); }
+});
+// تذكير الطلبات المتأخرة (المُشغّل كل ١٠ دقايق): الوعد في صفحة الطلب «التفعيل خلال ٢٤ ساعة» — بعد ١٨ ساعة ولحد أسبوع، مرة واحدة بحجز قبل
+// الإرسال (تشغيلين ورا بعض ميبعتوش مرتين)، وفك الحجز لو الرسالة فشلت، والوقف عند سقف اليوم، والساعات بالعربي في العنوان
+Deno.test('تذكير طلبات الانضمام: بعد ١٨ ساعة لحد أسبوع، مرة واحدة بحجز قبل الإرسال، وفك الحجز لو الرسالة فشلت، والساعات بالعربي', async () => {
+  const H = 3600000, at = (h: number) => new Date(Date.now() - h * H).toISOString();
+  const req = (id: string, h: number, o: Record<string, unknown> = {}) => ({ id, email: id + '@x.example', role: 'agency', name: 'N' + id, business: 'B',
+    store_url: 'https://s.example/', country: 'C', platforms: ['meta'], fb_profile: null, google_email: null, snap_email: null, whatsapp: null, lang: 'ar',
+    status: 'new', submissions: 1, activated_at: null, created_at: at(h), updated_at: at(h), reminded_at: null as string | null, ...o });
+  try {
+    let s = fakeJoinDb();
+    s.reqs.push(req('a', 19), req('b', 22), req('c', 30), req('d', 17), req('e', 8 * 24), req('f', 20, { status: 'activated' }), req('g', 20, { reminded_at: at(1) }));
+    assertEquals(await joinReminders(), 3, 'a, b and c — not before 18 h, not after a week, not activated, not reminded already');
+    assertEquals(s.mails.map((m) => m.subject.split(' — ')[0]), ['تذكير: تجاوز موعد الـ٢٤ ساعة لتفعيل Nc', 'تذكير: باقٍ ساعتان على موعد تفعيل Nb',
+      'تذكير: باقٍ ٥ ساعات على موعد تفعيل Na'], 'oldest first; Arabic hours');
+    assertEquals(s.mails.map((m) => m.to), [['support@adscenter.online'], ['support@adscenter.online'], ['support@adscenter.online']]);
+    assertEquals(await joinReminders(), 0, 'a second run sends nothing (claimed)');
+    restoreDigestEnv();
+    // تشغيل تاني حجزه في نفس اللحظة: مبيتبعتش تاني
+    s = fakeJoinDb({ race: 'a' });
+    s.reqs.push(req('a', 19));
+    assertEquals([await joinReminders(), s.mails.length], [0, 0]);
+    restoreDigestEnv();
+    // الرسالة فشلت: الحجز بيتفك فالتشغيل الجاي يحاول تاني
+    s = fakeJoinDb({ mailFails: true });
+    s.reqs.push(req('a', 19));
+    assertEquals([await joinReminders(), s.reqs[0].reminded_at], [0, null]);
+    restoreDigestEnv();
+    // سقف بريد اليوم: وقف من غير حجز (الطلب يتاخد بكرة)
+    s = fakeJoinDb({ budget: false });
+    s.reqs.push(req('a', 19));
+    assertEquals([await joinReminders(), s.reqs[0].reminded_at, s.mails.length], [0, null, 0]);
   } finally { restoreDigestEnv(); }
 });
 
