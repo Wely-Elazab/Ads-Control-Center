@@ -556,6 +556,13 @@ function alertBox(a: any, note: string | null): string {
     (note ? '<p style="' + muted + '">' + esc(note) + '</p>' : '') +
     '<p style="margin:0;line-height:1.8">' + esc(a.advice) + '</p></div>';
 }
+// عدد التنبيهات مع المعدود (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١١٨ — زي ١٠٣ في القاموس: «و١ غيرها» كانت غلط): «تنبيه آخر» و«تنبيهان آخران»
+// و«٣ تنبيهات أخرى» و«١١ تنبيهاً آخر». كانت «و١ تنبيه آخر» و«و٢ تنبيهات أخرى» و«و١١ تنبيهات أخرى» في الرسالة العاجلة والملخص. export للاختبارات
+export function alertsCountAr(n: number): string {
+  if (n === 1) return 'تنبيه آخر';
+  if (n === 2) return 'تنبيهان آخران';
+  return g.ar(n) + (n <= 10 ? ' تنبيهات أخرى' : ' تنبيهاً آخر');
+}
 function countPhrase(n: number, en: boolean): string {
   if (en) return n + ' things need action';
   if (n === 2) return 'أمران يحتاجان إلى إجراء';
@@ -632,7 +639,7 @@ function urgentMail(sections: Section[], tz: string, en: boolean, stop: string, 
         ' <span style="color:#6b7280;font-size:14px">(' + esc(en ? 'since ' + dateText(x.first_at, tz, true) : 'منذ ' + dateText(x.first_at, tz, false)) + ')</span></p>'));
       const rest = s.items.length - ONGOING_MAX;
       if (rest > 0) lines.push('<p style="margin:0 0 4px;color:#6b7280;font-size:14px">' + esc(en ? 'And ' + rest + ' more — all of them are in Ads Center.'
-        : 'و' + g.ar(rest) + ' ' + (rest === 1 ? 'تنبيه آخر' : 'تنبيهات أخرى') + ' — كلها في Ads Center.') + '</p>');
+        : 'و' + alertsCountAr(rest) + ' — كلها في Ads Center.') + '</p>');
     });
   }
   // صياغة وافق عليها صاحب المنتج ١٣ نوفمبر ٢٠٢٦: القديمة كانت بتنفي وبعدين توعد بتذكير («لا نرسل… مرة أخرى: نذكّرك به…»)
@@ -817,7 +824,8 @@ export function statusPick(list: Mark[], cap = 8): { pick: Mark[]; more: number 
   const room = Math.max(0, cap - ongoing.length);
   return { pick: ongoing.concat(resolved.slice(0, room)), more: Math.max(0, resolved.length - room) };
 }
-function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: string, tz: string, en: boolean, target: Target = null): string | null {
+// export للاختبارات (tests/sync-test.ts — بالمحرك الحقيقي)
+export function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: string, tz: string, en: boolean, target: Target = null): string | null {
   const from = Date.parse(since + 'T00:00:00Z') - 86400000;
   const picked = statusPick(Object.keys(marks).map((k) => marks[k]).filter((m) => !NO_STATUS[m.kind] &&
     (Date.parse(m.first_at) >= from || !m.resolved_at || Date.parse(m.resolved_at as string) >= from)));
@@ -839,7 +847,7 @@ function alertStatusHtml(marks: Record<string, Mark>, cands: any[], since: strin
     const sent = en ? 'sent ' + dateText(m.first_at, tz, true) : 'أُرسل ' + dateText(m.first_at, tz, false);
     return P('<strong>' + esc(title) + '</strong>' + (name ? ' — ' + esc(name) : '') + ': ' + status + ' <span style="' + MUTED + '">(' + esc(sent) + ')</span>');
   });
-  if (picked.more) rows.push(P(esc(en ? 'And ' + picked.more + ' more resolved.' : 'و' + g.ar(picked.more) + ' ' + (picked.more === 1 ? 'تنبيه آخر حُلّ' : 'تنبيهات أخرى حُلّت') + '.'), MUTED));
+  if (picked.more) rows.push(P(esc(en ? 'And ' + picked.more + ' more resolved.' : 'وحُلّ' + (picked.more >= 3 && picked.more <= 10 ? 'ت ' : ' ') + alertsCountAr(picked.more) + '.'), MUTED));
   return '<div style="border-inline-start:4px solid #b91c1c;padding:2px 12px;margin:0 0 20px">' +
     P(esc(en ? 'Urgent alerts since the previous summary' : 'التنبيهات العاجلة منذ الملخص السابق'), 'font-weight:700') + rows.join('') + '</div>';
 }

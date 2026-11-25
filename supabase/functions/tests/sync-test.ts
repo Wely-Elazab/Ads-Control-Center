@@ -11,7 +11,7 @@ import { bearer, cleanCode, counterMissing, handleLogin, newCode, requireLogin, 
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue, alertsCountAr, alertStatusHtml
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -1466,6 +1466,15 @@ Deno.test('الطابور — العاجل: الرسالة بتقول العاج
     const h2 = String(out.mails[0].html);
     assert(h2.indexOf('LOT-00') > -1 && h2.indexOf('LOT-09') > -1 && h2.indexOf('LOT-10') < 0, 'the 10 oldest');
     assert(h2.indexOf('و3 تنبيهات أخرى') > -1, 'and the count of the rest: ' + h2.slice(h2.indexOf('LOT-09'), h2.indexOf('LOT-09') + 400));
+    // (١١٨) الباقي ١ و٢ بالكلمة والمعدود الصح — كانت «و1 تنبيه آخر» و«و2 تنبيهات أخرى»
+    for (const [n, want] of [[11, 'وتنبيه آخر — كلها في Ads Center.'], [12, 'وتنبيهان آخران — كلها في Ads Center.']] as [number, string][]) {
+      lots.payload.ongoing = Array.from({ length: n }, (_, i) => item('LOT-' + String(i).padStart(2, '0'), 'Ad', '2026-11-' + String(1 + i).padStart(2, '0') + 'T00:00:00Z'));
+      st.outbox = [lots];
+      out = fakeQueueDb(st);
+      assertEquals(await assemble([qUser()], noEngine, { stop: {}, us: {} }), { 'urgent-sent': 1 });
+      const hn = String(out.mails[0].html);
+      assert(hn.indexOf(want) > -1, n + ' ongoing: «' + want + '» in ' + hn.slice(hn.indexOf('LOT-09'), hn.indexOf('LOT-09') + 300));
+    }
   } finally { restoreFetch(); restoreEngine(); Deno.env.delete('RESEND_API_KEY'); }
 });
 // صياغة صاحب المنتج ١٣ نوفمبر ٢٠٢٦: عنوان التذكير (بعد يومين) وتاريخ أول إبلاغ في المربع، وبعده القائم («أخرى» — مجموعة منفصلة) — باللغتين
@@ -1815,4 +1824,24 @@ Deno.test('موعد الملخص: في أيامه بعد ساعته بتوقيت
   assertEquals(at('2026-12-06T05:00:00Z', () => monthlyDue(s({}))), null, 'before its hour');
   assertEquals(at('2026-12-13T06:00:00Z', () => monthlyDue(s({}))), null, 'not the first Sunday');
   assertEquals(at('2026-12-02T06:00:00Z', () => monthlyDue(s({}))), null, 'not a Sunday');
+});
+// (١١٨) عدد التنبيهات مع المعدود في البريد — بالمحرك الحقيقي (g.ar بالأرقام العربية). والقسم «التنبيهات العاجلة منذ الملخص السابق» في الملخص:
+// المستمر كله بيظهر، والمحلول لحد ٨ والباقي سطر بعدده بالفعل قدّام، واسم الإعلان (من Meta — المعلن بيكتبه) مُهرَّب
+Deno.test('عدد التنبيهات في البريد بالعدد والمعدود الصح، وقسم حالة التنبيهات في الملخص مُهرَّب وبالسطر الأخير صح', () => {
+  assertEquals([1, 2, 3, 10, 11, 25].map(alertsCountAr), ['تنبيه آخر', 'تنبيهان آخران', '٣ تنبيهات أخرى', '١٠ تنبيهات أخرى', '١١ تنبيهاً آخر', '٢٥ تنبيهاً آخر']);
+  const fam = familyOf('cpr'), at = (d: number) => new Date(Date.UTC(2026, 10, d, 9)).toISOString();
+  const mark = (obj: string, resolved: number | null, first = 18) => ({ kind: fam, object_id: obj, first_at: at(first), last_sent_at: at(first), last_seen_at: at(first), times_sent: 1,
+    resolved_at: resolved == null ? null : at(resolved), last_code: 'cpr' });
+  const cands = [{ id: 'X', offer: '<img src=x onerror="alert(1)">إعلان', resultKey: 'purchase', campaignId: 'c1', campaignName: 'C' }];
+  const html = (n: number) => {
+    const marks: Record<string, any> = { [fam + '|X']: mark('X', null) };
+    for (let i = 0; i < n + 7; i++) marks[fam + '|r' + i] = mark('r' + i, 20 + (i % 3));
+    return alertStatusHtml(marks, cands, '2026-11-17', 'Asia/Riyadh', false) as string;
+  };
+  const h3 = html(3);
+  assert(h3.indexOf('<img') < 0 && h3.indexOf('&lt;img src=x onerror=&quot;alert(1)&quot;&gt;إعلان') > -1, 'the ad name is escaped: ' + h3.slice(0, 300));
+  assert(h3.indexOf('مستمرة') > -1 && h3.indexOf('حُلّت') > -1, 'ongoing and resolved');
+  for (const [n, line] of [[1, 'وحُلّ تنبيه آخر.'], [2, 'وحُلّ تنبيهان آخران.'], [3, 'وحُلّت ٣ تنبيهات أخرى.'], [11, 'وحُلّ ١١ تنبيهاً آخر.']] as [number, string][]) {
+    assert(html(n).indexOf(line) > -1, n + ' more resolved: «' + line + '»');
+  }
 });
