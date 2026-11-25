@@ -11,7 +11,7 @@ import { bearer, cleanCode, counterMissing, handleLogin, newCode, requireLogin, 
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -1755,4 +1755,64 @@ Deno.test('المحرك الحقيقي: المُشغّل بيقيّمه، وكل
     assert(seen.size > 20, 'the runner uses many engine names: ' + seen.size);
     assertEquals(missing, [], 'every engine name the runner uses exists');
   } finally { restoreFetch(); }
+});
+// قرار العاجل بالمحرك الحقيقي (urgentAlerts ← analyzeUrgent — بعد الاختبار اللي فوق اللي حمّل المحرك): المُشغّل بيدّي المحرك إعدادات المستخدم
+// (أقصى التكلفة والعائد المستهدف) وبيبعت «عاجل» بس. القاعدة الحاكمة للبريد العاجل (قرار صاحب المنتج ٢٥ أكتوبر): عاجل بس لو المستخدم كاتب
+// أقصى تكلفة والإعلان صرف ضعفها من غير نتيجة ٣ أيام؛ من غيرها «مهم» — ميتبعتش، بس بيقول إن المشكلة لسه قائمة (alive). نفس حالة اختبار المحرك
+// في الأداة («صرف بدون نتائج ٣ أيام»)، بس هنا من الطريق اللي المُشغّل بيمشيه
+Deno.test('قرار العاجل بالمحرك الحقيقي: «عاجل» بس بأقصى التكلفة اللي المستخدم كتبها، ومن غيرها «مهم» قائم من غير رسالة', () => {
+  const G = globalThis as any;
+  const keys = G.last7Days(G.todayKeyInTz('UTC')).slice(-7).map((d: any) => d.key);
+  const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+  // إعلان بنفس الشكل اللي ملفات المنصات بتبنيه (زي ad() في اختبارات الأداة)
+  const ad = (id: string, daily: number[], res: number[]) => {
+    const spend = sum(daily), r = sum(res);
+    return { id, nativeId: id, platform: 'Meta', source: 'meta:act_1', placement: 'Camp', campaignId: 'c1', campaignName: 'Camp', adsetName: 'Set', offer: 'Ad ' + id,
+      headline: 'H', desc: '', caption: 'C', format: 'image', themeClass: 'pv-t1', thumbUrl: null, landing: 'https://example.com', landingKind: 'website', active: true,
+      pausedLevel: null, daily, dailyResults: res, dailySales: [0, 0, 0, 0, 0, 0, 0], dailyDates: keys, spend, results: r, resultKey: 'purchase', cpr: r ? spend / r : null,
+      roas: null, frequency: null, daysAgo: 30, updatedDaysAgo: 5, currency: 'SAR', reviewStatus: null, deliveryReason: null, platformStatus: 'ACTIVE', period: null,
+      adsetId: null, statusPartial: false, plat: null, baseStore: false, setLearns: true };
+  };
+  const n = (v: number) => [v, v, v, v, v, v, v];
+  const cands = [ad('good1', n(100), n(5)), ad('good2', n(100), n(5)), ad('waste', [100, 100, 100, 100, 100, 100, 20], [5, 5, 5, 0, 0, 0, 0])];
+  const acct = { id: 'act_1', name: 'A', currency: 'SAR', timezone_name: 'UTC', account_status: 1, spend_cap: '0', amount_spent: '0' };
+  const fam = familyOf('waste');
+  // أقصى تكلفة ٢٠ للطلب، والإعلان صرف ٣٢٠ من غير طلب ٣ أيام: عاجل — وهو اللي بيروح لقرار الإرسال
+  const withMax = urgentAlerts('act_1', acct, cands, null, { maxCost: { purchase: 20 } });
+  assertEquals(withMax.urgent.map((a: any) => [a.adId, a.code, a.level]), [['waste', 'waste', 'critical']], 'urgent with the written max cost');
+  // من غير أقصى تكلفة: «مهم» — مفيش عاجل (مفيش رسالة)، بس لسه قائم (alive) فقرار «حُلّت» ميتقفلش عليه
+  const noMax = urgentAlerts('act_1', acct, cands, null, null);
+  assertEquals(noMax.urgent, [], 'no written max cost: nothing urgent');
+  assert(noMax.alive[fam + '|waste'], 'but still ongoing as «important»: ' + JSON.stringify(Object.keys(noMax.alive)));
+  // أقصى تكلفة لنوع نتيجة تاني (العملاء المحتملين) مبتخلّيش إعلان الشراء عاجل: الحد بنوعه
+  assertEquals(urgentAlerts('act_1', acct, cands, null, { maxCost: { lead: 20 } }).urgent, [], 'a max cost for another result type');
+});
+// موعد الملخص والشهري (summaryDue / monthlyDue) — الوعد اللي العميل اختاره: الملخص في أيامه بعد ساعته بتوقيت حسابه (مش UTC)، ومرة واحدة
+// للفترة، والشهري أول أحد في الشهر للشهر اللي فات كله مرة واحدة. الساعة متثبّتة (localParts بتقرا new Date())
+function fixedClock(iso: string): () => void {
+  const Real = Date, at = Real.parse(iso);
+  class Fixed extends Real {
+    constructor(...a: any[]) { if (a.length) super(...(a as [any])); else super(at); }
+    static now() { return at; }
+  }
+  (globalThis as any).Date = Fixed;
+  return () => { (globalThis as any).Date = Real; };
+}
+Deno.test('موعد الملخص: في أيامه بعد ساعته بتوقيت الحساب، ومرة للفترة؛ والشهري أول أحد في الشهر للشهر اللي فات مرة واحدة', () => {
+  const s = (o: Record<string, unknown>) => ({ timezone: 'Asia/Riyadh', summary_days: [0, 3], summary_hour: 9, last_summary_until: '2026-11-21', last_monthly: '2026-10', ...o }) as any;
+  const at = (iso: string, fn: () => unknown) => { const undo = fixedClock(iso); try { return fn(); } finally { undo(); } };
+  // الأربعاء ٢٥ نوفمبر: ٨:٥٩ الصبح بتوقيت الرياض لسه، و٩:٠٠ ميعاده — من بعد آخر ملخص (السبت ٢١) لحد أمس
+  assertEquals(at('2026-11-25T05:59:00Z', () => summaryDue(s({}))), null, 'before its hour');
+  assertEquals(at('2026-11-25T06:00:00Z', () => summaryDue(s({}))), { since: '2026-11-22', until: '2026-11-24' });
+  assertEquals(at('2026-11-25T06:00:00Z', () => summaryDue(s({ last_summary_until: '2026-11-24' }))), null, 'once: already covered yesterday');
+  assertEquals(at('2026-11-24T06:00:00Z', () => summaryDue(s({}))), null, 'Tuesday is not one of its days');
+  // اليوم بتوقيت الحساب: ٢١:٣٠ الثلاثاء UTC = ٠٠:٣٠ الأربعاء في الرياض
+  assertEquals(at('2026-11-24T21:30:00Z', () => summaryDue(s({ summary_hour: 0 }))), { since: '2026-11-22', until: '2026-11-24' }, 'the account\'s day, not UTC');
+  assertEquals(at('2026-11-25T05:59:00Z', () => summaryDue(s({ summary_hour: null }))), null, 'no hour saved: 9 by default');
+  // الشهري: الأحد ٦ ديسمبر أول أحد — للشهر اللي فات كله، مرة واحدة، وبعد الساعة
+  assertEquals(at('2026-12-06T06:00:00Z', () => monthlyDue(s({}))), { since: '2026-11-01', until: '2026-11-30', month: '2026-11' });
+  assertEquals(at('2026-12-06T06:00:00Z', () => monthlyDue(s({ last_monthly: '2026-11' }))), null, 'once a month');
+  assertEquals(at('2026-12-06T05:00:00Z', () => monthlyDue(s({}))), null, 'before its hour');
+  assertEquals(at('2026-12-13T06:00:00Z', () => monthlyDue(s({}))), null, 'not the first Sunday');
+  assertEquals(at('2026-12-02T06:00:00Z', () => monthlyDue(s({}))), null, 'not a Sunday');
 });

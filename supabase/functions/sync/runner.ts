@@ -320,7 +320,8 @@ function effectiveFor(us: Record<string, unknown> | null, platform: string, curr
 // «متوازن» لعميل اختار «هادي»)، والعائد المستهدف لو حدده. العاجل بس. mergeSettings في المحرك بيتحقق من حدود كل قيمة
 // alive = مفاتيح (العيلة|العنصر) للتنبيهات «المهمة» — مبتتبعتش، بس بتقول إن المشكلة لسه قائمة (resolveNow)
 function alertKey(a: any): string { return familyOf(String(a.code || 'other')) + '|' + String(a.adId || a.objectId || ''); }
-function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Target, sens: Sens = null): { urgent: any[]; alive: Record<string, boolean> } {
+// export للاختبارات (tests/sync-test.ts — بالمحرك الحقيقي)
+export function urgentAlerts(accountId: string, acct: Acct, cands: any[], target: Target, sens: Sens = null): { urgent: any[]; alive: Record<string, boolean> } {
   return analyzeUrgent('meta:' + accountId, {
     label: 'Meta — ' + (acct.name || accountId), currency: acct.currency || null, timeZone: acct.timezone_name || null,
     metaAccountStatus: acct.account_status != null ? Number(acct.account_status) : null,
@@ -714,8 +715,8 @@ export function summaryWindow(days: number[], last: string | null, today: string
   }
   return { since: since > until ? until : since, until };
 }
-// ميعاد الملخص: يوم من أيامه، والساعة عدّت ساعته (الميعاد فات = يتبعت في أول تشغيل بعده)، ومفيش ملخص غطّى أمس
-function summaryDue(s: Settings): { since: string; until: string } | null {
+// ميعاد الملخص: يوم من أيامه، والساعة عدّت ساعته (الميعاد فات = يتبعت في أول تشغيل بعده)، ومفيش ملخص غطّى أمس. export للاختبارات
+export function summaryDue(s: Settings): { since: string; until: string } | null {
   const lp = localParts(s.timezone || 'UTC');
   const days = (s.summary_days || []).map(Number);
   if (days.indexOf(lp.dow) < 0 || lp.hour < (s.summary_hour == null ? 9 : s.summary_hour)) return null;
@@ -723,7 +724,7 @@ function summaryDue(s: Settings): { since: string; until: string } | null {
 }
 // الملخص الشهري (ملاحظة صاحب المنتج ١٠ أكتوبر ٢٠٢٦): أول أحد في الشهر بعد ساعة الملخص، للشهر اللي فات كله — مرة واحدة
 // (last_monthly = الشهر اللي اتبعت ملخصه، مش أرقام)
-function monthlyDue(s: Settings): { since: string; until: string; month: string } | null {
+export function monthlyDue(s: Settings): { since: string; until: string; month: string } | null {
   const lp = localParts(s.timezone || 'UTC');
   if (lp.dow !== 0 || Number(lp.key.slice(8)) > 7 || lp.hour < (s.summary_hour == null ? 9 : s.summary_hour)) return null;
   const until = addDays(lp.key.slice(0, 8) + '01', -1), month = until.slice(0, 7);
