@@ -11,7 +11,7 @@ import { bearer, cleanCode, counterMissing, handleLogin, newCode, requireLogin, 
 import { handleMetaLink } from '../sync/metalink.ts';
 import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
-  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue, alertsCountAr, alertStatusHtml, linkAllowed, privateAddr, setResolverForTests, runAll
+  summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue, alertsCountAr, alertStatusHtml, linkAllowed, privateAddr, setResolverForTests, runAll, preview, previewSummary
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
@@ -2032,11 +2032,21 @@ function metaRunData() {
 }
 // Graph لحساب Meta واحد: الحساب، والإعلانات، وأرقامها يوم بيوم — وأي قايمة أو أرقام تانية فاضية. ctl.account = رد مختلف للحساب نفسه
 // ctl.activities = سجل التعديلات، ctl.objDaily = أرقام الحملات يوم بيوم (حصة التعديل من الإنفاق)، ctl.siteFail = طلب أرقام الموقع بيفشل
+// ctl.byId = إعلانات بتتجاب برقمها (طلب الدفعة POST / — graphBatch: صرفت في الأسبوع ومش في دفعة الشغّالة)
 function fakeMeta(data: { ads: Row[]; daily: Row[]; period?: Row[] }, seen: string[],
-  ctl: { account?: () => Response; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean }) {
-  return (url: string): Response | null => {
+  ctl: { account?: () => Response; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean; byId?: Row[]; extraDaily?: Row[] }) {
+  return (url: string, init?: RequestInit): Response | null => {
     if (url.indexOf('https://graph.facebook.com/') !== 0) return null;
     const u = new URL(url), p = u.pathname.replace(/^\/v[\d.]+/, ''), q = u.searchParams;
+    if (p === '/' && init && init.method === 'POST') {
+      const form = init.body as URLSearchParams, batch = JSON.parse(String(form.get('batch') || '[]')) as { relative_url: string }[];
+      const ids = batch.map((b) => decodeURIComponent(b.relative_url.split('?')[0]));
+      seen.push('graph batch ' + ids.join(',') + ' token=' + (form.get('access_token') === RUN_TOKEN));
+      return json(ids.map((id) => {
+        const ad = (ctl.byId || []).find((x) => x.id === id);
+        return ad ? { code: 200, body: JSON.stringify(ad) } : { code: 404, body: '{"error":{"message":"no such ad"}}' };
+      }));
+    }
     seen.push('graph ' + p + ' token=' + (q.get('access_token') === RUN_TOKEN));
     if (p === '/act_1') {
       return ctl.account ? ctl.account() : json({ id: 'act_1', name: 'Store One', account_status: 1, timezone_name: 'Asia/Riyadh', currency: 'SAR', spend_cap: '0', amount_spent: '0' });
@@ -2054,7 +2064,7 @@ function fakeMeta(data: { ads: Row[]; daily: Row[]; period?: Row[] }, seen: stri
       return json({ error: { message: 'Please reduce the amount of data', code: 1 } }, 500);
     }
     if (p === '/act_1/insights' && q.get('level') === 'ad' && q.get('time_increment') === '1' && String(q.get('fields')).indexOf('ad_id,date_start') === 0) {
-      return json({ data: data.daily });
+      return json({ data: data.daily.concat(ctl.extraDaily || []) });
     }
     if (p === '/act_1/adsets' || p === '/act_1/insights' || p === '/act_1/activities') return json({ data: [] });
     return json({ error: { message: 'unexpected graph ' + p, code: 100 } }, 400);
@@ -2076,7 +2086,7 @@ function runState() {
 async function runWorld() {
   const st = runState(), seen: string[] = [], mails: any[] = [], probes: string[] = [], vaultErrors: string[] = [], errs: string[] = [], claims: Row[] = [];
   const ctl: { account?: () => Response; vault: 'ok' | 'none' | 'garbage'; autoClaim?: boolean; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean;
-    broken?: string[] } = { vault: 'ok' };
+    broken?: string[]; byId?: Row[]; extraDaily?: Row[] } = { vault: 'ok' };
   let autoClaims = 0;
   const sealed = await seal(RUN_TOKEN, 'act_1'), eng = await engineFiles();
   const rest = fakeRest(st, {
@@ -2108,7 +2118,7 @@ async function runWorld() {
       probes.push(url);
       return (ctl.broken || []).indexOf(url) > -1 ? new Response('gone', { status: 404 }) : new Response('ok', { status: 200 });
     }
-    return meta(url) || eng(url) || json({ message: 'unexpected ' + url }, 500);
+    return meta(url, init) || eng(url) || json({ message: 'unexpected ' + url }, 500);
   });
   browserGuards();
   // الحجز زي digest_claim الحقيقية: الصف نفسه بيتحجز (claimed_until ٣ دقايق)، والمُشغّل لازم يفكّه في الآخر
@@ -2515,5 +2525,53 @@ Deno.test('المُشغّل كله لحساب Meta — بيانات زيادة: 
     assertEquals(w.errs.filter((x) => x.indexOf('extra alerts site') === 0).length, 1, 'log: ' + w.errs.join(' | '));
     assertEquals(w.errs.filter((x) => x.indexOf('extra alerts site') !== 0), [], 'nothing else in the log');
     assertEquals(w.st.user_digest_accounts[0].edits_at, RUN_NOW, 'the edit log was read');
+  });
+});
+// معاينة المدير (handler.ts بيتأكد إنه مدير التطبيق): نفس رسالة الملخص أو العاجل بالظبط بمفتاحه هو وإعداداته — من غير إرسال ولا أي كتابة في قاعدة
+// البيانات. الفترة: يوم بصيغته، والبداية قبل النهاية، ولحد ٣١ يوم (شهر كامل)؛ غير كده الفترة الافتراضية. الشهري من غير فترة = الشهر اللي فات كله
+Deno.test('معاينة المدير: نفس الرسالة من غير إرسال ولا كتابة، وحدود الفترة، والشهري = الشهر اللي فات، والمفتاح المرفوض = خطأ', async () => {
+  await withRunWorld(async (w) => {
+    const writes = () => w.seen.filter((x) => /^(POST|PATCH|DELETE) /.test(x));
+    const s1 = await previewSummary(RUN_TOKEN, 'act_1', 'ar', '2026-11-11', '2026-11-17', false, RUN_U);
+    assertEquals([s1.since, s1.until, s1.error], ['2026-11-11', '2026-11-17', undefined], 'the asked period: ' + JSON.stringify(s1).slice(0, 200));
+    assert(String(s1.html).indexOf('Store One') > -1 && typeof s1.subject === 'string' && typeof s1.text === 'string', 'the same mail: ' + String(s1.subject));
+    // الفترة اللي مش صالحة (بالعكس، أو ٣٢ يوم، أو مش يوم) = الافتراضية (الأحد والأربعاء من غير آخر ملخص: من آخر ميعاد لحد امبارح)
+    const def = await previewSummary(RUN_TOKEN, 'act_1', 'ar', undefined, undefined, false, RUN_U);
+    assertEquals([def.since, def.until], ['2026-11-15', '2026-11-17'], 'the default period');
+    for (const [a, b] of [['2026-11-17', '2026-11-11'], ['2026-10-01', '2026-11-01'], ['2026-11-1', '2026-11-17'], ['x', 'y']]) {
+      const r = await previewSummary(RUN_TOKEN, 'act_1', 'ar', a, b, false, RUN_U);
+      assertEquals([r.since, r.until], [def.since, def.until], a + '..' + b + ' falls back to the default period');
+    }
+    const month = await previewSummary(RUN_TOKEN, 'act_1', 'ar', '2026-10-01', '2026-10-31', false, RUN_U);
+    assertEquals([month.since, month.until], ['2026-10-01', '2026-10-31'], 'a full 31-day month is allowed');
+    // الشهري من غير فترة: الشهر اللي فات كله بتوقيت الحساب (النهارده ١٨ نوفمبر)
+    const m = await previewSummary(RUN_TOKEN, 'act_1', 'en', undefined, undefined, true, RUN_U);
+    assertEquals([m.since, m.until], ['2026-10-01', '2026-10-31'], 'last month');
+    // العاجل: الإعلان المهدر بأقصى التكلفة اللي المدير كاتبها لنفسه
+    const u = await preview(RUN_TOKEN, 'act_1', 'ar', RUN_U);
+    assertEquals([u.ads, (u.urgent as any[]).map((a) => [a.adId, a.code])], [3, [['waste', 'waste']]], 'the urgent preview');
+    assert(typeof u.subject === 'string' && String(u.html).indexOf('Ad waste') > -1, 'the urgent mail itself');
+    assertEquals([w.mails.length, writes()], [0, []], 'nothing sent, nothing written');
+    // مفتاح المدير اترفض: خطأ من غير رسالة
+    w.ctl.account = () => json({ error: { code: 190, message: 'Error validating access token' } }, 400);
+    assertEquals(await previewSummary(RUN_TOKEN, 'act_1', 'ar', undefined, undefined, false, RUN_U), { error: 'lost' });
+    assertEquals(await preview(RUN_TOKEN, 'act_1', 'ar', RUN_U), { error: 'lost' });
+    assertEquals([w.mails.length, writes(), w.errs], [0, [], []]);
+  });
+});
+// إعلان صرف في الأسبوع ووقف (مش في دفعة الشغّالة): بيتجاب برقمه بطلب دفعة (graphBatch) عشان إنفاقه يتحسب ويتحكم عليه — زي الأداة
+// (meta.js fillMissing). من غيره «إعلان ناجح وقف فجأة» وإجمالي الأسبوع مكانوش هيشوفوه
+Deno.test('المُشغّل — إعلان صرف في الأسبوع ووقف بيتجاب برقمه بالمفتاح المحفوظ ويتحسب، واللي Meta مرجعتهوش بيتساب', async () => {
+  await withRunWorld(async (w) => {
+    const ad = (id: string) => ({ id, name: 'Ad ' + id, effective_status: 'PAUSED', created_time: '2026-09-01T00:00:00+0000', adset_id: 's1', campaign_id: 'c1',
+      adset: { id: 's1', name: 'Set', optimization_goal: 'OFFSITE_CONVERSIONS' }, campaign: { id: 'c1', name: 'Camp' }, creative: { title: 'T ' + id } });
+    // gone1 صرف ١٢–١٦ ووقف؛ gone2 صرف كمان بس Meta مرجّعتش بياناته (اتحذف)
+    w.ctl.extraDaily = ['gone1', 'gone2'].flatMap((id) => RUN_KEYS.slice(0, 5).map((k) => ({ ad_id: id, date_start: k, spend: '100',
+      actions: [{ action_type: 'omni_purchase', value: '5' }], action_values: [{ action_type: 'omni_purchase', value: '300' }] })));
+    w.ctl.byId = [ad('gone1')];
+    const u = await preview(RUN_TOKEN, 'act_1', 'ar', RUN_U);
+    assertEquals(u.ads, 4, 'the stopped ad is in, the one Meta did not return is left out');
+    assertEquals(w.seen.filter((x) => x.indexOf('graph batch ') === 0), ['graph batch gone1,gone2 token=true'], 'asked by id, once, with the stored key');
+    assertEquals(w.errs, []);
   });
 });
