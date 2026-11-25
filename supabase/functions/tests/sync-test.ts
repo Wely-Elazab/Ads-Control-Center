@@ -5,7 +5,7 @@
 // مكان الملف حسب توصية Supabase («Testing your Edge Functions»): supabase/functions/tests/<اسم الدالة>-test.ts
 
 import { assert, assertEquals, assertMatch, assertRejects } from 'jsr:@std/assert@1';
-import { corsHeaders, esc, reply, str, stripHidden, unsubHeaders } from '../sync/lib.ts';
+import { corsHeaders, esc, isAppAdmin, reply, str, stripHidden, unsubHeaders } from '../sync/lib.ts';
 import { MAX_PER_PLATFORM, SNAP_ID, cleanEmail, daysText, hourText, handleDigest, linkSig, sameString, seal, unseal } from '../sync/digest.ts';
 import { bearer, cleanCode, counterMissing, handleLogin, newCode, verifyJwt } from '../sync/auth.ts';
 import { handleMetaLink } from '../sync/metalink.ts';
@@ -15,7 +15,7 @@ import {
 } from '../sync/runner.ts';
 import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
 import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
-import { activationMail, adminMail } from '../sync/join.ts';
+import { activationMail, adminMail, handleJoin } from '../sync/join.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
 Deno.env.set('TOKEN_ENC_KEY', btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))));
@@ -407,6 +407,152 @@ Deno.test('قرار العاجل: الجديد مرة، وتذكير واحد ب
   // القائم واللي لسه «مهم» بيتحدّث آخر ظهورهم دلوقتي — من غيره بيتقفلوا «حُلّت» بعد ٢٤ ساعة وهم لسه ظاهرين
   const fresh = (m: any) => Date.parse(m.last_seen_at) >= now;
   assertEquals(keep.filter((m) => !m.resolved_at).map((m) => [m.object_id, fresh(m)]), [['Y2', true], ['Z', true], ['V', true]]);
+});
+// التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٦): بوابة العمليات الإدارية (isAppAdmin — معاينة الملخص والفحص الذاتي والرسالة التجريبية) مكانش ليها
+// اختبار: مدير تطبيق Meta بس (administrators) — مش المطوّر ولا مستخدم تاني ولا مفتاح من غير صاحب — والمفتاح مبيروحش غير Graph. ومن غير سر
+// التطبيق، أو لو قايمة الأدوار فشلت = null (منعرفش)، والمستدعي في index.ts بيرفض null بـ 503 زي false بـ 403: مقفولة وقت الشك
+Deno.test('بوابة المدير: مدير تطبيق Meta بس، والمفتاح لـ Graph بس، ومن غير سر أو لو القايمة فشلت = منعرفش', async () => {
+  const real = globalThis.fetch, hadSecret = Deno.env.get('META_APP_SECRET'), asked: string[] = [];
+  let roles: any = { data: [{ user: '111', role: 'administrators' }, { user: '222', role: 'developers' }, { user: 333, role: 'administrators' }] };
+  let me: any = { id: '111' };
+  globalThis.fetch = ((url: string) => {
+    const u = String(url);
+    asked.push(u);
+    const body = u.indexOf('/roles?') > -1 ? roles : (u.indexOf('/me?') > -1 ? me : null);
+    return Promise.resolve(new Response(JSON.stringify(body), { status: body === 'fail' ? 500 : 200 }));
+  }) as typeof fetch;
+  try {
+    Deno.env.delete('META_APP_SECRET');
+    assertEquals([await isAppAdmin('TOKEN_A'), asked.length], [null, 0], 'no app secret: we cannot know, and nothing is asked');
+    Deno.env.set('META_APP_SECRET', 'sec');
+    assertEquals(await isAppAdmin('TOKEN_A'), true, 'an administrator');
+    assert(asked.length > 0 && asked.every((u) => u.indexOf('https://graph.facebook.com/') === 0), 'only Graph (hosts — the key is never printed): ' + asked.map((u) => u.split('/')[2]).join(' '));
+    me = { id: '222' };
+    assertEquals(await isAppAdmin('TOKEN_A'), false, 'a developer is not an admin');
+    me = { id: '333' };
+    assertEquals(await isAppAdmin('TOKEN_A'), true, 'ids compared as text (Meta may send a number)');
+    me = { id: '999' };
+    assertEquals(await isAppAdmin('TOKEN_A'), false, 'another person');
+    me = { error: { code: 190 } };
+    assertEquals(await isAppAdmin('TOKEN_A'), false, 'a token without a person');
+    me = { id: '111' }; roles = 'fail';
+    assertEquals(await isAppAdmin('TOKEN_A'), null, 'the roles list failed: we cannot know');
+    roles = { data: 'x' };
+    assertEquals(await isAppAdmin('TOKEN_A'), null, 'a malformed roles list: we cannot know');
+  } finally {
+    globalThis.fetch = real;
+    if (hadSecret === undefined) Deno.env.delete('META_APP_SECRET'); else Deno.env.set('META_APP_SECRET', hadSecret);
+  }
+});
+// ---------- طلب الانضمام على الخادم (join.ts) — التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١١٦) ----------
+// النموذج عام (أي حد يبعته) والتحقق في المتصفح بيتعدّى بسهولة، فالخادم هو الحاجز — ومكانش ليه أي اختبار: التنظيف (ورابط فيسبوك بيتفتح
+// من إشعار صاحب الأداة: أي دومين تاني مرفوض)، وفخ البرامج، والموافقة، وحد الساعة، والطلب المكرر، وحصة البريد؛ ورابط الدعوة الموقّع
+const JOIN_ID = '1a2b3c4d-2222-3333-4444-555555555555';   // فيه حروف: الرقم بحروف كبيرة لازم يترفض
+function fakeJoinDb(opts: { budget?: boolean; recent?: number; mailFails?: boolean } = {}) {
+  const store = { reqs: [] as any[], mails: [] as any[], access: [] as any[], budget: [] as string[] };
+  Deno.env.set('RESEND_API_KEY', 'test-resend-key');
+  stubFetch((url, init) => {
+    const method = (init && init.method) || 'GET', body = init && init.body ? JSON.parse(String(init.body)) : null;
+    if (url.indexOf('api.resend.com') > -1) {
+      if (opts.mailFails) return json({ message: 'down' }, 500);
+      store.mails.push(body);
+      return json({ id: 'mail-' + store.mails.length });
+    }
+    if (url.indexOf('/rest/v1/rpc/mail_budget_take') > -1) { store.budget.push(body.p_kind); return json(opts.budget !== false); }
+    if (url.indexOf('/rest/v1/app_access') > -1) { store.access.push(body); return new Response(null, { status: 201 }); }
+    if (url.indexOf('/rest/v1/pilot_requests') > -1) {
+      const p = new URLSearchParams(url.split('?')[1] || '');
+      if (method === 'GET') {
+        if (p.get('updated_at')) return json(Array.from({ length: opts.recent || 0 }, (_, i) => ({ id: 'r' + i })));
+        return json(store.reqs.filter((r) => p.get('email') === 'eq.' + r.email || p.get('id') === 'eq.' + r.id).slice(0, 1));
+      }
+      if (method === 'POST') {
+        const row = { id: JOIN_ID, submissions: 1, status: 'new', created_at: new Date().toISOString(), activated_at: null, ...body };
+        store.reqs.push(row);
+        return json([row], 201);
+      }
+      if (method === 'PATCH') {
+        const r = store.reqs.find((x) => p.get('id') === 'eq.' + x.id);
+        if (r) Object.assign(r, body);
+        return new Response(null, { status: 204 });
+      }
+    }
+    return json({ error: 'unexpected ' + method + ' ' + url }, 500);
+  });
+  return store;
+}
+Deno.test('طلب الانضمام: الخادم هو الحاجز — التنظيف، ورابط فيسبوك على facebook.com بس، وفخ البرامج، والموافقة، والمكرر، وحد الساعة، وحصة البريد', async () => {
+  const good = { role: 'media_buyer', name: '  سارة   ك  ', business: 'متجر', store: 'shop.example/a', country: 'السعودية', platforms: ['meta', 'evil', 'snapchat'],
+    fb: '@sara.k', email: 'Sara@X.example', whatsapp: '+٩٦٦ ٥٠ ١٢٣ ٤٥٦٧', consent: true, ms: 9000, lang: 'en' };
+  const send = async (b: Record<string, unknown>) => { const r = await handleJoin('join', b, null); return [r.status, await r.json()]; };
+  try {
+    // فخ البرامج: الحقل المخفي أو أسرع من ثانيتين ونص — «تم» من غير حفظ ولا بريد
+    let s = fakeJoinDb();
+    assertEquals(await send({ ...good, hp: 'x' }), [200, { ok: true }]);
+    assertEquals(await send({ ...good, ms: 1200 }), [200, { ok: true }]);
+    assertEquals([s.reqs.length, s.mails.length], [0, 0], 'a bot gets «ok» and nothing is kept');
+    // كل حقل غلط بيترفض باسمه — والحاجة الأهم: رابط فيسبوك لأي دومين تاني (بيتفتح من إشعار صاحب الأداة)
+    const bad: [Record<string, unknown>, string][] = [
+      [{ role: 'admin' }, 'role'], [{ role: '__proto__' }, 'role'], [{ name: ' ' }, 'name'], [{ store: 'javascript:alert(1)' }, 'store'], [{ store: 'localhost' }, 'store'],
+      [{ platforms: ['evil'] }, 'platforms'], [{ fb: 'https://facebook.com.evil.example/sara.k' }, 'fb'], [{ fb: 'https://www.facebook.com@evil.example/sara.k' }, 'fb'], [{ fb: 'https://evil.example/facebook.com/sara.k' }, 'fb'],
+      [{ fb: 'evilfacebook.com/sara.k' }, 'fb'], [{ fb: 'evil.com/sara.k' }, 'fb'], [{ fb: "https://www.facebook.com/x'onmouseover=1" }, 'fb'], [{ fb: 'https://www.facebook.com/a(b)' }, 'fb'],
+      [{ fb: 'https://www.facebook.com/profile.php?id=12' }, 'fb'], [{ email: 'x' }, 'email'], [{ snapEmail: 'no' }, 'snapEmail'],
+      [{ whatsapp: '12' }, 'whatsapp'], [{ whatsapp: 'call me' }, 'whatsapp'], [{ consent: 'yes' }, 'consent']];
+    for (const [patch, field] of bad) assertEquals(await send({ ...good, ...patch }), [400, { error: 'field', field }], JSON.stringify(patch));
+    assertEquals(s.reqs.length, 0, 'nothing kept from a bad form');
+    // السليم: متنظّف ومتحفوظ، وإشعار واحد لصاحب الأداة
+    assertEquals(await send(good), [200, { ok: true }]);
+    const r = s.reqs[0];
+    assertEquals([r.email, r.name, r.store_url, r.fb_profile, r.platforms, r.snap_email, r.whatsapp, r.lang, r.consent_version, r.role],
+      ['sara@x.example', 'سارة ك', 'https://shop.example/a', 'https://www.facebook.com/sara.k', ['meta', 'snapchat'], 'sara@x.example', '+966 50 123 4567', 'en', '2026-10-26', 'media_buyer']);
+    assertEquals(s.mails.map((m) => m.to), [['support@adscenter.online']], 'one notice to the owner');
+    // نفس البريد تاني على طول: الطلب بيتحدّث (٢) من غير إشعار جديد (١٠ دقايق)
+    assertEquals(await send({ ...good, name: 'سارة' }), [200, { ok: true }]);
+    assertEquals([s.reqs.length, s.reqs[0].submissions, s.reqs[0].name, s.mails.length], [1, 2, 'سارة', 1]);
+    // «<script>» في رابط فيسبوك: بيتحفظ مترمّز على facebook.com (محلّل الروابط بيرمّز «<» و«>» في المسار) — مفيش «<» يوصل للإشعار
+    assertEquals(await send({ ...good, fb: 'https://www.facebook.com/<script>' }), [200, { ok: true }]);
+    assertEquals(s.reqs[0].fb_profile, 'https://www.facebook.com/%3Cscript%3E');
+    restoreDigestEnv();
+    // أكتر من ٣٠ في الساعة: «مشغول» ومفيش حفظ
+    s = fakeJoinDb({ recent: 31 });
+    assertEquals([await send(good), s.reqs.length], [[429, { error: 'busy' }], 0]);
+    restoreDigestEnv();
+    // حصة بريد اليوم خلصت: الطلب بيتحفظ والعميل بياخد «تم»، من غير إشعار (رموز الدخول والعاجل أولى بالحصة)
+    s = fakeJoinDb({ budget: false });
+    assertEquals([await send(good), s.reqs.length, s.mails.length, s.budget], [[200, { ok: true }], 1, 0, ['join', 'join-capped']]);
+  } finally { restoreDigestEnv(); }
+});
+Deno.test('رابط الدعوة: بالتوقيع بس، والعرض من غير الحقول الداخلية، والتفعيل يسمح بالدخول قبل الرسالة', async () => {
+  const sig = await linkSig('ads-center/join-invited/v1:', 'join:' + JOIN_ID);
+  const call = async (action: string, body: Record<string, unknown>) => { const r = await handleJoin(action, body, null); return [r.status, await r.json()]; };
+  try {
+    const s = fakeJoinDb();
+    s.reqs.push({ id: JOIN_ID, email: 'Sara@X.example', role: 'agency', name: 'سارة', business: 'B', store_url: 'https://shop.example/', country: 'C', platforms: ['meta'],
+      fb_profile: null, google_email: null, snap_email: null, whatsapp: null, lang: 'ar', status: 'new', submissions: 1, activated_at: null,
+      created_at: '2026-11-20T09:00:00Z', updated_at: '2026-11-20T09:00:00Z', consent_at: '2026-11-20T09:00:00Z' });
+    // توقيع غلط، أو رقم بحروف كبيرة، أو توقيع غرض تاني (رابط الإيقاف) = رفض
+    assertEquals(await call('join.peek', { id: JOIN_ID, sig: sig.slice(0, -1) + (sig.slice(-1) === 'A' ? 'B' : 'A') }), [403, { error: 'link' }]);
+    assertEquals(await call('join.peek', { id: JOIN_ID.toUpperCase(), sig }), [403, { error: 'link' }]);
+    assertEquals(await call('join.peek', { id: JOIN_ID, sig: await linkSig('ads-center/stop-link/v1:', 'join:' + JOIN_ID) }), [403, { error: 'link' }]);
+    assertEquals(await call('join.peek', { id: '99999999-2222-3333-4444-555555555555', sig: await linkSig('ads-center/join-invited/v1:', 'join:99999999-2222-3333-4444-555555555555') }),
+      [404, { error: 'gone' }], 'a signed link to a deleted request');
+    const [st, peek] = await call('join.peek', { id: JOIN_ID, sig });
+    assertEquals([st, peek.request.role, peek.request.email, 'consent_at' in peek.request, 'id' in peek.request], [200, 'وكالة تسويق', 'Sara@X.example', false, false],
+      'the role by name; no internal fields');
+    assertEquals([s.access.length, s.mails.length], [0, 0], 'looking sends nothing');
+    // التفعيل: الدخول مسموح (بريد صغير) قبل الرسالة، ورسالة للعميل نفسه، والطلب «مفعّل»
+    const [st2, act] = await call('join.activate', { id: JOIN_ID, sig });
+    assertEquals([st2, act.ok, act.request.status], [200, true, 'activated']);
+    assertEquals(s.access, [{ email: 'sara@x.example', role: 'pilot' }]);
+    assertEquals([s.mails.length, s.mails[0].to, s.reqs[0].status, !!s.reqs[0].activated_at], [1, ['Sara@X.example'], 'activated', true]);
+    assertEquals(await call('join.other', { id: JOIN_ID, sig }), [400, { error: 'action' }]);
+    restoreDigestEnv();
+    // الرسالة فشلت: 502 — والدخول اتسمح فعلاً (إعادة المحاولة بتعيد الرسالة بس)، والطلب لسه مش «مفعّل»
+    const s2 = fakeJoinDb({ mailFails: true });
+    s2.reqs.push({ ...s.reqs[0], status: 'new', activated_at: null });
+    assertEquals(await call('join.activate', { id: JOIN_ID, sig }), [502, { error: 'mail' }]);
+    assertEquals([s2.access.length, s2.reqs[0].status], [1, 'new']);
+  } finally { restoreDigestEnv(); }
 });
 
 // ---------- إعدادات التنبيهات لكل حساب إعلاني (مراجعة الإعدادات ٢٤ أكتوبر) ----------
