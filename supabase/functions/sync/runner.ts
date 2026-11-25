@@ -1238,10 +1238,14 @@ async function snapCandidates(ctx: SnapCtx, tz: string, period: Record<string, u
   const r = await snapCall(ctx, { action: 'ads', adAccountId: ctx.account, clientTz: tz, period });
   if (!r.ok || !r.data) return { cands: null, account: null, auth: r.auth };
   const p = r.data;
-  if (p.statsError || (needPeriod && !p.periodStats)) return { cands: null, account: p.account || null, auth: false };
+  // الفترة اللي رجعت لازم تبقى اللي اتطلبت بالظبط — زي الأداة (js/snapchat.js: «تعذّر تحميل الفترة»)، مش أرقام فترة تانية في البريد
+  const samePeriod = !needPeriod || (!!p.period && p.period.since === period.since && p.period.until === period.until);
+  if (p.statsError || (needPeriod && !p.periodStats) || !samePeriod) return { cands: null, account: p.account || null, auth: false };
   const list = p.ads || [];
+  // p.period = مدى الفترة زي الأداة (js/snapchat.js): الـ Worker بيرجّع أرقام الفترة يوم بيوم، ومن غير المدى التحويل بيقراها كأنها مجاميع فتطلع
+  // أصفار — سطر «التكلفة مقابل الحد» مكانش بيظهر في أي ملخص Snapchat (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١٢٢)
   const cands = list.length ? g.transformSnapchatAds(list, (p.stats && p.stats.timeseries_stats) || [], g.daysFromRange(p.range), p.account && p.account.currency,
-    p.squads, p.campaigns, p.periodStats, p.storeStats ? p.storeStats.timeseries_stats || [] : null, p.periodStoreStats, p.creatives, p.media) : [];
+    p.squads, p.campaigns, p.periodStats, p.storeStats ? p.storeStats.timeseries_stats || [] : null, p.periodStoreStats, p.creatives, p.media, p.period) : [];
   cands.forEach((c: any) => { c.source = 'snapchat:' + ctx.account; });
   return { cands, account: p.account || {}, auth: false };
 }

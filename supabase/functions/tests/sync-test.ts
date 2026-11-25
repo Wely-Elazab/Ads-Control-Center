@@ -2252,12 +2252,21 @@ function snapRunPayload(extra: Row = {}) {
     range: { since: '2026-11-11', until: '2026-11-18', timeZone: 'Asia/Riyadh' }, account: { timezone: 'Asia/Riyadh', currency: 'SAR' }, ...extra
   };
 }
+// رد الإعلانات لفترة الملخص: الإعلانين الكويسين ١٠٠ و٥ طلبات كل يوم، والمهدر ١٠٠ من غير طلبات — يوم بيوم زي الـ Worker الحقيقي
+function snapPeriodPayload(since: string, until: string) {
+  const M = 1000000, keys: string[] = [];
+  for (let d = Date.parse(since + 'T00:00:00Z'); d <= Date.parse(until + 'T00:00:00Z'); d += 86400000) keys.push(new Date(d).toISOString().slice(0, 10));
+  const row = (id: string, buys: number) => ({ id, timeseries: keys.map((k) => ({ start_time: k + 'T00:00:00.000+03:00',
+    stats: { spend: 100 * M, swipes: 40, conversion_purchases: buys, conversion_purchases_value: buys * 60 * M } })) });
+  return snapRunPayload({ periodStats: { timeseries_stats: [{ timeseries_stat: { breakdown_stats: { ad: [row('sgood1', 5), row('sgood2', 5), row('swaste', 0)] } } }] },
+    period: { since, until, timeZone: 'Asia/Riyadh', isDefault: false } });
+}
 async function snapWorld() {
   const st = runState(), seen: string[] = [], mails: any[] = [], probes: string[] = [], vaultErrors: string[] = [], errs: string[] = [], claims: Row[] = [], rotations: Row[] = [];
   st.user_digest_accounts = [{ user_id: RUN_U, platform: 'snapchat', account_id: 'S1', name: 'Snap Store', checked_at: '2026-11-18T06:00:00.000Z', claimed_until: null,
     need_summary: null, need_monthly: null, edits_at: null, retry_after: null }];
   st.user_settings = [{ user_id: RUN_U, settings: { acct: { 'snapchat:S1': { maxCost: { purchase: 20 } } } } }];
-  const ctl: { worker?: (body: any) => Response; expired?: boolean; payload: Row } = { payload: snapRunPayload() };
+  const ctl: { worker?: (body: any) => Response; expired?: boolean; payload: Row; periodShift?: 'since' | 'until' } = { payload: snapRunPayload() };
   const aad = sealedAad(RUN_U, 'snapchat', 'S1'), first = await seal(SNAP_SEALED_1, aad), eng = await engineFiles();
   // النسخة المحفوظة: vault_sealed_rotate بيبدّلها زي قاعدة البيانات الحقيقية، فالفحص الجاي بياخد الجديدة
   let stored = { ct: first.ct, iv: first.iv };
@@ -2278,16 +2287,24 @@ async function snapWorld() {
       const body = JSON.parse(String(init && init.body)), h = ((init && init.headers) || {}) as Record<string, string>;
       seen.push('worker ' + body.call.action + ' key=' + (h['x-runner-key'] === 'runner-key') + ' user=' + (body.user === RUN_U) + ' sealed=' + body.sealed);
       if (ctl.worker) return ctl.worker(body);
+      // فترة الملخص (preset custom): زي api/snapchat-ads-fetch.js — أرقام الفترة يوم بيوم (timeseries_stats) ومعاها المدى (period)
+      if (body.call.action === 'ads' && body.call.period && body.call.period.preset === 'custom') {
+        const pp: Row = snapPeriodPayload(body.call.period.since, body.call.period.until);
+        // ctl.periodShift: فترة غير اللي اتطلبت — من أولها أو من آخرها
+        if (ctl.periodShift) pp.period = { ...pp.period, [ctl.periodShift]: ctl.periodShift === 'since' ? '2026-11-14' : '2026-11-22' };
+        return json({ status: 200, data: pp, sealed: SNAP_SEALED_2 });
+      }
       if (body.call.action === 'ads') return json({ status: 200, data: ctl.payload, sealed: SNAP_SEALED_2 });
+      if (body.call.action === 'diagnosis') return json({ status: 200, data: { daily: [], dims: [], plat: null, numbers: null }, sealed: body.sealed });
       if (body.call.action === 'changes') return json({ status: 200, data: { changes: [], done: [] }, sealed: body.sealed });
       return json({ error: 'unexpected', code: 'SERVER' }, 500);
     }
     return eng(url) || json({ message: 'unexpected ' + url }, 500);
   });
   browserGuards();
-  const claim = () => {
-    Object.assign(st.user_digest_accounts[0], { claimed_until: new Date(Date.now() + 180000).toISOString() });
-    claims.push({ ...st.user_digest_accounts[0], urgent_due: true });
+  const claim = (urgent = true, need: string | null = null) => {
+    Object.assign(st.user_digest_accounts[0], { claimed_until: new Date(Date.now() + 180000).toISOString() }, need ? { need_summary: need } : {});
+    claims.push({ ...st.user_digest_accounts[0], urgent_due: urgent });
   };
   return { st, seen, mails, probes, vaultErrors, errs, rotations, aad, ctl, claim };
 }
@@ -2357,6 +2374,35 @@ Deno.test('المُشغّل كله لحساب Snapchat — الوصول: الـ 
     assertEquals(w.rotations.length, 1, 'the renewed copy is kept even when the numbers failed');
     assertEquals(w.seen.filter((x) => x.indexOf('worker ') === 0).slice(-2).map((x) => x.slice(x.indexOf('sealed=') + 7)), [SNAP_SEALED_2, SNAP_SEALED_2],
       'the later checks send the saved new copy');
+    assertEquals(w.errs, []);
+  });
+});
+// ملخص Snapchat (snapSummary): التقرير من الـ Worker (diagnosis)، وسطر «التكلفة مقابل الحد الذي حددته» من إعلانات الفترة — الـ Worker بيرجّعها يوم
+// بيوم (timeseries_stats) ومعاها المدى، والأداة بتدّي المدى للتحويل. المُشغّل مكانش بيدّيه، فأرقام الفترة كانت بتتقرا كأنها مجاميع وتطلع أصفار،
+// والسطر مبيظهرش في أي ملخص Snapchat (التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦، ١٢٢)
+Deno.test('المُشغّل كله لحساب Snapchat — الملخص: التقرير من الـ Worker، وسطر التكلفة مقابل الحد من أرقام الفترة يوم بيوم زي الأداة (١٢٢)', async () => {
+  await withSnapWorld(async (w) => {
+    fixedClock('2026-11-22T07:05:00.000Z');   // الأحد ١٠:٠٥ بالرياض — ميعاد الملخص للفترة ١٥–٢١
+    w.st.user_digest_accounts[0].checked_at = '2026-11-22T06:50:00.000Z';
+    w.claim(false, '2026-11-15..2026-11-21');
+    const r1 = await runAll('runner-key');
+    assertEquals([r1.claimed, r1.outcomes], [1, { 'snapchat:ok': 1 }], 'log: ' + w.errs.join(' | '));
+    const sec = w.st.digest_outbox.filter((r) => r.kind === 'summary')[0];
+    assert(sec && sec.payload.sum && sec.payload.sum.composed, 'the section: ' + JSON.stringify(w.st.digest_outbox).slice(0, 300));
+    assertEquals(sec.payload.name, 'Snap Store');
+    // ٢١٠٠ إنفاق و٧٠ طلب في الفترة = ٣٠ للطلب، والحد ٢٠
+    const cost = sec.payload.sum.composed.costCmp;
+    assert(typeof cost === 'string' && cost.indexOf('٣٠') > -1 && cost.indexOf('٢٠') > -1, 'cost per purchase 30 vs your limit 20: ' + JSON.stringify(cost));
+    assertEquals(w.seen.filter((x) => x.indexOf('worker ') === 0).map((x) => x.split(' ')[1]), ['ads', 'diagnosis', 'ads'], 'the week, the report, the period');
+    // الـ Worker رجّع فترة غير اللي اتطلبت: السطر مبيتكتبش من أرقام فترة تانية (زي الأداة «تعذّر تحميل الفترة»)، والملخص بيكمّل
+    for (const shift of ['since', 'until'] as const) {
+      w.ctl.periodShift = shift;
+      w.claim(false, '2026-11-15..2026-11-21');
+      const r2 = await runAll('runner-key');
+      assertEquals(r2.outcomes, { 'snapchat:ok': 1 }, shift + ' — log: ' + w.errs.join(' | '));
+      const again = w.st.digest_outbox.filter((r) => r.kind === 'summary')[0];
+      assertEquals(again.payload.sum.composed.costCmp, null, 'no cost line from another period (' + shift + ')');
+    }
     assertEquals(w.errs, []);
   });
 });
