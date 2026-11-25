@@ -8605,6 +8605,53 @@
         });
       } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
     });
+    // التدقيق الشامل ١٦ نوفمبر ٢٠٢٦ (٦٧ — دوال متنفّذتش في أي اختبار): آخر بديل لفيديو الكتالوج لما كل صيغ المعاينة تفشل (videoFallback):
+    // الملف المباشر بمشغّل المتصفح، وإلا إطار فيسبوك المعقّم، ورابط الفيديو على facebook.com بس — قيمة زي «@موقع-تاني/» كانت هتحوّل
+    // https://www.facebook.com@موقع-تاني/ لدومين تاني (حارسين، كل واحد كفاية لوحده: الرابط لازم يبدأ بـ «/»، ودومينه facebook.com — شيل
+    // واحد بس والتاني بيحمي، فالطفرة بتعدّي؛ شيلهم الاتنين والاختبار بيقع)، والرد المتأخر بعد ما إعلان تاني اتفتح ميكتبش فيه
+    test('Meta: فيديو الكتالوج لما كل المعاينات تفشل — الملف، أو إطار فيسبوك، ورابط على facebook.com بس، أو السبب', function () {
+      var hadFB = 'FB' in window, prevFB = window.FB, video = null, held = null, asked = [];
+      window.FB = { api: function (p, params, cb) {
+        asked.push(params.ad_format || p + '?' + params.fields);
+        if (params.ad_format) { cb({ error: { message: 'Preview Not Available' } }); return; }
+        if (video === 'hold') { held = cb; return; }
+        cb(video);
+      } };
+      var open = function (id, v) {
+        video = v; asked = [];
+        showMedia({ id: id, platform: 'Meta', format: 'video', catalog: true, videoId: '555', igPreview: false, themeClass: 'pv-t0' });
+        return document.querySelector('#expandPreview .pv-body');
+      };
+      try {
+        withLang('ar', function () {
+          // ١) الملف المباشر بغلافه، والرابط على facebook.com في تبويب جديد
+          var b = open('VF1', { source: 'https://video.xx.fbcdn.net/v.mp4', picture: 'https://x.fbcdn.net/p.jpg', permalink_url: '/shop/videos/555/' });
+          eq(asked, ['MOBILE_FEED_STANDARD', 'INSTAGRAM_STANDARD', 'INSTAGRAM_REELS', '/555?embed_html,source,permalink_url,picture'], 'the three formats first, then the video itself');
+          var v = b.querySelector('video.real-video');
+          ok(v && v.hasAttribute('controls') && v.getAttribute('poster') === 'https://x.fbcdn.net/p.jpg' && v.querySelector('source').getAttribute('src') === 'https://video.xx.fbcdn.net/v.mp4', 'the file, with its poster');
+          var a = b.querySelector('a.video-fallback-link');
+          eq([a && a.getAttribute('href'), a && a.getAttribute('target'), a && a.getAttribute('rel')], ['https://www.facebook.com/shop/videos/555/', '_blank', 'noopener noreferrer']);
+          // ٢) ملف مش http (javascript:) — إطار فيسبوك بداله؛ والرابط اللي بيحاول يروح لدومين تاني ميتحطّش
+          b = open('VF2', { source: 'javascript:alert(1)', embed_html: '<iframe src="https://www.facebook.com/plugins/video.php?href=x" width="560" height="315"></iframe>', permalink_url: '@evil.example/x' });
+          ok(!b.querySelector('video') && b.querySelector('.video-embed-wrap iframe[src^="https://www.facebook.com/plugins/video.php"]'), 'the Facebook player, not the bad file: ' + b.innerHTML);
+          ok(!b.querySelector('a'), 'no link to another site: ' + b.innerHTML);
+          // ٣) إطار من دومين تاني ورابط كامل لدومين تاني — ولا حاجة منهم: السبب بس
+          b = open('VF3', { embed_html: '<iframe src="https://evil.example/p"></iframe>', permalink_url: 'https://evil.example/x' });
+          ok(!b.querySelector('iframe, video, a') && b.querySelector('.video-fallback-note') && /تعذّر جلب الفيديو/.test(b.textContent), 'only the reason: ' + b.innerHTML);
+          // ٤) رد خطأ (من غير صلاحية على صفحة الفيديو)
+          b = open('VF4', { error: { code: 10, message: 'Application does not have permission' } });
+          ok(b.querySelector('.video-fallback-note') && !b.querySelector('video, iframe'), 'error reply: the reason');
+          // ٥) الرد المتأخر بعد ما إعلان تاني اتفتح ميكتبش فيه — ولا حتى في صندوق الإعلان القديم اللي خرج من الصفحة: عنصر الفيديو بيبدأ
+          // يحمّل حتى وهو برّه الصفحة (الكتابة هناك مكانتش هتبان، فالفحص ده بس اللي بيكشف غياب الحارس)
+          var b5 = open('VF5', 'hold'), b5html = b5.innerHTML;
+          ok(typeof held === 'function', 'VF5 is waiting for its video');
+          var b6 = open('VF6', { source: 'https://video.xx.fbcdn.net/6.mp4' }), html = b6.innerHTML;
+          held({ source: 'https://video.xx.fbcdn.net/5.mp4' });
+          eq(document.querySelector('#expandPreview .pv-body').innerHTML, html, 'a late reply for the closed ad changes nothing');
+          eq(b5.innerHTML, b5html, 'not even in its own box, now off the page (a video there would start loading)');
+        });
+      } finally { if (hadFB) window.FB = prevFB; else delete window.FB; }
+    });
     // حساب حقيقي ١٠ و١١ أكتوبر ٢٠٢٦: مكتبة فيسبوك على شبكة بطيئة كانت بتسيب «تعذّر تحميل الحسابات» — مع المفتاح الطلب بيروح Graph على طول
     testAsync('Meta: مع مفتاح في الجلسة الطلب بيروح Graph API على طول من غير مكتبة فيسبوك (GET وPOST وخطأ الشبكة)', function () {
       var prevFetch = window.fetch, hadFB = 'FB' in window, prevFB = window.FB, prevTok = sessionTokens.meta, calls = [];
