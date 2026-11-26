@@ -1149,6 +1149,27 @@
         eq([out.ads.length, out.storeMetrics, out.storePmax, out.storeUncovered, out.adTexts], [1, null, null, [], {}], 'ads still load, no comparison, no texts');
       }, function (e) { restore(); throw e; });
     });
+    // (١٣٤) رد ناجح فيه خطأ في نص البث أو مش مقروء: خطأ واضح بدل صفوف ناقصة من غير ما حد يعرف
+    testAsync('السيرفر: searchStream بخطأ في نص البث أو برد مش مقروء = خطأ ٥٠٢ مش صفوف ناقصة', function () {
+      var realFetch = window.fetch, mode = 'mid';
+      window.fetch = function () {
+        if (mode === 'mid') return json([{ results: [{ campaign: { id: '1' } }] }, { error: { message: 'Deadline exceeded', details: [{ errors: [{ message: 'Deadline exceeded', errorCode: { internalError: 'DEADLINE_EXCEEDED' } }] }] } }]);
+        if (mode === 'garbage') return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.reject(new SyntaxError('bad json')); } });
+        return json([{ results: [{ campaign: { id: '1' } }] }, { results: [{ campaign: { id: '2' } }] }]);
+      };
+      var opts = { accessToken: 't', customerId: '1234567890' };
+      return import('/api/_google.js').then(function (g) {
+        return g.gaql(opts, 'SELECT campaign.id FROM campaign').then(function () { throw new Error('should fail'); }, function (e) {
+          eq([e.status, e.code, e.message], [502, 'DEADLINE_EXCEEDED', 'Deadline exceeded'], 'an error inside the stream');
+          mode = 'garbage';
+          return g.gaql(opts, 'SELECT campaign.id FROM campaign');
+        }).then(function () { throw new Error('should fail'); }, function (e) {
+          eq([e.status, e.code], [502, 'SERVER'], 'an unreadable reply = the tool\'s general message');
+          mode = 'fine';
+          return g.gaql(opts, 'SELECT campaign.id FROM campaign');
+        }).then(function (rows) { eq(rows.map(function (r) { return r.campaign.id; }), ['1', '2'], 'chunks still join'); });
+      }).then(function () { window.fetch = realFetch; }, function (e) { window.fetch = realFetch; throw e; });
+    });
     testAsync('السيرفر: الفجوات بالأرقام (storeGaps) ونص الإعلانات اللي مش بحث (adText)', function () {
       return import('/api/_google.js').then(function (g) {
         var r = function (k, type, lag, n) { return { k: k, segments: { conversionAttributionEventType: type, conversionLagBucket: lag }, metrics: { conversions: n } }; };

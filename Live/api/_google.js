@@ -147,8 +147,19 @@ export async function gaql(opts, query) {
     err.code = googleErrorCode(data);
     throw err;
   }
+  // رد ناجح بس مش مقروء، أو فيه خطأ في نص البث (searchStream بيبعت أجزاء — الجزء اللي فيه error معناه إن الباقي مجاش): الصفوف ناقصة،
+  // وأرقام ناقصة من غير ما حد يعرف أسوأ من خطأ واضح (التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦، ١٣٤). الاستعلامات الاختيارية بتمسك الخطأ لوحدها
+  const chunks = Array.isArray(data) ? data : [data];
+  const broken = data === null ? { error: { message: 'HTTP ' + response.status } } : chunks.filter(function (c) { return c && c.error; })[0];
+  if (broken) {
+    const err = new Error(googleErrorMessage([broken], 502));
+    err.status = 502;
+    // من غير رمز من Google = رسالة الأداة العامة («خطأ غير متوقع» — core.js SERVER_ERROR_KEYS) بدل «HTTP 200»
+    err.code = googleErrorCode([broken]) || 'SERVER';
+    throw err;
+  }
   let rows = [];
-  (Array.isArray(data) ? data : [data]).forEach(function (chunk) {
+  chunks.forEach(function (chunk) {
     if (chunk && chunk.results) rows = rows.concat(chunk.results);
   });
   return rows;
