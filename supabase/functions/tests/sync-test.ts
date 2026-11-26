@@ -3421,3 +3421,29 @@ Deno.test('المُشغّل — قائمة الإعلانات من Meta وقعت
     assertEquals([w.mails.length, w.st.digest_outbox.length], [1, 0], 'nothing new queued or sent');
   });
 });
+// تنبيه واحد لكل مجموعة إعلانية (alerts.js mergeBySet — ISA-18.2): الإعلانات اللي اتدمجت في تنبيه المضيف لازم تفضل «قائمة» في البصمات — من غيرها
+// كانت هتتقفل «حُلّت» بعد ٢٤ ساعة وهي لسه بتهدر، وترجع كأنها جديدة (فرع متنفّذش قبل كده — قياس الفروع ٢٦ نوفمبر ٢٠٢٦). بالمحرك الحقيقي
+Deno.test('قرار العاجل — إعلانين بيهدروا في نفس المجموعة: تنبيه واحد، والتاني «قائم» في البصمات مش «حُلّ»', () => {
+  const G = globalThis as any;
+  const keys = G.last7Days(G.todayKeyInTz('UTC')).slice(-7).map((d: any) => d.key);
+  const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+  const ad = (id: string, daily: number[], res: number[], adsetId: string | null) => {
+    const spend = sum(daily), r = sum(res);
+    return { id, nativeId: id, platform: 'Meta', source: 'meta:act_1', placement: 'Camp', campaignId: 'c1', campaignName: 'Camp', adsetName: 'Set', offer: 'Ad ' + id,
+      headline: 'H', desc: '', caption: 'C', format: 'image', themeClass: 'pv-t1', thumbUrl: null, landing: 'https://example.com', landingKind: 'website', active: true,
+      pausedLevel: null, daily, dailyResults: res, dailySales: [0, 0, 0, 0, 0, 0, 0], dailyDates: keys, spend, results: r, resultKey: 'purchase', cpr: r ? spend / r : null,
+      roas: null, frequency: null, daysAgo: 30, updatedDaysAgo: 5, currency: 'SAR', reviewStatus: null, deliveryReason: null, platformStatus: 'ACTIVE', period: null,
+      adsetId, statusPartial: false, plat: null, baseStore: false, setLearns: true };
+  };
+  const n = (v: number) => [v, v, v, v, v, v, v];
+  const W = [100, 100, 100, 100, 100, 100, 20], R = [5, 5, 5, 0, 0, 0, 0];
+  const cands = [ad('good1', n(100), n(5), 's0'), ad('good2', n(100), n(5), 's0'), ad('waste', W, R, 's1'), ad('waste2', W, R, 's1')];
+  const acct = { id: 'act_1', name: 'A', currency: 'SAR', timezone_name: 'UTC', account_status: 1, spend_cap: '0', amount_spent: '0' };
+  const fam = familyOf('waste');
+  const u = urgentAlerts('act_1', acct, cands, null, { maxCost: { purchase: 20 } });
+  const wasteAlerts = u.urgent.filter((a: any) => a.code === 'waste');
+  assertEquals(wasteAlerts.length, 1, 'one alert for the set: ' + JSON.stringify(u.urgent.map((a: any) => [a.code, a.adId])));
+  const host = wasteAlerts[0], other = host.adId === 'waste' ? 'waste2' : 'waste';
+  assertEquals(host.setMerged, [other], 'the other ad is merged into it');
+  assert(u.alive[fam + '|' + other], 'the merged ad stays open in the marks: ' + JSON.stringify(Object.keys(u.alive)));
+});
