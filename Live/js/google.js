@@ -7,15 +7,19 @@
 // أي كود بيتنفّذ وقت التحميل مسموحله يستخدم اللي في الملفات اللي قبله بس — الباقي جوه دوال.
 
   // ---------- Google Identity Services SDK ----------
-  (function (d, s, id) {
-    var js, fjs = d.getElementsByTagName(s)[0];
+  // بتتحمّل بس لو الدخول بالنافذة القديمة هو اللي هيشتغل (الخادم مش جاهز للدخول بمفتاح تجديد — probeGoogleCodeFlow تحت). التدقيق الشامل
+  // ٢٦ نوفمبر ٢٠٢٦: كانت بتتحمّل من accounts.google.com مع كل فتح للأداة، وطريقة الدخول الشغّالة (إعادة التوجيه) مبتستعملهاش خالص —
+  // طلب لطرف تالت (عنوان الجهاز ونوع المتصفح) ووزن زيادة من غير لازمة
+  function loadGoogleSdk() {
+    var d = document, id = 'google-identity-sdk';
     if (d.getElementById(id)) return;
-    js = d.createElement(s); js.id = id; js.async = true; js.defer = true;
+    var js = d.createElement('script'), fjs = d.getElementsByTagName('script')[0];
+    js.id = id; js.async = true; js.defer = true;
     js.src = 'https://accounts.google.com/gsi/client';
     // المكتبة ممكن تتمنع (إضافة حجب، إعدادات خصوصية) — بنقول كده بدل «قيد التحميل» على طول
     js.onerror = function () { googleSdkFailed = true; };
-    fjs.parentNode.insertBefore(js, fjs);
-  }(document, 'script', 'google-identity-sdk'));
+    if (fjs && fjs.parentNode) fjs.parentNode.insertBefore(js, fjs); else d.head.appendChild(js);
+  }
   var googleSdkFailed = false;
 
   // ---------- Google Identity Services (خطوة تسجيل الدخول فقط دلوقتي) ----------
@@ -35,7 +39,11 @@
   var googleCodeFlow = false;
   function probeGoogleCodeFlow() {
     preparePkce(); // زوج PKCE جاهز قبل أول ضغطة (loginWithGoogleRedirect تحت)
-    apiPost('/api/google-token', { probe: true }).then(function (res) { googleCodeFlow = !!(res.ok && res.data && res.data.codeFlow === true); });
+    // الخادم مش جاهز (أو مردّش): النافذة القديمة هي اللي هتشتغل، فمكتبتها بتتحمّل من دلوقتي — لازم تبقى جاهزة لحظة الضغط
+    apiPost('/api/google-token', { probe: true }).then(function (res) {
+      googleCodeFlow = !!(res.ok && res.data && res.data.codeFlow === true);
+      if (!googleCodeFlow) loadGoogleSdk();
+    });
   }
   // ---------- PKCE (RFC 7636) — التدقيق الشامل ١٣ نوفمبر ٢٠٢٦، النتيجة ١١ ----------
   // RFC 9700 §2.1.1 بيوصي بـ PKCE حتى للعميل السري: مفتاح عشوائي بيفضل في التاب (sessionStorage) ومبيطلعش إلا مع تبادل الكود
@@ -145,6 +153,7 @@
   function loginWithGoogle() {
     if (googleCodeFlow) { loginWithGoogleRedirect(); return; }
     if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+      loadGoogleSdk();   // لو رد الفحص لسه موصلش — المحاولة الجاية بتلاقيها
       setStatus(msg(googleSdkFailed ? 's.googleSdkBlocked' : 's.googleSdkLoading'));
       return;
     }
@@ -251,10 +260,10 @@
         fail(msg('s.adsFailed', { platform: 'Google Ads', msg: apiErrorText(res) }));
         return;
       }
-      var days = daysFromRange(payload.range);
+      var days = daysFromRange(payload.range), extra = googleExtra(payload);
       // حملات Performance Max بتتعرض ككارت لكل حملة جنب الإعلانات (Google مبترجّعش إعلاناتها منفصلة)
       var pmaxCandidates = transformGooglePmax(payload.pmax, payload.pmaxPeriod, days, info.currency, payload.storePmax, payload.storePmaxPeriod,
-        payload.pmaxPeriodDaily, payload.storePmaxPeriodDaily, payload.period);
+        payload.pmaxPeriodDaily, payload.storePmaxPeriodDaily, payload.period, extra);
       if ((!payload.ads || !payload.ads.length) && !pmaxCandidates.length) {
         setPlatformState('google', { kind: 'empty' });
         setLoading('google', false, msg('s.noAdsGoogle'));
@@ -262,7 +271,7 @@
         return;
       }
       var googleCandidates = googleWholeOrders(transformGoogleRows(payload.ads || [], payload.metrics || [], days, info.currency, payload.periodMetrics,
-        payload.storeMetrics, payload.storePeriodMetrics, payload.periodDaily, payload.storePeriodDaily, payload.period).concat(pmaxCandidates));
+        payload.storeMetrics, payload.storePeriodMetrics, payload.periodDaily, payload.storePeriodDaily, payload.period, extra).concat(pmaxCandidates));
       mergeCandidates(googleCandidates, 'google:' + customerId);
       cacheSource('google:' + customerId, googleCandidates);
       setPlatformState('google', null);
@@ -298,10 +307,10 @@
       if (!isCurrentLoad('google', token)) return;
       var d = res.data;
       if (!res.ok || !d || d.error || !Array.isArray(d.periodMetrics) || !d.period || d.period.since !== w.since || d.period.until !== w.until) { gone(); return; }
-      var days = daysFromRange(d.range);
-      var pmax = transformGooglePmax(d.pmax, d.pmaxPeriod, days, info.currency, d.storePmax, d.storePmaxPeriod, d.pmaxPeriodDaily, d.storePmaxPeriodDaily, d.period);
+      var days = daysFromRange(d.range), extra = googleExtra(d);
+      var pmax = transformGooglePmax(d.pmax, d.pmaxPeriod, days, info.currency, d.storePmax, d.storePmaxPeriod, d.pmaxPeriodDaily, d.storePmaxPeriodDaily, d.period, extra);
       var list = googleWholeOrders(transformGoogleRows(d.ads || [], d.metrics || [], days, info.currency, d.periodMetrics,
-        d.storeMetrics, d.storePeriodMetrics, d.periodDaily, d.storePeriodDaily, d.period).concat(pmax));
+        d.storeMetrics, d.storePeriodMetrics, d.periodDaily, d.storePeriodDaily, d.period, extra).concat(pmax));
       var byId = {};
       list.forEach(function (c) { byId[c.id] = c.period || null; });
       // أرقام PMax للمدى فشلت: كل حملات PMax اللي في الكروت من غير مقارنة — حملة مش في الرد كانت هتبان «صفر» (مصرفتش) وهي مش معروفة
@@ -340,14 +349,31 @@
   // Google بترجّع primary_status = حالة التشغيل الفعلية، و primary_status_reasons = السبب بالظبط
   // (الحملة متوقفة، المجموعة متوقفة، مدة الحملة خلصت، الإعلان مرفوض...). بنترجم كلامها هي،
   // ومنستنتجش من الحالة اليدوية (status) غير لما الحقول دي متكونش موجودة
+  // أسماء الأسباب من وثائق AdGroupAdPrimaryStatusReason v24 (التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦): أسباب الإعلان نفسه اسمها AD_GROUP_AD_…
+  // — الأسماء القديمة هنا (AD_PAUSED وAD_DISAPPROVED…) مكانتش موجودة عند Google أصلاً، فالإعلان المرفوض كان بيطلع «غير مؤهل» مش «مرفوض».
+  // أسباب «الظهور المحدود» (LIMITED) مش هنا: الإعلان شغّال. والطعن (UNDER_APPEAL) Google بيقول إنه مبيأثرش على الحالة
   var GOOGLE_REASON_LEVEL = {
     CAMPAIGN_REMOVED: 'campaign', CAMPAIGN_PAUSED: 'campaign', CAMPAIGN_PENDING: 'scheduled', CAMPAIGN_ENDED: 'ended',
     AD_GROUP_PAUSED: 'adset', AD_GROUP_REMOVED: 'adset',
-    AD_REMOVED: 'ad', AD_PAUSED: 'ad',
-    AD_DISAPPROVED: 'rejected', AD_UNDER_REVIEW: 'pending', AD_UNDER_APPEAL: 'pending',
-    AD_LIMITED_BY_POLICY: 'not-eligible', AD_APPROVED_LABELED: 'not-eligible', AD_AREA_OF_INTEREST_ONLY: 'not-eligible',
-    AD_GROUP_AD_NOT_ELIGIBLE: 'not-eligible'
+    AD_GROUP_AD_REMOVED: 'ad', AD_GROUP_AD_PAUSED: 'ad',
+    AD_GROUP_AD_DISAPPROVED: 'rejected', AD_GROUP_AD_UNDER_REVIEW: 'pending', AD_GROUP_AD_NO_ADS: 'pending'
   };
+  // وقوف بقرار المعلن (إيقاف، حذف، انتهاء المدة، مجدول) أولى من أي سبب من المنصة: إعلان مرفوض جوه حملة المعلن وقّفها مش «توقف فجأة»
+  var GOOGLE_INTENDED = { campaign: 1, adset: 1, ad: 1, ended: 1, scheduled: 1 };
+  // أسباب ملهاش معنى للمستخدم (قيمة جديدة الإصدار ده مبيعرفش اسمها) — مبتتعرضش
+  var GOOGLE_NO_REASON = { UNKNOWN: 1, UNSPECIFIED: 1 };
+  function googleReasonLevel(reasons, map) {
+    var found = null;
+    for (var i = 0; i < reasons.length; i++) {
+      var lv = map[reasons[i]];
+      if (lv && GOOGLE_INTENDED[lv]) return lv;
+      if (lv && !found) found = lv;
+    }
+    return found;
+  }
+  function googleReasonText(reasons) {
+    return reasons.filter(function (r) { return r && !GOOGLE_NO_REASON[r]; }).join(', ');
+  }
   var GOOGLE_PRIMARY_LEVEL = {
     ELIGIBLE: null, LIMITED: null,               // شغّال (مع ملاحظة في حالة LIMITED)
     PAUSED: 'ad', REMOVED: 'ad', ENDED: 'ended', PENDING: 'pending', NOT_ELIGIBLE: 'not-eligible'
@@ -360,11 +386,8 @@
     if (primary) {
       var level = GOOGLE_PRIMARY_LEVEL[primary];
       if (level === null) return { active: true, level: null, reason: null }; // ELIGIBLE / LIMITED
-      // السبب الأول اللي نعرفه بيحدد المستوى بدقة أكتر من الحالة العامة
-      for (var i = 0; i < reasons.length; i++) {
-        if (GOOGLE_REASON_LEVEL[reasons[i]]) return off(GOOGLE_REASON_LEVEL[reasons[i]], reasons.join(', '));
-      }
-      return off(level || 'ad', reasons.join(', ') || primary);
+      // السبب اللي نعرفه بيحدد المستوى بدقة أكتر من الحالة العامة (قرار المعلن الأول — googleReasonLevel)
+      return off(googleReasonLevel(reasons, GOOGLE_REASON_LEVEL) || level || 'ad', googleReasonText(reasons) || primary);
     }
 
     // احتياطي: الحقول الجديدة مش موجودة، فبنرجع للحالة اليدوية بس
@@ -383,18 +406,38 @@
     PAUSED: 'campaign', REMOVED: 'campaign', ENDED: 'ended', PENDING: 'scheduled',
     MISCONFIGURED: 'not-eligible', NOT_ELIGIBLE: 'not-eligible'
   };
+  // أسباب وقوف الحملة (وثائق CampaignPrimaryStatusReason v24 — التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦، حساب حقيقي): حملة PMax المعلن وقّف كل
+  // مجموعات مواد العرض فيها حالتها NOT_ELIGIBLE بسبب ASSET_GROUPS_PAUSED، وكانت بتطلع تنبيه «عاجل: إعلان نشط توقف فجأة». قرار المعلن
+  // (إيقاف، مسودة، انتهاء) = وقوف مقصود من غير تنبيه، وأسباب المنصة (رفض، مراجعة) بمستواها. أسباب زي «التعلّم» و«الميزانية» مش سبب وقوف
+  var GOOGLE_CAMPAIGN_REASON_LEVEL = {
+    CAMPAIGN_PAUSED: 'campaign', CAMPAIGN_REMOVED: 'campaign', CAMPAIGN_GROUP_PAUSED: 'campaign',
+    ASSET_GROUPS_PAUSED: 'adset', AD_GROUPS_PAUSED: 'adset', KEYWORDS_PAUSED: 'adset', AD_GROUP_ADS_PAUSED: 'ad',
+    CAMPAIGN_ENDED: 'ended', CAMPAIGN_GROUP_ALL_GROUP_BUDGETS_ENDED: 'ended',
+    CAMPAIGN_PENDING: 'scheduled', CAMPAIGN_DRAFT: 'scheduled',
+    HAS_ASSET_GROUPS_DISAPPROVED: 'rejected', HAS_ADS_DISAPPROVED: 'rejected',
+    MOST_ASSET_GROUPS_UNDER_REVIEW: 'pending', MOST_ADS_UNDER_REVIEW: 'pending'
+  };
   function googleCampaignDelivery(camp) {
     var primary = camp.primaryStatus, reasons = camp.primaryStatusReasons || [];
     if (primary) {
       var level = GOOGLE_CAMPAIGN_PRIMARY_LEVEL[primary];
       if (level === null) return { active: true, level: null, reason: null };
-      return { active: false, level: level || 'campaign', reason: reasons.join(', ') || primary };
+      return { active: false, level: googleReasonLevel(reasons, GOOGLE_CAMPAIGN_REASON_LEVEL) || level || 'campaign', reason: googleReasonText(reasons) || primary };
     }
     // احتياطي لو حقول primary_status اترفضت: الحالة اليدوية بس
     if (camp.status && camp.status !== 'ENABLED') return { active: false, level: 'campaign', reason: null };
     return { active: true, level: null, reason: null };
   }
   // ---------- «الأقرب للمتجر» (api/_google.js) ----------
+  // إضافات الرد (التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦): gaps = مفاتيح Google مصنّفش تحويلاتها (رقم المنصة من غير مقارنة بدل «صفر» غلط —
+  // حملات Performance Max في حساب حقيقي)، وtexts = نص الإعلانات اللي مش بحث (بدل «Google #رقم»)
+  function googleExtra(payload) {
+    var gaps = {}, texts = {};
+    (payload && Array.isArray(payload.storeUncovered) ? payload.storeUncovered : []).forEach(function (g) { if (g && g.k != null) gaps[String(g.k)] = true; });
+    var raw = payload && payload.adTexts;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) Object.keys(raw).forEach(function (k) { if (typeof raw[k] === 'string' && raw[k]) texts[k] = raw[k]; });
+    return { gaps: gaps, texts: texts };
+  }
   // صفوف تحويلات بس (النقرة خلال ٧ أيام) — بنجمعها لكل مفتاح، ولكل يوم لو daily. null = مفيش مقارنة
   function googleStoreSums(rows, keyOf, daily) {
     if (!Array.isArray(rows)) return null;
@@ -531,7 +574,9 @@
   // dailyRows: صف لكل حملة × يوم فيه صرف (آخر ٧ أيام) — periodRows: صف لكل حملة في الفترة المختارة
   // storeDaily/storePeriod: «الأقرب للمتجر» لنفس الحملات (null = مفيش مقارنة)
   // pDaily/storePDaily = الفترة يوم بيوم لكل حملة، وpRange = مداها (٣ نوفمبر ٢٠٢٦ — زي الإعلانات في transformGoogleRows)
-  function transformGooglePmax(dailyRows, periodRows, days, currency, storeDaily, storePeriod, pDaily, storePDaily, pRange) {
+  // extra = googleExtra: الحملة اللي Google مصنّفش تحويلاتها بتاخد رقم المنصة من غير مقارنة
+  function transformGooglePmax(dailyRows, periodRows, days, currency, storeDaily, storePeriod, pDaily, storePDaily, pRange, extra) {
+    var gaps = (extra && extra.gaps) || {};
     var campOf = function (row) { return ggPick(row, 'campaign.id'); };
     var storeByDate = googleStoreSums(storeDaily, campOf, true);
     var storeTotals = Array.isArray(periodRows) ? googleStoreSums(storePeriod, campOf, false) : null;
@@ -576,11 +621,14 @@
     }
     return order.map(function (campId) {
       var e = byCamp[campId], camp = e.camp;
-      var pg = pDays ? googleDays(pDays, e.pPerDay || {}, pStoreByDate && (pStoreByDate[campId] || {})) : null;
+      // Google مصنّفش تحويلات الحملة دي (api/_google.js storeGaps): من غير «الأقرب للمتجر» خالص — رقم المنصة هو رقم الكارت
+      var gap = !!gaps[String(campId)];
+      var sDay = gap ? null : storeByDate, sTot = gap ? null : storeTotals, sPDay = gap ? null : pStoreByDate;
+      var pg = pDays ? googleDays(pDays, e.pPerDay || {}, sPDay && (sPDay[campId] || {})) : null;
       var pd = pg ? googlePd(pg, pDays) : null;
       var id = 'gp-' + campId;
       var delivery = googleCampaignDelivery(camp);
-      var g = googleDays(days, e.perDay, storeByDate && (storeByDate[campId] || {}));
+      var g = googleDays(days, e.perDay, sDay && (sDay[campId] || {}));
       var daily = g.daily, dailyResults = g.dailyResults, dailySales = g.dailySales;
       var spend = daily.slice(0, daily.length - 1).reduce(function (a, b) { return a + b; }, 0);
       var totalResults = Math.round(g.raw);
@@ -611,9 +659,9 @@
         pausedLevel: delivery.level,
         deliveryReason: delivery.reason || null,
         platformStatus: camp.primaryStatus || camp.status || null,
-        period: pg ? googlePeriodFromDays(pg, pd, !!pStoreByDate) : googlePeriod(pRow, storeTotals && (storeTotals[campId] || { results: 0, sales: 0 })),
-        plat: storeByDate ? { results: Math.round(g.platRaw), sales: g.platSales } : null,
-        _raw: googleRaw(g, !!storeByDate, pRow, storeTotals && (storeTotals[campId] || { results: 0, sales: 0 }), pg, !!pStoreByDate),
+        period: pg ? googlePeriodFromDays(pg, pd, !!sPDay) : googlePeriod(pRow, sTot && (sTot[campId] || { results: 0, sales: 0 })),
+        plat: sDay ? { results: Math.round(g.platRaw), sales: g.platSales } : null,
+        _raw: googleRaw(g, !!sDay, pRow, sTot && (sTot[campId] || { results: 0, sales: 0 }), pg, !!sPDay),
         fail: false
       };
     });
@@ -623,7 +671,9 @@
   // المفتاح adGroupId-adId لأن نفس الإعلان ممكن يتكرر في أكتر من مجموعة إعلانية
   // storeRows/storePeriodRows: «الأقرب للمتجر» لنفس الإعلانات (null = مفيش مقارنة)
   // pDaily/storePDaily = صفوف الفترة يوم بيوم، وpRange = مداها (٣ نوفمبر ٢٠٢٦ — تقييم الفترة في ui.js من أيامها pd)
-  function transformGoogleRows(adRows, metricRows, days, currency, periodRows, storeRows, storePeriodRows, pDaily, storePDaily, pRange) {
+  // extra = googleExtra: مفاتيح من غير «الأقرب للمتجر» (Google مصنّفش تحويلاتها) ونص الإعلانات اللي مش بحث
+  function transformGoogleRows(adRows, metricRows, days, currency, periodRows, storeRows, storePeriodRows, pDaily, storePDaily, pRange, extra) {
+    var gaps = (extra && extra.gaps) || {}, texts = (extra && extra.texts) || {};
     var adKeyOf = function (row) { var g = ggPick(row, 'adGroup.id'), a = ggPick(row, 'adGroupAd.ad.id'); return g && a ? g + '-' + a : null; };
     var storeByDate = googleStoreSums(storeRows, adKeyOf, true);
     var storeTotals = Array.isArray(periodRows) ? googleStoreSums(storePeriodRows, adKeyOf, false) : null;
@@ -669,18 +719,23 @@
     return adRows.map(function (row) {
       var ad = ggPick(row, 'adGroupAd.ad') || {};
       var key = ggPick(row, 'adGroup.id') + '-' + ad.id;
-      var pg = pByDate ? googleDays(pDays, pByDate[key] || {}, pStoreByDate && (pStoreByDate[key] || {})) : null;
+      // Google مصنّفش تحويلات الإعلان ده (api/_google.js storeGaps): رقم المنصة من غير مقارنة
+      var gap = !!gaps[key];
+      var sDay = gap ? null : storeByDate, sTot = gap ? null : storeTotals, sPDay = gap ? null : pStoreByDate;
+      var pg = pByDate ? googleDays(pDays, pByDate[key] || {}, sPDay && (sPDay[key] || {})) : null;
       var pd = pg ? googlePd(pg, pDays) : null;
       var id = 'g-' + key;
       var pRow = periodByKey && (periodByKey[key] || { spend: 0, results: 0, sales: 0 });
+      // العنوان: البحث، ثم نص الإعلانات التانية (texts)، ثم اسم الإعلان، ثم اسم مجموعته (إعلانات الاتصال نصها مش متاح في v24) —
+      // «Google #رقم» آخر حاجة بس (التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦: كروت التطبيقات والاتصال كانت كلها بالأرقام)
       var headline = (ggPick(ad, 'responsiveSearchAd.headlines.0.text')) ||
-        (ggPick(ad, 'expandedTextAd.headlinePart1')) || ad.name || ('Google #' + ad.id);
+        (ggPick(ad, 'expandedTextAd.headlinePart1')) || texts[key] || ad.name || ggPick(row, 'adGroup.name') || ('Google #' + ad.id);
       var desc = (ggPick(ad, 'responsiveSearchAd.descriptions.0.text')) ||
         (ggPick(ad, 'expandedTextAd.description')) || '';
       var adStatus = ggPick(row, 'adGroupAd.status'), agStatus = ggPick(row, 'adGroup.status'), campStatus = ggPick(row, 'campaign.status');
       var approval = ggPick(row, 'adGroupAd.policySummary.approvalStatus');
       var delivery = googleDelivery(row, adStatus, agStatus, campStatus, approval);
-      var g = googleDays(days, byDate[key] || {}, storeByDate && (storeByDate[key] || {}));
+      var g = googleDays(days, byDate[key] || {}, sDay && (sDay[key] || {}));
       var daily = g.daily, dailyResults = g.dailyResults, dailySales = g.dailySales;
       var spend = daily.slice(0, daily.length - 1).reduce(function (a, b) { return a + b; }, 0);
       var totalResults = Math.round(g.raw);
@@ -716,9 +771,9 @@
         pausedLevel: delivery.level,
         deliveryReason: delivery.reason || null,
         platformStatus: ggPick(row, 'adGroupAd.primaryStatus') || adStatus || null,
-        period: pg ? googlePeriodFromDays(pg, pd, !!pStoreByDate) : googlePeriod(pRow, storeTotals && (storeTotals[key] || { results: 0, sales: 0 })),
-        plat: storeByDate ? { results: Math.round(g.platRaw), sales: g.platSales } : null,
-        _raw: googleRaw(g, !!storeByDate, pRow, storeTotals && (storeTotals[key] || { results: 0, sales: 0 }), pg, !!pStoreByDate),
+        period: pg ? googlePeriodFromDays(pg, pd, !!sPDay) : googlePeriod(pRow, sTot && (sTot[key] || { results: 0, sales: 0 })),
+        plat: sDay ? { results: Math.round(g.platRaw), sales: g.platSales } : null,
+        _raw: googleRaw(g, !!sDay, pRow, sTot && (sTot[key] || { results: 0, sales: 0 }), pg, !!sPDay),
         _resourceName: row.adGroupAd && row.adGroupAd.resourceName,
         fail: false
       };

@@ -2,7 +2,7 @@
 // GOOGLE_ADS_DEVELOPER_TOKEN اختياري: من ٩ سبتمبر ٢٠٢٦ Google بتحدد الصلاحية من مشروع Google Cloud
 // اللي طلع منه مفتاح الدخول، والـ developer token لو اتبعت بيتجاهل (بنسيبه لو موجود للتوافق)
 
-import { gaql, adKey, missingSpendKeys, STORE_SEGMENTS, STORE_FILTER, storeRow } from './_google.js';
+import { gaql, adKey, missingSpendKeys, STORE_SEGMENTS, storeRow, storeGaps, AD_TEXT_FIELDS, adText } from './_google.js';
 import { last7DaysRange, resolvePeriod } from './_dates.js';
 import { guardRequest } from './_cors.js';
 import { verifyGoogleToken, sendVerifyFailure } from './_verify.js';
@@ -108,14 +108,20 @@ export default async function handler(req, res) {
     .catch(function () { return gaql(opts, pmaxQuery(false, since, until, daily)); });
 
   // «الأقرب للمتجر» جنب أرقام المنصة (_google.js): استعلامات تحويلات بس، للإعلانات ولحملات PMax، لآخر ٧ أيام
-  // وللفترة المختارة. فشلها = null، والأداة بتعرض رقم المنصة زي الأول من غير مقارنة
+  // وللفترة المختارة. فشلها = null، والأداة بتعرض رقم المنصة زي الأول من غير مقارنة.
+  // من غير فلتر النوع والمدة في WHERE (التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦): الصفوف كلها بتيجي، وstoreRow بيفلترها هنا (onlyStore)،
+  // وstoreGaps بيقارنها برقم المنصة لنفس المفتاح — المفتاح اللي Google مصنّفش تحويلاته بيرجع في storeUncovered
   const storeQuery = (from, select, since, until, daily, where) => `
     SELECT ${select},${daily ? ' segments.date,' : ''} ${STORE_SEGMENTS}, metrics.conversions, metrics.conversions_value
     FROM ${from}
-    WHERE segments.date BETWEEN '${since}' AND '${until}'${where || ''}${STORE_FILTER}
+    WHERE segments.date BETWEEN '${since}' AND '${until}'${where || ''}
   `;
-  const storeRows = (query) => gaql(opts, query).then(function (rows) { return rows.filter(storeRow); }).catch(function () { return null; });
+  const segRows = (query) => gaql(opts, query).catch(function () { return null; });
+  const onlyStore = (rows) => Array.isArray(rows) ? rows.filter(storeRow) : null;
   const PMAX_ONLY = " AND campaign.advertising_channel_type = 'PERFORMANCE_MAX'";
+  const campOf = (row) => row && row.campaign && row.campaign.id;
+  // نص الإعلانات اللي مش بحث (_google.js adText): استعلام لوحده عشان أي حقل يترفض ميوقفش الإعلانات — فشله = الاسم الاحتياطي زي الأول
+  const textsQuery = 'SELECT ad_group.id, ad_group_ad.ad.id, ' + AD_TEXT_FIELDS.join(', ') + ' FROM ad_group_ad WHERE ' + ACTIVE_ONLY;
 
   try {
     // مجاميع الفترة المختارة: صف واحد لكل إعلان (من غير تقسيم بالأيام). آخر ٧ أيام مش محتاجة طلب إضافي
@@ -134,7 +140,7 @@ export default async function handler(req, res) {
     `;
     const periodDaily = periodRange.isDefault ? Promise.resolve(null) : gaql(opts, periodDailyQuery).catch(function () { return null; });
     const periodStoreDaily = periodRange.isDefault ? Promise.resolve(null)
-      : storeRows(storeQuery('ad_group_ad', 'ad_group.id, ad_group_ad.ad.id', periodRange.since, periodRange.until, true));
+      : segRows(storeQuery('ad_group_ad', 'ad_group.id, ad_group_ad.ad.id', periodRange.since, periodRange.until, true));
     // فشل استعلامات PMax مش بيوقف تحميل الإعلانات — بيرجع كملاحظة في الواجهة
     const pmaxDaily = pmaxRows(range.since, range.until, true).catch(function (err) { return { error: String(err && err.message ? err.message : err) }; });
     const pmaxPeriod = periodRange.isDefault ? Promise.resolve(null) : pmaxRows(periodRange.since, periodRange.until, false).catch(function () { return null; });
@@ -143,14 +149,15 @@ export default async function handler(req, res) {
 
     const custom = !periodRange.isDefault;
     const store = Promise.all([
-      storeRows(storeQuery('ad_group_ad', 'ad_group.id, ad_group_ad.ad.id', range.since, range.until, true)),
-      custom ? storeRows(storeQuery('ad_group_ad', 'ad_group.id, ad_group_ad.ad.id', periodRange.since, periodRange.until, false)) : null,
-      storeRows(storeQuery('campaign', 'campaign.id', range.since, range.until, true, PMAX_ONLY)),
-      custom ? storeRows(storeQuery('campaign', 'campaign.id', periodRange.since, periodRange.until, false, PMAX_ONLY)) : null,
-      custom ? storeRows(storeQuery('campaign', 'campaign.id', periodRange.since, periodRange.until, true, PMAX_ONLY)) : null
+      segRows(storeQuery('ad_group_ad', 'ad_group.id, ad_group_ad.ad.id', range.since, range.until, true)),
+      custom ? segRows(storeQuery('ad_group_ad', 'ad_group.id, ad_group_ad.ad.id', periodRange.since, periodRange.until, false)) : null,
+      segRows(storeQuery('campaign', 'campaign.id', range.since, range.until, true, PMAX_ONLY)),
+      custom ? segRows(storeQuery('campaign', 'campaign.id', periodRange.since, periodRange.until, false, PMAX_ONLY)) : null,
+      custom ? segRows(storeQuery('campaign', 'campaign.id', periodRange.since, periodRange.until, true, PMAX_ONLY)) : null
     ]);
+    const texts = gaql(opts, textsQuery).catch(function () { return null; });
 
-    const results = await Promise.all([adsWhere(ACTIVE_ONLY), gaql(opts, metricsQuery), periodRows, pmaxDaily, pmaxPeriod, store, periodDaily, periodStoreDaily, pmaxPeriodDaily]);
+    const results = await Promise.all([adsWhere(ACTIVE_ONLY), gaql(opts, metricsQuery), periodRows, pmaxDaily, pmaxPeriod, store, periodDaily, periodStoreDaily, pmaxPeriodDaily, texts]);
     let ads = results[0];
 
     // إعلانات اتحذفت بعد ما صرفت في الفترة: بنجيبها برقمها (حتى لو محذوفة) عشان صرفها يتحسب.
@@ -166,16 +173,32 @@ export default async function handler(req, res) {
     }
 
     const pmax = results[3], st = results[5];
+    // المفاتيح اللي Google مصنّفش أغلب تحويلاتها في الأسبوع أو في الفترة (_google.js storeGaps): الإعلانات بمفتاح المجموعة-الإعلان،
+    // وحملات PMax برقم الحملة (مفيش تداخل: مفتاح الإعلان فيه شرطة). الأسبوع الأول لو المفتاح اتكرر
+    const gaps = [].concat(
+      st[0] ? storeGaps(results[1], st[0], adKey) : [],
+      st[1] && Array.isArray(results[2]) ? storeGaps(results[2], st[1], adKey) : [],
+      st[2] && Array.isArray(pmax) ? storeGaps(pmax, st[2], campOf) : [],
+      st[3] && Array.isArray(results[4]) ? storeGaps(results[4], st[3], campOf) : []
+    );
+    const gapSeen = {};
+    const storeUncovered = gaps.filter(function (g) { if (gapSeen[g.k]) return false; gapSeen[g.k] = true; return true; });
+    const adTexts = {};
+    (results[9] || []).forEach(function (row) {
+      const k = adKey(row), txt = adText(row.adGroupAd && row.adGroupAd.ad);
+      if (k && txt) adTexts[k] = txt.slice(0, 300);
+    });
     res.status(200).json({
       ads: ads, metrics: results[1], periodMetrics: results[2],
       pmax: Array.isArray(pmax) ? pmax : null,
       pmaxPeriod: Array.isArray(results[4]) ? results[4] : null,
       pmaxError: pmax && !Array.isArray(pmax) ? pmax.error : null,
       // «الأقرب للمتجر»: الفترة بتيجي بس لو أرقام المنصة للفترة نفسها رجعت (عشان المقارنة تبقى على نفس الأيام)
-      storeMetrics: st[0], storePeriodMetrics: results[2] ? st[1] : null,
-      storePmax: Array.isArray(pmax) ? st[2] : null, storePmaxPeriod: Array.isArray(results[4]) ? st[3] : null,
-      periodDaily: Array.isArray(results[6]) ? results[6] : null, storePeriodDaily: Array.isArray(results[6]) ? results[7] : null,
-      pmaxPeriodDaily: Array.isArray(results[8]) ? results[8] : null, storePmaxPeriodDaily: Array.isArray(results[8]) ? st[4] : null,
+      storeMetrics: onlyStore(st[0]), storePeriodMetrics: results[2] ? onlyStore(st[1]) : null,
+      storePmax: Array.isArray(pmax) ? onlyStore(st[2]) : null, storePmaxPeriod: Array.isArray(results[4]) ? onlyStore(st[3]) : null,
+      periodDaily: Array.isArray(results[6]) ? results[6] : null, storePeriodDaily: Array.isArray(results[6]) ? onlyStore(results[7]) : null,
+      pmaxPeriodDaily: Array.isArray(results[8]) ? results[8] : null, storePmaxPeriodDaily: Array.isArray(results[8]) ? onlyStore(st[4]) : null,
+      storeUncovered: storeUncovered, adTexts: adTexts,
       range: range, period: periodRange
     });
   } catch (err) {

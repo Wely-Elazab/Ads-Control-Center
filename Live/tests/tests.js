@@ -905,6 +905,36 @@
       eq([p.results, p.dailySales[5], p.plat], [5, 500, { results: 8, sales: 800 }]);
       eq(transformGooglePmax(rows, null, DAYS_X, 'SAR', null, null)[0].plat, null);
     });
+    // التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦ (حساب حقيقي): Google مصنّفش تحويلات حملات Performance Max بالنوع والمدة — حملة Google بيقول عنها
+    // ٨ تحويلات (وحملة تانية ١٬٢٣٧) كانت «صفر» في «الأقرب للمتجر» وعليها «لا نتائج». المفتاح اللي في storeUncovered = رقم المنصة من غير مقارنة
+    test('Google مصنّفش تحويلات الحملة أو الإعلان: رقم المنصة من غير مقارنة بدل «صفر» غلط', function () {
+      var camp = { id: '21', name: 'PMax', status: 'ENABLED', primaryStatus: 'ELIGIBLE' };
+      var rows = [{ campaign: camp, segments: { date: KEYS[5] }, metrics: { costMicros: String(80 * M), conversions: 8, conversionsValue: 800 } }];
+      var pRows = [{ campaign: camp, metrics: { costMicros: String(80 * M), conversions: 8, conversionsValue: 800 } }];
+      var extra = googleExtra({ storeUncovered: [{ k: '21', p: 8, c: 0, a: 0 }] });
+      var p = transformGooglePmax(rows, pRows, DAYS_X, 'SAR', [], [], null, null, null, extra)[0];
+      eq([p.results, p.plat, p.period.results, p.period.plat, platOf(p)], [8, null, 8, undefined, null]);
+      var classified = transformGooglePmax(rows, pRows, DAYS_X, 'SAR', [], [], null, null, null, googleExtra({}))[0];
+      eq([classified.results, classified.plat.results], [0, 8], 'a zero Google did classify (views only) stays a zero with the comparison');
+      // نفس الحكم لأيام الفترة (pd): الكارت والأيام بنفس الرقم
+      var pr = { since: KEYS[4], until: KEYS[6] };
+      var pd = transformGooglePmax(rows, pRows, DAYS_X, 'SAR', [], [], [{ campaign: camp, segments: { date: KEYS[5] }, metrics: { costMicros: String(80 * M), conversions: 8, conversionsValue: 800 } }],
+        [], pr, extra)[0];
+      eq([pd.period.results, pd.period.plat, pd.pd.results], [8, undefined, [0, 8, 0]]);
+      var adC = transformGoogleRows(adRows, plat, DAYS_X, 'SAR', null, [], null, null, null, null, googleExtra({ storeUncovered: [{ k: '7-9' }] }))[0];
+      eq([adC.results, adC.plat], [14, null], 'ads follow the same rule');
+      eq(googleExtra({ storeUncovered: 'x', adTexts: [1] }), { gaps: {}, texts: {} }, 'a strange reply is ignored');
+    });
+    // نص الإعلانات اللي مش بحث (api/_google.js adText): كروت التطبيقات والاتصال كانت كلها «Google #رقم» في حساب حقيقي
+    test('عنوان الإعلان: نص الإعلانات اللي مش بحث، ثم الاسم، ثم اسم المجموعة — والرقم آخر حاجة', function () {
+      var base = function (adObj) { return [{ adGroup: { id: '7', name: 'Hotels group', status: 'ENABLED' }, adGroupAd: { ad: adObj, status: 'ENABLED' }, campaign: { id: '3', name: 'C', status: 'ENABLED' } }]; };
+      var title = function (adObj, texts) { return transformGoogleRows(base(adObj), [], DAYS_X, 'SAR', null, null, null, null, null, null, googleExtra({ adTexts: texts || {} }))[0].headline; };
+      eq(title({ id: '9', responsiveSearchAd: { headlines: [{ text: 'Search title' }] } }, { '7-9': 'App title' }), 'Search title', 'search text first');
+      eq(title({ id: '9' }, { '7-9': 'App title' }), 'App title');
+      eq(title({ id: '9', name: 'My ad' }), 'My ad');
+      eq(title({ id: '9' }), 'Hotels group', 'a call ad (no text in v24) takes its ad group name');
+      eq(transformGoogleRows([{ adGroup: { id: '7' }, adGroupAd: { ad: { id: '9' } } }], [], DAYS_X, 'SAR', null, null, null)[0].headline, 'Google #9');
+    });
 
     // عدد الطلبات صحيح دايماً (قرار ٦ أكتوبر ٢٠٢٦): Google بيرجّع كسور، والأداة بتقسم الإجمالي المقرّب على الإعلانات والأيام
     var adN = function (i) { return { adGroup: { id: 'g' + i, name: 'AG', status: 'ENABLED' }, adGroupAd: { ad: { id: String(i), name: 'Ad ' + i }, status: 'ENABLED' }, campaign: { id: '3', name: 'S', status: 'ENABLED' } }; };
@@ -1054,6 +1084,8 @@
       var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process, queries = [], failStore = false;
       window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
       var rows = function (results) { return json([{ results: results }]); };
+      // حملة PMax: Google بيقول ٨ تحويلات ومبيرجّعش ليها صفوف مقسّمة (اللي اتشاف في حساب حقيقي ٢٦ نوفمبر ٢٠٢٦)
+      var pmCamp = { id: '55', name: 'PMax', status: 'ENABLED', primaryStatus: 'ELIGIBLE' };
       window.fetch = function (url, opts) {
         var u = String(url);
         if (u.indexOf('tokeninfo') > -1) return json({ aud: 'cid', scope: 'https://www.googleapis.com/auth/adwords' });
@@ -1061,13 +1093,24 @@
         queries.push(q);
         if (q.indexOf('conversion_attribution_event_type') > -1) {
           if (failStore) return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ error: { message: 'bad' } }); } });
+          if (/FROM campaign/.test(q)) return rows([]);
           return rows([
             Object.assign({ segments: { date: KEYS[5], conversionAttributionEventType: 'INTERACTION', conversionLagBucket: 'LESS_THAN_ONE_DAY' }, metrics: { conversions: 6, conversionsValue: 600 } }, who),
-            Object.assign({ segments: { date: KEYS[5], conversionAttributionEventType: 'ENGAGED_VIEW', conversionLagBucket: 'LESS_THAN_ONE_DAY' }, metrics: { conversions: 4, conversionsValue: 400 } }, who)
+            Object.assign({ segments: { date: KEYS[5], conversionAttributionEventType: 'ENGAGED_VIEW', conversionLagBucket: 'LESS_THAN_ONE_DAY' }, metrics: { conversions: 4, conversionsValue: 400 } }, who),
+            // نقرة بعد ١٠ أيام: مصنّفة (مش فجوة) بس مش في «الأقرب للمتجر»
+            Object.assign({ segments: { date: KEYS[6], conversionAttributionEventType: 'INTERACTION', conversionLagBucket: 'TEN_TO_ELEVEN_DAYS' }, metrics: { conversions: 4, conversionsValue: 400 } }, who)
           ]);
         }
         if (q.indexOf('ad_group_ad.ad.name') > -1) return rows(adRows);
+        if (q.indexOf('app_ad.headlines') > -1) {
+          // نص الإعلانات استعلام لوحده: رفضه (حقل مش مدعوم مثلاً) مبيوقفش الإعلانات
+          if (failStore) return Promise.resolve({ ok: false, status: 400, json: function () { return Promise.resolve({ error: { message: 'Unrecognized field' } }); } });
+          return rows([Object.assign({ adGroupAd: { ad: { id: '9', appAd: { headlines: [{ text: 'App title' }] } } } }, { adGroup: { id: '7' } })]);
+        }
         if (q.indexOf('FROM ad_group_ad') > -1) return rows(plat);
+        if (q.indexOf("advertising_channel_type = 'PERFORMANCE_MAX'") > -1) {
+          return rows([{ campaign: pmCamp, segments: { date: KEYS[5] }, metrics: { costMicros: String(80 * M), conversions: 8, conversionsValue: 800 } }]);
+        }
         return rows([]);
       };
       var restore = function () { window.fetch = realFetch; if (hadProcess) window.process = prevProcess; else delete window.process; };
@@ -1088,18 +1131,42 @@
         eq(storeQ.filter(function (x) { return /FROM campaign/.test(x) && /segments.date, segments.conversion_attribution_event_type/.test(x); }).length, 2, 'PMax: the week and the period by day');
         // وأرقام المنصة لحملات PMax يوم بيوم للنافذة وللفترة
         eq(queries.filter(function (x) { return /FROM campaign/.test(x) && x.indexOf('conversion_attribution_event_type') < 0 && /segments\.date,/.test(x); }).length, 2, 'PMax platform rows by day: week and period');
+        // التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦: النوع والمدة بيتطلبوا ومبيتفلتروش في WHERE — الفلترة في الكود (storeRow) والفجوات (storeGaps)
         ok(storeQ.every(function (x) {
-          return x.indexOf("segments.conversion_attribution_event_type = 'INTERACTION'") > -1 && x.indexOf("'SIX_TO_SEVEN_DAYS')") > -1 &&
-            x.indexOf('SEVEN_TO_EIGHT') < 0 && x.indexOf('metrics.cost_micros') < 0;
+          return /segments\.conversion_attribution_event_type, segments\.conversion_lag_bucket/.test(x) && x.indexOf("= 'INTERACTION'") < 0 &&
+            x.indexOf('conversion_lag_bucket IN') < 0 && x.indexOf('metrics.cost_micros') < 0;
         }), storeQ[0]);
-        eq(out.storeMetrics.length, 1, 'the engaged-view row is dropped');
+        eq(out.storeMetrics.length, 1, 'the engaged-view row and the 10-day click are dropped in code');
         eq(out.storeMetrics[0].metrics.conversions, 6);
+        // الإعلان: Google صنّف كل تحويلاته (نقرة ومشاهدة ونقرة بعد ١٠ أيام = ١٤ زي رقم المنصة) = مفيش فجوة.
+        // حملة PMax: ٨ تحويلات ومفيش ولا صف مقسّم = فجوة (مرة واحدة رغم إنها في الأسبوع والفترة)
+        eq(out.storeUncovered, [{ k: '55', p: 8, c: 0, a: 0 }]);
+        eq(out.adTexts, { '7-9': 'App title' }, 'the text of a non-search ad');
         failStore = true;
         return run();
       }).then(function (out) {
         restore();
-        eq([out.ads.length, out.storeMetrics, out.storePmax], [1, null, null], 'ads still load, no comparison');
+        eq([out.ads.length, out.storeMetrics, out.storePmax, out.storeUncovered, out.adTexts], [1, null, null, [], {}], 'ads still load, no comparison, no texts');
       }, function (e) { restore(); throw e; });
+    });
+    testAsync('السيرفر: الفجوات بالأرقام (storeGaps) ونص الإعلانات اللي مش بحث (adText)', function () {
+      return import('/api/_google.js').then(function (g) {
+        var r = function (k, type, lag, n) { return { k: k, segments: { conversionAttributionEventType: type, conversionLagBucket: lag }, metrics: { conversions: n } }; };
+        var p = function (k, n) { return { k: k, metrics: { conversions: n } }; };
+        var keyOf = function (x) { return x.k; };
+        var gaps = g.storeGaps([p('a', 10), p('b', 10), p('c', 10), p('d', 0.4), p('e', 0), p('f', 10)],
+          [r('a', 'INTERACTION', 'LESS_THAN_ONE_DAY', 6), r('a', 'IMPRESSION', 'ONE_TO_TWO_DAYS', 4),   // مصنّف كله
+            r('b', 'UNKNOWN', 'LESS_THAN_ONE_DAY', 10),                                                 // نوع مجهول
+            r('c', 'INTERACTION', 'UNKNOWN', 9.5),                                                      // مدة مجهولة
+            r('f', 'INTERACTION', 'LESS_THAN_ONE_DAY', 9.2)], keyOf);                                   // ٠٫٨ = جوه السماح (١٠٪)
+        eq(gaps, [{ k: 'b', p: 10, c: 0, a: 10 }, { k: 'c', p: 10, c: 0, a: 9.5 }], 'unknown type or lag = a gap; within 10% or half an order = none');
+        eq(g.storeKnown(r('x', 'ENGAGED_VIEW', 'SIX_TO_SEVEN_DAYS', 1)) && !g.storeKnown(r('x', 'UNSPECIFIED', 'LESS_THAN_ONE_DAY', 1)) && !g.storeKnown({}), true);
+        eq([g.adText({ responsiveDisplayAd: { headlines: [{ text: 'D' }] } }), g.adText({ responsiveDisplayAd: { longHeadline: { text: 'L' } } }),
+          g.adText({ videoResponsiveAd: { headlines: [{ text: 'V' }] } }), g.adText({ demandGenMultiAssetAd: { headlines: [{ text: 'M' }] } }),
+          g.adText({ demandGenVideoResponsiveAd: { headlines: [{ text: 'VR' }] } }), g.adText({ demandGenCarouselAd: { headline: { text: 'C' } } }),
+          g.adText({ demandGenProductAd: { headline: { text: 'P' } } }), g.adText({}), g.adText(null)], ['D', 'L', 'V', 'M', 'VR', 'C', 'P', '', '']);
+        ok(g.AD_TEXT_FIELDS.every(function (f) { return /^ad_group_ad\.ad\.[a-z_]+\.[a-z_]+$/.test(f); }), 'plain field paths only');
+      });
     });
 
     // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (ن٢٩): خطأ Google نفسه بيرجع بنصه ورمزه (الأداة بتشرحه)، وأي خطأ داخلي غير متوقع من غير نصه في الرد —
@@ -1254,7 +1321,39 @@
     test('مؤهل = شغّال', function () { eq(level({ adGroupAd: { primaryStatus: 'ELIGIBLE' } }), 'active'); });
     test('السبب بيحدد المستوى', function () {
       eq(level({ adGroupAd: { primaryStatus: 'PAUSED', primaryStatusReasons: ['AD_GROUP_PAUSED'] } }), 'adset');
-      eq(level({ adGroupAd: { primaryStatus: 'NOT_ELIGIBLE', primaryStatusReasons: ['AD_DISAPPROVED'] } }), 'rejected');
+      // أسماء Google الحقيقية (وثائق AdGroupAdPrimaryStatusReason v24 — التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦): AD_GROUP_AD_…
+      eq(level({ adGroupAd: { primaryStatus: 'NOT_ELIGIBLE', primaryStatusReasons: ['AD_GROUP_AD_DISAPPROVED'] } }), 'rejected');
+      eq(level({ adGroupAd: { primaryStatus: 'PAUSED', primaryStatusReasons: ['AD_GROUP_AD_PAUSED'] } }), 'ad');
+      eq(level({ adGroupAd: { primaryStatus: 'PENDING', primaryStatusReasons: ['AD_GROUP_AD_UNDER_REVIEW'] } }), 'pending');
+      // الاسم القديم مكانش موجود عند Google: مبيتعرفش، والحالة العامة هي اللي بتحكم
+      eq(level({ adGroupAd: { primaryStatus: 'NOT_ELIGIBLE', primaryStatusReasons: ['AD_DISAPPROVED'] } }), 'not-eligible');
+    });
+    test('قرار المعلن أولى من سبب المنصة، والأسباب المجهولة مبتتعرضش', function () {
+      // إعلان مرفوض جوه حملة المعلن وقّفها = وقوف مقصود (مش «توقف فجأة»)، أياً كان ترتيب الأسباب
+      eq(level({ adGroupAd: { primaryStatus: 'PAUSED', primaryStatusReasons: ['AD_GROUP_AD_DISAPPROVED', 'CAMPAIGN_PAUSED'] } }), 'campaign');
+      var d = googleDelivery({ adGroupAd: { primaryStatus: 'NOT_ELIGIBLE', primaryStatusReasons: ['UNKNOWN', 'AD_GROUP_AD_DISAPPROVED', 'UNSPECIFIED'] } }, 'ENABLED', 'ENABLED', 'ENABLED', 'APPROVED');
+      eq([d.level, d.reason], ['rejected', 'AD_GROUP_AD_DISAPPROVED']);
+      eq(googleDelivery({ adGroupAd: { primaryStatus: 'NOT_ELIGIBLE', primaryStatusReasons: ['UNKNOWN'] } }, 'ENABLED', 'ENABLED', 'ENABLED', 'APPROVED').reason, 'NOT_ELIGIBLE', 'only an unknown reason = the status itself');
+    });
+    // حساب حقيقي (التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦): حملة PMax المعلن وقّف كل مجموعات مواد العرض فيها = NOT_ELIGIBLE بسبب ASSET_GROUPS_PAUSED،
+    // وكانت بتطلع «عاجل: إعلان نشط توقف فجأة» وفي التنبيه الأسماء الخام ومعاها UNKNOWN
+    test('حملة Performance Max: إيقاف المجموعات وقوف مقصود من غير تنبيه، ورفضها «مرفوض»', function () {
+      var camp = function (primary, reasons) { return googleCampaignDelivery({ primaryStatus: primary, primaryStatusReasons: reasons }); };
+      var paused = camp('NOT_ELIGIBLE', ['BIDDING_STRATEGY_LEARNING', 'ASSET_GROUPS_PAUSED', 'UNKNOWN']);
+      eq([paused.active, paused.level, paused.reason], [false, 'adset', 'BIDDING_STRATEGY_LEARNING, ASSET_GROUPS_PAUSED']);
+      eq([camp('NOT_ELIGIBLE', ['HAS_ASSET_GROUPS_DISAPPROVED']).level, camp('PAUSED', ['CAMPAIGN_PAUSED']).level, camp('PENDING', ['CAMPAIGN_DRAFT']).level,
+        camp('NOT_ELIGIBLE', ['BUDGET_MISCONFIGURED']).level, camp('LIMITED', ['BUDGET_CONSTRAINED']).active],
+        ['rejected', 'campaign', 'scheduled', 'not-eligible', true]);
+      // من أول الحملة لحد المحرك: الوقوف المقصود مفيش عليه تنبيه، والرفض عليه «عاجل»
+      var M = 1000000, rows = function (id, primary, reasons) {
+        return [4, 5, 6].map(function (i) { return { campaign: { id: id, name: 'PMax ' + id, status: 'ENABLED', primaryStatus: primary, primaryStatusReasons: reasons }, segments: { date: KEYS[i] }, metrics: { costMicros: String(100 * M), conversions: 1, conversionsValue: 300 } }; });
+      };
+      var list = transformGooglePmax(rows('31', 'NOT_ELIGIBLE', ['ASSET_GROUPS_PAUSED', 'UNKNOWN']).concat(rows('32', 'NOT_ELIGIBLE', ['HAS_ASSET_GROUPS_DISAPPROVED'])), null, DAYS_X, 'SAR')
+        .map(function (c) { c.source = 'google:1'; return c; });
+      var r = engine(baseAccount().concat(list));
+      var stopped = function (id) { return r.byAd[id].issues.filter(function (i) { return i.code === 'stopped'; }); };
+      eq(stopped('gp-31').length, 0, 'paused asset groups raise nothing');
+      eq(stopped('gp-32').map(function (i) { return i.level; }), ['critical'], 'disapproved asset groups = rejected');
     });
     test('من غير الحقول الجديدة بنرجع للحالة اليدوية', function () {
       eq(level({}, 'ENABLED', 'ENABLED', 'PAUSED'), 'campaign');
@@ -2941,6 +3040,30 @@
         eq(location.search, '?code=x&state=tiktok.nostore', 'url untouched');
         eq(document.getElementById('connectStatus').textContent, 'before');
       } finally { history.replaceState({}, '', before); }
+    });
+    // التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦: مكتبة دخول Google (accounts.google.com) كانت بتتحمّل مع كل فتح للأداة، وطريقة الدخول الشغّالة (إعادة
+    // التوجيه) مبتستعملهاش — دلوقتي بتتحمّل بس لو الخادم قال إن الدخول بالنافذة القديمة هو اللي هيشتغل، أو مردّش
+    testAsync('مكتبة دخول Google بتتحمّل بس لو النافذة القديمة هي اللي هتشتغل', function () {
+      var prevLoad = window.loadGoogleSdk, prevPost = window.apiPost, prevFlow = googleCodeFlow, loads = 0, answer = null;
+      window.loadGoogleSdk = function () { loads++; };
+      window.apiPost = function (path, body) { return Promise.resolve(path === '/api/google-token' && body && body.probe === true ? answer : { ok: false, status: 404, data: {} }); };
+      // الفحص بيجهّز زوج PKCE (غير متزامن): pkceGen++ بيخلّي أي تجهيز لسه شغّال ميتسجّلش بعد الاختبار
+      var restore = function () { window.loadGoogleSdk = prevLoad; window.apiPost = prevPost; googleCodeFlow = prevFlow; pkceGen++; pkceReady = null; };
+      var probe = function (a) { answer = a; probeGoogleCodeFlow(); return new Promise(function (r) { setTimeout(r, 0); }); };
+      return probe({ ok: true, status: 200, data: { codeFlow: true } }).then(function () {
+        eq([googleCodeFlow, loads], [true, 0], 'the redirect sign-in: no library');
+        return probe({ ok: true, status: 200, data: { codeFlow: false } });
+      }).then(function () {
+        eq([googleCodeFlow, loads], [false, 1], 'the old window: the library loads now, before the click');
+        return probe({ ok: false, status: 0, data: { code: 'NETWORK' } });
+      }).then(function () {
+        eq([googleCodeFlow, loads], [false, 2], 'no answer: the old window again');
+        restore();
+        // المكتبة نفسها: العنصر موجود (هنا عنصر وهمي من runner.js) = مفيش تحميل تاني
+        var before = document.querySelectorAll('#google-identity-sdk').length;
+        loadGoogleSdk();
+        eq(document.querySelectorAll('#google-identity-sdk').length, before, 'loaded once only');
+      }, function (e) { restore(); throw e; });
     });
     // التدقيق الشامل ١٣ نوفمبر ٢٠٢٦ (النتيجة ١١ — RFC 7636، RFC 9700 §2.1.1): PKCE في دخول Google
     testAsync('PKCE: البصمة = متجه RFC 7636 (الملحق B) بالظبط، والزوج الجاهز ٤٣ حرف وبيتاخد مرة واحدة ومفتاحه في التاب', function () {
@@ -12653,12 +12776,16 @@
       // التحويلات على «الأقرب للمتجر»: الحساب والحملات والشبكة بالفلتر، والجهاز والدولة (Google مبيسمحش) من غيره
       eq(out.numbers, 'store');
       var convQ = queries.filter(function (x) { return x.indexOf('conversion_action_category') > -1; });
-      var filtered = function (pred) { return convQ.filter(pred).every(function (x) { return x.indexOf("conversion_attribution_event_type = 'INTERACTION'") > -1; }); };
       // رقم Google نفسه للفترة: طلب واحد للحساب على مدى الفترة من غير فلتر المتجر (نفس تعريف الطلبات — الأساسي)
       var platQ = convQ.filter(function (x) { return x.indexOf('FROM customer') > -1 && x.indexOf("BETWEEN '" + ws[0].since + "' AND '" + ws[0].until + "'") > -1 && x.indexOf('conversion_attribution_event_type') < 0; });
       eq([platQ.length, out.plat], [1, { pur: 4, rev: 400 }], 'the platform number for the period, without the store filter');
-      ok(filtered(function (x) { return x.indexOf('FROM customer') > -1 && x.indexOf('segments.device') < 0 && platQ.indexOf(x) < 0; }), 'account and network use the store filter');
-      ok(filtered(function (x) { return x.indexOf('campaign.id') > -1; }), 'campaigns use the store filter');
+      // «الأقرب للمتجر» (التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦): الحساب والحملات والشبكة بيطلبوا التقسيمين من غير فلتر في WHERE، وكل واحد معاه نفس
+      // الاستعلام من غيرهم (رقم المنصة — اللي Google مصنّفوش بيدخل بأرقامه). الجهاز والدولة من غيرهم خالص
+      var segQ = convQ.filter(function (x) { return x.indexOf('conversion_attribution_event_type') > -1; });
+      ok(segQ.length >= 3 && segQ.every(function (x) { return x.indexOf("= 'INTERACTION'") < 0 && x.indexOf('conversion_lag_bucket IN') < 0; }), 'no filter in WHERE: ' + segQ[0]);
+      ok(segQ.every(function (x) { return convQ.indexOf(x.replace('segments.conversion_attribution_event_type, segments.conversion_lag_bucket, ', '')) > -1; }), 'each one has its platform twin');
+      var isAcct = function (x) { return x.indexOf('FROM customer') > -1 && x.indexOf('ad_network_type') < 0 && x.indexOf('segments.device') < 0; };
+      ok(segQ.some(isAcct) && segQ.some(function (x) { return x.indexOf('campaign.id') > -1; }) && segQ.some(function (x) { return x.indexOf('ad_network_type') > -1; }), 'account, campaigns and network');
       ok(convQ.filter(function (x) { return x.indexOf('segments.device') > -1 || x.indexOf('user_location_view') > -1; })
         .every(function (x) { return x.indexOf('conversion_attribution_event_type') < 0; }), 'device and country without it');
       return import('/api/google-diagnosis.js');
@@ -12669,6 +12796,50 @@
         g({ advertisingChannelType: 'PERFORMANCE_MAX', biddingStrategyType: 'MAXIMIZE_CONVERSION_VALUE' }), g({ advertisingChannelType: 'SEARCH', biddingStrategyType: 'MANUAL_CPC' }), g(null)],
         ['awareness', 'awareness', 'app', 'sales', 'sales', 'sales', 'sales']);
     }).then(null, function (e) { restore(); throw e; });
+  });
+  // حساب حقيقي (التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦): كل إنفاقه Performance Max، وGoogle مبيصنّفش تحويلاتها بالنوع والمدة — الفلتر لوحده كان بيخلّي
+  // ملخصه «٠ تحويلات» وGoogle بيقول ٨. هنا حملة بحث مصنّفة (٣ بالنقرة + ١ بالظهور) وحملة PMax ٦ تحويلات من غير ولا صف مقسّم
+  testAsync('Google — ملخص المتجر: اللي Google مصنّفوش بيدخل بأرقامه هو، والمصنّف على «الأقرب للمتجر» زي ما هو', function () {
+    var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process;
+    window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
+    var rows = function (results) { return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve([{ results: results }]); } }); };
+    var date = '2026-09-25', pur = function (n, v) { return { conversions: n, allConversions: n, conversionsValue: v, allConversionsValue: v }; };
+    var search = { id: '11', name: 'Search', advertisingChannelType: 'SEARCH', biddingStrategyType: 'TARGET_ROAS' };
+    var pmaxC = { id: '12', name: 'PMax', advertisingChannelType: 'PERFORMANCE_MAX', biddingStrategyType: 'MAXIMIZE_CONVERSION_VALUE' };
+    var seg = function (type, lag) { return { date: date, conversionActionCategory: 'PURCHASE', conversionAttributionEventType: type, conversionLagBucket: lag }; };
+    window.fetch = function (url, opts) {
+      var u = String(url);
+      if (u.indexOf('tokeninfo') > -1) return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ aud: 'cid', scope: 'https://www.googleapis.com/auth/adwords' }); } });
+      var q = JSON.parse(opts.body).query, conv = q.indexOf('conversion_action_category') > -1, split = q.indexOf('conversion_attribution_event_type') > -1;
+      if (q.indexOf('segments.device') > -1 || q.indexOf('ad_network_type') > -1 || q.indexOf('user_location_view') > -1) return rows([]);
+      if (q.indexOf('campaign.id') > -1) {
+        if (!conv) return rows([{ campaign: search, segments: { date: date }, metrics: { costMicros: '40000000', impressions: '100', clicks: '10' } },
+          { campaign: pmaxC, segments: { date: date }, metrics: { costMicros: '60000000', impressions: '900', clicks: '30' } }]);
+        return rows(split ? [{ campaign: search, segments: seg('INTERACTION', 'LESS_THAN_ONE_DAY'), metrics: pur(3, 300) }, { campaign: search, segments: seg('IMPRESSION', 'LESS_THAN_ONE_DAY'), metrics: pur(1, 100) }]
+          : [{ campaign: search, segments: { date: date, conversionActionCategory: 'PURCHASE' }, metrics: pur(4, 400) }, { campaign: pmaxC, segments: { date: date, conversionActionCategory: 'PURCHASE' }, metrics: pur(6, 600) }]);
+      }
+      if (!conv) return rows([{ segments: { date: date }, metrics: { costMicros: '100000000', impressions: '1000', clicks: '40' } }]);
+      return rows(split ? [{ segments: seg('INTERACTION', 'LESS_THAN_ONE_DAY'), metrics: pur(3, 300) }, { segments: seg('IMPRESSION', 'LESS_THAN_ONE_DAY'), metrics: pur(1, 100) }]
+        : [{ segments: { date: date, conversionActionCategory: 'PURCHASE' }, metrics: pur(10, 1000) }]);
+    };
+    var out = null, code = null;
+    var res = { setHeader: function () {}, status: function (c) { code = c; return this; }, json: function (b) { out = b; return this; }, end: function () {} };
+    var restore = function () { window.fetch = realFetch; if (hadProcess) window.process = prevProcess; else delete window.process; };
+    var ws = DX.windows('2026-09-21', '2026-09-27');
+    return import('/api/google-diagnosis.js').then(function (m) {
+      return m.default({ method: 'POST', headers: {}, body: { accessToken: 'tok-dx-gap', customerId: '1234567890',
+        daily: { since: ws[ws.length - 1].since, until: '2026-09-27' }, windows: ws.slice(0, 3).map(function (w) { return { since: w.since, until: w.until }; }) } }, res);
+    }).then(function () {
+      restore();
+      eq([code, out.numbers], [200, 'store']);
+      var d = out.daily.filter(function (x) { return x.date === date; })[0];
+      // ٣ بالنقرة + (١٠ عند Google − ٤ مصنّفة) = ٩، والقيمة ٣٠٠ + (١٠٠٠ − ٤٠٠) = ٩٠٠
+      eq([d.pur, d.rev], [9, 900], 'the click-based part + what Google could not split');
+      var camps = out.dims.filter(function (x) { return x.id === 'campaign'; })[0].segs;
+      var byKey = {}; camps.forEach(function (s) { byKey[s.key] = s.w[0].pur; });
+      eq([byKey['11'], byKey['12']], [3, 6], 'the search campaign keeps its click-based 3, the PMax campaign gets Google\'s own 6');
+      eq(out.plat, { pur: 10, rev: 1000 }, 'the platform line is Google\'s number');
+    }, function (e) { restore(); throw e; });
   });
 
   testAsync('Snapchat — ملخص المتجر (السيرفر): المايكرو بيتقسم، والحملات بأسمائها، والدول بالرمز', function () {

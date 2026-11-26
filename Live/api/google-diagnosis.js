@@ -6,13 +6,16 @@
 // مراحل الشراء في Google = «فئات التحويل»: PURCHASE (الشراء)، ADD_TO_CART (الإضافة للسلة)، BEGIN_CHECKOUT (بدء الدفع).
 // الشراء من «التحويلات» الأساسية (نفس عمود Conversions في Google Ads) — ولو الحساب حاطط الشراء كإجراء ثانوي
 // (أساسي = صفر وكل التحويلات > صفر) بنرجع لـ «كل التحويلات». السلة وبدء الدفع من «كل التحويلات» دايماً،
-// لأنهم غالباً إجراءات ثانوية مش بيتحسّن عليها. لم يُختبر على حساب Google حقيقي بعد.
+// لأنهم غالباً إجراءات ثانوية مش بيتحسّن عليها. اتقارن بحساب Google حقيقي (التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦: تحويلات PMax تحت)،
+// لكن حساب الشراء فيه إجراء ثانوي لم يُختبر على حساب حقيقي بعد.
 //
 // التحويلات على «الأقرب للمتجر» زي الإعلانات (_google.js): الحساب يوم بيوم والحملات والشبكة. الجهاز والدولة Google
 // مبيسمحش فيهم بالتقسيمين، فبيفضلوا بأرقام المنصة — والمحرك بيوقف تحليل الطلبات عليهم لوحده لو مطلعوش مطابقين للإجمالي.
-// لو استعلام الحساب اليومي رفض الفلتر، الملخص كله بيرجع لأرقام المنصة (قرار واحد عشان المصادر متتلخبطش)
+// لو استعلام الحساب اليومي رفض التقسيمين، الملخص كله بيرجع لأرقام المنصة (قرار واحد عشان المصادر متتلخبطش).
+// التحويلات اللي Google مبيصنّفهاش بالنوع والمدة (Performance Max — التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦، حساب حقيقي) بتدخل بأرقام Google
+// نفسها (conv تحت) — زي كارت الحملة بالظبط
 
-import { gaql, STORE_SEGMENTS, STORE_FILTER, storeRow } from './_google.js';
+import { gaql, STORE_SEGMENTS, storeRow, storeKnown } from './_google.js';
 import { guardRequest } from './_cors.js';
 import { verifyGoogleToken, sendVerifyFailure } from './_verify.js';
 import { text, shaped, TOKEN_MAX, badRequest } from './_input.js';
@@ -79,10 +82,35 @@ export default async function handler(req, res) {
   const convQuery = function (select, from, r, store) {
     return 'SELECT segments.date, ' + (select ? select + ', ' : '') + 'segments.conversion_action_category, ' + (store ? STORE_SEGMENTS + ', ' : '') +
       'metrics.conversions, metrics.all_conversions, metrics.conversions_value, metrics.all_conversions_value FROM ' + from + ' WHERE ' + between(r) +
-      " AND segments.conversion_action_category IN ('PURCHASE', 'ADD_TO_CART', 'BEGIN_CHECKOUT')" + (store ? STORE_FILTER : '');
+      " AND segments.conversion_action_category IN ('PURCHASE', 'ADD_TO_CART', 'BEGIN_CHECKOUT')";
   };
-  const conv = function (select, from, r, store) {
-    return store ? gaql(opts, convQuery(select, from, r, true)).then(function (rows) { return rows.filter(storeRow); }) : gaql(opts, convQuery(select, from, r, false));
+  // «الأقرب للمتجر» (التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦، حساب حقيقي): الفلتر لوحده كان بيشيل تحويلات Performance Max من الملخص كله (Google
+  // مبيصنّفهاش بالنوع والمدة) — حساب كل إنفاقه PMax ملخصه قال «٠ تحويلات» وGoogle قال ٨. دلوقتي لكل يوم ونوع تحويل وجزء (keyOf: الحملة أو
+  // الشبكة): المصنّف بالنقرة خلال ٧ أيام (storeRow) + اللي Google مصنّفوش بأرقامه هو (رقم المنصة ناقص المصنّف بأي نوع — storeKnown).
+  // الحساب اللي Google بيصنّف كل تحويلاته = نفس الرقم القديم بالظبط
+  const MET = ['conversions', 'allConversions', 'conversionsValue', 'allConversionsValue'];
+  const conv = function (select, from, r, store, keyOf) {
+    if (!store) return gaql(opts, convQuery(select, from, r, false));
+    return Promise.all([gaql(opts, convQuery(select, from, r, true)), gaql(opts, convQuery(select, from, r, false))]).then(function (both) {
+      const groups = {}, order = [];
+      const groupOf = function (row) {
+        const s = row.segments || {}, id = s.date + '|' + s.conversionActionCategory + '|' + (keyOf ? keyOf(row) : '');
+        if (!groups[id]) { groups[id] = { row: row, plat: {}, store: {}, known: {} }; order.push(id); }
+        return groups[id];
+      };
+      const add = function (acc, m) { MET.forEach(function (f) { acc[f] = (acc[f] || 0) + num(m && m[f]); }); };
+      both[1].forEach(function (row) { add(groupOf(row).plat, row.metrics); });
+      both[0].forEach(function (row) {
+        const g = groupOf(row);
+        if (storeRow(row)) add(g.store, row.metrics);
+        if (storeKnown(row)) add(g.known, row.metrics);
+      });
+      return order.map(function (id) {
+        const g = groups[id], m = {};
+        MET.forEach(function (f) { m[f] = (g.store[f] || 0) + Math.max(0, (g.plat[f] || 0) - (g.known[f] || 0)); });
+        return Object.assign({}, g.row, { metrics: m });
+      });
+    });
   };
 
   // كل طلب على كل مدى، والصفوف بتتجمع: فترة مقارنة بعيدة بتتطلب لوحدها من غير الأيام اللي بينها وبين الفترة
@@ -92,7 +120,7 @@ export default async function handler(req, res) {
     costDaily.catch(function () {});   // الخطأ بيتعامل معاه تحت (await) — ده بس عشان ميتسجّلش «رفض من غير معالجة» وإحنا مستنيين التحويلات
     const runDims = function (store) {
       return DIMS.map(function (d) {
-        return Promise.all([overRanges(spans, function (r) { return gaql(opts, costQuery(d.select, d.from, r)); }), overRanges(spans, function (r) { return conv(d.select, d.from, r, store && d.store); })])
+        return Promise.all([overRanges(spans, function (r) { return gaql(opts, costQuery(d.select, d.from, r)); }), overRanges(spans, function (r) { return conv(d.select, d.from, r, store && d.store, d.key); })])
           .catch(function (e) { return { error: String(e && e.message ? e.message : e) }; });
       });
     };
