@@ -77,8 +77,9 @@ export function storeOrderAdIds() {
 }
 // إنفاق كل إعلان يوم بيوم من رد stats (granularity=DAY، breakdown=ad) — للإعلانات المطلوبة بس: { رقم الإعلان: { 'YYYY-MM-DD': إنفاق } }
 // (لوحة «قيمة الأداة» — action=daily تحت). المبالغ بالمايكرو في Snapchat
-export function snapDailySpend(data, ids) {
-  const want = {}, out = {};
+// field = spend (الافتراضي) أو conversion_purchases_value (مبيعات «الأقرب للمتجر» — مشكلات «المبيعات أقل من الإنفاق»، ٢٦ نوفمبر ٢٠٢٦)
+export function snapDailySpend(data, ids, field) {
+  const want = {}, out = {}, key = field || 'spend';
   (ids || []).forEach(function (id) { want[id] = 1; });
   ((data && data.timeseries_stats) || []).forEach(function (e) {
     const ts = (e && e.timeseries_stat) || e || {};
@@ -87,7 +88,7 @@ export function snapDailySpend(data, ids) {
       const days = out[b.id] = out[b.id] || {};
       (b.timeseries || []).forEach(function (p) {
         const day = String((p && p.start_time) || '').slice(0, 10);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(day)) days[day] = Number((p.stats && p.stats.spend) || 0) / 1000000;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(day)) days[day] = Number((p.stats && p.stats[key]) || 0) / 1000000;
       });
     });
   });
@@ -470,12 +471,15 @@ export default async function handler(req, res) {
       const acc = ad && ad.adaccounts && ad.adaccounts[0] && ad.adaccounts[0].adaccount;
       if (!ar.ok || !acc) { res.status(ar.ok ? 502 : ar.status).json({ error: snapError(ad, ar.status) }); return; }
       const tz = acc.timezone || clientTz, endKey = shiftDateKey(until, 1);
-      const r = await fetch(accountPath + '/stats?granularity=DAY&breakdown=ad&fields=spend' +
+      // والمبيعات كمان (لوحة «ما حققته» بثلاثة أرقام — ٢٦ نوفمبر ٢٠٢٦: خسارة مشكلات «المبيعات أقل من الإنفاق» = الإنفاق ناقص المبيعات)
+      // بنفس نافذة «الأقرب للمتجر» اللي الكروت بتستخدمها: سحب ٧ أيام ومن غير مشاهدة
+      const r = await fetch(accountPath + '/stats?granularity=DAY&breakdown=ad&fields=spend,conversion_purchases_value' +
+        '&swipe_up_attribution_window=7_DAY&view_attribution_window=none' +
         '&start_time=' + encodeURIComponent(since + 'T00:00:00.000' + tzOffsetString(since, tz)) +
         '&end_time=' + encodeURIComponent(endKey + 'T00:00:00.000' + tzOffsetString(endKey, tz)), { headers: headers });
       const data = await r.json().catch(function () { return null; });
       if (!r.ok || !data || data.request_status === 'ERROR') { res.status(r.ok ? 502 : r.status).json({ error: snapError(data, r.status) }); return; }
-      res.status(200).json({ spend: snapDailySpend(data, ids) });
+      res.status(200).json({ spend: snapDailySpend(data, ids), sales: snapDailySpend(data, ids, 'conversion_purchases_value') });
       return;
     }
 

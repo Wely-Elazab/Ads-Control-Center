@@ -19,6 +19,7 @@
 // لإعدادات المستخدم، والبريد بيرجعله لو الملخص لسه مالوش صاحب. نفس شرطه القديم: مفتاح المنصة بيثبت إن صاحبه شايف الحساب
 //   settings.get ← { platform, accountId, platformToken }  → { settings | null }
 import { META_ID, UUID_SHAPE, USER_ID, db, rpc, reply, metaAccount } from './lib.ts';
+import { VALUE_CONSENT_FROM } from './join.ts';
 
 const SNAP_API = 'https://adsapi.snapchat.com/v1';
 const SNAP_ID = new RegExp('^' + UUID_SHAPE + '$', 'i');   // نفس digest.ts — رقم حساب Snapchat معرّف UUID
@@ -104,6 +105,9 @@ export function cleanPrefs(v: unknown): Record<string, unknown> | null {
   const src = v as Record<string, unknown>, out: Record<string, unknown> = {};
   if (src.currency === null || (typeof src.currency === 'string' && CURRENCY.test(src.currency))) out.currency = src.currency;
   if (src.valueAck === true) out.valueAck = true;
+  // الموافقة على النسخة التانية من ملاحظة لوحة «ما حققته» (٢٦ نوفمبر ٢٠٢٦ — التسجيل اتوسّع: خسارة الإعلان اليومية والمبالغ على الخادم والسجل
+  // طول عمر الحساب، فلازم موافقة جديدة قبل ما يبدأ — سياسة الخصوصية: «نوضّح التغيير قبل تفعيله»)
+  if (src.valueAck2 === true) out.valueAck2 = true;
   return Object.keys(out).length ? out : null;
 }
 // قائمة حدود أكبر من المسموح (قبل التنظيف — التنظيف بيقطع)
@@ -189,7 +193,16 @@ export function cleanUserWrite(body: any): UserWrite | 'too many' | null {
   return { base, changes, goals, asked };
 }
 
-export async function handleUserSettings(action: string, body: any, userId: string, origin: string | null): Promise<Response> {
+// وافق على سجل لوحة «ما حققته» وهو بيطلب الانضمام؟ (نسخة الشروط اللي وافق عليها في النموذج — join.ts). طلب مش موجود أو فشل القراءة = لأ
+export async function joinConsented(email: string): Promise<boolean> {
+  const r = await db('pilot_requests?email=eq.' + encodeURIComponent(email) + '&select=consent_version&limit=1', { method: 'GET' }).catch(() => null);
+  const rows = r ? await r.json().catch(() => null) : null;
+  const v = Array.isArray(rows) && rows[0] ? rows[0].consent_version : null;
+  return typeof v === 'string' && v >= VALUE_CONSENT_FROM;
+}
+
+// email = بريد الدخول (من الرمز الموقّع — handler.ts requireLogin)، للموافقة اللي في طلب الانضمام بس
+export async function handleUserSettings(action: string, body: any, userId: string, origin: string | null, email?: string): Promise<Response> {
   if (typeof userId !== 'string' || !USER_ID.test(userId)) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
   const where = 'user_settings?user_id=eq.' + userId;
   const now = new Date().toISOString();
@@ -201,7 +214,16 @@ export async function handleUserSettings(action: string, body: any, userId: stri
     if (row && !(Date.parse(row.used_at) > Date.now() - 86400000)) {
       await db(where, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ used_at: now }) }).catch(() => null);
     }
-    return reply(200, { settings: row ? row.settings : null, updatedAt: row ? row.updated_at : null }, origin);
+    let settings = row ? row.settings : null;
+    // وافق على سجل لوحة «ما حققته» في نموذج الانضمام (٢٦ نوفمبر ٢٠٢٦): بتتحفظ في سجله مرة واحدة (طلب الانضمام نفسه بيتمسح بعد ١٢ شهر من آخر
+    // تحديث له) فاللوحة بتبدأ له لوحدها من غير ملاحظتها. فشل الحفظ = الملاحظة بتظهر المرة دي بس، وضغطتها بتحفظ نفس الموافقة
+    const prefs = settings && typeof settings === 'object' ? settings.prefs : null;
+    if (typeof email === 'string' && email && !(prefs && prefs.valueAck2 === true) && (await joinConsented(email))) {
+      const merged = await rpc('user_settings_apply', { p_user: userId, p_base: null, p_changes: { prefs: { valueAck2: true } }, p_goals: null, p_asked: false })
+        .catch(() => null);
+      if (merged && typeof merged === 'object' && !Array.isArray(merged)) settings = merged;
+    }
+    return reply(200, { settings, updatedAt: row ? row.updated_at : null }, origin);
   }
   if (action === 'usettings.set') {
     let req = body;
@@ -233,13 +255,39 @@ export async function snapAccount(token: string, id: string): Promise<boolean> {
   return !!acc && String(acc.id) === id;
 }
 
+// رقم حساب Google Ads (١٠ أرقام من غير شرطات — نفس اللي الأداة بتبعته)، ومعرّف عميل OAuth بتاع الأداة (عام — نفسه في js/google.js):
+// الرمز لازم يكون صادر له وبصلاحية Google Ads، زي api/_verify.js في Cloudflare
+const GOOGLE_ID = /^\d{10}$/;
+const GOOGLE_CLIENT_ID = '755601072390-jvljtdc8799o59fjffvtq43p70765jqn.apps.googleusercontent.com';
+const GOOGLE_ADS_API = 'https://googleads.googleapis.com/v24';
+// صاحب الرمز شايف حساب Google ده؟ (لوحة «ما حققته مع الأداة» — Google دخل السجل ٢٦ نوفمبر ٢٠٢٦). الحساب تحت حساب مدير (MCC) محتاج
+// رقم المدير في الهيدر، زي api/_google.js
+export async function googleAccount(token: string, id: string, loginId: string | null): Promise<boolean> {
+  const t = await fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(token)).catch(() => null);
+  const info = t && t.ok ? await t.json().catch(() => null) : null;
+  if (!info || (info.azp !== GOOGLE_CLIENT_ID && info.aud !== GOOGLE_CLIENT_ID) || String(info.scope || '').indexOf('adwords') < 0) return false;
+  const headers: Record<string, string> = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+  if (loginId) headers['login-customer-id'] = loginId;
+  const r = await fetch(GOOGLE_ADS_API + '/customers/' + id + '/googleAds:search', {
+    method: 'POST', headers, body: JSON.stringify({ query: 'SELECT customer.id FROM customer LIMIT 1' })
+  }).catch(() => null);
+  if (!r || !r.ok) return false;
+  const j = await r.json().catch(() => null);
+  const row = j && Array.isArray(j.results) ? j.results[0] : null;
+  return !!row && String(row.customer && row.customer.id) === id;
+}
+
 // المنصة والحساب بعد ما المنصة نفسها تأكد إن صاحب المفتاح شايف الحساب — أو رد الرفض. الإعدادات هنا وسجل المشكلات (episodes.ts)
-export async function verifyAccount(body: any, origin: string | null): Promise<{ platform: 'meta' | 'snapchat'; id: string } | Response> {
+export async function verifyAccount(body: any, origin: string | null): Promise<{ platform: 'meta' | 'snapchat' | 'google'; id: string } | Response> {
   const platform = body && body.platform, id = body && body.accountId, token = body && body.platformToken;
-  if (platform !== 'meta' && platform !== 'snapchat') return reply(400, { error: 'platform' }, origin);
-  if (typeof id !== 'string' || !(platform === 'meta' ? META_ID : SNAP_ID).test(id)) return reply(400, { error: 'account' }, origin);
+  if (platform !== 'meta' && platform !== 'snapchat' && platform !== 'google') return reply(400, { error: 'platform' }, origin);
+  const shape = platform === 'meta' ? META_ID : (platform === 'snapchat' ? SNAP_ID : GOOGLE_ID);
+  if (typeof id !== 'string' || !shape.test(id)) return reply(400, { error: 'account' }, origin);
   if (typeof token !== 'string' || !PLATFORM_TOKEN.test(token)) return reply(400, { error: 'token' }, origin);
-  const ok = platform === 'meta' ? !!(await metaAccount(token, id)) : await snapAccount(token, id);
+  const login = body && body.loginCustomerId;
+  if (platform === 'google' && login != null && !(typeof login === 'string' && GOOGLE_ID.test(login))) return reply(400, { error: 'account' }, origin);
+  const ok = platform === 'meta' ? !!(await metaAccount(token, id))
+    : (platform === 'snapchat' ? await snapAccount(token, id) : await googleAccount(token, id, login || null));
   if (!ok) return reply(403, { error: 'not verified' }, origin);
   return { platform, id };
 }

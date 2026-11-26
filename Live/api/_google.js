@@ -63,6 +63,70 @@ export function adText(ad) {
     one(of('demandGenCarouselAd').headline) || one(of('demandGenProductAd').headline);
 }
 
+// ---------- سجل التعديلات (change_event) للوحة «ما حققته مع الأداة» — Google دخل اللوحة ٢٦ نوفمبر ٢٠٢٦ ----------
+// وثائق v24: آخر ٣٠ يوم بس، وLIMIT لحد ١٠٬٠٠٠، والتعديل ممكن يتأخر ٣ دقايق؛ ومفيش فيه مجموعات مواد عرض Performance Max (ASSET_GROUP
+// مش من أنواعه) — فحملة PMax بيتشاف عليها تعديل الحملة نفسها وميزانيتها بس. كل تعديل بيتحوّل لنفس شكل Meta وSnapchat (ui.js valueActions):
+// { kind: pause|budget|targeting|creative|bid, level: ad|adset|campaign, id, time (ISO بفرق التوقيت), from?, to? }
+export const CHANGE_LIMIT = 10000;
+const STOPPED = { PAUSED: 1, REMOVED: 1 };
+const BID_PATH = /bidding|targetroas|targetcpa|maximize|manualcpc|manualcpm|manualcpv|targetspend|targetimpressionshare|percentcpc|commission|cpcbid|cpmbid|cpvbid|bidmicros/i;
+const TARGET_PATH = /geotargettypesetting|networksettings|targetingsetting|audiencesetting/i;
+// رقم من مسار المورد: customers/1/adGroupAds/22~33 → المجموعة ٢٢ والإعلان ٣٣
+function idsOf(name) {
+  const m = /\/(campaigns|adGroups|ads|adGroupAds|campaignBudgets|adGroupCriteria|campaignCriteria|adGroupBidModifiers|campaignAssets|adGroupAssets)\/(\d+)(?:~(\d+))?/.exec(String(name || ''));
+  return m ? { type: m[1], a: m[2], b: m[3] || null } : null;
+}
+function lastId(name) { const m = /\/(\d+)$/.exec(String(name || '')); return m ? m[1] : null; }
+// المسارات اللي اتغيّرت (FieldMask في JSON = نص مفصول بفاصلة، أو { paths: [...] })
+function pathsOf(mask) {
+  const list = typeof mask === 'string' ? mask.split(',') : (mask && Array.isArray(mask.paths) ? mask.paths : []);
+  return list.map(function (p) { return String(p).replace(/_/g, '').toLowerCase(); });
+}
+// وقت التعديل بتوقيت الحساب («2026-11-25 14:32:11.123456») → ISO بفرق توقيت الحساب في اليوم ده
+function changeTime(s, offsetOf) {
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})/.exec(String(s || ''));
+  return m ? m[1] + 'T' + m[2] + offsetOf(m[1]) : null;
+}
+// صف change_event واحد → تعديلات (ممكن صفر). offsetOf(date) = فرق توقيت الحساب («+03:00»)
+export function changeActions(row, offsetOf) {
+  const ev = (row && row.changeEvent) || {};
+  const time = changeTime(ev.changeDateTime, offsetOf);
+  if (!time) return [];
+  const type = ev.changeResourceType, op = ev.resourceChangeOperation, paths = pathsOf(ev.changedFields);
+  const oldR = ev.oldResource || {}, newR = ev.newResource || {}, own = idsOf(ev.changeResourceName);
+  const camp = lastId(ev.campaign), group = lastId(ev.adGroup);
+  const has = function (re) { return paths.some(function (p) { return re.test(p); }); };
+  const stopped = function (res) { return op === 'REMOVE' || (paths.indexOf('status') > -1 && !!STOPPED[res && res.status]); };
+  const out = [];
+  const add = function (kind, level, id, extra) { if (id) out.push(Object.assign({ kind: kind, level: level, id: String(id), time: time }, extra || {})); };
+  if (type === 'CAMPAIGN') {
+    const id = (own && own.a) || camp;
+    if (stopped(newR.campaign)) add('pause', 'campaign', id);
+    else if (op === 'UPDATE') {
+      if (has(BID_PATH)) add('bid', 'campaign', id);
+      if (has(TARGET_PATH)) add('targeting', 'campaign', id);
+    }
+  } else if (type === 'CAMPAIGN_BUDGET') {
+    // خفض الميزانية ٢٠٪ أو أكتر بس (زي Meta وSnapchat). الميزانية المشتركة من غير حملة منسوبة مبنعرفش تخص مين
+    const from = Number(oldR.campaignBudget && oldR.campaignBudget.amountMicros) / 1e6, to = Number(newR.campaignBudget && newR.campaignBudget.amountMicros) / 1e6;
+    if (op === 'UPDATE' && camp && from > 0 && to > 0 && to <= from * 0.8) add('budget', 'campaign', camp, { from: from, to: to });
+  } else if (type === 'AD_GROUP') {
+    const id = (own && own.a) || group;
+    if (stopped(newR.adGroup)) add('pause', 'adset', id);
+    else if (op === 'UPDATE' && has(BID_PATH)) add('bid', 'adset', id);
+  } else if (type === 'AD_GROUP_AD') {
+    if (stopped(newR.adGroupAd)) add('pause', 'ad', own && own.b);
+    else if (op === 'CREATE') add('creative', 'adset', (own && own.a) || group);
+  } else if (type === 'AD') {
+    if (op === 'UPDATE') add('creative', 'ad', own && own.a);
+  } else if (type === 'AD_GROUP_CRITERION') add('targeting', 'adset', (own && own.a) || group);
+  else if (type === 'CAMPAIGN_CRITERION') add('targeting', 'campaign', (own && own.a) || camp);
+  else if (type === 'AD_GROUP_BID_MODIFIER') add('bid', 'adset', (own && own.a) || group);
+  else if (type === 'AD_GROUP_ASSET') add('creative', 'adset', (own && own.a) || group);
+  else if (type === 'CAMPAIGN_ASSET') add('creative', 'campaign', (own && own.a) || camp);
+  return out;
+}
+
 // رسالة الخطأ الحقيقية من Google بدل ما تتخبّى ورا "مفيش بيانات"
 function firstDetail(data) {
   const e = Array.isArray(data) ? (data[0] && data[0].error) : (data && data.error);

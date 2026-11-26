@@ -18,8 +18,12 @@
 import { META_APP_ID, SITE, MAIL_REPLY_TO, db, rpc, reply, esc, sendEmail, mailHtml, stripHidden } from './lib.ts';
 import { linkSig, sameString, cleanEmail } from './digest.ts';
 
-// نسخة الشروط وسياسة الخصوصية اللي وافق عليها مقدّم الطلب — ٢٥ أكتوبر ٢٠٢٦: سجل التنبيهات العاجلة (episodes.ts)، و٢٦ أكتوبر: بريد Snapchat
-const CONSENT_VERSION = '2026-10-26';
+// نسخة الشروط وسياسة الخصوصية اللي وافق عليها مقدّم الطلب — ٢٥ أكتوبر ٢٠٢٦: سجل التنبيهات العاجلة (episodes.ts)، و٢٦ أكتوبر: بريد Snapchat،
+// و٢٦ نوفمبر: سجل لوحة «ما حققته مع الأداة» بمبالغه وطول عمر الحساب. والموافقة على السجل ده بقت في نموذج الانضمام نفسه (قرار صاحب المنتج
+// ٢٦ نوفمبر: «من ضمن شروط التسجيل بحيث يقبلها قبل التفعيل»): اللي وافق على VALUE_CONSENT_FROM أو أحدث، اللوحة بتبدأ له لوحدها من غير
+// ملاحظتها (settings.ts usettings.get). أي نسخة جاية لازم تفضل >= VALUE_CONSENT_FROM طالما السجل ده جوه الشروط
+const CONSENT_VERSION = '2026-11-26';
+export const VALUE_CONSENT_FROM = '2026-11-26';
 const SIG_LABEL = 'ads-center/join-invited/v1:';
 const PLATFORMS = ['meta', 'google', 'snapchat', 'tiktok'];
 // «أنت:» — لازم تطابق join.html وقيد الجدول (pilot_requests.role). الأسماء دي اللي بتظهر في إشعارنا وصفحة /invited

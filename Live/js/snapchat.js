@@ -322,10 +322,15 @@
       return true;
     });
   }
-  // إنفاق إعلانات محددة يوم بيوم (api/snapchat-ads-fetch.js action=daily) — { رقم الإعلان: { 'YYYY-MM-DD': إنفاق } }
-  function snapDailySpend(adAccountId, ids, since, until) {
+  // إنفاق ومبيعات إعلانات محددة يوم بيوم (api/snapchat-ads-fetch.js action=daily — لوحة «ما حققته» بثلاثة أرقام، ٢٦ نوفمبر ٢٠٢٦: خسارة
+  // «المبيعات أقل من الإنفاق» محتاجة المبيعات كمان) — { spend: { رقم الإعلان: { 'YYYY-MM-DD': إنفاق } }, sales: { … } } أو null
+  function snapDailyMoney(adAccountId, ids, since, until) {
     return apiPost('/api/snapchat-ads-fetch', { accessToken: snapchatAccessToken, action: 'daily', adAccountId: adAccountId, adIds: ids, since: since, until: until })
-      .then(function (res) { return res.ok && res.data && res.data.spend && typeof res.data.spend === 'object' ? res.data.spend : null; }, function () { return null; });
+      .then(function (res) {
+        var d = res.ok && res.data;
+        if (!d || !d.spend || typeof d.spend !== 'object') return null;
+        return { spend: d.spend, sales: d.sales && typeof d.sales === 'object' ? d.sales : {} };
+      }, function () { return null; });
   }
   function loadSnapchatEdits(adAccountId, tz, token) {
     if (!window.DX || !DX._ || typeof DX._.keyInTz !== 'function') return;

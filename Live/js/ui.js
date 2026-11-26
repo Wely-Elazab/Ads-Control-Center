@@ -469,13 +469,19 @@
   function platformTokenOf(platform) {
     if (platform === 'meta') return metaAccessToken();
     if (platform === 'snapchat') return validToken(sessionTokens.snapchat) || snapchatAccessToken;
+    // Google (لوحة «ما حققته مع الأداة» — ٢٦ نوفمبر ٢٠٢٦): الخادم بيتأكد إن الرمز لتطبيقنا وإن صاحبه شايف الحساب (settings.ts googleAccount)
+    if (platform === 'google') return validToken(sessionTokens.google) || (typeof googleAccessToken === 'string' ? googleAccessToken : null);
     return null;
   }
   // طلب بإثبات الوصول للحساب في منصته (سجل مشكلات لوحة «ما حققته مع الأداة» — episodes.ts، وسجل الحساب القديم للنقل)
   function accountCall(action, source, extra) {
     var platform = platformOfSource(source), token = platformTokenOf(platform);
     if (!token) { var e = new Error('no session'); e.code = 'session'; return Promise.reject(e); }
-    return syncCall(Object.assign({ action: action, platform: platform, accountId: source.slice(platform.length + 1), platformToken: token }, extra || {}));
+    var body = Object.assign({ action: action, platform: platform, accountId: source.slice(platform.length + 1), platformToken: token }, extra || {});
+    // حساب Google تحت حساب مدير (MCC): رقم المدير لازم يتبعت عشان الخادم يقدر يوصل للحساب (زي طلبات الإعلانات)
+    var login = platform === 'google' ? (accountInfo[source] || {}).loginCustomerId : null;
+    if (login) body.loginCustomerId = String(login);
+    return syncCall(body);
   }
   function plainObject(v) { return v && typeof v === 'object' && !Array.isArray(v) ? v : null; }
   function normUserSet(v) {
@@ -2943,53 +2949,59 @@
       (all ? '<button type="button" class="top-alerts-all" data-go-alerts>' + t('top.all', { n: ar(all) }) + '</button>' : '');
     return shown;
   }
-  // ---------- لوحة «قيمة الأداة» (مكان لوحة الهدر فوق سبب الحكم) ----------
-  // قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦: «قسم الهدر… الهدف منه هو عرض قيمة الأداة وليس تفاصيل كثيرة لا يقرأها أي شخص». بعد نقاش المراجع
-  // (Opteo: الوقت والمبلغ اللي كان هيتصرف لولا التدخل؛ وأنظمة التنبيه بتفصل وقت الاكتشاف — بتاع الأداة — عن سرعة الإنسان) اتفقنا على:
-  // (١) مشكلات عالجتها بعد تنبيهنا، (٢) هدر منعته = ما كان كل إعلان منهم بيهدره في اليوم قبل التنبيه ليوم واحد، (٣) وقت وفّرناه
-  // بالساعات («اجعلها بالساعات وليس بالدقائق أو الثواني»)، وسطر «تنتظر نظرتك» — من غير أي نسبة على المستخدم («سرعة تصرّف المستخدم قد
-  // تكون هجوماً عليه»). المشكلة = تنبيه «عاجل» عليه مبلغ هدر، والمعالجة = تعديل خلال ٢٤ ساعة من التنبيه على الإعلان أو مجموعته أو
-  // حملته (سجل تعديلات المنصة). السجل على السيرفر (supabase/functions/sync/episodes.ts) من غير أي مبالغ، والمبلغ من المنصة وقت العرض.
-  // قبل أول تسجيل: ملاحظة واحدة على الجهاز (سياسة الخصوصية: «نوضّح التغيير قبل تفعيله»). Meta وSnapchat بس (سجل التعديلات)
-  var VALUE_PLATFORMS = ['meta', 'snapchat'];
-  // v2 (٣ نوفمبر ٢٠٢٦): المبالغ بقت مقيسة قبل/بعد — مبالغ v1 كانت مضخّمة (الهدر اليومي كامل لأي تصرّف)، فبتتمسح ومبتتقريش
-  var VALUE_ACK_KEY = 'pauseproof.value.ack.v1', VALUE_MONEY_KEY = 'pauseproof.value.money.v2';
-  try { localStorage.removeItem('pauseproof.value.money.v1'); } catch (e) { /* التخزين مقفول */ }
-  var VALUE_DAY = 86400000, VALUE_RESYNC = 10 * 60000;
-  // وقت البحث عن الإعلانات العاجلة من غير تنبيه، في كل يوم فيه تنبيه جديد: دقيقة للحساب (فتحه وضبط الفترة والأعمدة) و١٠ ثواني لكل إعلان
-  // شغّال (مقارنة إنفاقه ونتائجه بحدّك) — تقدير متحفظ اتفقنا عليه، وبيتقال في «كيف نحسبها؟»
-  var VALUE_SECONDS = { account: 60, ad: 10 };
-  var valueEpisodes = {};   // المصدر ← مشكلاته من السيرفر (آخر ٤٥ يوم)
-  var valueActions = {};    // المصدر ← { since, complete, objects?, list } من سجل التعديلات (meta.js loadAdEdits، snapchat.js publishSnapValueActions)
-  var valueState = {};      // المصدر ← { key, at, busy, deciding, moneyBusy, snapAsked }
-  var valueTzOf = {};       // توقيت حساب Snapchat (snapchat.js) — Meta من accountInfo
+  // ---------- لوحة «ما حققته مع الأداة» (مكان لوحة الهدر فوق سبب الحكم) ----------
+  // قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦: «قسم الهدر… الهدف منه هو عرض قيمة الأداة وليس تفاصيل كثيرة لا يقرأها أي شخص» — من غير أي نسبة على
+  // المستخدم («سرعة تصرّف المستخدم قد تكون هجوماً عليه»). المشكلة = تنبيه «عاجل» عليه مبلغ هدر (alerts.js atRisk). السجل على السيرفر
+  // (supabase/functions/sync/episodes.ts). قبل أول تسجيل: ملاحظة واحدة («نوضّح التغيير قبل تفعيله»).
+  // ثلاثة أرقام (قرارات صاحب المنتج ٢٦ نوفمبر ٢٠٢٦ — التدقيق الشامل ١٣٢): «مشكلات رصدناها · وفّرته بعد تنبيه Ads Center · ضاع قبل
+  // التصرّف»، على Meta وSnapchat وGoogle. التصرّف بيتحسب في أي وقت بعد التنبيه والمشكلة قايمة (مش في الـ ٢٤ ساعة بس)، والتوفير ٧ أيام بعده،
+  // والأيام قبله «ضاع». الأرقام بتتبع الفترة المختارة، وسطر «منذ بدأت» من أول مشكلة اتسجّلت (السجل طول عمر الحساب، ومبالغ كل مشكلة بتتحفظ
+  // على الخادم بعد ما أيامها تكمل). «الوقت الذي وفّرناه» اتشال: مش من الأرقام الثلاثة
+  var VALUE_PLATFORMS = ['meta', 'snapchat', 'google'];
+  // الموافقة النسخة التانية (٢٦ نوفمبر ٢٠٢٦): التسجيل اتوسّع (خسارة الإعلان اليومية وقت التنبيه، والمبالغ على خادمنا، والسجل طول عمر
+  // الحساب) — سياسة الخصوصية بتوعد «نوضّح التغيير قبل تفعيله»، فاللي وافق على الأولى بيشوف الملاحظة الجديدة مرة، ومفيش جديد بيتسجّل قبلها
+  var VALUE_ACK_KEY = 'pauseproof.value.ack.v2';
+  // مبالغ الجهاز القديمة (v1 مضخّمة، وv2 بتعريف «يوم واحد») — المبالغ بقت بتتحسب من أرقام المنصة وتتحفظ على الخادم بعد اكتمالها.
+  // وموافقة الجهاز على النسخة الأولى من الملاحظة مبقتش بتتحسب
+  try {
+    ['pauseproof.value.money.v1', 'pauseproof.value.money.v2', 'pauseproof.value.ack.v1'].forEach(function (k) { localStorage.removeItem(k); });
+  } catch (e) { /* التخزين مقفول */ }
+  var VALUE_RESYNC = 10 * 60000, VALUE_SAVE_DAYS = 7;
+  var valueEpisodes = {};   // المصدر ← مشكلاته من السيرفر (كلها من أول يوم)
+  var valueActions = {};    // المصدر ← { since, complete, objects?, list } من سجل التعديلات (meta.js loadAdEdits، snapchat.js publishSnapValueActions، google.js)
+  var valueState = {};      // المصدر ← { key, at, busy, deciding, moneyBusy, storing, snapAsked, tried }
+  var valueTzOf = {};       // توقيت حساب Snapchat (snapchat.js) — Meta وGoogle من accountInfo
+  var valueDayCache = {};   // المصدر ← رقم الإعلان ← اليوم ← { spend, sales } (أيام برّه أرقام الكارت، من المنصة)
   var valueAckNow = false;
-  var valueMoney = (function () {
-    try { var v = JSON.parse(localStorage.getItem(VALUE_MONEY_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
-    catch (e) { return {}; }
-  })();
-  function saveValueMoney() { try { localStorage.setItem(VALUE_MONEY_KEY, JSON.stringify(valueMoney)); } catch (e) { /* بيتحسب تاني المرة الجاية */ } }
-  // الموافقة في سجل المستخدم (prefs.valueAck — من ٣١ أكتوبر، زي السجل نفسه لكل مستخدم). علامة الجهاز القديمة مبتتحسبش لما سجل المستخدم
-  // يكون معروف: كانت بتفضل بعد الخروج، فمستخدم تاني على نفس الجهاز كان سجله هيبدأ من غير ما يوافق هو
+  // الموافقة في سجل المستخدم (prefs.valueAck2 — من ٣١ أكتوبر في السجل، زي السجل نفسه لكل مستخدم؛ valueAck القديمة = النسخة الأولى من
+  // الملاحظة ومبقتش بتكفي). علامة الجهاز مبتتحسبش لما سجل المستخدم يكون معروف: كانت بتفضل بعد الخروج، فمستخدم تاني على نفس الجهاز كان
+  // سجله هيبدأ من غير ما يوافق هو. قبل الموافقة: مفيش مشكلات جديدة بتتسجّل ومفيش مبالغ بتتحفظ — المسجّل قبل كده بيتعرض، وتصرّفات
+  // مشكلاته بتتسجّل زي ما الملاحظة الأولى قالت
   function valueAcked() {
     if (valueAckNow) return true;
-    if (settingsKnown()) return !!(userSet.prefs && userSet.prefs.valueAck === true);
+    if (settingsKnown()) return !!(userSet.prefs && userSet.prefs.valueAck2 === true);
     try { return localStorage.getItem(VALUE_ACK_KEY) === '1'; } catch (e) { return false; }
   }
   function ackValue() {
     valueAckNow = true;
     try { localStorage.setItem(VALUE_ACK_KEY, '1'); } catch (e) { /* الجلسة دي بس */ }
-    if (settingsKnown() && !(userSet.prefs && userSet.prefs.valueAck)) writeUserSettings({ changes: { prefs: { valueAck: true } } }).then(function () {}, function () {});
+    if (settingsKnown() && !(userSet.prefs && userSet.prefs.valueAck2)) writeUserSettings({ changes: { prefs: { valueAck2: true } } }).then(function () {}, function () {});
   }
   function valueTz(source) {
     var p = platformOfSource(source);
     return (p === 'snapchat' ? valueTzOf[source] : (accountInfo[source] || {}).timeZone) || BROWSER_TZ;
   }
   function valueAdOf(source, ad) { return candidates.filter(function (c) { return c.source === source && String(c.nativeId || c.id) === ad; })[0] || null; }
+  function valueCurrency(source) {
+    var c = candidates.filter(function (x) { return x.source === source && x.currency; })[0];
+    return (c && c.currency) || (accountInfo[source] || {}).currency || '';
+  }
+  function round2(v) { return Math.round((v || 0) * 100) / 100; }
   // مشكلات الحساب دلوقتي: نفس التنبيهات اللي في «تنتظر نظرتك» (عاجل وعليه مبلغ هدر) — من كل التنبيهات مش المفلترة بالمنصة المختارة،
-  // وإلا مشكلات المنصة التانية كانت هتخلص بالغلط
+  // وإلا مشكلات المنصة التانية كانت هتخلص بالغلط. ومعاها خسارة الإعلان اليومية وقت التنبيه وعملتها (بتتحفظ مع المشكلة أول مرة بس —
+  // نفس «تهدر نحو … يومياً»)
   function valueProblems(alerts, source) {
-    var seen = {}, out = [];
+    var seen = {}, out = [], cur = valueCurrency(source);
     alerts.forEach(function (a) {
       if (a.level !== 'critical' || !a.atRisk || !(a.amount > 0) || !a.adId) return;
       var c = findCandidate(a.adId);
@@ -2997,7 +3009,8 @@
       var ad = String(c.nativeId || c.id), kind = a.code === 'loss' ? 'loss' : 'waste';
       if (seen[ad + '|' + kind]) return;
       seen[ad + '|' + kind] = 1;
-      out.push({ ad: ad, kind: kind });
+      var daily = a.money && a.money.daily > 0 ? round2(a.money.daily) : null, ccy = a.currency || cur;
+      out.push(daily != null && /^[A-Z]{3}$/.test(ccy || '') ? { ad: ad, kind: kind, daily: daily, cur: ccy } : { ad: ad, kind: kind });
     });
     return out.sort(function (x, y) { return x.ad < y.ad ? -1 : (x.ad > y.ad ? 1 : (x.kind < y.kind ? -1 : 1)); });
   }
@@ -3016,13 +3029,13 @@
   function valueSync(source) {
     var st = valueState[source] = valueState[source] || {};
     if (st.busy) return;
-    // من أول يوم في فترة البيانات المختارة بتوقيت الحساب (اللوحة بتتبع الفترة — قرار صاحب المنتج ٢٥ أكتوبر): تغيير الفترة = طلب جديد
-    var since = resolvePeriodFor(valueTz(source)).since;
-    // المشكلات المفتوحة «الآن» (analysisNow) — لو من تحليل الفترة، عرض «الشهر الماضي» كان هيقفل مشكلات قايمة ويفتح قديمة
-    var open = valueAcked() ? valueProblems(analysisNow.alerts, source) : null, key = JSON.stringify([open, since]);
+    // المشكلات المفتوحة «الآن» (analysisNow) — لو من تحليل الفترة، عرض «الشهر الماضي» كان هيقفل مشكلات قايمة ويفتح قديمة.
+    // المفتاح بالإعلان والنوع بس: الخسارة اليومية بتتغيّر مع الأرقام ومش سبب لطلب جديد
+    var open = valueAcked() ? valueProblems(analysisNow.alerts, source) : null;
+    var key = JSON.stringify(open && open.map(function (x) { return x.ad + '|' + x.kind; }));
     if (st.key === key && Date.now() - st.at < VALUE_RESYNC) return;
     st.busy = true; st.key = key; st.at = Date.now();
-    accountCall('episodes.sync', source, { open: open, since: since }).then(function (res) {
+    accountCall('episodes.sync', source, { open: open }).then(function (res) {
       st.busy = false;
       if (!res || !Array.isArray(res.episodes) || sourceOf(platformOfSource(source)) !== source) return;
       valueEpisodes[source] = res.episodes;
@@ -3031,41 +3044,42 @@
       renderValueAgain();
     }, function () { st.busy = false; });
   }
-  // التعديل اللي بيتحسب معالجة: إيقاف، أو خفض ميزانية (٢٠٪ أو أكتر — الأقل مبيوصلش هنا أصلاً)، أو تصميم أو استهداف أو مزايدة.
-  // رفع الميزانية على إعلان بيهدر مش معالجة
+  // التعديل اللي بيتحسب تصرّف: إيقاف، أو خفض ميزانية (٢٠٪ أو أكتر — الأقل مبيوصلش هنا أصلاً)، أو تصميم أو استهداف أو مزايدة.
+  // رفع الميزانية على إعلان بيخسر مش تصرّف
   var VALUE_ACT = { pause: 1, budget: 1, targeting: 1, creative: 1, bid: 1 };
   function valueActionCounts(a) { return !!VALUE_ACT[a.kind] && (a.kind !== 'budget' || (a.from > 0 && a.to > 0 && a.to < a.from)); }
   function valueTime(s) { return Date.parse(String(s || '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2')); }
-  // قرار مشكلة واحدة: { handledAt, action } لو فيه تعديل جوه الـ ٢٤ ساعة بعد التنبيه، و{ handledAt: null } لو الـ ٢٤ ساعة خلصت والسجل
-  // غطّاها كلها من غير تعديل، و null = لسه منعرفش. objs = الإعلان ومجموعته وحملته، acts = valueActions[المصدر]
+  // أول تصرّف على الإعلان أو مجموعته أو حملته بعد التنبيه والمشكلة لسه قايمة (قبل ما تخلص — بعدها مبقاش ردّ على التنبيه): { handledAt,
+  // action } — وإلا null. من غير حد ٢٤ ساعة (قرار صاحب المنتج ٢٦ نوفمبر: التوفير يبدأ بعد التصرّف حتى لو متأخر، والأيام قبله «ضاع»).
+  // objs = الإعلان ومجموعته وحملته، acts = valueActions[المصدر]
   function valueDecision(ep, objs, acts, now) {
-    var first = valueTime(ep.firstAt), end = first + VALUE_DAY;
+    var first = valueTime(ep.firstAt), end = ep.endedAt ? valueTime(ep.endedAt) : Infinity;
     if (isNaN(first) || !acts) return null;
     var hit = acts.list.filter(function (a) {
       var t0 = valueTime(a.time);
       var mine = (a.level === 'ad' && a.id === objs.ad) || (a.level === 'adset' && !!objs.adset && a.id === objs.adset) ||
         (a.level === 'campaign' && !!objs.campaign && a.id === objs.campaign);
-      return mine && t0 >= first && t0 <= end && valueActionCounts(a);
+      return mine && t0 >= first && t0 <= end && t0 <= now + 5 * 60000 && valueActionCounts(a);
     }).sort(function (x, y) { return valueTime(x.time) - valueTime(y.time); })[0];
-    if (hit) return { handledAt: new Date(valueTime(hit.time)).toISOString(), action: hit.kind };
-    var keys = ['ad:' + objs.ad].concat(objs.adset ? ['adsquad:' + objs.adset] : [], objs.campaign ? ['campaign:' + objs.campaign] : []);
-    var covered = acts.complete && first >= acts.since && (!acts.objects || keys.every(function (k) { return acts.objects[k]; }));
-    return now >= end && covered ? { handledAt: null, action: null } : null;
+    return hit ? { handledAt: new Date(valueTime(hit.time)).toISOString(), action: hit.kind } : null;
   }
   function valueObjects(source, ep) {
     var c = valueAdOf(source, ep.ad);
     return { ad: ep.ad, adset: c && c.adsetId ? String(c.adsetId) : null, campaign: c && c.campaignId ? String(c.campaignId) : null };
   }
+  // المشكلات اللي لسه من غير تصرّف (حتى لو اتقال عليها قبل كده «لسه») بتتراجع على السجل كل ما يوصل — والتصرّف مرة واحدة
   function valueDecide(source) {
     var st = valueState[source] = valueState[source] || {}, acts = valueActions[source], eps = valueEpisodes[source] || [];
     if (st.deciding || !acts) return;
     var now = Date.now(), out = [], need = [];
     eps.forEach(function (ep) {
-      if (ep.decided) return;
+      if (ep.handledAt) return;
       var objs = valueObjects(source, ep), d = valueDecision(ep, objs, acts, now);
       if (d) { out.push({ id: ep.id, handledAt: d.handledAt, action: d.action }); return; }
-      // Snapchat: سجل عناصر المشكلة مجاش مع الوسوم (الإعلان اتوقف بعد التنبيه فمش في الشغّالة) — بنطلبه مرة في الجلسة
-      if (acts.objects && valueTime(ep.firstAt) >= acts.since) {
+      // Snapchat: سجل عناصر المشكلة مجاش مع الوسوم (الإعلان اتوقف بعد التنبيه فمش في الشغّالة) — بنطلبه مرة في الجلسة. المشكلة القايمة
+      // أو اللي خلصت من أقل من ٣٠ يوم بس
+      var ended = ep.endedAt ? valueTime(ep.endedAt) : null;
+      if (acts.objects && (!ended || now - ended < 30 * 86400000)) {
         need.push({ level: 'ad', id: objs.ad });
         if (objs.adset) need.push({ level: 'adsquad', id: objs.adset });
         if (objs.campaign) need.push({ level: 'campaign', id: objs.campaign });
@@ -3086,90 +3100,138 @@
       renderValueAgain();
     }, function () { st.deciding = false; });
   }
-  // سجل التعديلات وصل (meta.js / snapchat.js) — المشكلات اللي مستنياه بيتقرر فيها
+  // سجل التعديلات وصل (meta.js / snapchat.js / google.js) — المشكلات اللي مستنياه بيتقرر فيها
   function valueActionsArrived(source) { if (valueEpisodes[source]) valueDecide(source); loadExtraAlerts(source); }
-  // ما كان الإعلان بيهدره في اليوم وقت التنبيه (نفس المحرك — alerts.js withMoney: متوسط آخر ٣ أيام مكتملة قبل يوم التنبيه): الإنفاق كله
-  // في «دون نتيجة»، والإنفاق ناقص المبيعات في الخسارة. من أرقام الكارت لو الأيام دي جوه أسبوعه، وإلا إنفاق المنصة (طلب واحد للحساب)
-  function valueDays(ep, tz) {
-    var day = DX._.keyInTz(ep.firstAt, tz);
-    return day ? [shiftKey(day, -3), shiftKey(day, -2), shiftKey(day, -1)] : null;
-  }
-  // أول يوم مكتمل بعد التصرّف (بتوقيت الحساب): التصرّف بالنهار بيأثر في نفس اليوم جزئياً بس، فاليوم اللي بعده هو أول يوم كامل بعده
-  function valueAfterDay(ep, tz) {
-    var day = ep.handledAt ? DX._.keyInTz(ep.handledAt, tz) : null;
-    return day ? shiftKey(day, 1) : null;
-  }
-  // الهدر المنَع فعلاً (مراجعة ٣ نوفمبر ٢٠٢٦ — قياس قبل/بعد): هدر اليوم قبل التنبيه ناقص هدره الفعلي في أول يوم مكتمل بعد التصرّف،
-  // ومبيقلش عن صفر. قبل كده كان بيتحسب الهدر اليومي كامل لأي تصرّف — والحقيقي من ٧ معالجات: إيقاف واحد بس، و٤ خفض ميزانية (بيقلّل
-  // جزء)، و٢ تعديل تصميم أو استهداف (مبيوقفش الصرف خالص). يعني ٦ من ٧ مبالغ كانت مضخّمة. من أرقام الكارت لو الأيام الأربعة جوه أسبوعه
-  function valueSavedFromCard(ep, c, tz) {
-    var days = valueDays(ep, tz), after = valueAfterDay(ep, tz);
-    if (!days || !after || !c || !c.dailyDates) return null;
-    var idx = days.map(function (d) { return c.dailyDates.indexOf(d); }), ai = c.dailyDates.indexOf(after);
-    if (ai < 0 || idx.some(function (i) { return i < 0; })) return null;
-    var spendOf = function (i) { return (c.daily || [])[i] || 0; }, salesOf = function (i) { return (c.dailySales || [])[i] || 0; };
-    var spend = idx.reduce(function (s, i) { return s + spendOf(i); }, 0);
-    // قبل التنبيه بنفس تعريف المحرّك (alerts.js withMoney): الإنفاق كله في «دون نتيجة»، والإنفاق ناقص المبيعات في الخسارة
-    var before = ep.kind === 'loss' ? Math.max(0, spend - idx.reduce(function (s, i) { return s + salesOf(i); }, 0)) / 3 : spend / 3;
-    var afterWaste = ep.kind === 'loss' ? Math.max(0, spendOf(ai) - salesOf(ai)) : spendOf(ai);
-    return Math.max(0, before - afterWaste);
-  }
-  function valueCurrency(source) {
-    var c = candidates.filter(function (x) { return x.source === source && x.currency; })[0];
-    return (c && c.currency) || (accountInfo[source] || {}).currency || '';
-  }
-  function valueLoadMoney(source) {
-    var st = valueState[source] = valueState[source] || {}, tz = valueTz(source), cur = valueCurrency(source), need = [], changed = false;
-    var today = todayKeyInTz(tz);
-    (valueEpisodes[source] || []).forEach(function (ep) {
-      if (!ep.handledAt || valueMoney[ep.id]) return;
-      // اليوم اللي بعد التصرّف لسه مكملش: المبلغ بيتحسب بعدين («يُحسب بعد اكتمال اليوم التالي» في اللوحة)
-      var after = valueAfterDay(ep, tz);
-      if (!after || after >= today) return;
-      var r = valueSavedFromCard(ep, valueAdOf(source, ep.ad), tz);
-      if (r != null) { valueMoney[ep.id] = { v: r, cur: cur }; changed = true; return; }
-      // الخسارة برّه أسبوع الكارت مبتتحسبش (المبيعات محتاجة نفس نسب الكارت) — العدد بيتحسب والمبلغ لأ
-      if (ep.kind === 'waste' && valueDays(ep, tz)) need.push(ep);
-    });
-    if (changed) saveValueMoney();
-    if (!need.length || st.moneyBusy) return;
-    // دفعات بنطاق ٣١ يوم بالكتير (حد طلب Snapchat اليومي)، ورا بعض — فترة ٩٣ يوم = ٣ طلبات بالكتير. النطاق لحد يوم ما بعد التصرّف
-    need.sort(function (a, b) { return valueDays(a, tz)[0] < valueDays(b, tz)[0] ? -1 : 1; });
-    var groups = [], g = null;
-    need.forEach(function (ep) {
-      var ds = valueDays(ep, tz), af = valueAfterDay(ep, tz);
-      if (!g || keyDiffDays(g.since, af) > 30) { g = { since: ds[0], until: af, eps: [] }; groups.push(g); }
-      if (af > g.until) g.until = af;
-      g.eps.push(ep);
-    });
-    var account = source.slice(platformOfSource(source).length + 1), meta = platformOfSource(source) === 'meta';
-    var fetchGroup = function (grp) {
-      var ids = grp.eps.map(function (ep) { return ep.ad; }).filter(function (id, i, a) { return a.indexOf(id) === i; });
-      return meta
-        ? metaObjectDaily(account, [{ level: 'ad', ids: ids }], grp.since, grp.until).then(function (out) {
-          var m = {};
-          Object.keys(out || {}).forEach(function (id) { m[id] = {}; out[id].forEach(function (b) { m[id][b.date] = b.spend || 0; }); });
-          return m;
-        })
-        : snapDailySpend(account, ids, grp.since, grp.until);
+
+  // ---------- مبالغ المشكلة ----------
+  // ب = ما كان الإعلان بيخسره في اليوم وقت التنبيه (المحرك نفسه — alerts.js withMoney: بيتحفظ مع المشكلة من ٢٦ نوفمبر ٢٠٢٦، وللأقدم متوسط
+  // آخر ٣ أيام كاملة قبل يوم التنبيه). خ(يوم) = خسارته الفعلية في اليوم ده: الإنفاق كله في «دون نتيجة»، والإنفاق ناقص المبيعات في الخسارة.
+  //  - ضاع قبل التصرّف = خ(يوم) عن كل يوم كامل بعد يوم التنبيه لحد يوم التصرّف (هو معاه)، أو آخر يوم في المشكلة، أو أمس
+  //  - وفّرته = ب − خ(يوم) (ومش أقل من صفر) عن كل يوم من السبعة اللي بعد يوم التصرّف، لحد أمس
+  // يوم التنبيه نفسه مبيتحسبش على حد (يوم الاكتشاف): التصرّف في نفس اليوم بيخلّي اليوم اللي بعده كله «وفّرته»
+  function valueLossOn(kind, d) { return !d ? null : (kind === 'loss' ? Math.max(0, (d.spend || 0) - (d.sales || 0)) : (d.spend || 0)); }
+  // أرقام إعلان المشكلة في يوم: أيام الفترة المختارة في الكارت (pd)، ثم أسبوع الكارت، ثم اللي اتجاب من المنصة — وإلا undefined
+  function valueDayOf(source, ad, c) {
+    var cache = (valueDayCache[source] || {})[ad] || {};
+    return function (day) {
+      if (c && c.pd && c.pd.dates) { var i = c.pd.dates.indexOf(day); if (i > -1) return { spend: (c.pd.spend || [])[i] || 0, sales: (c.pd.sales || [])[i] || 0 }; }
+      if (c && c.dailyDates) { var j = c.dailyDates.indexOf(day); if (j > -1) return { spend: (c.daily || [])[j] || 0, sales: (c.dailySales || [])[j] || 0 }; }
+      return cache[day];
     };
-    var done = function () { st.moneyBusy = false; saveValueMoney(); renderValueAgain(); };
+  }
+  // ← { saved, lost, base, final, need: [الأيام اللي أرقامها ناقصة] } — أو null (يوم التنبيه مش معروف). saved = null لو اتعالجت وب مش معروفة
+  function valueAmountsOf(ep, tz, today, dayOf) {
+    var d0 = DX._.keyInTz(ep.firstAt, tz);
+    if (!d0) return null;
+    var da = ep.handledAt ? DX._.keyInTz(ep.handledAt, tz) : null, de = ep.endedAt ? DX._.keyInTz(ep.endedAt, tz) : null;
+    var last = shiftKey(today, -1), need = [], k;
+    var loss = function (day) { var v = valueLossOn(ep.kind, dayOf(day)); if (v == null) need.push(day); return v || 0; };
+    var base = ep.baseline != null ? ep.baseline : null;
+    if (base == null) {
+      var spend = 0, sales = 0, miss = false;
+      [shiftKey(d0, -3), shiftKey(d0, -2), shiftKey(d0, -1)].forEach(function (day) {
+        var x = dayOf(day);
+        if (!x) { need.push(day); miss = true; return; }
+        spend += x.spend || 0; sales += x.sales || 0;
+      });
+      base = miss ? null : (ep.kind === 'loss' ? Math.max(0, spend - sales) : spend) / 3;
+    }
+    var lost = 0, lostEnd = [da, de, last].filter(Boolean).sort()[0];
+    for (k = shiftKey(d0, 1); k <= lostEnd; k = shiftKey(k, 1)) lost += loss(k);
+    var saved = 0;
+    if (da) {
+      var saveEnd = shiftKey(da, VALUE_SAVE_DAYS) < last ? shiftKey(da, VALUE_SAVE_DAYS) : last;
+      for (k = shiftKey(da, 1); k <= saveEnd; k = shiftKey(k, 1)) { var v = loss(k); if (base != null) saved += Math.max(0, base - v); }
+    }
+    return { saved: da && base == null ? null : saved, lost: lost, base: base, need: need,
+      final: da ? shiftKey(da, VALUE_SAVE_DAYS) <= last : (!!de && de <= last) };
+  }
+  // المحفوظ على الخادم لو موجود (أيامها كملت)، وإلا المحسوب دلوقتي من أرقام المنصة
+  function valueEpisodeMoney(source, ep, tz, today) {
+    if (ep.amountsAt && ep.saved != null && ep.lost != null) return { saved: ep.saved, lost: ep.lost, final: true, stored: true, need: [] };
+    return valueAmountsOf(ep, tz, today, valueDayOf(source, ep.ad, valueAdOf(source, ep.ad)));
+  }
+  // الأيام الناقصة من المنصة (Meta وSnapchat وGoogle — يوم مالوش صف في المدى المطلوب = مصرفش)، وبعدين مبالغ المشكلات اللي أيامها كملت
+  // بتتحفظ على الخادم مرة واحدة. كل يوم بيتطلب مرة واحدة في الجلسة (tried) — فشل الطلب مبيعملش لفّة
+  function valueLoadMoney(source) {
+    var st = valueState[source] = valueState[source] || {}, tz = valueTz(source), today = todayKeyInTz(tz), cur = valueCurrency(source);
+    st.tried = st.tried || {};
+    var need = {}, finals = [];
+    (valueEpisodes[source] || []).forEach(function (ep) {
+      var m = valueEpisodeMoney(source, ep, tz, today);
+      if (!m || m.stored) return;
+      var fresh = m.need.filter(function (d) { return !st.tried[ep.ad + '|' + d]; });
+      if (fresh.length) { var n = need[ep.ad] = need[ep.ad] || {}; fresh.forEach(function (d) { n[d] = 1; }); return; }
+      if (m.final && !m.need.length && m.saved != null && cur && (!ep.cur || ep.cur === cur)) {
+        var item = { id: ep.id, saved: round2(m.saved), lost: round2(m.lost), cur: cur };
+        if (ep.baseline == null && m.base != null) item.daily = round2(m.base);
+        finals.push(item);
+      }
+    });
+    // المبالغ على خادمنا بعد الموافقة الجديدة بس (قبلها بتتحسب وتتعرض في المتصفح ومبتتحفظش)
+    if (finals.length && !st.storing && valueAcked()) valueStore(source, finals);
+    var ads = Object.keys(need);
+    if (!ads.length || st.moneyBusy) return;
+    var days = [];
+    ads.forEach(function (ad) { Object.keys(need[ad]).forEach(function (d) { if (days.indexOf(d) < 0) days.push(d); st.tried[ad + '|' + d] = 1; }); });
+    days.sort();
+    // مديات بحد ٣١ يوم (حد Snapchat اليومي)، ورا بعض
+    var spans = [], s = null;
+    days.forEach(function (d) { if (!s || keyDiffDays(s.since, d) > 30) { s = { since: d, until: d }; spans.push(s); } else s.until = d; });
+    var p = platformOfSource(source), account = source.slice(p.length + 1);
+    var put = function (ad, day, v) { var a = (valueDayCache[source] = valueDayCache[source] || {})[ad] = (valueDayCache[source][ad] || {}); a[day] = v; };
+    // كل يوم في المدى لكل إعلان اتطلب بيبقى معروف (صفر لو مفيش صف) — بس لو الطلب نجح
+    var fillZeros = function (span, list) {
+      list.forEach(function (ad) { for (var k = span.since; k <= span.until; k = shiftKey(k, 1)) { var a = (valueDayCache[source] || {})[ad] || {}; if (!a[k]) put(ad, k, { spend: 0, sales: 0 }); } });
+    };
+    var fetchSpan = function (span) {
+      if (p === 'meta') {
+        return metaObjectDaily(account, [{ level: 'ad', ids: ads }], span.since, span.until).then(function (out) {
+          Object.keys(out || {}).forEach(function (id) { out[id].forEach(function (b) { put(id, b.date, { spend: b.spend || 0, sales: b.rev || 0 }); }); });
+          fillZeros(span, ads);
+        });
+      }
+      if (p === 'snapchat') {
+        return snapDailyMoney(account, ads.slice(0, 200), span.since, span.until).then(function (r) {
+          if (!r) return;
+          Object.keys(r.spend || {}).forEach(function (id) { Object.keys(r.spend[id]).forEach(function (d) { put(id, d, { spend: r.spend[id][d] || 0, sales: ((r.sales || {})[id] || {})[d] || 0 }); }); });
+          fillZeros(span, ads.slice(0, 200));
+        });
+      }
+      // Google: الإعلان بمفتاح «المجموعة-الإعلان» وحملة PMax برقمها — من الكارت (من غيره منعرفش المجموعة)
+      var keyOf = {}, adKeys = [], camps = [];
+      ads.forEach(function (ad) {
+        var c = valueAdOf(source, ad);
+        if (!c) return;
+        if (c.campaignLevel) { camps.push(ad); keyOf[ad] = ad; } else if (c.adGroupId) { var k = c.adGroupId + '-' + ad; adKeys.push(k); keyOf[k] = ad; }
+      });
+      if (!adKeys.length && !camps.length) return Promise.resolve();
+      return googleDailyMoney(account, adKeys, camps, span.since, span.until).then(function (daily) {
+        if (!daily) return;
+        Object.keys(daily).forEach(function (k) { var ad = keyOf[k]; if (ad) Object.keys(daily[k]).forEach(function (d) { put(ad, d, { spend: daily[k][d].spend || 0, sales: daily[k][d].sales || 0 }); }); });
+        fillZeros(span, Object.keys(keyOf).map(function (k) { return keyOf[k]; }));
+      });
+    };
+    var done = function () { st.moneyBusy = false; renderValueAgain(); valueLoadMoney(source); };
     st.moneyBusy = true;
-    groups.reduce(function (p, grp) {
-      return p.then(function () { return fetchGroup(grp); }).then(function (byAd) {
-        if (!byAd) return;
-        grp.eps.forEach(function (ep) {
-          var m = byAd[ep.ad] || {};
-          // قبل التنبيه ناقص يوم ما بعد التصرّف — يوم مالوش صف عند المنصة = مصرفش (الإيقاف)
-          var before = valueDays(ep, tz).reduce(function (s, d) { return s + (m[d] || 0); }, 0) / 3;
-          valueMoney[ep.id] = { v: Math.max(0, before - (m[valueAfterDay(ep, tz)] || 0)), cur: cur };
+    spans.reduce(function (q, span) { return q.then(function () { return fetchSpan(span).catch(function () { /* اليوم ده بيفضل ناقص */ }); }); }, Promise.resolve()).then(done, done);
+  }
+  // مبالغ المشكلات اللي أيامها كملت → الخادم (مرة واحدة لكل مشكلة — قرار صاحب المنتج ٢٦ نوفمبر: «على خادمنا بعد اكتمالها»)
+  function valueStore(source, finals) {
+    var st = valueState[source];
+    st.storing = true;
+    accountCall('episodes.amounts', source, { amounts: finals.slice(0, 100) }).then(function () {
+      st.storing = false;
+      var at = new Date().toISOString();
+      finals.slice(0, 100).forEach(function (f) {
+        (valueEpisodes[source] || []).forEach(function (ep) {
+          if (ep.id !== f.id) return;
+          ep.amountsAt = at; ep.saved = f.saved; ep.lost = f.lost; ep.cur = f.cur;
+          if (f.daily != null) ep.baseline = f.daily;
         });
       });
-    }, Promise.resolve()).then(done, done);
+    }, function () { st.storing = false; });
   }
-  // «نحو ٢٤ دقيقة» / «نحو ساعة و١٠ دقائق» — بالدقائق (طلب صاحب المنتج ٣ نوفمبر ٢٠٢٦: الساعة كانت بتخلّي الشهر كله «أقل من ساعة»،
-  // فالعميل مبيحسّش بأي تقدّم). أقرب دقيقة، وأقل من دقيقة كلمة. العدد مع المعدود بالعربي: ١ و٢ لفظ، و٣–١٠ جمع، و١١+ مفرد
-  function arCount(n, one, two, few, many) { return n === 1 ? one : n === 2 ? two : ar(n) + ' ' + (n <= 10 ? few : many); }
   // عدد المشكلات جوه جملة: «مشكلة واحدة» / «مشكلتين» (مرفوعة: «مشكلتان») / «٣ مشكلات» / «١١ مشكلة» — «١ مشكلة» و«٢ مشكلة» مش فصحى
   // (فحص حي ١٢ نوفمبر ٢٠٢٦: «٢ مشكلة تنتظر نظرتك»). بالإنجليزي زي ما هو
   function problemsText(n, nominative) {
@@ -3177,20 +3239,11 @@
     if (isAr() && n === 2) return nominative ? 'مشكلتان' : 'مشكلتين';
     return ar(n) + ' ' + noun(n, 'n.problem');
   }
-  function valueTimeText(seconds) {
-    var m = Math.round((seconds || 0) / 60);
-    if (m < 1) return t('val.h.less');
-    var h = Math.floor(m / 60), mm = m % 60;
-    if (!isAr()) {
-      var en = (h ? h + (h === 1 ? ' hour' : ' hours') : '') + (h && mm ? ' ' : '') + (mm ? mm + (mm === 1 ? ' minute' : ' minutes') : '');
-      return t('val.hours.v', { h: en });
-    }
-    var hs = h ? arCount(h, 'ساعة', 'ساعتين', 'ساعات', 'ساعة') : '', ms = mm ? arCount(mm, 'دقيقة', 'دقيقتين', 'دقائق', 'دقيقة') : '';
-    return t('val.hours.v', { h: hs + (hs && ms ? ' و' : '') + ms });
-  }
-  // أرقام اللوحة للمنصات المختارة وفترة البيانات المختارة (بأيام كل حساب بتوقيته — resolvePeriodFor زي باقي الأداة): المشكلات المسجّلة
-  // فيها، واللي اتعالج منها ومبلغها، والوقت. النهارده لو برّه الفترة (الفترات المتحركة أيام مكتملة): اللي اتعالج فيه سطر لوحده زي «اليوم حتى
-  // الآن» في الملخص. و«تنتظر نظرتك» دلوقتي مش في الفترة
+  // أرقام اللوحة للمنصات المختارة: المشكلات اللي يومها جوه فترة البيانات المختارة (بأيام كل حساب بتوقيته — resolvePeriodFor زي باقي
+  // الأداة) وما وفّره العميل وما ضاع عليها، والإجمالي من أول مشكلة (life). المشكلة الواحدة مرة واحدة: السيرفر بيقفل المشكلة لما تختفي
+  // وبيفتح واحدة جديدة لما ترجع (حساب حقيقي ٣٠ أكتوبر: مشكلتين بفارق ساعة ونص واتعالجوا بنفس التعديل) — التجميع بالإعلان + يوم
+  // التصرّف (أو يوم المشكلة لو لسه)، وأكبر مبلغ في المجموعة مش مجموعهم. النهارده لو برّه الفترة: اللي اتعالج فيه سطر لوحده.
+  // و«تنتظر نظرتك» دلوقتي مش في الفترة
   function valueData(pick, alerts) {
     var byAd = {}, pending = { n: 0, daily: {} };
     alerts.forEach(function (a) {
@@ -3199,71 +3252,53 @@
       x.d = Math.max(x.d, (a.money && a.money.daily) || 0);
     });
     Object.keys(byAd).forEach(function (id) { var x = byAd[id]; pending.n++; pending.daily[x.cur] = (pending.daily[x.cur] || 0) + x.d; });
-    var d = { pending: pending, acked: valueAcked(), sources: 0, recorded: 0, handled: 0, money: {}, wait: 0, seconds: 0, today: 0, any: 0, range: null };
+    var d = { pending: pending, acked: valueAcked(), sources: 0, period: { n: 0, saved: {}, lost: {} }, life: { n: 0, saved: {}, lost: {}, since: null },
+      today: 0, any: 0, range: null };
+    var add = function (map, cur, v) { map[cur] = (map[cur] || 0) + (v || 0); };
     VALUE_PLATFORMS.forEach(function (p) {
       var source = sourceOf(p);
       if (!source || (pick && pick.indexOf(p) === -1)) return;
       d.sources++;
-      var tz = valueTz(source), r = resolvePeriodFor(tz), today = todayKeyInTz(tz), days = {};
-      // أيام كل الحسابات (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦، النتيجة ٦٣): العنوان كان بأيام أول حساب بس، فلما توقيت الحسابين مختلف
-      // أرقام التاني كانت تبان كأنها نفس اليوم. نسخة جديدة — r نفسه بيتشارك
+      var tz = valueTz(source), r = resolvePeriodFor(tz), today = todayKeyInTz(tz), cur = valueCurrency(source);
+      // أيام كل الحسابات (التدقيق الشامل ١٣ نوفمبر ٢٠٢٦، النتيجة ٦٣): العنوان كان بأيام أول حساب بس. نسخة جديدة — r نفسه بيتشارك
       if (!d.range) d.range = { since: r.since, until: r.until };
       else {
         if (r.since < d.range.since) d.range.since = r.since;
         if (r.until > d.range.until) d.range.until = r.until;
       }
-      // المشكلة الواحدة مرة واحدة (فحص حساب حقيقي ٣ نوفمبر ٢٠٢٦): السيرفر بيقفل المشكلة لما تختفي من قايمة الحساب وبيفتح
-      // واحدة جديدة لما ترجع — وإعلان واحد في ٣٠ أكتوبر كان عليه مشكلتين بفارق ساعة ونص، والاتنين اتعالجوا بنفس التعديل،
-      // فظهر «٢ مشكلة» و٢٦ $ والحقيقي مشكلة واحدة و١٣ $. التجميع بالإعلان + يوم التصرّف (أو يوم المشكلة لو لسه ما اتعالجتش)،
-      // والمبلغ أكبر واحد في المجموعة مش مجموعهم — نفس قاعدة «الإعلان مرة واحدة بأكبر مبلغ عليه» المعتمدة في الهدر
-      var byProblem = {}, keys = [];
+      var groups = {}, keys = [];
       (valueEpisodes[source] || []).forEach(function (ep) {
         var day = DX._.keyInTz(ep.firstAt, tz);
         if (!day) return;
         var k = ep.ad + '|' + (ep.handledAt ? 'h:' + DX._.keyInTz(ep.handledAt, tz) : 'd:' + day);
-        var g = byProblem[k];
-        if (!g) { g = byProblem[k] = { day: day, handledAt: null, money: null, wait: false }; keys.push(k); }
+        var g = groups[k];
+        if (!g) { g = groups[k] = { day: day, handled: false, saved: 0, lost: 0, cur: ep.cur || cur || '' }; keys.push(k); }
         if (day < g.day) g.day = day;
-        if (ep.handledAt) g.handledAt = ep.handledAt;
-        var m = valueMoney[ep.id];
-        if (m && m.v > 0) { if (!g.money || m.v > g.money.v) g.money = m; }
-        // اليوم اللي بعد التصرّف لسه مكملش: المبلغ بيتحسب بعدين، وبنقول كده بدل ما يبان إن المعالجة ملهاش أثر
-        else if (!m && ep.handledAt) { var af = valueAfterDay(ep, tz); if (af && af >= today) g.wait = true; }
+        if (ep.handledAt) g.handled = true;
+        var m = valueEpisodeMoney(source, ep, tz, today);
+        if (m) {
+          if (m.saved != null && m.saved > g.saved) g.saved = m.saved;
+          if (m.lost > g.lost) g.lost = m.lost;
+        }
       });
       keys.forEach(function (k) {
-        var g = byProblem[k];
+        var g = groups[k];
         d.any++;
+        d.life.n++; add(d.life.saved, g.cur, g.saved); add(d.life.lost, g.cur, g.lost);
+        if (!d.life.since || g.day < d.life.since) d.life.since = g.day;
         if (g.day < r.since || g.day > r.until) {
-          if (g.day === today && g.handledAt) d.today++;
+          if (g.day === today && g.handled) d.today++;
           return;
         }
-        d.recorded++; days[g.day] = 1;
-        if (!g.handledAt) return;
-        d.handled++;
-        if (g.money) d.money[g.money.cur] = (d.money[g.money.cur] || 0) + g.money.v;
-        else if (g.wait) d.wait++;
+        d.period.n++; add(d.period.saved, g.cur, g.saved); add(d.period.lost, g.cur, g.lost);
       });
-      // كل يوم بإعلاناته هو (اللي صرفت فيه) — قبل كده الإعلانات الشغّالة دلوقتي كانت بتتحسب لأيام فاتت
-      d.seconds += Object.keys(days).reduce(function (s, day) {
-        return s + VALUE_SECONDS.account + VALUE_SECONDS.ad * valueAdsOn(source, day, today);
-      }, 0);
     });
     return d;
   }
-  // إعلانات صرفت في يوم معيّن من أرقام الكارت، ولليوم اللي قبل أسبوع الكارت: متوسط أيامه المكتملة
-  function valueAdsOn(source, day, today) {
-    var ads = candidates.filter(function (c) { return c.source === source && c.dailyDates && c.daily; });
-    var on = function (k) { return ads.filter(function (c) { var i = c.dailyDates.indexOf(k); return i > -1 && (c.daily[i] || 0) > 0; }).length; };
-    if (ads.some(function (c) { return c.dailyDates.indexOf(day) > -1; })) return on(day);
-    var keys = {};
-    ads.forEach(function (c) { c.dailyDates.forEach(function (k) { if (k < today) keys[k] = 1; }); });
-    var list = Object.keys(keys);
-    return list.length ? list.reduce(function (s, k) { return s + on(k); }, 0) / list.length : 0;
-  }
   function valuePanelHtml(d) {
     if (!d.sources && !d.pending.n) return '';
-    var tile = function (k, v, s) {
-      return '<div class="value-tile"><span class="value-k">' + esc(k) + '</span><b class="value-v">' + esc(v) + '</b><span class="value-s">' + esc(s) + '</span></div>';
+    var tile = function (k, v, s, cls) {
+      return '<div class="value-tile' + (cls ? ' ' + cls : '') + '"><span class="value-k">' + esc(k) + '</span><b class="value-v">' + esc(v) + '</b><span class="value-s">' + esc(s) + '</span></div>';
     };
     var html = '<div class="value-panel"><p class="value-title">' + esc(t('val.title')) +
       (d.range ? ' <span class="value-period">' + esc(fmtRange(d.range.since, d.range.until)) + '</span>' : '') + '</p>';
@@ -3272,15 +3307,10 @@
         '<button type="button" class="value-ack" data-value-ack>' + esc(t('val.notice.ok')) + '</button></p>';
     }
     // مفيش ولا مشكلة في الفترة: لو السجل فيه مشكلات في أيام تانية «لا تنبيهات في هذه الفترة»، وإلا لسه بنبدأ
-    if (d.sources && !d.recorded) html += '<p class="value-empty">' + esc(t(d.any ? 'val.noneInPeriod' : (d.acked ? 'val.start' : 'val.startAfter'))) + '</p>';
-    if (d.recorded) {
-      var tiles = '';
-      if (d.handled) tiles += tile(t('val.handled.k'), ar(d.handled), t('val.handled.s'));
-      if (Object.keys(d.money).length) tiles += tile(t('val.saved.k'), t('val.saved.v', { v: moneyByCur(d.money) }), t('val.saved.s'));
-      tiles += tile(t('val.hours.k'), valueTimeText(d.seconds), t('val.hours.s'));
-      if (!d.handled) html += '<p class="value-empty">' + esc(t('val.none', { n: problemsText(d.recorded) })) + '</p>';
-      html += '<div class="value-tiles">' + tiles + '</div>';
-      if (d.wait) html += '<p class="value-empty">' + esc(t('val.saved.wait', { n: problemsText(d.wait) })) + '</p>';
+    if (d.sources && !d.period.n) html += '<p class="value-empty">' + esc(t(d.any ? 'val.noneInPeriod' : (d.acked ? 'val.start' : 'val.startAfter'))) + '</p>';
+    if (d.period.n) {
+      html += '<div class="value-tiles">' + tile(t('val.found.k'), ar(d.period.n), t('val.found.s')) +
+        tile(t('val.saved.k'), moneyByCur(d.period.saved), t('val.saved.s')) + tile(t('val.lost.k'), moneyByCur(d.period.lost), t('val.lost.s'), 'value-tile-lost') + '</div>';
     }
     if (d.today) html += '<p class="value-empty value-today">' + esc(t('val.today', { n: problemsText(d.today) })) + '</p>';
     if (d.pending.n) {
@@ -3292,9 +3322,14 @@
       html += '<div class="value-pending"><span>' + esc(ptxt) + '</span>' +
         '<button type="button" class="value-cta" data-kpi="risk">' + esc(t('val.cta')) + '</button></div>';
     }
+    // من أول مشكلة اتسجّلت (قرار صاحب المنتج ٢٦ نوفمبر: «يظل العميل يشعر بقيمة الأداة من وقت تسجيله») — لو فيه أكتر من مشكلات الفترة
+    if (d.life.n > d.period.n) {
+      html += '<p class="value-empty value-life">' + esc(t('val.life', { since: fmtKey(d.life.since), n: problemsText(d.life.n),
+        saved: moneyByCur(d.life.saved), lost: moneyByCur(d.life.lost) })) + '</p>';
+    }
     if (d.sources) {
       html += '<details class="value-how"><summary>' + esc(t('val.how')) + '</summary><ul>' +
-        ['val.how.problem', 'val.how.handled', 'val.how.saved', 'val.how.hours', 'val.how.scope'].map(function (k) { return '<li>' + esc(t(k)) + '</li>'; }).join('') +
+        ['val.how.problem', 'val.how.handled', 'val.how.saved', 'val.how.lost', 'val.how.scope'].map(function (k) { return '<li>' + esc(t(k)) + '</li>'; }).join('') +
         '</ul></details>';
     }
     return html + '</div>';

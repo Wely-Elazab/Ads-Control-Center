@@ -860,12 +860,13 @@
   .attn-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-inline-start: auto; }
   .attn-chip { font-family: inherit; font-size: 12px; font-weight: 600; border: none; border-radius: 999px; padding: 3px 10px; cursor: pointer; color: var(--alert); background: var(--alert-bg); }
   .attn-chip:focus-visible { outline: 2px solid var(--verified); outline-offset: 2px; }
-  /* لوحة «قيمة الأداة» (ui.js renderWastePanel — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦، مكان لوحة الهدر): الأخضر = اللي اتحقق، والسطر
-     الأحمر = المشكلات اللي مستنية دلوقتي. ومبلغ الأثر على بنود «يحتاج انتباهك الآن» (top-alert-money) تحت */
+  /* لوحة «ما حققته مع الأداة» (ui.js renderWastePanel — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦، مكان لوحة الهدر): الأخضر = اللي اتحقق، والأحمر
+     = اللي ضاع قبل التصرّف (خانة «ضاع» — ٢٦ نوفمبر ٢٠٢٦) والمشكلات اللي مستنية دلوقتي. ومبلغ الأثر على بنود «يحتاج انتباهك الآن»
+     (top-alert-money) تحت */
   .value-panel { margin: 0 0 14px; border-radius: var(--radius); padding: 14px 16px; background: var(--verified-bg); border: 1px solid var(--line); border-inline-start: 4px solid var(--verified); }
   .value-title { margin: 0 0 10px; font-size: 15px; font-weight: 800; color: var(--ink); }
   .value-period { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
-  .value-today { margin: 10px 0 0; }
+  .value-today, .value-life { margin: 10px 0 0; }
   .value-notice { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--card); border: 1px dashed var(--line); font-size: 12.5px; line-height: 1.7; color: var(--ink-soft); }
   .value-notice a { color: var(--verified); font-weight: 700; }
   /* النص على الأزرار الملونة من --on-*: الأبيض الثابت على الأخضر والأحمر الفاتحين في الوضع الداكن كان ١٫٨٨ و٣٫١٣ (WCAG 1.4.3) */
@@ -875,6 +876,7 @@
   .value-tile { display: flex; flex-direction: column; gap: 3px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
   .value-k { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
   .value-v { font-size: 20px; font-weight: 800; color: var(--verified); }
+  .value-tile-lost .value-v { color: var(--alert); }
   .value-s { font-size: 12px; line-height: 1.6; color: var(--ink-soft); }
   .value-pending { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--alert-bg); border: 1px solid var(--alert); color: var(--alert); font-size: 13px; font-weight: 700; }
   .value-cta { font-family: inherit; font-size: 13px; font-weight: 700; color: var(--on-alert); background: var(--alert); border: none; border-radius: 999px; padding: 6px 14px; cursor: pointer; }

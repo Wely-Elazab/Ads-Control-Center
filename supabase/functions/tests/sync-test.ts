@@ -13,8 +13,8 @@ import {
   addDays, assemble, callTimeout, daysBetween, familyOf, freshUsage, keyWindow, markMap, monthWindow, needsAttention, readUsage, resolveNow, settingsChoice,
   summaryWindow, urgentReady, windowComplete, windowKey, statusPick, ongoingAll, editsSince, probe, accountsPhrase, connectionMail, expiryMail, urgentPass, loadEngine, urgentAlerts, summaryDue, monthlyDue, alertsCountAr, alertStatusHtml, linkAllowed, privateAddr, setResolverForTests, runAll, preview, previewSummary, snapEdits
 } from '../sync/runner.ts';
-import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanPrefs, cleanUserSettings, cleanUserWrite, handleSettings, handleUserSettings, type UserWrite } from '../sync/settings.ts';
-import { cleanDecisions, cleanOpen, decisionOk, handleEpisodes, sinceOf } from '../sync/episodes.ts';
+import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanPrefs, cleanUserSettings, cleanUserWrite, googleAccount, handleSettings, handleUserSettings, verifyAccount, type UserWrite } from '../sync/settings.ts';
+import { amountsFinal, cleanAmounts, cleanDecisions, cleanOpen, decisionOk, handleEpisodes, moneyOf } from '../sync/episodes.ts';
 import { handle } from '../sync/handler.ts';
 import { activationMail, adminMail, handleJoin, joinReminders } from '../sync/join.ts';
 
@@ -268,7 +268,7 @@ Deno.test('نقطة الدخول: الطرق وCORS وحد الحجم، والع
     assertEquals((await post({ action: 'run' }, { 'x-runner-key': 'guess' })).status, 403, 'the runner only with its key');
     // كل الباقي: دخول مكتمل الأول — حتى لو الطلب فيه مفتاح Meta، مفيش سؤال لـ Meta قبل الدخول
     for (const action of ['seen', 'list', 'save', 'selfcheck', 'testmail', 'digest.preview', 'digest.previewSummary', 'digest.status', 'meta.seal', 'meta.renew',
-      'usettings.get', 'usettings.set', 'settings.get', 'episodes.sync', 'episodes.decide', 'nonsense', '']) {
+      'usettings.get', 'usettings.set', 'settings.get', 'episodes.sync', 'episodes.decide', 'episodes.amounts', 'nonsense', '']) {
       asked.length = 0;
       const r = await post({ action, token: TOK, accountId: 'act_1', viewKey: 'meta:act_1' });
       assertEquals([r.status, r.body], [401, { error: 'login', code: 'LOGIN' }], JSON.stringify(action));
@@ -745,7 +745,7 @@ Deno.test('طلب الانضمام: الخادم هو الحاجز — التن�
     assertEquals(await send(good), [200, { ok: true }]);
     const r = s.reqs[0];
     assertEquals([r.email, r.name, r.store_url, r.fb_profile, r.platforms, r.snap_email, r.whatsapp, r.lang, r.consent_version, r.role],
-      ['sara@x.example', 'سارة ك', 'https://shop.example/a', 'https://www.facebook.com/sara.k', ['meta', 'snapchat'], 'sara@x.example', '+966 50 123 4567', 'en', '2026-10-26', 'media_buyer']);
+      ['sara@x.example', 'سارة ك', 'https://shop.example/a', 'https://www.facebook.com/sara.k', ['meta', 'snapchat'], 'sara@x.example', '+966 50 123 4567', 'en', '2026-11-26', 'media_buyer']);
     assertEquals(s.mails.map((m) => m.to), [['support@adscenter.online']], 'one notice to the owner');
     // نفس البريد تاني على طول: الطلب بيتحدّث (٢) من غير إشعار جديد (١٠ دقايق)
     assertEquals(await send({ ...good, name: 'سارة' }), [200, { ok: true }]);
@@ -913,6 +913,57 @@ Deno.test('إعدادات المستخدم: سجل صاحب الدخول بس �
     assertEquals((await handleUserSettings('usettings.drop', {}, U, null)).status, 400);
   } finally { restoreFetch(); }
 });
+// الموافقة على سجل لوحة «ما حققته» من نموذج الانضمام (قرار صاحب المنتج ٢٦ نوفمبر ٢٠٢٦: «من ضمن شروط التسجيل بحيث يقبلها قبل التفعيل»): اللي
+// وافق على شروط ٢٦ نوفمبر أو أحدث بتتحفظ موافقته في سجله مرة واحدة (فاللوحة بتبدأ له لوحدها)، والأقدم بيشوف ملاحظة اللوحة زي ما هو
+Deno.test('إعدادات المستخدم: موافقة نموذج الانضمام على سجل لوحة «ما حققته» بتتحفظ في سجله مرة واحدة — والنسخة الأقدم لأ', async () => {
+  const U = '11111111-2222-3333-4444-555555555555';
+  let stored: any = { all: { roasTarget: 5 } }, version: string | null = '2026-11-26', joinFails = false, applyFails = false;
+  const asks: string[] = [], applies: any[] = [];
+  stubFetch((url, init) => {
+    const method = (init && init.method) || 'GET';
+    if (url.indexOf('/rest/v1/user_settings') > -1) {
+      if (method === 'GET') return json(stored ? [{ settings: stored, updated_at: '2026-11-26T00:00:00Z', used_at: new Date().toISOString() }] : []);
+      return new Response(null, { status: 204 });
+    }
+    if (url.indexOf('/rest/v1/pilot_requests') > -1) {
+      asks.push(url);
+      if (joinFails) return json({ message: 'down' }, 500);
+      return json(version ? [{ consent_version: version }] : []);
+    }
+    if (url.indexOf('/rest/v1/rpc/user_settings_apply') > -1) {
+      const a = JSON.parse(String(init && init.body));
+      applies.push(a);
+      if (applyFails) return json({ message: 'down' }, 500);
+      return json({ ...(stored || { all: {} }), prefs: { ...((stored && stored.prefs) || {}), ...a.p_changes.prefs } });
+    }
+    throw new Error('unexpected fetch ' + url);
+  });
+  const get = async (email?: string) => (await (await handleUserSettings('usettings.get', {}, U, null, email)).json()).settings;
+  try {
+    // وافق على شروط ٢٦ نوفمبر: الموافقة بتتحفظ (بالدمج — من غير ما تلمس باقي سجله)، والبريد مترمّز في الطلب
+    assertEquals(await get('a+b@x.example'), { all: { roasTarget: 5 }, prefs: { valueAck2: true } });
+    assertEquals(applies, [{ p_user: U, p_base: null, p_changes: { prefs: { valueAck2: true } }, p_goals: null, p_asked: false }]);
+    assert(asks[0].indexOf('email=eq.a%2Bb%40x.example') > -1 && asks[0].indexOf('select=consent_version') > -1, asks[0]);
+    // مستخدم جديد مالوش سجل لسه: السجل بيتعمل بالموافقة بس
+    stored = null; applies.length = 0;
+    assertEquals(await get('new@x.example'), { all: {}, prefs: { valueAck2: true } });
+    assertEquals(applies.length, 1);
+    // محفوظة قبل كده: مفيش سؤال عن طلب الانضمام ولا كتابة
+    stored = { all: {}, prefs: { valueAck2: true } }; asks.length = 0; applies.length = 0;
+    assertEquals(await get('a@x.example'), stored);
+    assertEquals([asks.length, applies.length], [0, 0], 'already stored: nothing asked or written');
+    // شروط أقدم (٢٦ أكتوبر)، أو مفيش طلب انضمام (حساب اتعمل يدوياً)، أو قراءة الطلب فشلت، أو مفيش بريد: الملاحظة زي ما هي
+    stored = { all: {}, prefs: { valueAck: true } };
+    for (const [v, fails, email, why] of [['2026-10-26', false, 'a@x.example', 'older terms'], [null, false, 'a@x.example', 'no join request'],
+      ['2026-11-26', true, 'a@x.example', 'reading the request failed'], ['2026-11-26', false, undefined, 'no email']] as [string | null, boolean, string | undefined, string][]) {
+      version = v; joinFails = fails; applies.length = 0;
+      assertEquals([await get(email), applies.length], [stored, 0], why);
+    }
+    // الحفظ فشل: القراءة بتكمل بالسجل زي ما هو (الملاحظة بتظهر المرة دي، وضغطتها بتحفظ نفس الموافقة)
+    version = '2026-11-26'; joinFails = false; applyFails = true; applies.length = 0;
+    assertEquals([await get('a@x.example'), applies.length], [stored, 1], 'saving failed: the record as it is');
+  } finally { restoreFetch(); }
+});
 // مراجعة ٣١ أكتوبر («دقق جيداً»): الحفظ بالسجل كله من نسخة الجهاز كان بيمسح تعديل جهاز تاني — دلوقتي المجموعات اللي اتغيّرت بس،
 // والدمج في قاعدة البيانات وهو مقفول (user_settings_apply — اتجرّبت على Postgres نفسه)
 Deno.test('حفظ إعدادات المستخدم: المجموعات اللي اتغيّرت بس متنضّفة، وسجل كل حساب إعلاني، وnull = مسح، وأي جزء غلط = رفض الطلب كله', () => {
@@ -985,13 +1036,20 @@ Deno.test('حفظ إعدادات المستخدم: دالة الدمج المق�
 });
 // سجل مشكلات التنبيه (لوحة «قيمة الأداة» — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦): رقم الإعلان والنوع والأوقات بس، من غير أي أرقام
 Deno.test('سجل المشكلات: إعلان ونوع معروفين من غير تكرار، والقرار وقت ونوع مع بعض أو ولا واحد', () => {
+  const plain = (ad: string, kind: string) => ({ ad, kind, daily: null, cur: null });
   assertEquals(cleanOpen([{ ad: '123', kind: 'waste' }, { ad: '123', kind: 'waste' }, { ad: '123', kind: 'loss' }], 'meta'),
-    [{ ad: '123', kind: 'waste' }, { ad: '123', kind: 'loss' }]);
+    [plain('123', 'waste'), plain('123', 'loss')]);
   assertEquals(cleanOpen([{ ad: 'abc', kind: 'waste' }], 'meta'), null, 'a Meta ad id is digits');
-  assertEquals(cleanOpen([{ ad: 'aaaa-1111', kind: 'waste' }], 'snapchat'), [{ ad: 'aaaa-1111', kind: 'waste' }]);
+  assertEquals(cleanOpen([{ ad: 'aaaa-1111', kind: 'waste' }], 'snapchat'), [plain('aaaa-1111', 'waste')]);
+  // Google دخل السجل (٢٦ نوفمبر ٢٠٢٦): رقم الإعلان أو حملة PMax أرقام
+  assertEquals([cleanOpen([{ ad: '9876543210', kind: 'loss' }], 'google'), cleanOpen([{ ad: 'g-1', kind: 'loss' }], 'google')], [[plain('9876543210', 'loss')], null]);
   assertEquals(cleanOpen([{ ad: '1', kind: 'spend', spend: 50 }], 'meta'), null, 'unknown kind');
   assertEquals(cleanOpen({}, 'meta'), null);
   assertEquals(cleanOpen([], 'meta'), [], 'no problems now = every open one ends');
+  // خسارة الإعلان اليومية وقت التنبيه وعملتها: مع بعض بس، ولأقرب قرش؛ وقيمة غلط بتتشال من غير ما الطلب يترفض
+  assertEquals(cleanOpen([{ ad: '1', kind: 'waste', daily: 12.345, cur: 'SAR' }, { ad: '2', kind: 'waste', daily: 5 }, { ad: '3', kind: 'waste', daily: -1, cur: 'USD' },
+    { ad: '4', kind: 'waste', daily: 7, cur: 'sar' }], 'meta'),
+    [{ ad: '1', kind: 'waste', daily: 12.35, cur: 'SAR' }, plain('2', 'waste'), plain('3', 'waste'), plain('4', 'waste')]);
   assertEquals(cleanDecisions([{ id: 5, handledAt: '2026-10-25T10:00:00Z', action: 'pause' }, { id: 6 }]),
     [{ id: 5, handledAt: '2026-10-25T10:00:00.000Z', action: 'pause' }, { id: 6, handledAt: null, action: null }]);
   assertEquals(cleanDecisions([{ id: 5, handledAt: '2026-10-25T10:00:00Z' }]), null, 'a time without an action kind');
@@ -999,21 +1057,34 @@ Deno.test('سجل المشكلات: إعلان ونوع معروفين من غي
   assertEquals(cleanDecisions([{ id: -1 }]), null);
   assertEquals(cleanDecisions([]), null);
 });
-// اللوحة بتتبع فترة البيانات (قرار صاحب المنتج ٢٥ أكتوبر): أول يوم الفترة ناقص يوم، ومش أقدم من مدة الحفظ
-Deno.test('سجل المشكلات: من أول يوم في الفترة المختارة (بيوم زيادة لفرق التوقيت)، ولحد مدة الحفظ بس', () => {
-  const now = Date.parse('2026-10-25T12:00:00Z'), day = 86400000;
-  assertEquals(sinceOf('2026-10-18', now), '2026-10-17T00:00:00.000Z');
-  assertEquals(sinceOf('2026-01-01', now), new Date(now - 91 * day).toISOString(), 'not older than the retention');
-  assertEquals(sinceOf('evil', now), new Date(now - 45 * day).toISOString(), 'no period: the last 45 days');
-  assertEquals(sinceOf(undefined, now), new Date(now - 45 * day).toISOString());
+// التصرّف (قرارات صاحب المنتج ٢٦ نوفمبر ٢٠٢٦): في أي وقت بعد التنبيه والمشكلة قايمة — من غير حد ٢٤ ساعة؛ و«لسه مفيش تصرّف» بعد يوم
+Deno.test('سجل المشكلات: التصرّف في أي وقت بعد التنبيه وقبل ما المشكلة تخلص (مش في المستقبل)، و«لسه مفيش» بعد يوم', () => {
+  const first = '2026-10-25T10:00:00Z', at = Date.parse(first), H = 3600000;
+  assert(decisionOk(first, { handledAt: '2026-10-25T18:00:00Z' }, at + H * 10), 'an edit 8 hours later');
+  assert(decisionOk(first, { handledAt: '2026-10-28T11:00:00Z' }, at + 80 * H), 'three days later counts now');
+  assert(!decisionOk(first, { handledAt: '2026-10-25T09:00:00Z' }, at + H), 'an edit before the alert is not after it');
+  assert(!decisionOk(first, { handledAt: '2026-10-26T10:00:00Z' }, at + H), 'not in the future');
+  assert(decisionOk(first, { handledAt: '2026-10-25T10:04:00Z' }, at), 'a few minutes of clock skew');
+  assert(!decisionOk(first, { handledAt: '2026-10-27T10:00:00Z' }, at + 80 * H, '2026-10-26T10:00:00Z'), 'after the problem ended: not a reply to the alert');
+  assert(decisionOk(first, { handledAt: '2026-10-26T09:00:00Z' }, at + 80 * H, '2026-10-26T10:00:00Z'), 'the action that ended it');
+  assert(!decisionOk(first, { handledAt: null }, at + 20 * H), 'no action yet: only once a day is over');
+  assert(decisionOk(first, { handledAt: null }, at + 25 * H));
 });
-Deno.test('سجل المشكلات: التعديل يتحسب جوه الـ ٢٤ ساعة بعد التنبيه بس، و«متعالجتش» بعد ما تخلص', () => {
-  const first = '2026-10-25T10:00:00Z', at = Date.parse(first);
-  assert(decisionOk(first, { handledAt: '2026-10-25T18:00:00Z' }, at + 3600000), 'an edit 8 hours later');
-  assert(!decisionOk(first, { handledAt: '2026-10-25T09:00:00Z' }, at + 3600000), 'an edit before the alert is not after it');
-  assert(!decisionOk(first, { handledAt: '2026-10-26T11:00:00Z' }, at + 30 * 3600000), 'more than 24 hours later');
-  assert(!decisionOk(first, { handledAt: null }, at + 20 * 3600000), 'not handled: only once the 24 hours are over');
-  assert(decisionOk(first, { handledAt: null }, at + 25 * 3600000));
+// المبالغ (قرار صاحب المنتج ٢٦ نوفمبر ٢٠٢٦: «على خادمنا بعد اكتمالها»): أرقام صالحة بعملة، ومرة واحدة بعد ما أيام المشكلة تكمل
+Deno.test('سجل المشكلات: المبالغ أرقام صالحة بعملة، وبتتحفظ بعد ما أيام المشكلة تكمل بس', () => {
+  assertEquals([moneyOf(12.345), moneyOf(0), moneyOf(-1), moneyOf(NaN), moneyOf('5'), moneyOf(1e12)], [12.35, 0, null, null, null, null]);
+  assertEquals(cleanAmounts([{ id: 5, saved: 204, lost: 30.004, cur: 'SAR', daily: 30 }, { id: 6, saved: 0, lost: 0, cur: 'USD' }]),
+    [{ id: 5, saved: 204, lost: 30, cur: 'SAR', daily: 30 }, { id: 6, saved: 0, lost: 0, cur: 'USD', daily: null }]);
+  for (const bad of [[], {}, [{ id: 0, saved: 1, lost: 1, cur: 'SAR' }], [{ id: 5, saved: -1, lost: 1, cur: 'SAR' }], [{ id: 5, saved: 1, lost: 1, cur: 'sar' }],
+    [{ id: 5, saved: 1, lost: 1, cur: 'SAR', daily: -3 }], [{ id: 5, saved: 1, cur: 'SAR' }], Array.from({ length: 101 }, (_, i) => ({ id: i + 1, saved: 0, lost: 0, cur: 'SAR' }))]) {
+    assertEquals(cleanAmounts(bad), null, JSON.stringify(bad).slice(0, 80));
+  }
+  const now = Date.parse('2026-11-20T12:00:00Z'), day = 86400000;
+  assert(amountsFinal({ handled_at: new Date(now - 8 * day).toISOString(), ended_at: null }, now), 'acted 8 days ago: the 7 saved days are over');
+  assert(!amountsFinal({ handled_at: new Date(now - 7 * day).toISOString(), ended_at: null }, now), 'acted 7 days ago: not yet');
+  assert(amountsFinal({ handled_at: null, ended_at: new Date(now - day).toISOString() }, now), 'ended a day ago without an action');
+  assert(!amountsFinal({ handled_at: null, ended_at: new Date(now - 3600000).toISOString() }, now), 'ended an hour ago: its day is not over');
+  assert(!amountsFinal({ handled_at: null, ended_at: null }, now), 'still open');
 });
 Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم اللي اختفى بيخلص، والقرار مرة واحدة — ومن غير إثبات الوصول مفيش حاجة', async () => {
   let metaOk = true;
@@ -1025,8 +1096,11 @@ Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم
       const method = (init && init.method) || 'GET';
       calls.push({ method, url, body: init && init.body ? JSON.parse(String(init.body)) : null });
       if (method === 'GET' && url.indexOf('ended_at=is.null') > -1) return json([{ id: 1, ad_id: '11', kind: 'waste' }, { id: 2, ad_id: '22', kind: 'waste' }]);
-      if (method === 'GET' && url.indexOf('decided_at=is.null') > -1) return json([{ id: 1, first_at: first }, { id: 2, first_at: first }]);
-      if (method === 'GET') return json([{ id: 1, ad_id: '11', kind: 'waste', first_at: first, ended_at: null, decided_at: null, handled_at: null, action: null }]);
+      if (method === 'GET' && url.indexOf('select=id,first_at,ended_at,decided_at,handled_at') > -1) {
+        return json([{ id: 1, first_at: first, ended_at: null, decided_at: null, handled_at: null }, { id: 2, first_at: first, ended_at: null, decided_at: null, handled_at: null }]);
+      }
+      if (method === 'GET') return json([{ id: 1, ad_id: '11', kind: 'waste', first_at: first, ended_at: null, decided_at: null, handled_at: null, action: null,
+        baseline_daily: '90.5', amount_currency: 'SAR', saved_amount: null, lost_amount: null, amounts_at: null }]);
       return new Response(null, { status: method === 'POST' ? 201 : 204 });
     }
     throw new Error('unexpected fetch ' + url);
@@ -1034,15 +1108,20 @@ Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم
   try {
     const T = 'TOKEN_abcdefghijklmnopqrstuvwxyz', who = { platform: 'meta', accountId: 'act_123', platformToken: T };
     const U = '11111111-2222-3333-4444-555555555555';
-    const res = await handleEpisodes('episodes.sync', { ...who, open: [{ ad: '11', kind: 'waste' }, { ad: '33', kind: 'loss' }] }, U, null);
+    // الجديدة بخسارتها اليومية وعملتها (٢٦ نوفمبر ٢٠٢٦)، والقديمة اللي متبعتش معاها = من غيرهم
+    const res = await handleEpisodes('episodes.sync', { ...who, open: [{ ad: '11', kind: 'waste' }, { ad: '33', kind: 'loss', daily: 45.5, cur: 'SAR' }, { ad: '44', kind: 'waste' }] }, U, null);
     assertEquals(res.status, 200);
     const patches = calls.filter((c) => c.method === 'PATCH'), posts = calls.filter((c) => c.method === 'POST');
     assert(patches.some((c) => /id=in\.\(1\)/.test(c.url) && c.body.last_seen_at), 'still open: seen again');
     assert(patches.some((c) => /id=in\.\(2\)/.test(c.url) && c.body.ended_at), 'gone: ended');
-    assertEquals(posts.map((c) => c.body), [[{ user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '33', kind: 'loss' }]], 'only the new one is added, for this user');
+    assertEquals(posts.map((c) => c.body), [[{ user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '33', kind: 'loss', baseline_daily: 45.5, amount_currency: 'SAR' },
+      { user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '44', kind: 'waste' }]], 'only the new ones are added, for this user, with the daily loss when sent');
     assert(calls.every((c) => c.method === 'POST' || c.url.indexOf('user_id=eq.' + U) > -1), 'every read and update is limited to this user');
+    // كل المشكلات من أول يوم (سطر «منذ بدأت») — من غير حد بفترة
+    assert(calls.some((c) => c.method === 'GET' && /order=first_at\.desc&limit=5000$/.test(c.url) && c.url.indexOf('first_at=gte') < 0), 'all of them, newest first');
     const body = await res.json();
-    assertEquals(Object.keys(body.episodes[0]).sort(), ['action', 'ad', 'decided', 'endedAt', 'firstAt', 'handledAt', 'id', 'kind']);
+    assertEquals(Object.keys(body.episodes[0]).sort(), ['action', 'ad', 'amountsAt', 'baseline', 'cur', 'decided', 'endedAt', 'firstAt', 'handledAt', 'id', 'kind', 'lost', 'saved']);
+    assertEquals([body.episodes[0].baseline, body.episodes[0].cur, body.episodes[0].saved], [90.5, 'SAR', null], 'numbers as numbers');
     calls.length = 0;
     await handleEpisodes('episodes.sync', { ...who, open: null }, U, null);
     assertEquals(calls.map((c) => c.method), ['GET'], 'read only: nothing recorded');
@@ -1051,8 +1130,8 @@ Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم
     const dec = await handleEpisodes('episodes.decide', { ...who, decisions: [{ id: 1, handledAt, action: 'budget' }, { id: 2 }] }, U, null);
     assertEquals((await dec.json()).saved, 2);
     const p = calls.filter((c) => c.method === 'PATCH');
-    assert(p.some((c) => /id=eq\.1&decided_at=is\.null/.test(c.url) && c.body.action === 'budget' && c.body.handled_at === handledAt), 'handled');
-    assert(p.some((c) => /id=in\.\(2\)/.test(c.url) && c.body.decided_at && !('handled_at' in c.body)), 'not handled (30 hours later)');
+    assert(p.some((c) => /id=eq\.1&handled_at=is\.null/.test(c.url) && c.body.action === 'budget' && c.body.handled_at === handledAt), 'handled');
+    assert(p.some((c) => /id=in\.\(2\)/.test(c.url) && c.body.decided_at && !('handled_at' in c.body)), 'no action yet (30 hours later)');
     calls.length = 0;
     metaOk = false;
     assertEquals((await handleEpisodes('episodes.sync', { ...who, open: [] }, U, null)).status, 403);
@@ -3160,9 +3239,9 @@ Deno.test('حواف الانضمام: الحقول الفاضية، ورسالة
   }
 });
 // حواف سجل المشكلات (فروع متنفّذتش قبل كده — قياس الفروع ٢٥ نوفمبر ٢٠٢٦): بداية مش تاريخ = القرار مرفوض؛ جهاز تاني سجّل نفس المشكلة في نفس
-// اللحظة (الفهرس الفريد رفض الدفعة) = بنسجّل واحدة واحدة ونسيب المكررة من غير ما الطلب يفشل؛ «اتعالجت» بعد الـ ٢٤ ساعة = مبيتحفظش؛ وعملية
-// مش معروفة = ٤٠٠
-Deno.test('حواف سجل المشكلات: بداية مش تاريخ، وتسجيل جهازين في نفس اللحظة، وقرار برّه الـ ٢٤ ساعة، وعملية مش معروفة', async () => {
+// اللحظة (الفهرس الفريد رفض الدفعة) = بنسجّل واحدة واحدة ونسيب المكررة من غير ما الطلب يفشل؛ التصرّف المتأخر بيتسجّل (٢٦ نوفمبر ٢٠٢٦) وبعد
+// ما المشكلة تخلص لأ؛ وعملية مش معروفة = ٤٠٠
+Deno.test('حواف سجل المشكلات: بداية مش تاريخ، وتسجيل جهازين في نفس اللحظة، وتصرّف متأخر وبعد انتهاء المشكلة، وعملية مش معروفة', async () => {
   assert(!decisionOk('not a date', { handledAt: null }, Date.now()), 'no start date: never accepted');
   const calls: { method: string; url: string; body: any }[] = [];
   const first = new Date(Date.now() - 30 * 3600000).toISOString();
@@ -3172,7 +3251,12 @@ Deno.test('حواف سجل المشكلات: بداية مش تاريخ، وتس
       const method = (init && init.method) || 'GET', body = init && init.body ? JSON.parse(String(init.body)) : null;
       calls.push({ method, url, body });
       if (method === 'GET' && url.indexOf('ended_at=is.null') > -1) return json([]);
-      if (method === 'GET' && url.indexOf('decided_at=is.null') > -1) return json([{ id: 7, first_at: first }]);
+      if (method === 'GET' && url.indexOf('select=id,first_at,ended_at,decided_at,handled_at') > -1) {
+        // ٧ لسه من غير تصرّف (واتقال عليها «لسه» قبل كده)، و٨ خلصت من ٢٠ ساعة، و٩ اتعالجت خلاص
+        return json([{ id: 7, first_at: first, ended_at: null, decided_at: first, handled_at: null },
+          { id: 8, first_at: first, ended_at: new Date(Date.parse(first) + 10 * 3600000).toISOString(), decided_at: null, handled_at: null },
+          { id: 9, first_at: first, ended_at: null, decided_at: first, handled_at: first }]);
+      }
       if (method === 'GET') return json([]);
       // الفهرس الفريد: الدفعة اللي فيها مشكلة سجّلها جهاز تاني بتترفض كلها، والصف المكرر لوحده بيترفض
       if (method === 'POST') return (Array.isArray(body) ? body : [body]).some((r: any) => r.ad_id === '22') ? json({ code: '23505' }, 409) : new Response(null, { status: 201 });
@@ -3187,11 +3271,100 @@ Deno.test('حواف سجل المشكلات: بداية مش تاريخ، وتس
     assertEquals(calls.filter((c) => c.method === 'POST').map((c) => (Array.isArray(c.body) ? c.body.map((r: any) => r.ad_id) : c.body.ad_id)), [['11', '22'], '11', '22'],
       'the batch, then one by one (the duplicate is left)');
     calls.length = 0;
-    // «اتعالجت» بعد ٢٦ ساعة من التنبيه: برّه الـ ٢٤ ساعة — مبيتحفظش
+    // تصرّف بعد ٢٦ ساعة (قرارات صاحب المنتج ٢٦ نوفمبر ٢٠٢٦): بيتسجّل حتى لو اتقال قبل كده «لسه مفيش تصرّف»؛ وتصرّف بعد ما المشكلة خلصت
+    // مبقاش ردّ عليها، واللي اتسجّل له تصرّف مبيتغيّرش
     const late = new Date(Date.parse(first) + 26 * 3600000).toISOString();
-    const dec = await handleEpisodes('episodes.decide', { ...who, decisions: [{ id: 7, handledAt: late, action: 'budget' }] }, U, null);
-    assertEquals([(await dec.json()).saved, calls.filter((c) => c.method === 'PATCH').length], [0, 0], 'outside the 24 hours: nothing saved');
+    const dec = await handleEpisodes('episodes.decide', { ...who, decisions: [{ id: 7, handledAt: late, action: 'budget' }, { id: 8, handledAt: late, action: 'pause' },
+      { id: 9, handledAt: late, action: 'pause' }] }, U, null);
+    const patched = calls.filter((c) => c.method === 'PATCH');
+    assertEquals([(await dec.json()).saved, patched.length], [1, 1], 'only the late action on the open problem');
+    assert(/id=eq\.7&handled_at=is\.null/.test(patched[0].url) && patched[0].body.handled_at === late, 'upgraded from «not yet»');
     assertEquals((await handleEpisodes('episodes.other', { ...who }, U, null)).status, 400);
+  } finally { restoreFetch(); }
+});
+// مبالغ المشكلة على الخادم (قرار صاحب المنتج ٢٦ نوفمبر ٢٠٢٦: «على خادمنا بعد اكتمالها»): مرة واحدة، وبعد ما أيامها تكمل بس، وبعملتها
+// وقت التنبيه؛ والخسارة اليومية بتتكمّل للمشكلة اللي اتسجّلت من غيرها
+Deno.test('سجل المشكلات: المبالغ بتتحفظ مرة واحدة للمشكلة اللي أيامها كملت، بعملتها، وبتكمّل الخسارة اليومية الناقصة', async () => {
+  const calls: { method: string; url: string; body: any }[] = [];
+  const day = 86400000, old = new Date(Date.now() - 9 * day).toISOString(), recent = new Date(Date.now() - 2 * day).toISOString();
+  stubFetch((url, init) => {
+    if (url.indexOf('graph.facebook.com') > -1) return json({ id: 'act_123', name: 'X' });
+    if (url.indexOf('/rest/v1/alert_episodes') > -1) {
+      const method = (init && init.method) || 'GET';
+      calls.push({ method, url, body: init && init.body ? JSON.parse(String(init.body)) : null });
+      if (method === 'GET') {
+        return json([{ id: 1, handled_at: old, ended_at: null, baseline_daily: null, amount_currency: null },        // اتعالجت من ٩ أيام: كملت
+          { id: 2, handled_at: recent, ended_at: null, baseline_daily: 20, amount_currency: 'SAR' },                  // من يومين: لسه
+          { id: 3, handled_at: null, ended_at: old, baseline_daily: 20, amount_currency: 'USD' },                    // خلصت بس بعملة تانية
+          { id: 4, handled_at: null, ended_at: old, baseline_daily: 15, amount_currency: 'SAR' }]);                  // خلصت من غير تصرّف
+      }
+      return new Response(null, { status: 204 });
+    }
+    throw new Error('unexpected fetch ' + url);
+  });
+  try {
+    const who = { platform: 'meta', accountId: 'act_123', platformToken: 'TOKEN_abcdefghijklmnopqrstuvwxyz' }, U = '11111111-2222-3333-4444-555555555555';
+    const amounts = [{ id: 1, saved: 204, lost: 30, cur: 'SAR', daily: 30 }, { id: 2, saved: 40, lost: 0, cur: 'SAR' }, { id: 3, saved: 0, lost: 10, cur: 'SAR' },
+      { id: 4, saved: 0, lost: 45, cur: 'SAR', daily: 99 }];
+    const res = await handleEpisodes('episodes.amounts', { ...who, amounts }, U, null);
+    assertEquals([res.status, (await res.json()).saved], [200, 2]);
+    const get = calls.find((c) => c.method === 'GET');
+    assert(!!get && get.url.indexOf('amounts_at=is.null') > -1 && get.url.indexOf('user_id=eq.' + U) > -1, 'only rows without amounts, of this user');
+    const p = calls.filter((c) => c.method === 'PATCH');
+    assertEquals(p.map((c) => [/id=eq\.(\d+)&amounts_at=is\.null/.exec(c.url)?.[1], c.body.saved_amount, c.body.lost_amount, c.body.amount_currency, c.body.baseline_daily]),
+      [['1', 204, 30, 'SAR', 30], ['4', 0, 45, 'SAR', undefined]], 'complete only; the missing daily loss filled, an existing one kept');
+    assert(p.every((c) => typeof c.body.amounts_at === 'string'), 'when they were stored');
+    calls.length = 0;
+    assertEquals((await handleEpisodes('episodes.amounts', { ...who, amounts: [{ id: 1, saved: -5, lost: 0, cur: 'SAR' }] }, U, null)).status, 400);
+    assertEquals(calls.length, 0, 'a bad amount: nothing read or written');
+  } finally { restoreFetch(); }
+});
+// Google في سجل المشكلات (٢٦ نوفمبر ٢٠٢٦): الرمز لازم يكون لتطبيقنا وبصلاحية Google Ads، والحساب مفتوح لصاحبه (ومعاه رقم المدير لو الحساب
+// تحت حساب مدير)، وأي حاجة تانية = ٤٠٠ أو ٤٠٣ من غير قراءة ولا كتابة
+Deno.test('التحقق من حساب Google: الرمز لتطبيقنا وبصلاحية Google Ads، والحساب مفتوح لصاحبه برقم المدير', async () => {
+  const CID = '755601072390-jvljtdc8799o59fjffvtq43p70765jqn.apps.googleusercontent.com';
+  let info: any = { azp: CID, scope: 'https://www.googleapis.com/auth/adwords' }, accountOk = true, seenHeaders: Record<string, string> = {}, asked = 0;
+  let answer = '1234567890';
+  stubFetch((url, init) => {
+    if (url.indexOf('oauth2.googleapis.com/tokeninfo') > -1) return info ? json(info) : json({ error: 'invalid_token' }, 400);
+    if (url.indexOf('googleads.googleapis.com/v24/customers/1234567890/googleAds:search') > -1) {
+      asked++;
+      seenHeaders = Object.fromEntries(new Headers((init && init.headers) as HeadersInit).entries());
+      return accountOk ? json({ results: [{ customer: { id: answer } }] }) : json({ error: { code: 403 } }, 403);
+    }
+    throw new Error('unexpected fetch ' + url);
+  });
+  try {
+    const T = 'ya29.TOKEN_abcdefghijklmnopqrstuvwxyz';
+    assertEquals(await googleAccount(T, '1234567890', '9999999999'), true);
+    assertEquals([seenHeaders['login-customer-id'], seenHeaders['authorization']], ['9999999999', 'Bearer ' + T], 'the manager account and the token');
+    assertEquals(await googleAccount(T, '1234567890', null), true);
+    assertEquals(seenHeaders['login-customer-id'], undefined, 'no manager: no header');
+    accountOk = false;
+    assertEquals(await googleAccount(T, '1234567890', null), false, 'the account is not open to this token');
+    // الرد لحساب غير المطلوب (طفرة ٢٦ نوفمبر ٢٠٢٦ عاشت: «فيه صف» كان كفاية) = مفيش إثبات، وكذلك رد من غير صفوف
+    accountOk = true; answer = '1111111111';
+    assertEquals(await googleAccount(T, '1234567890', null), false, 'a row for another account is no proof');
+    answer = '';
+    assertEquals(await googleAccount(T, '1234567890', null), false, 'a row with no account id is no proof');
+    answer = '1234567890';
+    accountOk = true; asked = 0;
+    info = { azp: 'someone-else.apps.googleusercontent.com', scope: 'https://www.googleapis.com/auth/adwords' };
+    assertEquals([await googleAccount(T, '1234567890', null), asked], [false, 0], 'another app\'s token: Google Ads is not even asked');
+    info = { aud: CID, scope: 'email' };
+    assertEquals(await googleAccount(T, '1234567890', null), false, 'no Google Ads scope');
+    info = null;
+    assertEquals(await googleAccount(T, '1234567890', null), false, 'an expired token');
+    info = { azp: CID, scope: 'https://www.googleapis.com/auth/adwords' };
+    const ok = await verifyAccount({ platform: 'google', accountId: '1234567890', platformToken: T, loginCustomerId: '9999999999' }, null);
+    assertEquals(ok, { platform: 'google', id: '1234567890' });
+    for (const bad of [{ accountId: '123-456-7890' }, { accountId: '12345' }, { loginCustomerId: 'x' }, { loginCustomerId: 9999999999 }]) {
+      const r = await verifyAccount({ platform: 'google', accountId: '1234567890', platformToken: T, ...bad }, null);
+      assert(r instanceof Response && r.status === 400, JSON.stringify(bad));
+    }
+    accountOk = false;
+    const no = await verifyAccount({ platform: 'google', accountId: '1234567890', platformToken: T }, null);
+    assert(no instanceof Response && no.status === 403, 'not open to this token');
   } finally { restoreFetch(); }
 });
 // تفضيلات المستخدم (من ٣١ أكتوبر — عملة الأرقام المجمّعة، وموافقة ملاحظة لوحة «ما حققته مع الأداة») مكانش ليها أي اختبار (قياس الفروع ٢٥ نوفمبر
@@ -3204,6 +3377,10 @@ Deno.test('تفضيلات المستخدم: العملة كود أو null، وا
   assertEquals(cleanPrefs([1]), null);
   assertEquals(cleanUserSettings({ all: { roasTarget: 4 }, prefs: { currency: 'USD', valueAck: false } }), { all: { roasTarget: 4 }, prefs: { currency: 'USD' } });
   assertEquals(cleanUserWrite({ changes: { prefs: { valueAck: true } } }), { base: null, changes: { prefs: { valueAck: true } }, goals: null, asked: false });
+  // الموافقة على النسخة التانية من الملاحظة (٢٦ نوفمبر ٢٠٢٦ — التسجيل اتوسّع): true بس، وبتتحفظ جنب الأولى
+  assertEquals(cleanPrefs({ valueAck: true, valueAck2: true }), { valueAck: true, valueAck2: true });
+  assertEquals(cleanPrefs({ valueAck2: 1 }), null, 'consent is true only');
+  assertEquals(cleanUserWrite({ changes: { prefs: { valueAck2: true } } }), { base: null, changes: { prefs: { valueAck2: true } }, goals: null, asked: false });
   assertEquals(cleanUserWrite({ changes: { prefs: { currency: 'XX' } } }), null, 'bad prefs refuse the whole request');
   assertEquals(cleanUserWrite({ base: { all: { roasTarget: 5 }, acct: { 'meta:act_1': { roasTarget: 3 } } } }),
     { base: { all: { roasTarget: 5 }, acct: { 'meta:act_1': { roasTarget: 3 } } }, changes: {}, goals: null, asked: false }, 'an account record in the base');
@@ -3316,6 +3493,9 @@ Deno.test('نقطة الدخول — بعد الدخول كل عملية بتو�
     if (url.indexOf('/oauth/access_token') > -1) return json({ access_token: 'LONGTOKEN_abcdefghijklmnopqrstuvwxyz', expires_in: 5184000 });
     if (url.indexOf('/me?') > -1) return json({ id: '42' });
     if (url.indexOf('graph.facebook.com') > -1 && url.indexOf('/act_1?') > -1) return json({ id: 'act_1', name: 'X', currency: 'SAR', timezone_name: 'Asia/Riyadh' });
+    // موافقة طلب الانضمام لبريد الدخول اللي في الرمز (a@b.co) بس — التوجيه لازم يوصّل البريد لإعدادات المستخدم (٢٦ نوفمبر ٢٠٢٦)
+    if (url.indexOf('/rest/v1/pilot_requests') > -1) return json(url.indexOf('email=eq.a%40b.co&') > -1 ? [{ consent_version: '2026-11-26' }] : []);
+    if (url.indexOf('/rest/v1/rpc/user_settings_apply') > -1) return json({ all: {}, prefs: { valueAck2: true } });
     if (url.indexOf('/rest/v1/') > -1) return ((init && init.method) || 'GET') === 'GET' || url.indexOf('/rpc/') > -1 ? json([]) : new Response(null, { status: 204 });
     throw new Error('unexpected fetch ' + url);
   });
@@ -3331,6 +3511,7 @@ Deno.test('نقطة الدخول — بعد الدخول كل عملية بتو�
     assert(seal.status === 200 && /^m1\./.test(seal.body.sealed), 'meta.seal: ' + JSON.stringify(seal));
     const us = await post({ action: 'usettings.get' });
     assert(us.status === 200 && 'settings' in us.body, 'usettings.get: ' + JSON.stringify(us));
+    assertEquals(us.body.settings, { all: {}, prefs: { valueAck2: true } }, 'the sign-in email reaches the join-consent check');
     const old = await post({ action: 'settings.get', ...who });
     assert(old.status === 200 && 'settings' in old.body, 'settings.get: ' + JSON.stringify(old));
     const ep = await post({ action: 'episodes.sync', ...who, open: null });

@@ -126,12 +126,14 @@ export async function handle(req: Request): Promise<Response> {
     if (!user) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
     // ربط Meta المحفوظ على الجهاز — مربوط بحساب الدخول ده (metalink.ts)
     if (action === 'meta.seal' || action === 'meta.renew') return await handleMetaLink(action, body, user.id, origin);
-    // إعدادات التنبيهات لكل مستخدم (settings.ts — قرار ٢٦ أكتوبر): سجل صاحب الدخول نفسه، من غير مفتاح أي منصة
-    if (action === 'usettings.get' || action === 'usettings.set') return await handleUserSettings(action, body, user.id, origin);
+    // إعدادات التنبيهات لكل مستخدم (settings.ts — قرار ٢٦ أكتوبر): سجل صاحب الدخول نفسه، من غير مفتاح أي منصة. وبريد الدخول للموافقة على
+    // سجل لوحة «ما حققته» اللي في طلب انضمامه (٢٦ نوفمبر ٢٠٢٦)
+    if (action === 'usettings.get' || action === 'usettings.set') return await handleUserSettings(action, body, user.id, origin, user.email);
     // سجل الحساب الإعلاني القديم (قراءة بس — النقل لإعدادات المستخدم) بإثبات الوصول للحساب في منصته
     if (action === 'settings.get') return await handleSettings(action, body, origin);
-    // سجل مشكلات التنبيه لكل مستخدم على كل حساب إعلاني (episodes.ts — لوحة «ما حققته مع الأداة») بنفس إثبات الوصول
-    if (action === 'episodes.sync' || action === 'episodes.decide') return await handleEpisodes(action, body, user.id, origin);
+    // سجل مشكلات التنبيه لكل مستخدم على كل حساب إعلاني (episodes.ts — لوحة «ما حققته مع الأداة») بنفس إثبات الوصول؛
+    // ومبالغ كل مشكلة بعد ما أيامها تكمل (episodes.amounts — قرار صاحب المنتج ٢٦ نوفمبر ٢٠٢٦: «على خادمنا بعد اكتمالها»)
+    if (action === 'episodes.sync' || action === 'episodes.decide' || action === 'episodes.amounts') return await handleEpisodes(action, body, user.id, origin);
     // الملخص التلقائي لكل مستخدم (digest.ts — ٣١ أكتوبر): ملخصه هو، والعمليات اللي محتاجة مفتاح Meta بتتحقق منه جوه
     if (typeof action === 'string' && action.indexOf('digest.') === 0 && action !== 'digest.preview' && action !== 'digest.previewSummary') {
       return await handleDigest(action, body, origin, user.id);

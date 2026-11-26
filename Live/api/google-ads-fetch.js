@@ -2,8 +2,8 @@
 // GOOGLE_ADS_DEVELOPER_TOKEN اختياري: من ٩ سبتمبر ٢٠٢٦ Google بتحدد الصلاحية من مشروع Google Cloud
 // اللي طلع منه مفتاح الدخول، والـ developer token لو اتبعت بيتجاهل (بنسيبه لو موجود للتوافق)
 
-import { gaql, adKey, missingSpendKeys, STORE_SEGMENTS, storeRow, storeGaps, AD_TEXT_FIELDS, adText } from './_google.js';
-import { last7DaysRange, resolvePeriod } from './_dates.js';
+import { gaql, adKey, missingSpendKeys, STORE_SEGMENTS, storeRow, storeGaps, AD_TEXT_FIELDS, adText, changeActions, CHANGE_LIMIT } from './_google.js';
+import { last7DaysRange, resolvePeriod, isDateKey, daysBetweenKeys, todayKeyInTz, shiftDateKey, tzOffsetString } from './_dates.js';
 import { guardRequest } from './_cors.js';
 import { verifyGoogleToken, sendVerifyFailure } from './_verify.js';
 import { text, shaped, periodOf, TOKEN_MAX, badRequest } from './_input.js';
@@ -32,6 +32,11 @@ export default async function handler(req, res) {
   // الفترة اللي المستخدم اختارها للأرقام (الصرف والنتائج) — التنبيهات بتفضل على آخر ٧ أيام دايماً
   const periodRange = resolvePeriod(period, timeZone || clientTz);
   const opts = { developerToken, accessToken, customerId, loginCustomerId };
+
+  // لوحة «ما حققته مع الأداة» (Google دخلها ٢٦ نوفمبر ٢٠٢٦): سجل التعديلات وأرقام إعلانات محددة يوم بيوم — طلب صغير لكل واحد من غير
+  // استعلامات الإعلانات الكبيرة تحت
+  if (body.action === 'changes') { await sendChanges(res, opts, timeZone || clientTz, body.since); return; }
+  if (body.action === 'daily') { await sendDaily(res, opts, body); return; }
 
   // استعلامين منفصلين عن قصد:
   // 1) كل الإعلانات (غير المحذوفة) بحالتها — من غير segments.date، لأن أي استعلام فيه تاريخ
@@ -202,9 +207,68 @@ export default async function handler(req, res) {
       range: range, period: periodRange
     });
   } catch (err) {
-    // خطأ من Google نفسها (gaql بيحط حالته ورمزه) بيرجع بنصه عشان الأداة تشرحه؛ أي خطأ تاني غير متوقع من غير نصه الداخلي في الرد —
-    // زي باقي ملفات الخادم (OWASP ASVS 7.4.1، التدقيق الشامل ١١ نوفمبر ٢٠٢٦)
-    if (err && err.status) res.status(err.status).json({ error: String(err.message || err), code: err.code || null });
-    else res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم.', code: 'SERVER' });
+    sendError(res, err);
   }
+}
+
+// خطأ من Google نفسها (gaql بيحط حالته ورمزه) بيرجع بنصه عشان الأداة تشرحه؛ أي خطأ تاني غير متوقع من غير نصه الداخلي في الرد —
+// زي باقي ملفات الخادم (OWASP ASVS 7.4.1، التدقيق الشامل ١١ نوفمبر ٢٠٢٦)
+function sendError(res, err) {
+  if (err && err.status) res.status(err.status).json({ error: String(err.message || err), code: err.code || null });
+  else res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم.', code: 'SERVER' });
+}
+
+// سجل التعديلات (change_event — _google.js changeActions): من since لحد بكرة بتوقيت الحساب، ومش أقدم من آخر ٣٠ يوم (حد Google نفسها).
+// من غير بريد اللي عمل التعديل (change_event.user_email) — اللوحة محتاجة نوع التعديل ووقته بس. complete = false لو الحد اتملا (تعديلات أكتر
+// من اللي رجع) — ساعتها الأداة متقولش «لم يتصرّف» على حاجة
+async function sendChanges(res, opts, tz, sinceWanted) {
+  const today = todayKeyInTz(tz), floor = shiftDateKey(today, -29);
+  const since = isDateKey(sinceWanted) && sinceWanted > floor ? sinceWanted : floor, until = shiftDateKey(today, 1);
+  const query = 'SELECT change_event.change_date_time, change_event.change_resource_type, change_event.change_resource_name, ' +
+    'change_event.resource_change_operation, change_event.changed_fields, change_event.old_resource, change_event.new_resource, ' +
+    'change_event.campaign, change_event.ad_group FROM change_event ' +
+    "WHERE change_event.change_date_time >= '" + since + "' AND change_event.change_date_time <= '" + until + "' " +
+    'ORDER BY change_event.change_date_time DESC LIMIT ' + CHANGE_LIMIT;
+  try {
+    const rows = await gaql(opts, query);
+    const offsets = {};
+    const offsetOf = function (d) { return offsets[d] || (offsets[d] = tzOffsetString(d, tz)); };
+    const changes = [].concat.apply([], rows.map(function (row) { return changeActions(row, offsetOf); }));
+    res.status(200).json({ changes: changes, since: since, complete: rows.length < CHANGE_LIMIT });
+  } catch (err) { sendError(res, err); }
+}
+
+// أرقام إعلانات وحملات PMax محددة يوم بيوم (لمشكلات أيامها برّه أرقام الكارت): adKeys = «المجموعة-الإعلان»، وcampaignIds = حملات PMax.
+// ← { daily: { المفتاح: { 'YYYY-MM-DD': { spend, results, sales } } } } — المدى ٩٣ يوم بالكتير، و٥٠٠ مفتاح من كل نوع
+const AD_KEY = /^\d{1,20}-\d{1,20}$/, CAMP_ID = /^\d{1,20}$/;
+async function sendDaily(res, opts, body) {
+  const since = body.since, until = body.until;
+  const pick = function (list, re) { return Array.isArray(list) ? list.filter(function (x) { return typeof x === 'string' && re.test(x); }).slice(0, 500) : []; };
+  const adKeys = pick(body.adKeys, AD_KEY), campIds = pick(body.campaignIds, CAMP_ID);
+  if (!isDateKey(since) || !isDateKey(until) || since > until || daysBetweenKeys(since, until) > 92 || (!adKeys.length && !campIds.length)) {
+    badRequest(res, 'الفترة أو أرقام الإعلانات غير صالحة.');
+    return;
+  }
+  const between = "segments.date BETWEEN '" + since + "' AND '" + until + "'";
+  const adIds = adKeys.map(function (k) { return k.split('-')[1]; }).filter(function (id, i, a) { return a.indexOf(id) === i; });
+  try {
+    const parts = await Promise.all([
+      adIds.length ? gaql(opts, 'SELECT ad_group.id, ad_group_ad.ad.id, segments.date, metrics.cost_micros, metrics.conversions, metrics.conversions_value ' +
+        'FROM ad_group_ad WHERE ' + between + ' AND ad_group_ad.ad.id IN (' + adIds.join(', ') + ')') : [],
+      campIds.length ? gaql(opts, 'SELECT campaign.id, segments.date, metrics.cost_micros, metrics.conversions, metrics.conversions_value ' +
+        'FROM campaign WHERE ' + between + ' AND campaign.id IN (' + campIds.join(', ') + ')') : []
+    ]);
+    const daily = {}, wantAds = {};
+    adKeys.forEach(function (k) { wantAds[k] = true; });
+    const add = function (key, row) {
+      const date = row.segments && row.segments.date, m = row.metrics || {};
+      if (!key || !isDateKey(date)) return;
+      const byDay = daily[key] = daily[key] || {};
+      const d = byDay[date] = byDay[date] || { spend: 0, results: 0, sales: 0 };
+      d.spend += Number(m.costMicros || 0) / 1e6; d.results += Number(m.conversions || 0); d.sales += Number(m.conversionsValue || 0);
+    };
+    parts[0].forEach(function (row) { const k = adKey(row); if (k && wantAds[k]) add(k, row); });
+    parts[1].forEach(function (row) { add(row.campaign && row.campaign.id ? String(row.campaign.id) : null, row); });
+    res.status(200).json({ daily: daily });
+  } catch (err) { sendError(res, err); }
 }

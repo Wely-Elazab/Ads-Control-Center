@@ -14,7 +14,7 @@
 //   login.* ← تسجيل الدخول للأداة: كلمة المرور + رمز على البريد (auth.ts)
 //   meta.seal و meta.renew ← ربط Meta المحفوظ على الجهاز، عشان الهاتف ميفصلش الحسابات كل مرة (metalink.ts)
 //   usettings.get و usettings.set ← إعدادات التنبيهات لصاحب الدخول (settings.ts)، وsettings.get ← سجل الحساب القديم (للنقل)
-//   episodes.sync و episodes.decide ← سجل مشكلات التنبيه للوحة «ما حققته مع الأداة» (episodes.ts)
+//   episodes.sync و episodes.decide و episodes.amounts ← سجل مشكلات التنبيه للوحة «ما حققته مع الأداة» ومبالغها (episodes.ts)
 //
 // الأمان: الدالة عامة (verify_jwt = false) لأن فيها عمليات من غير دخول (النبض، رابط الإيقاف، طلب الانضمام، login.*).
 // من ٦ أكتوبر ٢٠٢٦ كل العمليات التانية محتاجة دخول مكتمل للأداة (هيدر authorization: كلمة المرور + الرمز — requireLogin)،

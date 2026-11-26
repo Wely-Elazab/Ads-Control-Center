@@ -283,6 +283,7 @@
       setLoading('google', false, connectedText(gNotes));
       render();
       loadGoogleDiagnosis(customerId, info, token);
+      loadGoogleValueActions(customerId, info, token);
       dxReloaders.google = function () { if (isCurrentLoad('google', token)) loadGoogleDiagnosis(customerId, info, token); };
       loadGoogleCompare(customerId, info, token);
       cmpLoaders.google = function () { if (isCurrentLoad('google', token)) loadGoogleCompare(customerId, info, token); };
@@ -317,6 +318,28 @@
       if (!Array.isArray(d.pmaxPeriod)) candidates.forEach(function (c) { if (c.source === source && c.campaignLevel) byId[c.id] = false; });
       if (cmpDone(source, w, byId, null, cmpAllOf(list))) render();
     }).catch(gone);
+  }
+
+  // ---------- لوحة «ما حققته مع الأداة» (Google دخلها ٢٦ نوفمبر ٢٠٢٦ — كانت بتحسب Meta وSnapchat بس) ----------
+  // سجل التعديلات (api/google-ads-fetch.js action=changes — آخر ٣٠ يوم، حد Google نفسها): كل تعديل بنفس شكل Meta وSnapchat (ui.js
+  // valueActions) — تصرّف العميل بعد التنبيه. فشله = اللوحة بتستنى التحميل الجاي
+  function loadGoogleValueActions(customerId, info, token) {
+    var source = 'google:' + customerId;
+    apiPost('/api/google-ads-fetch', { accessToken: googleAccessToken, customerId: customerId, loginCustomerId: info.loginCustomerId,
+      timeZone: info.timeZone, clientTz: BROWSER_TZ, action: 'changes' }).then(function (res) {
+      var d = res && res.ok && res.data;
+      if (!isCurrentLoad('google', token) || !d || !Array.isArray(d.changes) || typeof d.since !== 'string') return;
+      valueActions[source] = { since: Date.parse(d.since + 'T00:00:00Z'), complete: d.complete !== false, list: d.changes };
+      valueActionsArrived(source);
+    }, function () { /* التحميل الجاي */ });
+  }
+  // أرقام إعلانات Google وحملات PMax محددة يوم بيوم (action=daily — أيام مشكلة برّه أرقام الكارت):
+  // { المفتاح («المجموعة-الإعلان» أو رقم الحملة): { 'YYYY-MM-DD': { spend, results, sales } } } أو null
+  function googleDailyMoney(customerId, adKeys, campaignIds, since, until) {
+    var info = accountInfo['google:' + customerId] || {};
+    return apiPost('/api/google-ads-fetch', { accessToken: googleAccessToken, customerId: customerId, loginCustomerId: info.loginCustomerId,
+      timeZone: info.timeZone, clientTz: BROWSER_TZ, action: 'daily', adKeys: adKeys, campaignIds: campaignIds, since: since, until: until })
+      .then(function (res) { return res && res.ok && res.data && res.data.daily && typeof res.data.daily === 'object' ? res.data.daily : null; }, function () { return null; });
   }
 
   // ملخص المتجر (Google Ads): بيبدأ بعد ما الإعلانات تظهر، بنفس فترة التشخيص (أيام مكتملة بتوقيت الحساب).
