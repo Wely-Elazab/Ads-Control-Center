@@ -6895,7 +6895,7 @@
         if (p.refresh_token === 'ref-1') return { body: { access_token: 'acc-2', expires_in: 1800, refresh_token: 'ref-2' } };
         return { status: 400, body: { error: 'invalid_grant' } };
       }, function (sent) {
-        return worker().then(function (m) {
+        return setupLogin().then(worker).then(function (m) {
           w = m;
           return post(w, '/api/snapchat-token', { code: 'c', redirectUri: location.origin + '/app' }, env).then(json);
         }).then(function (r) {
@@ -7318,7 +7318,7 @@
 
     testAsync('الـ API: أي مدخل بشكل غلط = BAD_REQUEST قبل ما يوصل لأي منصة', function () {
       var w, env = { SNAPCHAT_CLIENT_ID: 'id', SNAPCHAT_CLIENT_SECRET: 'secret' };
-      return worker().then(function (m) {
+      return setupLogin().then(worker).then(function (m) {
         w = m; cleanEnv();
         return post(w, '/api/google-ads-fetch', { accessToken: { x: 1 }, customerId: '123' }, env);
       }).then(function (res) {
@@ -7343,7 +7343,7 @@
 
     testAsync('الـ API: طلب ضخم = 413، ومسار مش موجود = JSON، وإعداد Google الناقص بيقفل الباب (مش بيفتحه)', function () {
       var w;
-      return worker().then(function (m) {
+      return setupLogin().then(worker).then(function (m) {
         w = m; cleanEnv();
         return post(w, '/api/snapchat-token', '{"code":"' + 'x'.repeat(70 * 1024) + '"}');
       }).then(function (res) {
@@ -7458,6 +7458,35 @@
         window.fetch = realFetch;
         var outside = urls.filter(function (u) { return u.indexOf('https://adsapi.snapchat.com/') !== 0; });
         eq(outside, [], 'requests outside Snapchat');
+      }, function (e) { window.fetch = realFetch; throw e; });
+    });
+
+    // التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦ (قياس الكتل — الأمان بس كان متختبر هنا): Snapchat رفض الحجم الكبير (limit=1000) = إعادة بالحجم الافتراضي بدل
+    // «مفيش إعلانات»، والصفحة التانية على API بتاع Snapchat بتتجمع مع الأولى؛ والمجموعات والحملات بالحجم الكبير زي ما هي
+    testAsync('Snapchat: الحجم الكبير اترفض = إعادة بالحجم الافتراضي، والصفحة التانية بتتجمع مع الأولى', function () {
+      var realFetch = window.fetch, urls = [], out = null, code = null;
+      var reply = function (status, obj) { return Promise.resolve({ ok: status === 200, status: status, json: function () { return Promise.resolve(obj); } }); };
+      var A = 'https://adsapi.snapchat.com/v1/adaccounts/acc1';
+      var ad = function (id) { return { ad: { id: id, status: 'ACTIVE', ad_squad_id: 's1', creative_id: null } }; };
+      window.fetch = function (url) {
+        var u = String(url); urls.push(u.replace(A, 'A'));
+        if (u === A) return reply(200, { adaccounts: [{ adaccount: { id: 'acc1', timezone: 'UTC', currency: 'USD' } }] });
+        if (u === A + '/ads?limit=1000') return reply(400, { request_status: 'ERROR', debug_message: 'limit too large' });
+        if (u === A + '/ads') return reply(200, { request_status: 'SUCCESS', ads: [ad('a1')], paging: { next_link: A + '/ads?cursor=p2' } });
+        if (u === A + '/ads?cursor=p2') return reply(200, { request_status: 'SUCCESS', ads: [ad('a2')] });
+        if (u === A + '/adsquads?limit=1000') return reply(200, { request_status: 'SUCCESS', adsquads: [{ adsquad: { id: 's1', name: 'Squad', status: 'ACTIVE', campaign_id: 'c1' } }] });
+        if (u === A + '/campaigns?limit=1000') return reply(200, { request_status: 'SUCCESS', campaigns: [{ campaign: { id: 'c1', name: 'Camp', status: 'ACTIVE' } }] });
+        return reply(200, { request_status: 'SUCCESS' });
+      };
+      var res = { setHeader: function () {}, status: function (c) { code = c; return this; }, json: function (b) { out = b; return this; }, end: function () { return this; } };
+      return import('/api/snapchat-ads-fetch.js').then(function (m) {
+        return m.default({ method: 'POST', headers: {}, body: { accessToken: 't', action: 'ads', adAccountId: 'acc1' } }, res);
+      }).then(function () {
+        window.fetch = realFetch;
+        eq(code, 200);
+        eq(out.ads.map(function (a) { return a.id; }), ['a1', 'a2'], 'both pages, after the default-size retry');
+        eq([out.squads.map(function (s) { return s.id; }), out.campaigns.map(function (c) { return c.id; })], [['s1'], ['c1']]);
+        ok(urls.indexOf('A/ads?limit=1000') > -1 && urls.indexOf('A/ads') > -1 && urls.indexOf('A/ads?cursor=p2') > -1, 'the retry and the next page: ' + urls.join(' | '));
       }, function (e) { window.fetch = realFetch; throw e; });
     });
 
