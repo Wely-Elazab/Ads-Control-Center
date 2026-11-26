@@ -1003,6 +1003,52 @@
         });
       }).then(restore, function (e) { restore(); throw e; });
     });
+    // التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦ (قياس الكتل — الغرض الأساسي من الملف مكانش ليه اختبار): رمز Google صادر لتطبيق تاني (azp وaud مش رقم
+    // تطبيقنا) = مرفوض ٤٠٣ WRONG_APP قبل أي طلب لـ Google Ads — من غيره أي حد يستهلك حصة تطبيقنا برمزه هو؛ ورمز من غير صلاحية Google Ads = ٤٠٣
+    // NO_SCOPE؛ ورد ٢٠٠ مش JSON = رفض مؤقت؛ ومن غير رمز = رفض؛ ورقم تطبيقنا مش مضبوط = رفض ٥٠٠ (مش تمرير)
+    testAsync('التحقق من رمز Google: رمز لتطبيق تاني = ٤٠٣ WRONG_APP، ومن غير صلاحية Google Ads = ٤٠٣ NO_SCOPE، ورد مش مفهوم = مؤقت', function () {
+      var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process, info = null;
+      window.process = { env: { GOOGLE_CLIENT_ID: 'cid' } };
+      window.fetch = function (url) {
+        if (String(url).indexOf('tokeninfo') > -1) {
+          if (info === 'garbage') return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.reject(new SyntaxError('not json')); } });
+          return json(info);
+        }
+        return realFetch.apply(window, arguments);
+      };
+      var restore = function () { window.fetch = realFetch; if (hadProcess) window.process = prevProcess; else delete window.process; };
+      var send = function (v, r) {
+        var out = {};
+        v.sendVerifyFailure({ status: function (s) { out.status = s; return this; }, json: function (b) { out.code = b.code; return this; } }, r);
+        return out;
+      };
+      var stamp = Date.now(), ADS = 'https://www.googleapis.com/auth/adwords';
+      return import('/api/_verify.js').then(function (v) {
+        info = { azp: 'other-app', aud: 'other-app', scope: ADS };
+        return v.verifyGoogleToken('tok-app-' + stamp).then(function (r) {
+          eq([r.ok, r.code, send(v, r)], [false, 'WRONG_APP', { status: 403, code: 'WRONG_APP' }], 'issued to another app');
+          info = { aud: 'cid', scope: 'openid email' };
+          return v.verifyGoogleToken('tok-scope-' + stamp);
+        }).then(function (r) {
+          eq([r.ok, r.code, send(v, r)], [false, 'NO_SCOPE', { status: 403, code: 'NO_SCOPE' }], 'no Google Ads permission');
+          info = { azp: 'cid', aud: 'something-else', scope: ADS };
+          return v.verifyGoogleToken('tok-azp-' + stamp);
+        }).then(function (r) {
+          eq(r.ok, true, 'issued to our app (azp), even if aud differs');
+          info = 'garbage';
+          return v.verifyGoogleToken('tok-garbage-' + stamp);
+        }).then(function (r) {
+          eq([r.ok, r.code], [false, 'NETWORK'], 'an answer that is not JSON = temporary');
+          return v.verifyGoogleToken('');
+        }).then(function (r) {
+          eq(r.ok, false, 'no token');
+          window.process = { env: {} };
+          return v.verifyGoogleToken('tok-cfg-' + stamp);
+        }).then(function (r) {
+          eq([r.ok, r.code, send(v, r).status], [false, 'CONFIG', 500], 'our client id missing = refused, never passed through');
+        });
+      }).then(restore, function (e) { restore(); throw e; });
+    });
 
     testAsync('السيرفر: استعلامات «الأقرب للمتجر» بالنقرة وخلال ٧ أيام، وأي صف بنوع تاني بيتشال، وفشلها مبيوقفش الإعلانات', function () {
       var realFetch = window.fetch, hadProcess = 'process' in window, prevProcess = window.process, queries = [], failStore = false;
@@ -6894,6 +6940,7 @@
       var call = { action: 'daily', adAccountId: 'acc-1', adIds: ['ad-1'], since: '2026-10-20', until: '2026-10-26' };
       return withPlatform(function (u, p) {
         if (p.refresh_token === 'ref-1') return { body: { access_token: 'acc-9', expires_in: 3600 } };
+        if (p.refresh_token === 'ref-down') return { status: 503, body: { error: 'server_error' } };   // Snapchat واقعة وقت التجديد
         return { status: 400, body: { error: 'invalid_grant' } };
       }, function (sent) {
         var platformFetch = window.fetch;
@@ -6951,6 +6998,13 @@
           return runner({ platform: 'snapchat', user: A, sealed: revoked, call: call }, KEY);
         }).then(function (r) {
           eq([r.status, r.data.code], [401, 'AUTH'], 'Snapchat rejected the refresh token = connect again');
+          // التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦ (فرع متنفّذش قبل كده): Snapchat واقعة وقت التجديد (٥xx) = «حاول تاني» (٥٠٢)، مش «الوصول ضاع» (٤٠١) —
+          // الـ ٤٠١ بيبعت للعميل رسالة «توقف وصولنا لحسابك» غلط، والـ ٥٠٢ المُشغّل بيعيد بيه بعد ١٠ دقايق
+          return import('/api/_seal.js').then(function (s) { return s.sealToken('snapchat', 'secret', 'ref-down', undefined, A); });
+        }).then(function (down) {
+          return runner({ platform: 'snapchat', user: A, sealed: down, call: call }, KEY);
+        }).then(function (r) {
+          eq([r.status, r.data.code], [502, 'UPSTREAM'], 'Snapchat down while renewing = try again later, not «access lost»');
         }).then(function () { window.fetch = platformFetch; }, function (e) { window.fetch = platformFetch; throw e; });
       });
     });
