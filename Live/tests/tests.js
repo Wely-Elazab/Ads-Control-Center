@@ -6965,7 +6965,8 @@
         if (p.refresh_token === 'gr-1') return { body: { access_token: 'g-2', expires_in: 3599, scope: ADS } };
         return { status: 400, body: { error: 'invalid_grant' } };
       }, function (sent) {
-        return worker().then(function (m) {
+        // دخول الاختبار بتاعه هو (كان بيعتمد على اختبار قبله — بيقع لو اتشغّل لوحده)
+        return setupLogin().then(worker).then(function (m) {
           w = m;
           return post(w, '/api/google-token', { probe: true }, { GOOGLE_CLIENT_ID: 'gid' }).then(json);
         }).then(function (r) {
@@ -7005,7 +7006,7 @@
       return withPlatform(function () {
         return { body: { access_token: 'g-1', expires_in: 3599, refresh_token: 'gr-1', scope: 'https://www.googleapis.com/auth/adwords' } };
       }, function (sent) {
-        return worker().then(function (m) {
+        return setupLogin().then(worker).then(function (m) {
           w = m;
           return post(w, '/api/google-token', { code: 'good', redirectUri: back, codeVerifier: V }, env).then(json);
         }).then(function (r) {
@@ -7022,6 +7023,52 @@
         });
       });
     });
+    // التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦ (قياس الكتل: ٣٣٪ بس من الملف كان متنفّذ — المنطق كله بعد التحقق من الرمز مكانش له اختبار): قائمة حسابات
+    // Google — حساب Manager بيتفرد لحسابات العملاء اللي تحته وكل واحد بالـ login-customer-id بتاعه، والوصول المباشر أولى، والمقفول أو اللي
+    // إعداده ما خلصش (CUSTOMER_NOT_ENABLED أو حالته مش ENABLED) في inactive عشان الأداة تقول بالظبط أنهي حساب — إلا لو ظهر شغّال من طريق
+    // تاني — والعطل الحقيقي في errors؛ وكل الطرق وقعت = ٥٠٢ بأول خطأ
+    testAsync('Google: قائمة الحسابات — Manager بيتفرد لحساباته، والوصول المباشر أولى، والمقفول لوحده، والعطل لوحده، وكلها وقعت = ٥٠٢', function () {
+      var realFetch = window.fetch, w, env = { GOOGLE_CLIENT_ID: 'gid' }, asked = [], allDown = false;
+      var reply = function (status, body) { return Promise.resolve(new Response(JSON.stringify(body), { status: status, headers: { 'Content-Type': 'application/json' } })); };
+      var gErr = function (status, code) { return { error: { code: status, message: 'm-' + code, details: [{ errors: [{ errorCode: { authorizationError: code }, message: 'detail ' + code }] }] } }; };
+      var cc = function (id, o) { return { customerClient: Object.assign({ id: id, descriptiveName: 'N' + id, manager: false, status: 'ENABLED', currencyCode: 'SAR', timeZone: 'Asia/Riyadh' }, o || {}) }; };
+      var restore = function () { window.fetch = realFetch; cleanEnv(); };
+      return setupLogin().then(function () {
+        window.fetch = function (url, opts) {
+          var u = String(url);
+          if (u.indexOf('oauth2.googleapis.com/tokeninfo') > -1) return reply(200, { azp: 'gid', aud: 'gid', scope: 'https://www.googleapis.com/auth/adwords', expires_in: 3000 });
+          if (u.indexOf('googleads.googleapis.com') > -1) {
+            var h = new Headers((opts && opts.headers) || {});
+            asked.push(u.replace(/^.*\/customers/, 'customers') + ' login=' + (h.get('login-customer-id') || '-'));
+            if (u.indexOf(':listAccessibleCustomers') > -1) return reply(200, { resourceNames: ['customers/111', 'customers/222', 'customers/333', 'customers/444'] });
+            var root = (u.match(/customers\/(\d+)\/googleAds/) || [])[1];
+            if (allDown) return reply(500, gErr(500, 'INTERNAL_ERROR'));
+            if (root === '111') return reply(200, [{ results: [cc('111', { manager: true }), cc('555', { descriptiveName: 'Client A' }), cc('666', { status: 'CANCELED' }),
+              cc('222', { descriptiveName: 'B via manager' }), cc('333', { descriptiveName: 'C via manager' })] }]);
+            if (root === '222') return reply(200, [{ results: [cc('222', { descriptiveName: 'B', currencyCode: 'USD' })] }]);
+            if (root === '333') return reply(403, gErr(403, 'CUSTOMER_NOT_ENABLED'));
+            return reply(500, gErr(500, 'INTERNAL_ERROR'));
+          }
+          return realFetch.apply(this, arguments);
+        };
+        return worker();
+      }).then(function (m) {
+        w = m;
+        return post(w, '/api/google-list-accounts', { accessToken: 'ya29.list-test-token' }, env).then(json);
+      }).then(function (r) {
+        eq(r.status, 200);
+        eq(r.data.accounts.map(function (a) { return [a.id, a.name, a.loginCustomerId, a.currency]; }),
+          [['222', 'B', '222', 'USD'], ['333', 'C via manager', '111', 'SAR'], ['555', 'Client A', '111', 'SAR']], 'the manager\'s clients, direct access first, never the manager itself');
+        eq(r.data.inactive, ['666'], 'cancelled = inactive; not enabled directly but working under the manager = not inactive');
+        eq(r.data.errors.map(function (e) { return [e.customerId, e.code]; }), [['444', 'INTERNAL_ERROR']], 'a real failure on its own');
+        ok(asked.indexOf('customers/111/googleAds:searchStream login=111') > -1 && asked.indexOf('customers/222/googleAds:searchStream login=222') > -1, 'each root asked as itself: ' + asked.join(' | '));
+        allDown = true;
+        return post(w, '/api/google-list-accounts', { accessToken: 'ya29.list-test-token' }, env).then(json);
+      }).then(function (r) {
+        eq([r.status, r.data.code, r.data.error, r.data.errors.length], [502, 'INTERNAL_ERROR', 'detail INTERNAL_ERROR', 4], 'every root failed = 502 with the first error');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
     testAsync('المتصفح: التجديد بيحفظ الجلسة والنسخة الجديدة، والربط اللي مبقاش صالح بيتمسح، وعطل الشبكة مبيمسحوش', function () {
       var realFetch = window.fetch, before = localStorage.getItem(RENEW_KEY), replies = [];
       window.fetch = function () {
