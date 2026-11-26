@@ -2320,14 +2320,15 @@ async function snapWorld() {
   st.user_digest_accounts = [{ user_id: RUN_U, platform: 'snapchat', account_id: 'S1', name: 'Snap Store', checked_at: '2026-11-18T06:00:00.000Z', claimed_until: null,
     need_summary: null, need_monthly: null, edits_at: null, retry_after: null }];
   st.user_settings = [{ user_id: RUN_U, settings: { acct: { 'snapchat:S1': { maxCost: { purchase: 20 } } } } }];
-  const ctl: { worker?: (body: any) => Response; expired?: boolean; payload: Row; periodShift?: 'since' | 'until' } = { payload: snapRunPayload() };
+  const ctl: { worker?: (body: any) => Response; expired?: boolean; garbage?: boolean; payload: Row; periodShift?: 'since' | 'until' } = { payload: snapRunPayload() };
   const aad = sealedAad(RUN_U, 'snapchat', 'S1'), first = await seal(SNAP_SEALED_1, aad), eng = await engineFiles();
   // النسخة المحفوظة: vault_sealed_rotate بيبدّلها زي قاعدة البيانات الحقيقية، فالفحص الجاي بياخد الجديدة
   let stored = { ct: first.ct, iv: first.iv };
   const rest = fakeRest(st, {
     digest_claim: () => { const a = claims.shift(); return a ? [a] : []; },
     vault_sealed_get: (x) => (x.p_user === RUN_U && x.p_platform === 'snapchat' && x.p_account === 'S1'
-      ? [{ ciphertext: stored.ct, iv: stored.iv, expires_at: ctl.expired ? '2026-11-17T00:00:00Z' : '2027-01-15T00:00:00Z' }] : []),
+      // ctl.garbage = النسخة المحفوظة مبتتفكش (مفتاح التشفير اتغيّر أو الصف اتلخبط)
+      ? [{ ciphertext: ctl.garbage ? 'AAAA' : stored.ct, iv: ctl.garbage ? 'BBBBBBBBBBBBBBBB' : stored.iv, expires_at: ctl.expired ? '2026-11-17T00:00:00Z' : '2027-01-15T00:00:00Z' }] : []),
     vault_sealed_rotate: (x) => { rotations.push(x); stored = { ct: x.p_cipher, iv: x.p_iv }; return null; },
     vault_sealed_mark_error: (x) => { vaultErrors.push(x.p_error); return null; },
     beat: () => null
@@ -3373,5 +3374,30 @@ Deno.test('المُشغّل — صفحة وقعت مؤقتاً: محاولة ت�
     const count = (u: string) => w.probes.filter((p) => p === u).length;
     assertEquals([count('https://shop.example/p-good1'), count('https://shop.example/p-good2'), count('https://shop.example/p-waste')], [2, 2, 1],
       'tried again only when it failed');
+    // رسالة العاجل بالتنبيهين لمستخدم بالإنجليزي: «Urgent: 2 things need action» (فرع متنفّذش قبل كده — المثنى العربي مختبر في الطابور)
+    w.st.user_digests[0].lang = 'en';
+    const r2 = await runAll('runner-key');
+    assertEquals(r2.sent, { 'urgent-sent': 1 }, 'log: ' + w.errs.join(' | '));
+    assert(String(w.mails[0].subject).indexOf('Urgent: 2 things need action — ') === 0, 'the English count in the subject: ' + w.mails[0].subject);
   });
+});
+// نسخة Snapchat المقفولة مبتتفكش عندنا (مفتاح التشفير اتغيّر أو الصف اتلخبط — فرع متنفّذش قبل كده، قياس الفروع ٢٦ نوفمبر ٢٠٢٦): «decrypt failed»
+// على النسخة، ونتيجة الحساب «decrypt-failed»، ومن غير أي طلب للـ Worker ولا رسالة للعميل — زي نظيرتها في Meta (العطل عندنا مش عنده)
+Deno.test('المُشغّل — نسخة Snapchat المقفولة مبتتفكش: «decrypt failed» من غير طلب للـ Worker ولا رسالة', async () => {
+  await withSnapWorld(async (w) => {
+    w.ctl.garbage = true;
+    w.claim();
+    const r = await runAll('runner-key');
+    assertEquals(r.outcomes, { 'snapchat:decrypt-failed': 1 }, 'log: ' + w.errs.join(' | '));
+    assertEquals(w.vaultErrors, ['decrypt failed']);
+    assertEquals([w.seen.filter((x) => x.indexOf('worker ') === 0), w.mails.length, w.st.digest_outbox], [[], 0, []], 'nothing asked from the Worker, nothing sent');
+  });
+});
+// عملية ملخص مش معروفة بعد إثبات الوصول للحساب = ٤٠٠ (فرع متنفّذش قبل كده)
+Deno.test('الملخص: عملية مش معروفة بعد إثبات الوصول = ٤٠٠', async () => {
+  const store = fakeDigestDb();
+  try {
+    const r = await handleDigest('digest.nonsense', { token: 'TOKEN_abcdefghijklmnopqrstuvwxyz', accountId: 'act_1' }, null, '11111111-2222-3333-4444-555555555555');
+    assertEquals([r.status, await r.json(), store.tokens.length, store.digests.length], [400, { error: 'action' }, 0, 0]);
+  } finally { restoreDigestEnv(); }
 });
