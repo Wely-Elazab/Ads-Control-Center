@@ -2056,7 +2056,7 @@ function metaRunData() {
 // ctl.activities = سجل التعديلات، ctl.objDaily = أرقام الحملات يوم بيوم (حصة التعديل من الإنفاق)، ctl.siteFail = طلب أرقام الموقع بيفشل
 // ctl.byId = إعلانات بتتجاب برقمها (طلب الدفعة POST / — graphBatch: صرفت في الأسبوع ومش في دفعة الشغّالة)
 function fakeMeta(data: { ads: Row[]; daily: Row[]; period?: Row[] }, seen: string[],
-  ctl: { account?: () => Response; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean; byId?: Row[]; extraDaily?: Row[] }) {
+  ctl: { account?: () => Response; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean; byId?: Row[]; extraDaily?: Row[]; adsFail?: boolean }) {
   return (url: string, init?: RequestInit): Response | null => {
     if (url.indexOf('https://graph.facebook.com/') !== 0) return null;
     const u = new URL(url), p = u.pathname.replace(/^\/v[\d.]+/, ''), q = u.searchParams;
@@ -2073,7 +2073,8 @@ function fakeMeta(data: { ads: Row[]; daily: Row[]; period?: Row[] }, seen: stri
     if (p === '/act_1') {
       return ctl.account ? ctl.account() : json({ id: 'act_1', name: 'Store One', account_status: 1, timezone_name: 'Asia/Riyadh', currency: 'SAR', spend_cap: '0', amount_spent: '0' });
     }
-    if (p === '/act_1/ads') return json({ data: data.ads });
+    // ctl.adsFail = قائمة الإعلانات من Meta وقعت (عطل مؤقت عندهم)
+    if (p === '/act_1/ads') return ctl.adsFail ? json({ error: { message: 'Service temporarily unavailable', code: 2 } }, 500) : json({ data: data.ads });
     if (p === '/act_1/insights' && q.get('level') === 'ad' && !q.get('time_increment') && String(q.get('fields')).indexOf('ad_id,spend,') === 0) {
       return json({ data: data.period || [] });
     }
@@ -2108,7 +2109,7 @@ function runState() {
 async function runWorld() {
   const st = runState(), seen: string[] = [], mails: any[] = [], probes: string[] = [], vaultErrors: string[] = [], errs: string[] = [], claims: Row[] = [];
   const ctl: { account?: () => Response; vault: 'ok' | 'none' | 'garbage'; autoClaim?: boolean; activities?: Row[]; objDaily?: Row[]; siteFail?: boolean;
-    broken?: string[]; byId?: Row[]; extraDaily?: Row[]; expiresAt?: string; appUsage?: number; fail?: { table: string; method: string }; mailFails?: boolean; down?: Record<string, number[]> } = { vault: 'ok' };
+    broken?: string[]; byId?: Row[]; extraDaily?: Row[]; expiresAt?: string; appUsage?: number; fail?: { table: string; method: string }; mailFails?: boolean; down?: Record<string, number[]>; adsFail?: boolean } = { vault: 'ok' };
   // claimArgs = المنصات اللي اتطلب حجز منها في كل مرة (حد Meta للتطبيق كله بيشيل Meta من الباقي)
   let autoClaims = 0;
   const claimArgs: string[][] = [];
@@ -3400,4 +3401,23 @@ Deno.test('الملخص: عملية مش معروفة بعد إثبات الوص
     const r = await handleDigest('digest.nonsense', { token: 'TOKEN_abcdefghijklmnopqrstuvwxyz', accountId: 'act_1' }, null, '11111111-2222-3333-4444-555555555555');
     assertEquals([r.status, await r.json(), store.tokens.length, store.digests.length], [400, { error: 'action' }, 0, 0]);
   } finally { restoreDigestEnv(); }
+});
+// قائمة الإعلانات من Meta وقعت وقت الفحص (عطل مؤقت عندهم — فرع متنفّذش قبل كده، قياس الفروع ٢٦ نوفمبر ٢٠٢٦): الحساب «meta-retry» ويرجع بعد ١٠ دقايق،
+// والتنبيه القائم بيفضل قائم — مبيتقفلش «حُلّ» من غير ما نشوف الأرقام (لو اتقفل، أول فحص سليم بعده كان هيبعته تاني كأنه جديد)، ومفيش رسالة
+Deno.test('المُشغّل — قائمة الإعلانات من Meta وقعت وقت الفحص: «meta-retry» وبعد ١٠ دقايق، والتنبيه القائم بيفضل قائم ومفيش رسالة', async () => {
+  await withRunWorld(async (w) => {
+    w.claim();
+    await runAll('runner-key');                              // الفحص
+    await runAll('runner-key');                              // الإرسال: البصمة اتحفظت
+    assertEquals(w.st.user_alert_marks.map((m) => [m.object_id, m.resolved_at]), [['waste', null]]);
+    fixedClock('2026-11-19T08:05:00.000Z');   // أكتر من ٢٤ ساعة: التنبيه الغايب عن الأرقام كان هيتقفل «حُلّ» لو الفحص كمّل من غير أرقام
+    w.ctl.adsFail = true;
+    w.claim();
+    const r3 = await runAll('runner-key');
+    assertEquals(r3.outcomes, { 'meta:meta-retry': 1 }, 'log: ' + w.errs.join(' | '));
+    const a = w.st.user_digest_accounts[0];
+    assertEquals([a.claimed_until, a.retry_after, a.checked_at], [null, '2026-11-19T08:15:00.000Z', '2026-11-19T08:05:00.000Z'], 'back in 10 minutes');
+    assertEquals(w.st.user_alert_marks.map((m) => [m.object_id, m.resolved_at]), [['waste', null]], 'still open: never «resolved» without the numbers');
+    assertEquals([w.mails.length, w.st.digest_outbox.length], [1, 0], 'nothing new queued or sent');
+  });
 });
