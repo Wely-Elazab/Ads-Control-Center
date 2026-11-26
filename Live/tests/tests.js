@@ -6448,6 +6448,33 @@
       }).then(restore, function (e) { restore(); throw e; });
     });
 
+    // التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦ (فروع متنفّذتش قبل كده — نفس اختبار دالة sync لنسخة الـ Worker): قائمة مفاتيح Supabase بتاخد EC P-256 برقمه بس —
+    // مفتاح RSA أو P-384 أو من غير رقم بيتجاهل حتى لو برقم موجود في مفتاح الدخول؛ والجمهور ممكن يبقى قائمة فيها authenticated؛ والمستخدم
+    // والجلسة لازم نصوص
+    testAsync('مفاتيح التوقيع في الـ Worker: EC P-256 برقمه بس، والجمهور قائمة فيها authenticated، والمستخدم والجلسة نصوص', function () {
+      var realFetch = window.fetch, mod;
+      var restore = function () { window.fetch = realFetch; };
+      return setupLogin().then(function () { return import('/api/_login.js'); }).then(function (m) {
+        mod = m; mod.resetLoginCache();
+        var j = TEST_LOGIN.jwk;
+        window.fetch = function (url) {
+          if (String(url).indexOf('/.well-known/jwks.json') > -1) {
+            return Promise.resolve(new Response(JSON.stringify({ keys: [{ kty: 'RSA', crv: 'P-256', kid: 'r1', x: j.x, y: j.y }, { kty: 'EC', crv: 'P-384', kid: 'p384', x: j.x, y: j.y },
+              { kty: 'EC', crv: 'P-256', x: j.x, y: j.y }, Object.assign({ kid: 'test-kid' }, j)] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+          }
+          return realFetch.apply(window, arguments);
+        };
+        var sign = function (kid, claims) { return signJwt(TEST_LOGIN.key, { alg: 'ES256', kid: kid, typ: 'JWT' }, loginClaims(claims)); };
+        return Promise.all([sign('test-kid'), sign('r1'), sign('p384'), sign('undefined'), sign('test-kid', { aud: ['x', 'authenticated'] }), sign('test-kid', { aud: ['x'] }),
+          sign('test-kid', { sub: 7 })]);
+      }).then(function (toks) {
+        return Promise.all(toks.map(function (t) { return mod.verifyJwt(t); }));
+      }).then(function (ps) {
+        eq(ps.map(function (p) { return !!p; }), [true, false, false, false, true, false, false],
+          'our key / RSA / P-384 / no kid / audience list with authenticated / without / numeric user');
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
     // التدقيق الشامل ٢٥ نوفمبر ٢٠٢٦ (١٢٣ — RFC 9110 §15.5.2 و§15.6.4): التأكد من الدخول اتعطّل (مفاتيح Supabase أو قاعدة البيانات مردّتش) كان
     // بيرد ٤٠١ LOGIN — والأداة بتودّي العميل لصفحة الدخول، وهناك جلسته ممكن تتمسح. دلوقتي ٥٠٣ SERVER (الرفض زي ما هو)، والمفتاح البايظ لسه
     // ٤٠١، ولما المفاتيح ترجع الطلب بيعدّي على طول (الفشل مبيتحفظش)
@@ -7077,6 +7104,52 @@
         });
       });
     });
+    // التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦ (فروع متنفّذتش قبل كده): المنصة واقعة وقت تجديد ربط الأداة (٥xx) = ٥٠٢ «حاول تاني» — الأداة بتسيب الربط
+    // المحفوظ زي ما هو. لو كان بيرجع «انتهى» (٤٠١ AUTH) الأداة كانت هتمسح الربط والعميل يربط من الأول بسبب عطل لحظي عند Snapchat أو Google
+    testAsync('تجديد ربط الأداة والمنصة واقعة (٥xx): ٥٠٢ «حاول تاني» مش «انتهى» — Snapchat وGoogle', function () {
+      var w, seal, env = { SNAPCHAT_CLIENT_ID: 'id', SNAPCHAT_CLIENT_SECRET: 'secret', GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret' };
+      return withPlatform(function () { return { status: 503, body: { error: 'server_error' } }; }, function (sent) {
+        return setupLogin().then(function () { return import('/api/_seal.js'); }).then(function (s) {
+          seal = s;
+          return worker();
+        }).then(function (m) {
+          w = m;
+          return seal.sealToken('snapchat', 'secret', 'ref-s', undefined, 'u-test');
+        }).then(function (snapCopy) {
+          return post(w, '/api/snapchat-token', { sealed: snapCopy }, env).then(json);
+        }).then(function (r) {
+          eq([r.status, r.data.code === 'AUTH', sent.length], [502, false, 1], 'Snapchat down: try again, the saved link stays');
+          return seal.sealToken('google', 'gsecret', 'ref-g', undefined, 'u-test');
+        }).then(function (gCopy) {
+          return post(w, '/api/google-token', { sealed: gCopy }, env).then(json);
+        }).then(function (r) {
+          eq([r.status, r.data.code === 'AUTH', sent.length], [502, false, 2], 'Google down: try again, the saved link stays');
+        });
+      });
+    });
+
+    // التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦ (فروع متنفّذتش قبل كده): الفترة المخصّصة اللي الأداة بتبعتها للخادم (api/_dates.js) — تواريخ معكوسة بتتعدل،
+    // ونهاية في المستقبل بتقف عند النهارده، وأطول من ٩٣ يوم بتتقص من أولها (حماية حصة المنصات من مدى ضخم)، ونوع فترة مش معروف = آخر ٧ أيام،
+    // وتوقيت مش معروف = UTC، وفرق UTC نفسه صفر
+    testAsync('فترة الخادم المخصّصة: معكوسة بتتعدل، والمستقبل بيقف عند النهارده، وأطول من ٩٣ يوم بتتقص، والمجهول = آخر ٧ أيام', function () {
+      return import('/api/_dates.js').then(function (d) {
+        var today = d.todayKeyInTz('UTC'), y = d.shiftDateKey(today, -1);
+        var c = function (since, until) { return d.resolvePeriod({ preset: 'custom', since: since, until: until }, 'UTC'); };
+        var r1 = c(y, d.shiftDateKey(y, -5));
+        eq([r1.since, r1.until], [d.shiftDateKey(y, -5), y], 'reversed dates are swapped');
+        var r2 = c(d.shiftDateKey(today, -3), d.shiftDateKey(today, 10));
+        eq([r2.since, r2.until], [d.shiftDateKey(today, -3), today], 'a future end stops at today');
+        var r3 = c(d.shiftDateKey(today, 5), d.shiftDateKey(today, 9));
+        eq([r3.since, r3.until], [today, today], 'entirely in the future = today only');
+        var r4 = c(d.shiftDateKey(y, -400), y);
+        eq([d.daysBetweenKeys(r4.since, r4.until), r4.until], [92, y], 'longer than 93 days = the last 93 days');
+        var r5 = d.resolvePeriod({ preset: 'weird' }, 'UTC');
+        eq([r5.preset, r5.since, r5.until], ['last7', d.shiftDateKey(today, -7), y], 'unknown preset = last 7 days');
+        eq(d.todayKeyInTz('Mars/Phobos'), today, 'unknown time zone = UTC');
+        eq([d.last7DaysRange('Mars/Phobos').timeZone, d.tzOffsetString(today, 'UTC')], ['UTC', '+00:00'], 'UTC fallback and offset');
+      });
+    });
+
     // التدقيق الشامل ٢٦ نوفمبر ٢٠٢٦ (قياس الكتل: ٣٣٪ بس من الملف كان متنفّذ — المنطق كله بعد التحقق من الرمز مكانش له اختبار): قائمة حسابات
     // Google — حساب Manager بيتفرد لحسابات العملاء اللي تحته وكل واحد بالـ login-customer-id بتاعه، والوصول المباشر أولى، والمقفول أو اللي
     // إعداده ما خلصش (CUSTOMER_NOT_ENABLED أو حالته مش ENABLED) في inactive عشان الأداة تقول بالظبط أنهي حساب — إلا لو ظهر شغّال من طريق
