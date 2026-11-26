@@ -1036,7 +1036,7 @@ Deno.test('حفظ إعدادات المستخدم: دالة الدمج المق�
 });
 // سجل مشكلات التنبيه (لوحة «قيمة الأداة» — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦): رقم الإعلان والنوع والأوقات بس، من غير أي أرقام
 Deno.test('سجل المشكلات: إعلان ونوع معروفين من غير تكرار، والقرار وقت ونوع مع بعض أو ولا واحد', () => {
-  const plain = (ad: string, kind: string) => ({ ad, kind, daily: null, cur: null });
+  const plain = (ad: string, kind: string) => ({ ad, kind, cur: null });
   assertEquals(cleanOpen([{ ad: '123', kind: 'waste' }, { ad: '123', kind: 'waste' }, { ad: '123', kind: 'loss' }], 'meta'),
     [plain('123', 'waste'), plain('123', 'loss')]);
   assertEquals(cleanOpen([{ ad: 'abc', kind: 'waste' }], 'meta'), null, 'a Meta ad id is digits');
@@ -1046,10 +1046,11 @@ Deno.test('سجل المشكلات: إعلان ونوع معروفين من غي
   assertEquals(cleanOpen([{ ad: '1', kind: 'spend', spend: 50 }], 'meta'), null, 'unknown kind');
   assertEquals(cleanOpen({}, 'meta'), null);
   assertEquals(cleanOpen([], 'meta'), [], 'no problems now = every open one ends');
-  // خسارة الإعلان اليومية وقت التنبيه وعملتها: مع بعض بس، ولأقرب قرش؛ وقيمة غلط بتتشال من غير ما الطلب يترفض
-  assertEquals(cleanOpen([{ ad: '1', kind: 'waste', daily: 12.345, cur: 'SAR' }, { ad: '2', kind: 'waste', daily: 5 }, { ad: '3', kind: 'waste', daily: -1, cur: 'USD' },
-    { ad: '4', kind: 'waste', daily: 7, cur: 'sar' }], 'meta'),
-    [{ ad: '1', kind: 'waste', daily: 12.35, cur: 'SAR' }, plain('2', 'waste'), plain('3', 'waste'), plain('4', 'waste')]);
+  // عملة الحساب بس (٢٧ نوفمبر ٢٠٢٦ — الخسارة اليومية وقت التنبيه مبقتش بتتحفظ): قيمة غلط بتتشال من غير ما الطلب يترفض، و«daily» من جهاز قديم
+  // بيتجاهل
+  assertEquals(cleanOpen([{ ad: '1', kind: 'waste', daily: 12.345, cur: 'SAR' }, { ad: '2', kind: 'waste', cur: 'USD' }, { ad: '3', kind: 'waste', daily: -1, cur: 'usd' },
+    { ad: '4', kind: 'waste', daily: 7 }], 'meta'),
+    [{ ad: '1', kind: 'waste', cur: 'SAR' }, { ad: '2', kind: 'waste', cur: 'USD' }, plain('3', 'waste'), plain('4', 'waste')]);
   assertEquals(cleanDecisions([{ id: 5, handledAt: '2026-10-25T10:00:00Z', action: 'pause' }, { id: 6 }]),
     [{ id: 5, handledAt: '2026-10-25T10:00:00.000Z', action: 'pause' }, { id: 6, handledAt: null, action: null }]);
   assertEquals(cleanDecisions([{ id: 5, handledAt: '2026-10-25T10:00:00Z' }]), null, 'a time without an action kind');
@@ -1074,9 +1075,10 @@ Deno.test('سجل المشكلات: التصرّف في أي وقت بعد ال�
 Deno.test('سجل المشكلات: المبالغ أرقام صالحة بعملة، وبتتحفظ بعد ما أيام المشكلة تكمل بس', () => {
   assertEquals([moneyOf(12.345), moneyOf(0), moneyOf(-1), moneyOf(NaN), moneyOf('5'), moneyOf(1e12)], [12.35, 0, null, null, null, null]);
   assertEquals(cleanAmounts([{ id: 5, saved: 204, lost: 30.004, cur: 'SAR', daily: 30 }, { id: 6, saved: 0, lost: 0, cur: 'USD' }]),
-    [{ id: 5, saved: 204, lost: 30, cur: 'SAR', daily: 30 }, { id: 6, saved: 0, lost: 0, cur: 'USD', daily: null }]);
+    [{ id: 5, saved: 204, lost: 30, cur: 'SAR' }, { id: 6, saved: 0, lost: 0, cur: 'USD' }], 'the daily loss from an old device is dropped');
+  assertEquals(cleanAmounts([{ id: 5, saved: 1, lost: 1, cur: 'SAR', daily: -3 }]), [{ id: 5, saved: 1, lost: 1, cur: 'SAR' }], 'ignored, not refused');
   for (const bad of [[], {}, [{ id: 0, saved: 1, lost: 1, cur: 'SAR' }], [{ id: 5, saved: -1, lost: 1, cur: 'SAR' }], [{ id: 5, saved: 1, lost: 1, cur: 'sar' }],
-    [{ id: 5, saved: 1, lost: 1, cur: 'SAR', daily: -3 }], [{ id: 5, saved: 1, cur: 'SAR' }], Array.from({ length: 101 }, (_, i) => ({ id: i + 1, saved: 0, lost: 0, cur: 'SAR' }))]) {
+    [{ id: 5, saved: 1, cur: 'SAR' }], Array.from({ length: 101 }, (_, i) => ({ id: i + 1, saved: 0, lost: 0, cur: 'SAR' }))]) {
     assertEquals(cleanAmounts(bad), null, JSON.stringify(bad).slice(0, 80));
   }
   const now = Date.parse('2026-11-20T12:00:00Z'), day = 86400000;
@@ -1100,7 +1102,7 @@ Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم
         return json([{ id: 1, first_at: first, ended_at: null, decided_at: null, handled_at: null }, { id: 2, first_at: first, ended_at: null, decided_at: null, handled_at: null }]);
       }
       if (method === 'GET') return json([{ id: 1, ad_id: '11', kind: 'waste', first_at: first, ended_at: null, decided_at: null, handled_at: null, action: null,
-        baseline_daily: '90.5', amount_currency: 'SAR', saved_amount: null, lost_amount: null, amounts_at: null }]);
+        amount_currency: 'SAR', saved_amount: '12.5', lost_amount: null, amounts_at: null }]);
       return new Response(null, { status: method === 'POST' ? 201 : 204 });
     }
     throw new Error('unexpected fetch ' + url);
@@ -1108,20 +1110,21 @@ Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم
   try {
     const T = 'TOKEN_abcdefghijklmnopqrstuvwxyz', who = { platform: 'meta', accountId: 'act_123', platformToken: T };
     const U = '11111111-2222-3333-4444-555555555555';
-    // الجديدة بخسارتها اليومية وعملتها (٢٦ نوفمبر ٢٠٢٦)، والقديمة اللي متبعتش معاها = من غيرهم
+    // الجديدة بعملة الحساب (والخسارة اليومية من جهاز قديم بتتجاهل — ٢٧ نوفمبر ٢٠٢٦)، واللي متبعتش معاها عملة = من غيرها
     const res = await handleEpisodes('episodes.sync', { ...who, open: [{ ad: '11', kind: 'waste' }, { ad: '33', kind: 'loss', daily: 45.5, cur: 'SAR' }, { ad: '44', kind: 'waste' }] }, U, null);
     assertEquals(res.status, 200);
     const patches = calls.filter((c) => c.method === 'PATCH'), posts = calls.filter((c) => c.method === 'POST');
     assert(patches.some((c) => /id=in\.\(1\)/.test(c.url) && c.body.last_seen_at), 'still open: seen again');
     assert(patches.some((c) => /id=in\.\(2\)/.test(c.url) && c.body.ended_at), 'gone: ended');
-    assertEquals(posts.map((c) => c.body), [[{ user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '33', kind: 'loss', baseline_daily: 45.5, amount_currency: 'SAR' },
-      { user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '44', kind: 'waste' }]], 'only the new ones are added, for this user, with the daily loss when sent');
+    assertEquals(posts.map((c) => c.body), [[{ user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '33', kind: 'loss', amount_currency: 'SAR' },
+      { user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '44', kind: 'waste' }]], 'only the new ones are added, for this user, with the currency and no daily loss');
     assert(calls.every((c) => c.method === 'POST' || c.url.indexOf('user_id=eq.' + U) > -1), 'every read and update is limited to this user');
     // كل المشكلات من أول يوم (سطر «منذ بدأت») — من غير حد بفترة
     assert(calls.some((c) => c.method === 'GET' && /order=first_at\.desc&limit=5000$/.test(c.url) && c.url.indexOf('first_at=gte') < 0), 'all of them, newest first');
+    assert(calls.every((c) => c.url.indexOf('baseline_daily') < 0), 'the daily loss is not read');
     const body = await res.json();
-    assertEquals(Object.keys(body.episodes[0]).sort(), ['action', 'ad', 'amountsAt', 'baseline', 'cur', 'decided', 'endedAt', 'firstAt', 'handledAt', 'id', 'kind', 'lost', 'saved']);
-    assertEquals([body.episodes[0].baseline, body.episodes[0].cur, body.episodes[0].saved], [90.5, 'SAR', null], 'numbers as numbers');
+    assertEquals(Object.keys(body.episodes[0]).sort(), ['action', 'ad', 'amountsAt', 'cur', 'decided', 'endedAt', 'firstAt', 'handledAt', 'id', 'kind', 'lost', 'saved']);
+    assertEquals([body.episodes[0].cur, body.episodes[0].saved, body.episodes[0].lost], ['SAR', 12.5, null], 'numbers as numbers');
     calls.length = 0;
     await handleEpisodes('episodes.sync', { ...who, open: null }, U, null);
     assertEquals(calls.map((c) => c.method), ['GET'], 'read only: nothing recorded');
@@ -3283,8 +3286,8 @@ Deno.test('حواف سجل المشكلات: بداية مش تاريخ، وتس
   } finally { restoreFetch(); }
 });
 // مبالغ المشكلة على الخادم (قرار صاحب المنتج ٢٦ نوفمبر ٢٠٢٦: «على خادمنا بعد اكتمالها»): مرة واحدة، وبعد ما أيامها تكمل بس، وبعملتها
-// وقت التنبيه؛ والخسارة اليومية بتتكمّل للمشكلة اللي اتسجّلت من غيرها
-Deno.test('سجل المشكلات: المبالغ بتتحفظ مرة واحدة للمشكلة اللي أيامها كملت، بعملتها، وبتكمّل الخسارة اليومية الناقصة', async () => {
+// وقت التنبيه؛ والخسارة اليومية مبقتش بتتحفظ (٢٧ نوفمبر ٢٠٢٦) — اللي بيبعتها جهاز قديم بيتجاهل
+Deno.test('سجل المشكلات: المبالغ بتتحفظ مرة واحدة للمشكلة اللي أيامها كملت، بعملتها، ومن غير الخسارة اليومية', async () => {
   const calls: { method: string; url: string; body: any }[] = [];
   const day = 86400000, old = new Date(Date.now() - 9 * day).toISOString(), recent = new Date(Date.now() - 2 * day).toISOString();
   stubFetch((url, init) => {
@@ -3293,10 +3296,10 @@ Deno.test('سجل المشكلات: المبالغ بتتحفظ مرة واحد�
       const method = (init && init.method) || 'GET';
       calls.push({ method, url, body: init && init.body ? JSON.parse(String(init.body)) : null });
       if (method === 'GET') {
-        return json([{ id: 1, handled_at: old, ended_at: null, baseline_daily: null, amount_currency: null },        // اتعالجت من ٩ أيام: كملت
-          { id: 2, handled_at: recent, ended_at: null, baseline_daily: 20, amount_currency: 'SAR' },                  // من يومين: لسه
-          { id: 3, handled_at: null, ended_at: old, baseline_daily: 20, amount_currency: 'USD' },                    // خلصت بس بعملة تانية
-          { id: 4, handled_at: null, ended_at: old, baseline_daily: 15, amount_currency: 'SAR' }]);                  // خلصت من غير تصرّف
+        return json([{ id: 1, handled_at: old, ended_at: null, amount_currency: null },        // اتعالجت من ٩ أيام: كملت
+          { id: 2, handled_at: recent, ended_at: null, amount_currency: 'SAR' },                  // من يومين: لسه
+          { id: 3, handled_at: null, ended_at: old, amount_currency: 'USD' },                    // خلصت بس بعملة تانية
+          { id: 4, handled_at: null, ended_at: old, amount_currency: 'SAR' }]);                  // خلصت من غير تصرّف
       }
       return new Response(null, { status: 204 });
     }
@@ -3310,9 +3313,10 @@ Deno.test('سجل المشكلات: المبالغ بتتحفظ مرة واحد�
     assertEquals([res.status, (await res.json()).saved], [200, 2]);
     const get = calls.find((c) => c.method === 'GET');
     assert(!!get && get.url.indexOf('amounts_at=is.null') > -1 && get.url.indexOf('user_id=eq.' + U) > -1, 'only rows without amounts, of this user');
+    assert(get!.url.indexOf('baseline_daily') < 0, 'the daily loss is not even read');
     const p = calls.filter((c) => c.method === 'PATCH');
-    assertEquals(p.map((c) => [/id=eq\.(\d+)&amounts_at=is\.null/.exec(c.url)?.[1], c.body.saved_amount, c.body.lost_amount, c.body.amount_currency, c.body.baseline_daily]),
-      [['1', 204, 30, 'SAR', 30], ['4', 0, 45, 'SAR', undefined]], 'complete only; the missing daily loss filled, an existing one kept');
+    assertEquals(p.map((c) => [/id=eq\.(\d+)&amounts_at=is\.null/.exec(c.url)?.[1], c.body.saved_amount, c.body.lost_amount, c.body.amount_currency, 'baseline_daily' in c.body]),
+      [['1', 204, 30, 'SAR', false], ['4', 0, 45, 'SAR', false]], 'complete only; the daily loss an old device sent is not stored');
     assert(p.every((c) => typeof c.body.amounts_at === 'string'), 'when they were stored');
     calls.length = 0;
     assertEquals((await handleEpisodes('episodes.amounts', { ...who, amounts: [{ id: 1, saved: -5, lost: 0, cur: 'SAR' }] }, U, null)).status, 400);

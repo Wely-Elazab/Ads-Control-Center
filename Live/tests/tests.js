@@ -8959,41 +8959,56 @@
     });
     // مبالغ المشكلة (قرارات صاحب المنتج ٢٦ نوفمبر ٢٠٢٦): ضاع = خسارة كل يوم بعد يوم التنبيه لحد يوم التصرّف (هو معاه)، ووفّرته = ب − خسارة
     // اليوم لسبعة أيام بعد يوم التصرّف — كل رقم هنا من الأيام نفسها باليد
-    test('قيمة الأداة: ضاع قبل التصرّف ووفّرته بعده (٧ أيام) من أرقام كل يوم، وب من وقت التنبيه أو من ٣ أيام قبله', function () {
-      var today = '2026-11-20', tz = 'UTC', days = {}, k, r;
-      for (k = '2026-10-25'; k <= '2026-11-19'; k = shiftKey(k, 1)) days[k] = k < '2026-11-09' ? { spend: 100, sales: 40 } : { spend: 0, sales: 0 };
-      var dayOf = function (d) { return days[d]; };
-      var ep = { id: 1, ad: 'a', kind: 'waste', firstAt: '2026-11-05T09:00:00Z', baseline: 90 };
+    test('قيمة الأداة: ضاع قبل التصرّف ووفّرته بعده (٧ أيام) من أرقام كل يوم، وب = متوسط خسارة الأيام الثلاثة قبل يوم التصرّف', function () {
+      var today = '2026-11-20', tz = 'UTC', r;
+      // الإعلان بيصرف ١٠٠ في اليوم (ومبيعاته ٤٠) لحد يوم stop، وبعده صفر؛ برّه المدى مفيش أرقام
+      var run = function (stop) {
+        return function (d) { return d >= '2026-10-25' && d <= '2026-11-19' ? (d <= stop ? { spend: 100, sales: 40 } : { spend: 0, sales: 0 }) : undefined; };
+      };
+      var dayOf = run('2026-11-08');
+      var ep = { id: 1, ad: 'a', kind: 'waste', firstAt: '2026-11-05T09:00:00Z' };
       // مفتوحة من غير تصرّف: ضاع = إنفاق كل يوم من ٦ لحد أمس (٦ و٧ و٨ صرفوا ١٠٠، والباقي صفر)، ومفيش توفير، ومش نهائية
       r = valueAmountsOf(ep, tz, today, dayOf);
       eq([r.lost, r.saved, r.final, r.need], [300, 0, false, []]);
-      // اتعالجت يوم ٨ (الإيقاف صفّر الإنفاق من ٩): ضاع ٦–٨ = ٣٠٠، ووفّرته ٩–١٥ = ٧ × ٩٠، ونهائية (١٥ قبل أمس)
+      // اتعالجت يوم ٨ (الإيقاف صفّر الإنفاق من ٩): ب = متوسط ٥ و٦ و٧ = ١٠٠، وضاع ٦–٨ = ٣٠٠، ووفّرته ٩–١٥ = ٧ × ١٠٠، ونهائية (١٥ قبل أمس)
       r = valueAmountsOf(Object.assign({}, ep, { handledAt: '2026-11-08T15:00:00Z' }), tz, today, dayOf);
-      eq([r.lost, r.saved, r.final], [300, 630, true], '3 lost days, 7 saved days × 90');
-      // التصرّف في يوم التنبيه نفسه: مفيش «ضاع»، و٦–٨ صرفوا أكتر من ب (توفير صفر مش سالب) و٩–١٢ = ٤ × ٩٠
-      r = valueAmountsOf(Object.assign({}, ep, { handledAt: '2026-11-05T20:00:00Z' }), tz, today, dayOf);
-      eq([r.lost, r.saved], [0, 360]);
-      // اتعالجت يوم ١٧: التوفير لحد أمس بس (١٨ و١٩)، ولسه مش نهائية
+      eq([r.base, r.lost, r.saved, r.final], [100, 300, 700, true], '3 lost days, 7 saved days × 100');
+      // التصرّف في يوم التنبيه نفسه: ب = الأيام قبل التنبيه (٢–٤)، ومفيش «ضاع»، ووفّرته ٦–١٢ كلها (الإعلان وقف بعد ٥)
+      r = valueAmountsOf(Object.assign({}, ep, { handledAt: '2026-11-05T20:00:00Z' }), tz, today, run('2026-11-05'));
+      eq([r.base, r.lost, r.saved, r.final], [100, 0, 700, true]);
+      // الإعلان وقف لوحده (من ٩) قبل التصرّف يوم ١٧: ب = ١٤–١٦ = صفر، فالتصرّف موفّرش حاجة — كان ٢ × ١٠٠ بمعدّل يوم التنبيه
       r = valueAmountsOf(Object.assign({}, ep, { handledAt: '2026-11-17T10:00:00Z' }), tz, today, dayOf);
-      eq([r.lost, r.saved, r.final], [300, 180, false]);
+      eq([r.base, r.lost, r.saved, r.final], [0, 300, 0, false]);
+      // الحالة الحقيقية اللي غيّرت الحسبة (تحقق حي ٢٦ نوفمبر ٢٠٢٦، قرار صاحب المنتج ٢٧ نوفمبر): الإنفاق نزل من ٤١ لـ٤٫٥ بين التنبيه (١٩)
+      // والإيقاف (٢٣) — ب = (٣٤٫٤٦ + ١٨٫١١ + ٤٫٤٨) ÷ ٣ = ١٩٫٠٢، فوفّرته ٢٤–٢٥ = ٣٨٫٠٣ (كان ٩٠٫٥٨ على ٤٥٫٢٩ قبل التنبيه)، وضاع ٢٠–٢٣ = ٥٧٫٠٥
+      var real = { '2026-11-16': 35.19, '2026-11-17': 51.62, '2026-11-18': 49.06, '2026-11-19': 41.07, '2026-11-20': 34.46, '2026-11-21': 18.11,
+        '2026-11-22': 4.48, '2026-11-23': 0, '2026-11-24': 0, '2026-11-25': 0 };
+      var r2 = function (x) { return Math.round(x * 100) / 100; };
+      r = valueAmountsOf({ id: 9, ad: 'a', kind: 'waste', firstAt: '2026-11-19T10:00:00Z', handledAt: '2026-11-23T08:00:00Z' }, tz, '2026-11-26',
+        function (d) { return d in real ? { spend: real[d], sales: 0 } : undefined; });
+      eq([r2(r.base), r2(r.lost), r2(r.saved), r.final, r.need], [19.02, 57.05, 38.03, false, []], 'the rate right before the action');
       // الحد بالظبط (طفرة ٢٦ نوفمبر ٢٠٢٦ عاشت: «≤» بقت «<» من غير ما حاجة تقع): التصرّف يوم ١٢ = آخر يوم توفير (١٩) هو أمس، فنهائية؛
       // ويوم ١٣ = آخر يوم توفير النهارده، فلسه (٦ أيام بس)
-      r = valueAmountsOf(Object.assign({}, ep, { handledAt: '2026-11-12T10:00:00Z' }), tz, today, dayOf);
-      eq([r.lost, r.saved, r.final], [300, 630, true], 'the seventh day is yesterday: complete');
-      r = valueAmountsOf(Object.assign({}, ep, { handledAt: '2026-11-13T10:00:00Z' }), tz, today, dayOf);
-      eq([r.lost, r.saved, r.final], [300, 540, false], 'the seventh day is today: not yet');
+      r = valueAmountsOf(Object.assign({}, ep, { handledAt: '2026-11-12T10:00:00Z' }), tz, today, run('2026-11-12'));
+      eq([r.lost, r.saved, r.final], [700, 700, true], 'the seventh day is yesterday: complete');
+      r = valueAmountsOf(Object.assign({}, ep, { handledAt: '2026-11-13T10:00:00Z' }), tz, today, run('2026-11-13'));
+      eq([r.lost, r.saved, r.final], [800, 600, false], 'the seventh day is today: not yet');
       // ومن غير تصرّف: انتهت أمس = نهائية، وانتهت النهارده = لسه
       eq(valueAmountsOf(Object.assign({}, ep, { endedAt: '2026-11-19T23:00:00Z' }), tz, today, dayOf).final, true, 'ended yesterday');
       eq(valueAmountsOf(Object.assign({}, ep, { endedAt: '2026-11-20T01:00:00Z' }), tz, today, dayOf).final, false, 'ended today');
-      // الخسارة (المبيعات أقل من الإنفاق): الإنفاق ناقص المبيعات، ومن غير ب محفوظة = (إنفاق − مبيعات) ٣ أيام قبل يوم التنبيه ÷ ٣
+      // الخسارة (المبيعات أقل من الإنفاق): خسارة اليوم = الإنفاق ناقص المبيعات، وب = متوسط ٣ و٤ و٥ = ٦٠
       var loss = { id: 2, ad: 'a', kind: 'loss', firstAt: '2026-11-05T09:00:00Z', handledAt: '2026-11-06T09:00:00Z' };
       r = valueAmountsOf(loss, tz, today, dayOf);
-      eq([r.base, r.lost, r.saved, r.final], [60, 60, 300, true], '(300 − 120) ÷ 3 = 60; day 6 lost 60; days 9–13 saved 60 each');
+      eq([r.base, r.lost, r.saved, r.final], [60, 60, 300, true], 'day 6 lost 60; days 9–13 saved 60 each');
+      // ب = متوسط خسارة كل يوم لوحده (زي خ نفسها): يوم كسبان (٣: مبيعات ٢٠٠ على إنفاق ١٠٠) خسارته صفر — مش يطرح كسبه من الأيام التانية
+      // (مجمّعة كانت تبقى (٣٠٠ − ٢٨٠) ÷ ٣ = ٦٫٦٧)
+      r = valueAmountsOf(loss, tz, today, function (d) { return d === '2026-11-03' ? { spend: 100, sales: 200 } : dayOf(d); });
+      eq([r.base, r.lost, r.saved], [40, 60, 200], '(0 + 60 + 60) ÷ 3 = 40');
       // خلصت من غير تصرّف: ضاع لحد يوم انتهائها بس، ونهائية بعد ما يومها يكمل
-      r = valueAmountsOf({ id: 3, ad: 'a', kind: 'waste', firstAt: '2026-11-05T09:00:00Z', endedAt: '2026-11-07T12:00:00Z', baseline: 90 }, tz, today, dayOf);
+      r = valueAmountsOf({ id: 3, ad: 'a', kind: 'waste', firstAt: '2026-11-05T09:00:00Z', endedAt: '2026-11-07T12:00:00Z' }, tz, today, dayOf);
       eq([r.lost, r.saved, r.final], [200, 0, true]);
       // أيام ناقصة بتتطلب (need)، وب مش معروفة = «وفّرته» مش معروف (null) مش صفر
-      r = valueAmountsOf(loss, tz, today, function (d) { return d === '2026-11-03' || d === '2026-11-06' ? undefined : days[d]; });
+      r = valueAmountsOf(loss, tz, today, function (d) { return d === '2026-11-03' || d === '2026-11-06' ? undefined : dayOf(d); });
       eq([r.saved, r.need.sort()], [null, ['2026-11-03', '2026-11-06']]);
       eq(valueAmountsOf({ ad: 'a', kind: 'waste', firstAt: 'bad' }, tz, today, dayOf), null);
       // أرقام اليوم: أيام الفترة في الكارت أول، ثم أسبوعه، ثم اللي اتجاب من المنصة
@@ -9041,9 +9056,9 @@
         ack: valueAckNow, state: userSetState, set: userSet };
       var put = function (obj, k, v) { if (v === undefined) delete obj[k]; else obj[k] = v; };
       var calls = [], syncs = [], finished;
-      // قبل التنبيه ٣٠ يومياً، ويوم التصرّف (بعده بيوم) ٣٠، وأول يوم بعده ٦، وباقي الأسبوع مفيش صفوف (الإعلان اتوقف)
+      // ٣٠ يومياً قبل التنبيه ويومه، ويوم التصرّف (بعده بيوم) ٣٠، وأول يوم بعده ٦، وباقي الأسبوع مفيش صفوف (الإعلان اتوقف)
       var rows = {};
-      rows[shiftKey(D, -3)] = 30; rows[shiftKey(D, -2)] = 30; rows[shiftKey(D, -1)] = 30; rows[shiftKey(D, 1)] = 30; rows[shiftKey(D, 2)] = 6;
+      rows[shiftKey(D, -2)] = 30; rows[shiftKey(D, -1)] = 30; rows[D] = 30; rows[shiftKey(D, 1)] = 30; rows[shiftKey(D, 2)] = 6;
       var inRange = function (since, until) { var o = {}; Object.keys(rows).forEach(function (k) { if (k >= since && k <= until) o[k] = rows[k]; }); return o; };
       var restore = function () {
         put(activeSources, 'meta', old.act); put(activeSources, 'snapchat', old.snap); put(activeSources, 'google', old.goo); candidates = old.cands;
@@ -9053,7 +9068,7 @@
         srcs.forEach(function (s) { put(accountInfo, s, keep[s].info); put(valueEpisodes, s, keep[s].eps); put(valueState, s, keep[s].st); put(valueTzOf, s, keep[s].tz); put(valueDayCache, s, keep[s].cache); });
       };
       var waitRender = function () { return new Promise(function (r) { finished = r; }); };
-      var ep = function (id, ad) { return { id: id, ad: ad, kind: 'waste', firstAt: at(D), decided: true, handledAt: at(shiftKey(D, 1), '13'), action: 'pause', baseline: null, cur: null }; };
+      var ep = function (id, ad) { return { id: id, ad: ad, kind: 'waste', firstAt: at(D), decided: true, handledAt: at(shiftKey(D, 1), '13'), action: 'pause', cur: null }; };
       try {
         activeSources.meta = 'act_7'; activeSources.snapchat = 'sn7'; activeSources.google = '1234567890';
         // Google محتاج الكارت عشان مفتاح «المجموعة-الإعلان» (من غير أرقام أيام في المدى)
@@ -9084,8 +9099,8 @@
         var p = waitRender();
         valueLoadMoney('meta:act_7');
         return p.then(function () { return sleep(10); }).then(function () {
-          // ب من ٣ أيام قبل التنبيه (٣٠)، وضاع يوم التصرّف (٣٠)، ووفّرته ٧ أيام: (٣٠ − ٦) + ٦ × ٣٠ = ٢٠٤
-          eq(calls, [['meta', 'act_7', ['a1'], shiftKey(D, -3), shiftKey(D, 8)]], 'one request for every missing day of the problem');
+          // ب من الأيام الثلاثة قبل يوم التصرّف (٣٠)، وضاع يوم التصرّف (٣٠)، ووفّرته ٧ أيام: (٣٠ − ٦) + ٦ × ٣٠ = ٢٠٤
+          eq(calls, [['meta', 'act_7', ['a1'], shiftKey(D, -2), shiftKey(D, 8)]], 'one request for every missing day of the problem');
           var m = valueEpisodeMoney('meta:act_7', valueEpisodes['meta:act_7'][0], 'UTC', today);
           eq([syncs.length, m.saved, m.lost, m.final], [0, 204, 30, true], 'old consent only: computed and shown, not stored');
           // بعد الموافقة الجديدة: الأيام معروفة (مفيش طلب تاني) والمبلغ بيتحفظ
@@ -9097,7 +9112,7 @@
         }).then(function () {
           eq(calls.length, 0, 'the days are already known');
           var store = syncs.filter(function (s) { return s.action === 'episodes.amounts'; });
-          eq(store.map(function (s) { return [s.platform, s.accountId, s.amounts]; }), [['meta', 'act_7', [{ id: 501, saved: 204, lost: 30, cur: 'SAR', daily: 30 }]]], 'stored once complete');
+          eq(store.map(function (s) { return [s.platform, s.accountId, s.amounts]; }), [['meta', 'act_7', [{ id: 501, saved: 204, lost: 30, cur: 'SAR' }]]], 'stored once complete, no daily loss');
           eq([valueEpisodes['meta:act_7'][0].amountsAt != null, valueEpisodes['meta:act_7'][0].saved], [true, 204], 'kept as stored');
           // تاني مرة: كله معروف ومحفوظ — مفيش طلب ولا حفظ تاني
           calls.length = 0; syncs.length = 0;
@@ -9107,16 +9122,16 @@
           valueLoadMoney('snapchat:sn7');
           return q;
         }).then(function () {
-          eq(calls, [['snap', 'sn7', ['s1'], shiftKey(D, -3), shiftKey(D, 8)]]);
-          eq(syncs.filter(function (s) { return s.action === 'episodes.amounts'; })[0].amounts, [{ id: 502, saved: 204, lost: 30, cur: 'USD', daily: 30 }], 'Snapchat: the same measure');
+          eq(calls, [['snap', 'sn7', ['s1'], shiftKey(D, -2), shiftKey(D, 8)]]);
+          eq(syncs.filter(function (s) { return s.action === 'episodes.amounts'; })[0].amounts, [{ id: 502, saved: 204, lost: 30, cur: 'USD' }], 'Snapchat: the same measure');
           calls.length = 0; syncs.length = 0;
           var q = waitRender();
           valueLoadMoney('google:1234567890');
           return q;
         }).then(function () {
-          eq(calls, [['google', '1234567890', ['77-g1'], [], shiftKey(D, -3), shiftKey(D, 8)]], 'Google: the ad-group key from the card');
+          eq(calls, [['google', '1234567890', ['77-g1'], [], shiftKey(D, -2), shiftKey(D, 8)]], 'Google: the ad-group key from the card');
           var g = syncs.filter(function (s) { return s.action === 'episodes.amounts'; })[0];
-          eq([g.loginCustomerId, g.amounts], ['9999999999', [{ id: 503, saved: 204, lost: 30, cur: 'USD', daily: 30 }]], 'with the manager account for the server check');
+          eq([g.loginCustomerId, g.amounts], ['9999999999', [{ id: 503, saved: 204, lost: 30, cur: 'USD' }]], 'with the manager account for the server check');
           // فشل الطلب: الأيام بتفضل ناقصة ومبتتطلبش تاني في الجلسة (مفيش لفّة)، والمبلغ مبيتحفظش
           calls.length = 0; syncs.length = 0;
           valueEpisodes['meta:act_7'] = [Object.assign(ep(504, 'a9'), { firstAt: at(shiftKey(D, -10)), handledAt: at(shiftKey(D, -9), '13') })];
@@ -9245,8 +9260,10 @@
           { level: 'warning', atRisk: false, amount: 50, adId: 'a2', currency: 'SAR', money: { daily: 20 } }];
         var html = function (pick, alerts) { return withLang('ar', function () { return valuePanelHtml(valueData(pick || null, alerts || [])); }); };
         var h = html(null, risk);
-        // الملاحظة بتقول اللي بيتسجّل فعلاً (من ٢٦ نوفمبر ٢٠٢٦: خسارة الإعلان اليومية والمبالغ بعد اكتمالها، والسجل طول عمر الحساب)
-        ok(/data-value-ack/.test(h) && /وما كان الإعلان يخسره يومياً عند التنبيه/.test(h) && /طوال بقاء حسابك/.test(h) && !/٩٠ يوماً/.test(h) &&
+        // الملاحظة بتقول اللي بيتسجّل فعلاً (من ٢٦ نوفمبر ٢٠٢٦: المبالغ بعد اكتمالها، والسجل طول عمر الحساب — والخسارة اليومية وقت التنبيه
+        // مبقتش بتتحفظ من ٢٧ نوفمبر)
+        ok(/data-value-ack/.test(h) && /ثم ما وفّرته وما ضاع بعد اكتمال أيام المشكلة/.test(h) && !/يخسره يومياً عند التنبيه/.test(h) &&
+          /طوال بقاء حسابك/.test(h) && !/٩٠ يوماً/.test(h) &&
           /بعد موافقتك أعلاه/.test(h), 'notice first: ' + h);
         ok(/مشكلة واحدة تنتظر نظرتك، وتهدر نحو ١٠٠ ر\.س يومياً/.test(h) && /data-kpi="risk"/.test(h), 'pending: the urgent one only');
         // فحص حي ١٢ نوفمبر ٢٠٢٦: «٢ مشكلة تنتظر نظرتك، وتهدر نحو ٠ $ يومياً» — المثنى بصيغته، ومن غير مبلغ يومي مفيش «نحو ٠»
@@ -9270,9 +9287,9 @@
         var t6 = shiftKey(today, -6), t5 = shiftKey(today, -5), t3 = shiftKey(today, -3);
         valueEpisodes[src] = [
           // تنبيه من ٦ أيام، وإيقاف تاني يوم: ضاع يوم الإيقاف (١٠٠)، ووفّرته ٤ أيام لحد أمس (٤ × ١٠٠)
-          { id: 101, ad: 'a1', kind: 'waste', firstAt: at(t6), decided: true, handledAt: at(t5), action: 'pause', baseline: 100 },
+          { id: 101, ad: 'a1', kind: 'waste', firstAt: at(t6), decided: true, handledAt: at(t5), action: 'pause' },
           // مفتوحة من ٣ أيام: ضاع أمس وأول أمس (٢ × ٥٠)
-          { id: 102, ad: 'a2', kind: 'waste', firstAt: at(t3), decided: false, handledAt: null, action: null, baseline: 50 },
+          { id: 102, ad: 'a2', kind: 'waste', firstAt: at(t3), decided: false, handledAt: null, action: null },
           // من ٤٠ يوم ومبالغها محفوظة على الخادم: في «منذ بدأت» بس
           { id: 103, ad: 'a3', kind: 'waste', firstAt: at(monthAgo), decided: true, handledAt: at(monthAgo), action: 'pause', amountsAt: at(monthAgo), saved: 999, lost: 555, cur: 'SAR' },
           // النهارده واتعالجت: برّه «آخر ٧ أيام» (أيام مكتملة) — سطر لوحده
@@ -9286,7 +9303,8 @@
         ok(/اليوم حتى الآن \(لا يدخل في أرقام الفترة\): عالجت مشكلة واحدة بعد تنبيهنا/.test(h), h);
         // منذ البداية: الأربعة، و٤٠٠ + ٩٩٩ المحفوظة، و٢٠٠ + ٥٥٥
         ok(h.indexOf('منذ بدأت مع Ads Center (' + fmtKey(monthAgo) + '): رصدنا ٤ مشكلات، ووفّرت ١٬٣٩٩ ر.س، وضاع ٧٥٥ ر.س.') > -1, 'since the start: ' + h);
-        ok(/كيف نحسبها؟/.test(h) && /الأيام السبعة التالية ليوم تصرّفك/.test(h) && /حتى يوم تصرّفك نفسه أو يوم انتهاء المشكلة/.test(h) && /ولا يُحسب أي يوم بأقل من صفر/.test(h) && /Meta وSnapchat وGoogle/.test(h), 'how we count');
+        ok(/كيف نحسبها؟/.test(h) && /الأيام السبعة التالية ليوم تصرّفك/.test(h) && /قبل تصرّفك مباشرة \(متوسط آخر ٣ أيام قبل يوم التصرّف\)/.test(h) &&
+          /حتى يوم تصرّفك نفسه أو يوم انتهاء المشكلة/.test(h) && /ولا يُحسب أي يوم بأقل من صفر/.test(h) && /Meta وSnapchat وGoogle/.test(h), 'how we count');
         // «اليوم»: مشكلة النهارده جوه الفترة (وأرقامها لسه صفر)، وأمس برّه
         period = { preset: 'today' };
         h = html();
@@ -9295,7 +9313,7 @@
         // نفس الإعلان ونفس يوم التصرّف مرتين (السيرفر بيقفل المشكلة لما تختفي وبيفتحها لما ترجع — حساب حقيقي ٣٠ أكتوبر):
         // مشكلة واحدة، وأكبر مبلغ في المجموعة مش مجموعهم
         valueEpisodes[src].push({ id: 107, ad: 'a1', kind: 'waste', firstAt: new Date(Date.parse(at(t6)) + 2 * H).toISOString(), decided: true,
-          handledAt: new Date(Date.parse(at(t5)) + 2 * H).toISOString(), action: 'bid', baseline: 80 });
+          handledAt: new Date(Date.parse(at(t5)) + 2 * H).toISOString(), action: 'bid' });
         h = html();
         ok(/مشكلات رصدناها<\/span><b class="value-v">٢<\/b>/.test(h) && /<b class="value-v">٤٠٠ ر\.س<\/b>/.test(h) && !/٧٢٠/.test(h),
           'the same ad acted on the same day counts once, with the bigger amount: ' + h);
@@ -9309,7 +9327,7 @@
         ok(!/منذ بدأت/.test(html()), 'nothing since the start beyond the period');
         eq(html(['snapchat']), '', 'Snapchat only and not connected: nothing to show');
         // بالإنجليزي
-        valueEpisodes[src] = [{ id: 102, ad: 'a2', kind: 'waste', firstAt: at(t3), decided: false, handledAt: null, action: null, baseline: 50 }];
+        valueEpisodes[src] = [{ id: 102, ad: 'a2', kind: 'waste', firstAt: at(t3), decided: false, handledAt: null, action: null }];
         var en = withLang('en', function () { return valuePanelHtml(valueData(null, [])); });
         ok(/Problems we found/.test(en) && /Saved after Ads Center&#39;s alert/.test(en) && /Lost before action/.test(en), en);
       } finally {
@@ -9367,7 +9385,7 @@
       }).then(function () {
         var syncs = calls.filter(function (c) { return c.action === 'episodes.sync'; }), dec = calls.filter(function (c) { return c.action === 'episodes.decide'; })[0];
         eq(syncs.length, 1, 'the same problems again: no second request');
-        eq(syncs[0].open, [{ ad: '111', kind: 'waste', daily: 90, cur: 'SAR' }], 'with the daily loss at the alert');
+        eq(syncs[0].open, [{ ad: '111', kind: 'waste', cur: 'SAR' }], 'with the account currency only, no daily loss');
         eq(dec && dec.decisions, [{ id: 55, handledAt: pausedAt, action: 'pause' }, { id: 56, handledAt: pausedAt, action: 'budget' }], 'the campaign was paused 2 hours after the alert');
         eq(valueEpisodes[src][0].handledAt, pausedAt);
         // التصرّف في يوم التنبيه: مفيش «ضاع»، ووفّرته من اليوم اللي بعده لحد أمس (يومين): الإيقاف ٢ × ٩٠، والخفض ٢ × (٩٠ − ٧٢)

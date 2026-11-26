@@ -6,17 +6,18 @@
 // ثلاثة أرقام (قرارات صاحب المنتج ٢٦ نوفمبر ٢٠٢٦ — «مشكلات رصدناها · وفّرته بعد تنبيه Ads Center · ضاع قبل التصرّف»):
 //  - Meta وSnapchat وGoogle (كان القسم بيحسب منصتين بس — التدقيق الشامل ١٣٢)
 //  - التصرّف بيتسجّل في أي وقت بعد التنبيه والمشكلة لسه قايمة (مش في الـ ٢٤ ساعة بس): «لم تُعالج بعد» مش قرار نهائي
-//  - السجل بيفضل طول عمر حساب العميل، ومبالغ كل مشكلة بتتحفظ هنا بعد ما أيامها تكمل: خسارتها اليومية وقت التنبيه (baseline_daily)،
-//    وما وفّره العميل بعد تصرّفه، وما ضاع قبله — أرقام بس بعملة الحساب
+//  - السجل بيفضل طول عمر حساب العميل، ومبالغ كل مشكلة بتتحفظ هنا بعد ما أيامها تكمل: ما وفّره العميل بعد تصرّفه، وما ضاع قبله —
+//    رقمين بس بعملة الحساب (اللي بتتسجّل مع المشكلة). الخسارة اليومية وقت التنبيه (baseline_daily) مبقتش بتتحفظ من ٢٧ نوفمبر ٢٠٢٦:
+//    «وفّرته» بقى من الأيام قبل التصرّف (قرار صاحب المنتج)، فمبقاش ليها لازمة — والعمود فاضي من غير ما يتمسح (مفيش صف فيه قيمة)
 //
-//   episodes.sync    ← { platform, accountId, platformToken, open: [{ ad, kind, daily?, cur? }] | null } → { episodes }
-//                       open = مشكلات الحساب دلوقتي (الأداة شايفة أرقامه كاملة): الجديد بيتسجّل (ومعاه خسارته اليومية لو اتبعتت)،
+//   episodes.sync    ← { platform, accountId, platformToken, open: [{ ad, kind, cur? }] | null } → { episodes }
+//                       open = مشكلات الحساب دلوقتي (الأداة شايفة أرقامه كاملة): الجديد بيتسجّل (ومعاه عملة الحساب لو اتبعتت)،
 //                       والقديم اللي اختفى بيخلص. null = قراءة بس (قبل موافقة المستخدم). المشكلات كلها من أول يوم (اللوحة بتحسب
-//                       الفترة المختارة والإجمالي من أول ما بدأ)
+//                       الفترة المختارة والإجمالي من أول ما بدأ). «daily» من جهاز قديم بيتجاهل
 //   episodes.decide  ← { …, decisions: [{ id, handledAt | null, action | null }] } → { ok, saved }
 //                       التصرّف (وقته ونوعه) بعد التنبيه والمشكلة قايمة — مرة واحدة، وبيتسجّل حتى لو المشكلة اتقال عليها قبل كده
 //                       «لم تُعالج بعد». وnull = لسه مفيش تصرّف (بعد يوم من التنبيه)
-//   episodes.amounts ← { …, amounts: [{ id, saved, lost, cur, daily? }] } → { ok, saved }
+//   episodes.amounts ← { …, amounts: [{ id, saved, lost, cur }] } → { ok, saved }   («daily» من جهاز قديم بيتجاهل)
 //                       مبالغ المشكلة بعد ما أيامها تكمل (اتعالجت من ٨ أيام أو أكتر، أو خلصت من غير تصرّف من يوم أو أكتر) — مرة واحدة
 import { USER_ID, db, reply } from './lib.ts';
 import { verifyAccount } from './settings.ts';
@@ -35,8 +36,8 @@ export function moneyOf(v: unknown): number | null {
   return typeof v === 'number' && isFinite(v) && v >= 0 && v < MAX_MONEY ? Math.round(v * 100) / 100 : null;
 }
 // مشكلات الحساب دلوقتي: إعلان ونوع معروفين، من غير تكرار. أي شكل تاني = null (الطلب بيترفض بدل ما يخلّص مشكلات بالغلط).
-// الخسارة اليومية وعملتها اختياريين مع بعض (الأجهزة القديمة مبتبعتهمش) — قيمة غلط بتتشال بس، مبترفضش الطلب
-export type OpenProblem = { ad: string; kind: string; daily: number | null; cur: string | null };
+// العملة اختيارية (الأجهزة القديمة مبتبعتهاش) — قيمة غلط بتتشال بس، مبترفضش الطلب. وأي «daily» بيتجاهل (مبقتش بتتحفظ)
+export type OpenProblem = { ad: string; kind: string; cur: string | null };
 export function cleanOpen(v: unknown, platform: string): OpenProblem[] | null {
   if (!Array.isArray(v) || v.length > MAX_OPEN || !AD_ID[platform]) return null;
   const seen: Record<string, boolean> = {}, out: OpenProblem[] = [];
@@ -45,8 +46,8 @@ export function cleanOpen(v: unknown, platform: string): OpenProblem[] | null {
     if (typeof ad !== 'string' || !AD_ID[platform].test(ad) || KINDS.indexOf(kind) === -1) return null;
     if (seen[ad + '|' + kind]) continue;
     seen[ad + '|' + kind] = true;
-    const daily = moneyOf((x as any).daily), rawCur = (x as any).cur, cur = typeof rawCur === 'string' && CURRENCY.test(rawCur) ? rawCur : null;
-    out.push({ ad, kind, daily: daily != null && cur ? daily : null, cur: daily != null && cur ? cur : null });
+    const rawCur = (x as any).cur;
+    out.push({ ad, kind, cur: typeof rawCur === 'string' && CURRENCY.test(rawCur) ? rawCur : null });
   }
   return out;
 }
@@ -74,16 +75,16 @@ export function decisionOk(firstAt: string, d: { handledAt: string | null }, now
   const end = endedAt ? Date.parse(endedAt) : NaN;
   return isNaN(end) || t <= end;
 }
-// المبالغ: رقم صف، والموفَّر والضايع والعملة (والخسارة اليومية اختيارية — للمشكلات اللي اتسجّلت من غيرها). أي غلط = رفض الطلب كله
-export type EpisodeAmount = { id: number; saved: number; lost: number; cur: string; daily: number | null };
+// المبالغ: رقم صف، والموفَّر والضايع والعملة. أي غلط = رفض الطلب كله. و«daily» من جهاز قديم بيتجاهل (مبقتش بتتحفظ)
+export type EpisodeAmount = { id: number; saved: number; lost: number; cur: string };
 export function cleanAmounts(v: unknown): EpisodeAmount[] | null {
   if (!Array.isArray(v) || !v.length || v.length > MAX_AMOUNTS) return null;
   const out: EpisodeAmount[] = [];
   for (const x of v) {
-    const id = x && (x as any).id, cur = x && (x as any).cur, rawDaily = x && (x as any).daily;
-    const saved = moneyOf(x && (x as any).saved), lost = moneyOf(x && (x as any).lost), daily = rawDaily == null ? null : moneyOf(rawDaily);
-    if (!Number.isSafeInteger(id) || id <= 0 || saved == null || lost == null || typeof cur !== 'string' || !CURRENCY.test(cur) || (rawDaily != null && daily == null)) return null;
-    out.push({ id, saved, lost, cur, daily });
+    const id = x && (x as any).id, cur = x && (x as any).cur;
+    const saved = moneyOf(x && (x as any).saved), lost = moneyOf(x && (x as any).lost);
+    if (!Number.isSafeInteger(id) || id <= 0 || saved == null || lost == null || typeof cur !== 'string' || !CURRENCY.test(cur)) return null;
+    out.push({ id, saved, lost, cur });
   }
   return out;
 }
@@ -122,7 +123,7 @@ export async function handleEpisodes(action: string, body: any, userId: string, 
       for (const ids of chunks(gone)) await db(base + '&id=in.(' + ids.join(',') + ')', PATCH({ ended_at: now }));
       const fresh = open.filter((x) => !have[x.ad + '|' + x.kind]).map((x) => {
         const row: Record<string, unknown> = { user_id: userId, platform: acc.platform, account_id: acc.id, ad_id: x.ad, kind: x.kind };
-        if (x.daily != null) { row.baseline_daily = x.daily; row.amount_currency = x.cur; }
+        if (x.cur) row.amount_currency = x.cur;
         return row;
       });
       if (fresh.length) {
@@ -134,12 +135,12 @@ export async function handleEpisodes(action: string, body: any, userId: string, 
         });
       }
     }
-    const r = await db(base + '&select=id,ad_id,kind,first_at,ended_at,decided_at,handled_at,action,baseline_daily,amount_currency,saved_amount,lost_amount,amounts_at' +
+    const r = await db(base + '&select=id,ad_id,kind,first_at,ended_at,decided_at,handled_at,action,amount_currency,saved_amount,lost_amount,amounts_at' +
       '&order=first_at.desc&limit=' + MAX_ROWS, GET);
     const rows = (await r.json().catch(() => null)) || [];
     return reply(200, {
       episodes: rows.map((x: any) => ({ id: x.id, ad: x.ad_id, kind: x.kind, firstAt: x.first_at, endedAt: x.ended_at,
-        decided: !!x.decided_at, handledAt: x.handled_at, action: x.action, baseline: numOrNull(x.baseline_daily), cur: x.amount_currency || null,
+        decided: !!x.decided_at, handledAt: x.handled_at, action: x.action, cur: x.amount_currency || null,
         saved: numOrNull(x.saved_amount), lost: numOrNull(x.lost_amount), amountsAt: x.amounts_at || null }))
     }, origin);
   }
@@ -177,8 +178,8 @@ export async function handleEpisodes(action: string, body: any, userId: string, 
     if (!list) return reply(400, { error: 'amounts' }, origin);
     const byId: Record<number, EpisodeAmount> = {};
     list.forEach((a) => { byId[a.id] = a; });
-    const r = await db(base + '&amounts_at=is.null&id=in.(' + Object.keys(byId).join(',') + ')&select=id,handled_at,ended_at,baseline_daily,amount_currency', GET);
-    const rows: { id: number; handled_at: string | null; ended_at: string | null; baseline_daily: unknown; amount_currency: string | null }[] = (await r.json().catch(() => null)) || [];
+    const r = await db(base + '&amounts_at=is.null&id=in.(' + Object.keys(byId).join(',') + ')&select=id,handled_at,ended_at,amount_currency', GET);
+    const rows: { id: number; handled_at: string | null; ended_at: string | null; amount_currency: string | null }[] = (await r.json().catch(() => null)) || [];
     const t = Date.now();
     let saved = 0;
     for (const row of rows) {
@@ -186,7 +187,6 @@ export async function handleEpisodes(action: string, body: any, userId: string, 
       // أيامها لسه بتتحسب، أو عملة غير عملتها وقت التنبيه = مبيتحفظش
       if (!a || !amountsFinal(row, t) || (row.amount_currency && row.amount_currency !== a.cur)) continue;
       const patch: Record<string, unknown> = { saved_amount: a.saved, lost_amount: a.lost, amount_currency: a.cur, amounts_at: now };
-      if (row.baseline_daily == null && a.daily != null) patch.baseline_daily = a.daily;
       await db(base + '&id=eq.' + row.id + '&amounts_at=is.null', PATCH(patch));
       saved++;
     }

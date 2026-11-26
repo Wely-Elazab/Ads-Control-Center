@@ -2958,8 +2958,9 @@
   // والأيام قبله «ضاع». الأرقام بتتبع الفترة المختارة، وسطر «منذ بدأت» من أول مشكلة اتسجّلت (السجل طول عمر الحساب، ومبالغ كل مشكلة بتتحفظ
   // على الخادم بعد ما أيامها تكمل). «الوقت الذي وفّرناه» اتشال: مش من الأرقام الثلاثة
   var VALUE_PLATFORMS = ['meta', 'snapchat', 'google'];
-  // الموافقة النسخة التانية (٢٦ نوفمبر ٢٠٢٦): التسجيل اتوسّع (خسارة الإعلان اليومية وقت التنبيه، والمبالغ على خادمنا، والسجل طول عمر
-  // الحساب) — سياسة الخصوصية بتوعد «نوضّح التغيير قبل تفعيله»، فاللي وافق على الأولى بيشوف الملاحظة الجديدة مرة، ومفيش جديد بيتسجّل قبلها
+  // الموافقة النسخة التانية (٢٦ نوفمبر ٢٠٢٦): التسجيل اتوسّع (المبالغ على خادمنا، والسجل طول عمر الحساب) — سياسة الخصوصية بتوعد «نوضّح
+  // التغيير قبل تفعيله»، فاللي وافق على الأولى بيشوف الملاحظة الجديدة مرة، ومفيش جديد بيتسجّل قبلها. ومن انضم بشروط ٢٦ نوفمبر أو أحدث
+  // موافقته من نموذج الانضمام (settings.ts usettings.get). الخسارة اليومية وقت التنبيه مبقتش بتتحفظ من ٢٧ نوفمبر (تقليل، مش توسيع)
   var VALUE_ACK_KEY = 'pauseproof.value.ack.v2';
   // مبالغ الجهاز القديمة (v1 مضخّمة، وv2 بتعريف «يوم واحد») — المبالغ بقت بتتحسب من أرقام المنصة وتتحفظ على الخادم بعد اكتمالها.
   // وموافقة الجهاز على النسخة الأولى من الملاحظة مبقتش بتتحسب
@@ -3009,8 +3010,9 @@
       var ad = String(c.nativeId || c.id), kind = a.code === 'loss' ? 'loss' : 'waste';
       if (seen[ad + '|' + kind]) return;
       seen[ad + '|' + kind] = 1;
-      var daily = a.money && a.money.daily > 0 ? round2(a.money.daily) : null, ccy = a.currency || cur;
-      out.push(daily != null && /^[A-Z]{3}$/.test(ccy || '') ? { ad: ad, kind: kind, daily: daily, cur: ccy } : { ad: ad, kind: kind });
+      // عملة الحساب بس (المبالغ بتتحفظ بيها بعدين) — الخسارة اليومية وقت التنبيه مبقتش بتتبعت (٢٧ نوفمبر ٢٠٢٦: «وفّرته» من الأيام قبل التصرّف)
+      var ccy = a.currency || cur;
+      out.push(/^[A-Z]{3}$/.test(ccy || '') ? { ad: ad, kind: kind, cur: ccy } : { ad: ad, kind: kind });
     });
     return out.sort(function (x, y) { return x.ad < y.ad ? -1 : (x.ad > y.ad ? 1 : (x.kind < y.kind ? -1 : 1)); });
   }
@@ -3104,8 +3106,10 @@
   function valueActionsArrived(source) { if (valueEpisodes[source]) valueDecide(source); loadExtraAlerts(source); }
 
   // ---------- مبالغ المشكلة ----------
-  // ب = ما كان الإعلان بيخسره في اليوم وقت التنبيه (المحرك نفسه — alerts.js withMoney: بيتحفظ مع المشكلة من ٢٦ نوفمبر ٢٠٢٦، وللأقدم متوسط
-  // آخر ٣ أيام كاملة قبل يوم التنبيه). خ(يوم) = خسارته الفعلية في اليوم ده: الإنفاق كله في «دون نتيجة»، والإنفاق ناقص المبيعات في الخسارة.
+  // خ(يوم) = خسارة الإعلان الفعلية في اليوم ده: الإنفاق كله في «دون نتيجة»، والإنفاق ناقص المبيعات في الخسارة. ب = ما كان بيخسره في اليوم قبل
+  // التصرّف على طول: متوسط خ لآخر ٣ أيام كاملة قبل يوم التصرّف (قرار صاحب المنتج ٢٧ نوفمبر ٢٠٢٦ — كانت معدّل يوم التنبيه، والتحقق الحي لقى
+  // إعلان نزل إنفاقه من ٤١ لـ٤٫٥ بين التنبيه والإيقاف فكان «وفّرته» محسوب على ٤٥ في اليوم: اللي التصرّف وقّفه هو خسارة لحظتها، وعادلة في
+  // الاتجاهين — زادت قبل التصرّف يزيد التوفير، قلّت يقل؛ والتصرّف يوم التنبيه = أيام ما قبل التنبيه نفسها).
   //  - ضاع قبل التصرّف = خ(يوم) عن كل يوم كامل بعد يوم التنبيه لحد يوم التصرّف (هو معاه)، أو آخر يوم في المشكلة، أو أمس
   //  - وفّرته = ب − خ(يوم) (ومش أقل من صفر) عن كل يوم من السبعة اللي بعد يوم التصرّف، لحد أمس
   // يوم التنبيه نفسه مبيتحسبش على حد (يوم الاكتشاف): التصرّف في نفس اليوم بيخلّي اليوم اللي بعده كله «وفّرته»
@@ -3126,15 +3130,16 @@
     var da = ep.handledAt ? DX._.keyInTz(ep.handledAt, tz) : null, de = ep.endedAt ? DX._.keyInTz(ep.endedAt, tz) : null;
     var last = shiftKey(today, -1), need = [], k;
     var loss = function (day) { var v = valueLossOn(ep.kind, dayOf(day)); if (v == null) need.push(day); return v || 0; };
-    var base = ep.baseline != null ? ep.baseline : null;
-    if (base == null) {
-      var spend = 0, sales = 0, miss = false;
-      [shiftKey(d0, -3), shiftKey(d0, -2), shiftKey(d0, -1)].forEach(function (day) {
-        var x = dayOf(day);
-        if (!x) { need.push(day); miss = true; return; }
-        spend += x.spend || 0; sales += x.sales || 0;
+    // ب من الأيام الثلاثة قبل يوم التصرّف — كل يوم لوحده (خ اليوم، مش إنفاق الأيام ناقص مبيعاتها مجمّعة)
+    var base = null;
+    if (da) {
+      var sum = 0, miss = false;
+      [shiftKey(da, -3), shiftKey(da, -2), shiftKey(da, -1)].forEach(function (day) {
+        var v = valueLossOn(ep.kind, dayOf(day));
+        if (v == null) { need.push(day); miss = true; return; }
+        sum += v;
       });
-      base = miss ? null : (ep.kind === 'loss' ? Math.max(0, spend - sales) : spend) / 3;
+      base = miss ? null : sum / 3;
     }
     var lost = 0, lostEnd = [da, de, last].filter(Boolean).sort()[0];
     for (k = shiftKey(d0, 1); k <= lostEnd; k = shiftKey(k, 1)) lost += loss(k);
@@ -3163,9 +3168,7 @@
       var fresh = m.need.filter(function (d) { return !st.tried[ep.ad + '|' + d]; });
       if (fresh.length) { var n = need[ep.ad] = need[ep.ad] || {}; fresh.forEach(function (d) { n[d] = 1; }); return; }
       if (m.final && !m.need.length && m.saved != null && cur && (!ep.cur || ep.cur === cur)) {
-        var item = { id: ep.id, saved: round2(m.saved), lost: round2(m.lost), cur: cur };
-        if (ep.baseline == null && m.base != null) item.daily = round2(m.base);
-        finals.push(item);
+        finals.push({ id: ep.id, saved: round2(m.saved), lost: round2(m.lost), cur: cur });
       }
     });
     // المبالغ على خادمنا بعد الموافقة الجديدة بس (قبلها بتتحسب وتتعرض في المتصفح ومبتتحفظش)
@@ -3227,7 +3230,6 @@
         (valueEpisodes[source] || []).forEach(function (ep) {
           if (ep.id !== f.id) return;
           ep.amountsAt = at; ep.saved = f.saved; ep.lost = f.lost; ep.cur = f.cur;
-          if (f.daily != null) ep.baseline = f.daily;
         });
       });
     }, function () { st.storing = false; });
