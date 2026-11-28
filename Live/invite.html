@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-title-ar="دعوة للانضمام إلى فريق متجر — Ads Center" data-title-en="Join a store team — Ads Center">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171C" media="(prefers-color-scheme: dark)">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>دعوة للانضمام إلى فريق متجر — Ads Center</title>
+<!-- رابط دعوة المتجر اللي بيوصل للمدعو بالبريد (supabase/functions/sync/stores.ts — المتجر وفريقه، ٢٧ نوفمبر ٢٠٢٦): /invite?t=رمز.
+     الصفحة بتعرض الدعوة (invite.peek)، والقبول (invite.accept) بعد ضغط الزرار بس — عشان برامج البريد اللي بتفتح الروابط لوحدها متقبلش
+     بدل صاحبها. اللي مالوش دخول في الأداة بيتحوّل لصفحة إنشاء كلمة المرور على طول، واللي له دخول بيدخل بكلمة مروره. js/invite.js -->
+<script src="/js/theme.js"></script>
+<script src="/js/legal.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/legal.css">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+
+<header class="legal-bar">
+  <a class="legal-brand" href="/">Ads Center</a>
+  <div class="legal-bar-end">
+    <button type="button" class="legal-lang theme-btn" data-theme-toggle aria-pressed="false"><span data-theme-icon aria-hidden="true">☀️</span><span class="sr-only"><span class="only-ar">الوضع الداكن</span><span class="only-en">Dark mode</span></span></button>
+    <button type="button" class="legal-lang" id="legalLang">English</button>
+  </div>
+</header>
+
+<main class="nf" aria-live="polite">
+  <section data-inv-state="busy" tabindex="-1">
+    <h1><span class="only-ar">جارٍ تحميل الدعوة…</span><span class="only-en">Loading the invitation…</span></h1>
+  </section>
+  <section data-inv-state="view" hidden tabindex="-1">
+    <h1><span class="only-ar">دعوة للانضمام إلى فريق متجر</span><span class="only-en">An invitation to join a store team</span></h1>
+    <p><span class="only-ar">دُعيتَ للانضمام إلى فريق متجر «<strong data-inv-store></strong>» في Ads Center بصفة <strong data-inv-role-ar></strong>، ببريدك <span dir="ltr" data-inv-email></span>.</span><span class="only-en">You're invited to join the <strong data-inv-store></strong> store team on Ads Center as a <strong data-inv-role-en></strong>, with your email <span dir="ltr" data-inv-email></span>.</span></p>
+    <p data-inv-what="manager" hidden><span class="only-ar">بصفتك مديراً تغيّر إعدادات تنبيهات المتجر وتدير فريقه. ولترى أرقام إعلاناته، اربط في الأداة حسابات المنصات التي لديك صلاحية عليها.</span><span class="only-en">As a manager you change the store's alert settings and manage its team. To see its ad figures, connect in the tool the platform accounts you have access to.</span></p>
+    <p data-inv-what="viewer" hidden><span class="only-ar">بصفتك مشاهداً تطّلع على إعدادات تنبيهات المتجر وفريقه دون أن تغيّر شيئاً. ولترى أرقام إعلاناته، اربط في الأداة حسابات المنصات التي لديك صلاحية عليها.</span><span class="only-en">As a viewer you see the store's alert settings and team without changing anything. To see its ad figures, connect in the tool the platform accounts you have access to.</span></p>
+    <p class="consent-note"><span class="only-ar">بقبولك الدعوة توافق على <a href="/terms" target="_blank" rel="noopener">شروط الاستخدام</a> و<a href="/privacy" target="_blank" rel="noopener">سياسة الخصوصية</a>.</span><span class="only-en">By accepting, you agree to the <a href="/terms" target="_blank" rel="noopener">terms of use</a> and the <a href="/privacy" target="_blank" rel="noopener">privacy policy</a>.</span></p>
+    <div class="cta-row">
+      <button type="button" class="btn btn-primary" id="invAccept"><span class="only-ar">قبول الدعوة</span><span class="only-en">Accept the invitation</span></button>
+    </div>
+  </section>
+  <section data-inv-state="accepting" hidden tabindex="-1">
+    <h1><span class="only-ar">جارٍ قبول الدعوة…</span><span class="only-en">Accepting the invitation…</span></h1>
+  </section>
+  <section data-inv-state="done" hidden tabindex="-1">
+    <h1><span class="only-ar">تمت إضافتك إلى الفريق</span><span class="only-en">You've joined the team</span></h1>
+    <p><span class="only-ar">ادخل الأداة ببريدك وكلمة مرورك، ثم اربط حسابات المنصات التي لديك صلاحية عليها لترى أرقام المتجر.</span><span class="only-en">Sign in to the tool with your email and password, then connect the platform accounts you have access to, to see the store's figures.</span></p>
+    <div class="cta-row"><a class="btn btn-primary" href="/login"><span class="only-ar">دخول الأداة</span><span class="only-en">Sign in</span></a></div>
+  </section>
+  <section data-inv-state="used" hidden tabindex="-1">
+    <h1><span class="only-ar">سبق قبول هذه الدعوة</span><span class="only-en">This invitation was already accepted</span></h1>
+    <p><span class="only-ar">ادخل الأداة ببريدك وكلمة مرورك لتصل إلى المتجر.</span><span class="only-en">Sign in to the tool with your email and password to reach the store.</span></p>
+    <div class="cta-row"><a class="btn btn-primary" href="/login"><span class="only-ar">دخول الأداة</span><span class="only-en">Sign in</span></a></div>
+  </section>
+  <section data-inv-state="expired" hidden tabindex="-1">
+    <h1><span class="only-ar">انتهت صلاحية الدعوة</span><span class="only-en">This invitation has expired</span></h1>
+    <p><span class="only-ar">الدعوة صالحة ٧ أيام. اطلب من صاحب المتجر أو مديره إرسال دعوة جديدة.</span><span class="only-en">Invitations work for 7 days. Ask the store owner or a manager to send you a new one.</span></p>
+  </section>
+  <section data-inv-state="bad" hidden tabindex="-1">
+    <h1><span class="only-ar">الرابط غير صالح</span><span class="only-en">This link isn't valid</span></h1>
+    <p><span class="only-ar">ربما نُسخ الرابط ناقصاً، أو أُلغيت الدعوة. اطلب من صاحب المتجر أو مديره إرسال دعوة جديدة.</span><span class="only-en">The link may have been copied incompletely, or the invitation was cancelled. Ask the store owner or a manager to send you a new one.</span></p>
+  </section>
+  <section data-inv-state="error" hidden tabindex="-1">
+    <h1><span class="only-ar">تعذّر الإكمال الآن</span><span class="only-en">Couldn't complete this right now</span></h1>
+    <p><span class="only-ar">حاول مرة أخرى بعد قليل، أو راسلنا على <a href="mailto:support@adscenter.online">support@adscenter.online</a>.</span><span class="only-en">Please try again shortly, or email us at <a href="mailto:support@adscenter.online">support@adscenter.online</a>.</span></p>
+    <div class="cta-row"><button type="button" class="btn btn-primary" id="invRetry"><span class="only-ar">إعادة المحاولة</span><span class="only-en">Try again</span></button></div>
+  </section>
+</main>
+<!-- نفس روابط التذييل في كل الصفحات (WCAG 3.2.6) -->
+<footer class="legal-foot">
+  <a href="/app"><span class="only-ar">دخول الأداة</span><span class="only-en">Open the tool</span></a>
+  <a href="/"><span class="only-ar">عن الأداة</span><span class="only-en">About</span></a>
+  <a href="/help"><span class="only-ar">دليل البدء</span><span class="only-en">Getting started</span></a>
+  <a href="/privacy"><span class="only-ar">سياسة الخصوصية</span><span class="only-en">Privacy policy</span></a>
+  <a href="/terms"><span class="only-ar">شروط الاستخدام</span><span class="only-en">Terms of use</span></a>
+  <a href="/data-deletion"><span class="only-ar">حذف البيانات</span><span class="only-en">Data deletion</span></a>
+  <a href="mailto:support@adscenter.online" dir="ltr">support@adscenter.online</a>
+</footer>
+
+<script src="/js/invite.js"></script>
+<script src="/js/site.js"></script>
+</body>
+</html>

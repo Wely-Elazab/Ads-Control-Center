@@ -119,6 +119,10 @@
     settingsScope = ''; settingsPending = {}; settingsDirty = false; settingsSaving = false;
     extraInputs = {}; extraAt = {};
     userSetBase = null; userSetGen = 0; userSetInFlight = 0; userSetRefreshing = false; userSetFails = 0;
+    // المتجر وفريقه (٢٧ نوفمبر ٢٠٢٦): من غير متجر معروف ومتاجر المستخدم «اتقرت» — الطلبات زي ما كانت (الخادم بيختار أول متجر ليه)؛
+    // اختبارات المتجر بتحط حالتها هي
+    storeState = 'ready'; storeList = []; activeStore = null; storeCanCreate = false; storeWaiters = []; storeGoneCount = 0;
+    teamData = null; teamBusy = false; teamNote = ''; teamNoteErr = false; teamArmed = '';
     welcomeDone = false; welcomeOpen = false; welcomeOverlay.classList.add('hidden');
     period = { preset: 'last7' };
     clearMetaBase();
@@ -4602,7 +4606,7 @@
   });
 
   describe('الصفحات والروابط', function () {
-    var PAGES = ['/pauseproof-live.html', '/home.html', '/help.html', '/join.html', '/invited.html', '/404.html', '/privacy.html', '/terms.html', '/data-deletion.html'];
+    var PAGES = ['/pauseproof-live.html', '/home.html', '/help.html', '/join.html', '/invited.html', '/invite.html', '/404.html', '/privacy.html', '/terms.html', '/data-deletion.html'];
     function getText(u) {
       return fetch(u + '?t=' + Date.now()).then(function (r) {
         if (!r.ok) throw new Error(u + ' → HTTP ' + r.status);
@@ -4808,7 +4812,7 @@
     // المتصفح ميعرفش إن الشريط مغطّي أول الشاشة: عنصر تحته جوه الشاشة بيعتبره ظاهر فميحرّكش الصفحة — رابط في الدليل وقف عند ١٦–٣٩ بكسل
     // تحت شريط ٦٠ وإنت راجع بـ Shift+Tab (قياس حي بعرض ٤٣٤). المسافة كانت scroll-margin-top على [id] بس، فالروابط والأزرار مكانش ليها حاجة
     testAsync('الصفحات العامة: العنصر المتركّز عليه ميستخبّاش تحت الشريط اللاصق ولا زرار «لأعلى الصفحة» — موبايل', function () {
-      var PAGES = ['/home.html', '/help.html', '/join.html', '/login.html', '/invited.html', '/pricing.html', '/privacy.html', '/terms.html', '/data-deletion.html', '/stop.html', '/404.html'];
+      var PAGES = ['/home.html', '/help.html', '/join.html', '/login.html', '/invited.html', '/invite.html', '/pricing.html', '/privacy.html', '/terms.html', '/data-deletion.html', '/stop.html', '/404.html'];
       var restore = loginSnap();
       var check = function (u) {
         // صفحة الدخول من غير أي طلب حقيقي (والجلسة المحفوظة اتشالت في loginSnap)؛ والباقي مبيبعتش حاجة وهو مفتوح من غير رابط موقّع
@@ -5034,6 +5038,89 @@
         rows.forEach(function (r) { eq([r.visible, r.search], ['bad', ''], 'link ' + JSON.stringify(r.q)); });
       });
     });
+    // صفحة دعوة فريق المتجر (invite.html + js/invite.js — المتجر وفريقه، ٢٧ نوفمبر ٢٠٢٦): رمز بشكل غلط = «غير صالح» من غير أي طلب، والرمز
+    // بيتشال من العنوان (الصفحة بعنوانها الحقيقي — من غير طلب، فمفيش شبكة)
+    testAsync('صفحة دعوة المتجر: الرابط الغلط «غير صالح» من غير طلب، والرمز بيتشال من العنوان', function () {
+      return Promise.all(['?t=short', '?t=' + 'x'.repeat(44), '?t=' + 'x'.repeat(42) + '!', ''].map(function (q) {
+        return framePage('/invite.html' + q, 600, 700).then(function (f) {
+          var d = f.contentDocument, r = { q: q, search: f.contentWindow.location.search,
+            visible: [].filter.call(d.querySelectorAll('[data-inv-state]'), function (s) { return !s.hidden; }).map(function (s) { return s.getAttribute('data-inv-state'); }).join(',') };
+          f.remove();
+          return r;
+        });
+      })).then(function (rows) {
+        rows.forEach(function (r) { eq([r.visible, r.search], ['bad', ''], 'link ' + JSON.stringify(r.q)); });
+      });
+    });
+    // والرمز الصالح: الدعوة بتتقري أول ما الصفحة تفتح (قراءة بس)، والقبول بعد الضغط بس (برامج البريد بتفحص الروابط لوحدها). الشبكة الوهمية
+    // قبل أي سكربت (srcdoc — زي صفحة invited فوق)، ومعاملات الرابط في URLSearchParams، والتحويل لصفحة كلمة المرور بيتسجّل ويتلغي
+    testAsync('صفحة دعوة المتجر: الدعوة نص بس، والقبول بالضغط، والحساب الجديد لإنشاء كلمة المرور، وكل حالة بنصها', function () {
+      var T = 'A'.repeat(20) + 'b-_' + 'c'.repeat(20), net = window.__invite = { asked: [], replies: [], went: null };
+      var page = function (lang) {
+        net.asked = []; net.went = null;
+        return framePage('/invite.html', 600, 900,
+          'var __U = URLSearchParams; window.URLSearchParams = function (s) { return new __U(s ? s : "?t=' + T + (lang ? '&lang=' + lang : '') + '"); };' +
+          'window.fetch = function (u, o) { var n = parent.__invite, r = n.replies.shift() || { status: 200, body: {} }; n.asked.push({ url: String(u), body: JSON.parse(o.body) });' +
+          ' return r === "down" ? Promise.reject(new TypeError("Failed to fetch")) : Promise.resolve(new Response(JSON.stringify(r.body || {}), { status: r.status || 200 })); };' +
+          'if (window.navigation) navigation.addEventListener("navigate", function (e) { parent.__invite.went = e.destination.url; if (e.cancelable) e.preventDefault(); });'
+        ).then(function (f) {
+          var d = f.contentDocument;
+          return { f: f, d: d,
+            state: function () { return [].filter.call(d.querySelectorAll('[data-inv-state]'), function (s) { return !s.hidden; }).map(function (s) { return s.getAttribute('data-inv-state'); }).join(','); },
+            click: function (id) { var b = d.getElementById(id); b.focus(); b.click(); } };
+        });
+      };
+      var settle = function () { return new Promise(function (r) { setTimeout(r, 40); }); };
+      var open = { status: 200, body: { state: 'open', store: '<b>متجر</b>', role: 'manager', email: 'a@x.example' } }, p;
+      net.replies = [open, { status: 200, body: { ok: true } }];
+      return page().then(function (x) { p = x; return settle(); }).then(function () {
+        eq([p.state(), net.asked.length, net.asked[0].body], ['view', 1, { action: 'invite.peek', t: T }], 'read at once (read only)');
+        ok(net.asked[0].url === 'https://rhrrnxsgodiideqeollo.supabase.co/functions/v1/sync', net.asked[0].url);
+        var store = p.d.querySelector('[data-inv-store]');
+        ok(store.textContent === '<b>متجر</b>' && !store.querySelector('b'), 'the store name as text');
+        eq([p.d.querySelector('[data-inv-role-ar]').textContent, p.d.querySelector('[data-inv-what="manager"]').hidden, p.d.querySelector('[data-inv-what="viewer"]').hidden],
+          ['مدير', false, true], 'the role and what it can do');
+        ok(p.d.querySelector('.consent-note a[href="/terms"]') && p.d.querySelector('.consent-note a[href="/privacy"]'), 'accepting = the terms and the privacy policy');
+        p.click('invAccept');
+        eq(p.state(), 'accepting');
+        return settle();
+      }).then(function () {
+        eq([p.state(), net.asked[1].body, net.went], ['done', { action: 'invite.accept', t: T }, null], 'an existing account signs in with its password');
+        p.f.remove();
+        // حساب جديد: صفحة إنشاء كلمة المرور على طول (بالإنجليزي لو الرابط بالإنجليزي)
+        net.replies = [open, { status: 200, body: { ok: true, reset: 'reset_abc-123' } }];
+        return page('en');
+      }).then(function (x) { p = x; return settle(); }).then(function () {
+        p.click('invAccept');
+        return settle();
+      }).then(function () {
+        ok(/\/login\?reset=reset_abc-123&lang=en$/.test(net.went || ''), 'to the password page: ' + net.went);
+        p.f.remove();
+        // كل حالة بنصها: اتقبلت، وانتهت، ومش موجودة، وعطل (وإعادة المحاولة بتقرا تاني)، والقبول لدعوة اتقبلت في نفس اللحظة
+        var cases = [[{ status: 200, body: { state: 'used' } }, 'used'], [{ status: 200, body: { state: 'expired' } }, 'expired'], [{ status: 200, body: { state: 'gone' } }, 'bad'],
+          [{ status: 500, body: {} }, 'error'], ['down', 'error']];
+        return cases.reduce(function (q, c) {
+          return q.then(function () {
+            net.replies = [c[0]];
+            return page().then(function (x) { p = x; return settle(); }).then(function () { eq(p.state(), c[1], JSON.stringify(c[0])); p.f.remove(); });
+          });
+        }, Promise.resolve());
+      }).then(function () {
+        net.replies = [{ status: 500, body: {} }, open, { status: 409, body: { error: 'used' } }];
+        return page().then(function (x) { p = x; return settle(); });
+      }).then(function () {
+        p.click('invRetry');
+        return settle();
+      }).then(function () {
+        eq(p.state(), 'view', 'try again reads the invitation again');
+        p.click('invAccept');
+        return settle();
+      }).then(function () {
+        eq(p.state(), 'used', 'accepted elsewhere at the same moment');
+        p.f.remove();
+        delete window.__invite;
+      });
+    });
     // js/join-form.js على مقاس موبايل: الطلب بيتبعت لدالة sync (fetch وهمي هنا — مفيش طلب حقيقي)
     testAsync('نموذج الانضمام: «أنت:» إجباري، وحقل فيسبوك مع Meta بس، والغلط بيظهر على الحقل، والطلب بيتبعت كامل', function () {
       var f;
@@ -5154,7 +5241,7 @@
         return getText('/.assetsignore');
       }).then(function (txt) {
         var ignored = txt.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s && s.charAt(0) !== '#'; });
-        ['/home.html', '/help.html', '/join.html', '/invited.html', '/404.html', '/site.css', '/legal.css', '/js/join-form.js', '/js/invited.js', '/js/legal.js', '/js/demo.js', '/js/site.js'].forEach(function (f) {
+        ['/home.html', '/help.html', '/join.html', '/invited.html', '/invite.html', '/404.html', '/site.css', '/legal.css', '/js/join-form.js', '/js/invited.js', '/js/invite.js', '/js/legal.js', '/js/demo.js', '/js/site.js'].forEach(function (f) {
           ok(ignored.indexOf(f) === -1 && ignored.indexOf(f.slice(1)) === -1 && ignored.indexOf(f.split('/')[1]) === -1, f + ' is deployed');
         });
       });
@@ -6996,7 +7083,7 @@
         eq(w.REWRITES, {
           '/': '/home.html', '/index.html': '/home.html', '/app': '/pauseproof-live.html', '/login': '/login.html',
           '/help': '/help.html', '/privacy': '/privacy.html', '/terms': '/terms.html', '/data-deletion': '/data-deletion.html',
-          '/stop': '/stop.html', '/join': '/join.html', '/invited': '/invited.html', '/favicon.ico': '/favicon.svg'
+          '/stop': '/stop.html', '/join': '/join.html', '/invited': '/invited.html', '/invite': '/invite.html', '/favicon.ico': '/favicon.svg'
         }, 'rewrites');
         eq(w.REDIRECTS['/home'], { destination: '/', permanent: true }, 'old /home');
         ['X-Content-Type-Options', 'Referrer-Policy', 'X-Frame-Options', 'Permissions-Policy', 'Strict-Transport-Security', 'Content-Security-Policy'].forEach(function (h) {
@@ -12214,7 +12301,7 @@
       return fetch('/js/auth.js?t=' + Date.now()).then(function (r) { return r.text(); }).then(function (src) {
         var keys = JSON.parse((/var DEVICE_KEYS = (\[[^\]]*\])/.exec(src) || [])[1].replace(/'/g, '"'));
         eq(keys, ['acc.renew.v1', 'acc.lastAccount.v1', 'acc.dx.fb.v1', 'pauseproof.value.money.v1', 'pauseproof.value.money.v2', 'pauseproof.value.ack.v1',
-          'pauseproof.value.ack.v2', 'acc.digestHint', 'acc.welcome.accounts.v1', 'pauseproof.alertSettings.v1']);
+          'pauseproof.value.ack.v2', 'acc.digestHint', 'acc.welcome.accounts.v1', 'pauseproof.alertSettings.v1', 'acc.store.v1']);
         // التدقيق الشامل ١٢ نوفمبر ٢٠٢٦: نسخة الجهاز القديمة من إعدادات التنبيهات بتتنقل لسجل أول مستخدم مالوش سجل (legacyMerge) — لازم تتمسح
         // مع الخروج وتغيّر صاحب الدخول
         eq(SETTINGS_KEY, 'pauseproof.alertSettings.v1', 'same key as ui.js');
@@ -15348,6 +15435,271 @@
         eq(daily, [since + '>' + shiftKey(since, 29), mid + '>' + until], 'two batches in turn');
         eq(out.periodDaily.map(function (r) { return r.dimensions.stat_time_day.slice(0, 10); }), [since, mid], 'one list');
       }, function (e) { window.fetch = realFetch; throw e; });
+    });
+  });
+
+  // ---------- المتجر وفريقه (المرحلة ١ — قرارات صاحب المنتج ٢٦–٢٧ نوفمبر ٢٠٢٦؛ الخادم supabase/functions/sync/stores.ts) ----------
+  describe('المتجر وفريقه — الواجهة', function () {
+    var S1 = '0b0b0b0b-0000-4000-8000-000000000001', S2 = '0b0b0b0b-0000-4000-8000-000000000002';
+    var OWN = '0a0a0a0a-0000-4000-8000-000000000001', MAN = '0a0a0a0a-0000-4000-8000-000000000002', VIEW = '0a0a0a0a-0000-4000-8000-000000000003';
+    // syncCall وهمي بجدول ردود لكل عملية (دالة أو قيمة، و{ reject: حالة، code } = خطأ زي syncCall)، ودخول وهمي ببريد
+    function withStores(replies, fn) {
+      var prev = window.syncCall, prevRead = AuthLogin.read, calls = [], oldKey = null;
+      try { oldKey = localStorage.getItem(STORE_KEY); } catch (e) { /* مقفول */ }
+      window.syncCall = function (b) {
+        calls.push(JSON.parse(JSON.stringify(b)));
+        var r = replies[b.action];
+        if (typeof r === 'function') r = r(b);
+        if (r && r.reject) { var e = new Error('HTTP ' + r.reject); e.status = r.reject; e.code = r.code; return Promise.reject(e); }
+        return Promise.resolve(r === undefined ? {} : r);
+      };
+      AuthLogin.read = function () { return { access_token: 'test', expires_at: Date.now() + 3600000, email: 'me@x.example' }; };
+      var done = function () {
+        window.syncCall = prev; AuthLogin.read = prevRead;
+        try { if (oldKey == null) localStorage.removeItem(STORE_KEY); else localStorage.setItem(STORE_KEY, oldKey); } catch (e) { /* مقفول */ }
+        delete accountInfo['meta:act_1'];
+        settingsOverlay.classList.add('hidden');
+      };
+      return Promise.resolve().then(function () { return fn(calls); }).then(done, function (e) { done(); throw e; });
+    }
+    var actions = function (calls) { return calls.map(function (c) { return c.action; }); };
+    var team = function () { return document.getElementById('teamBody'); };
+    var people = function () {
+      return { role: 'owner', people: [{ id: OWN, email: 'me@x.example', role: 'owner' }, { id: MAN, email: 'man@x.example', role: 'manager' }, { id: VIEW, email: '<b>v</b>@x.example', role: 'viewer' }],
+        invites: [{ id: 'i1', email: 'new@x.example', role: 'viewer', expires: '2026-12-04T10:00:00Z' }],
+        audit: [{ action: 'invite', by: 'me@x.example', target: 'new@x.example (viewer)', at: '2026-11-27T10:00:00Z' }, { action: 'create', by: 'me@x.example', target: null, at: '2026-11-27T09:00:00Z' }],
+        invitesOpen: true };
+    };
+
+    testAsync('المتجر: متاجر المستخدم قبل الإعدادات، والمحفوظ على الجهاز، والإعدادات والحفظ وسجل المشكلات بالمتجر، والدور الأحدث من الخادم', function () {
+      return withStores({
+        'store.list': { stores: [{ id: S1, name: 'متجر أ', role: 'owner' }, { id: S2, name: 'متجر ب', role: 'manager' }], canCreate: true },
+        'usettings.get': function (b) { return { settings: { all: { roasTarget: 4 } }, store: { id: b.store, role: 'viewer' } }; },
+        'usettings.set': function (b) { return b.changes && b.changes.all ? { reject: 403, code: 'role' } : { settings: { all: { roasTarget: 4 }, prefs: { currency: 'SAR' } }, store: { id: b.store, role: 'viewer' } }; },
+        'episodes.sync': { episodes: [] }
+      }, function (calls) {
+        localStorage.setItem(STORE_KEY, S2);
+        storeState = 'none'; userSet = null; userSetState = 'none';
+        pullUserSettings();
+        eq(actions(calls), ['store.list'], 'the stores first');
+        return tick().then(tick).then(function () {
+          eq(calls.map(function (c) { return [c.action, c.store || null]; }), [['store.list', null], ['usettings.get', S2]], 'then the settings of the store saved on this device');
+          eq([activeStore.id, activeStore.name, activeStore.role, storeReadOnly(), userSet.all.roasTarget], [S2, 'متجر ب', 'viewer', true, 4], 'the role from the settings reply is the newest');
+          var oldTok = window.platformTokenOf;
+          window.platformTokenOf = function () { return 'tok_abcdefghijklmnopqrstuvwxyz'; };
+          try { accountCall('episodes.sync', 'meta:act_1', { open: null }); } finally { window.platformTokenOf = oldTok; }
+          eq(calls.slice(-1)[0].store, S2, 'the problem record of the open store');
+          return writeUserSettings({ changes: { prefs: { currency: 'SAR' } } });
+        }).then(function () {
+          eq([calls.slice(-1)[0].action, calls.slice(-1)[0].store], ['usettings.set', S2], 'saving goes to the open store');
+          activeStore.role = 'manager';
+          return writeUserSettings({ changes: { all: { roasTarget: 2 } } }).then(function () { throw new Error('should be refused'); }, function (e) {
+            eq([e.status, activeStore.role], [403, 'viewer'], 'refused as a viewer: the role is corrected');
+          });
+        });
+      });
+    });
+
+    testAsync('المتجر اتشال أو اتمسح: ٤٠٤ store بيرجّع لمتاجره من جديد ويقرا الإعدادات تاني — مرتين بالكتير (مفيش لفّة)', function () {
+      var lists = 0;
+      return withStores({
+        'store.list': function () { lists++; return { stores: [{ id: S1, name: 'متجر أ', role: 'owner' }] }; },
+        'usettings.get': { reject: 404, code: 'store' }
+      }, function (calls) {
+        storeState = 'none'; userSet = null; userSetState = 'none';
+        pullUserSettings();
+        return tick().then(tick).then(tick).then(tick).then(tick).then(tick).then(tick).then(function () {
+          eq([lists, actions(calls).filter(function (a) { return a === 'usettings.get'; }).length, userSetState], [3, 3, 'error'],
+            'the store list is read again twice, then it stops at an error like any failed read');
+          eq(localStorage.getItem(STORE_KEY), S1, 'the last known store');
+        });
+      });
+    });
+
+    test('المشاهد في المتجر: الإعدادات للقراءة بس والحفظ مقفول، ونافذة أول مرة مبتظهرلوش؛ والمالك والمدير بيعدّلوا', function () {
+      activeSources.meta = 'act_1'; accountInfo['meta:act_1'] = { currency: 'SAR' };
+      candidates = [ad('m1', { source: 'meta:act_1' })];
+      activeStore = { id: S1, name: 'متجر أ', role: 'viewer' }; storeList = [activeStore];
+      try {
+        openAlertSettings();
+        ok(!!settingsForm.querySelector('[data-settings-readonly]'), 'a note says why');
+        var inputs = settingsForm.querySelectorAll('input, select, textarea');
+        ok(inputs.length > 0 && [].every.call(inputs, function (el) { return el.disabled; }) && settingsSaveBtn.disabled, 'nothing to change, nothing to save');
+        userSet.asked = false;
+        eq(welcomeWanted(), false, 'a viewer is not asked for the target');
+        activeStore.role = 'manager';
+        renderSettingsForm();
+        ok(!settingsForm.querySelector('[data-settings-readonly]') && [].some.call(settingsForm.querySelectorAll('input'), function (el) { return !el.disabled; }), 'a manager edits');
+        eq(welcomeWanted(), true, 'and is asked for the target');
+        // من غير متجر معروف (قبل ما المتاجر توصل، أو الخادم القديم): الواجهة زي ما كانت والخادم هو اللي بيرفض
+        activeStore = null;
+        eq([storeReadOnly(), storeManages()], [false, false]);
+      } finally { settingsOverlay.classList.add('hidden'); delete accountInfo['meta:act_1']; }
+    });
+
+    test('بطاقة «المتجر وفريقه»: المالك بيشوف الفريق والدعوة والدعوات المفتوحة والسجل وخياراته؛ والمشاهد الفريق والمغادرة بس؛ ومن غير متجر رسالة', function () {
+      var prevRead = AuthLogin.read;
+      AuthLogin.read = function () { return { access_token: 't', email: 'Me@X.example' }; };
+      try {
+        storeList = [{ id: S1, name: 'متجر <أ>', role: 'owner' }, { id: S2, name: 'متجر ب', role: 'manager' }];
+        activeStore = storeList[0]; teamData = people();
+        renderTeamCard();
+        var b = team();
+        var sw = b.querySelector('[data-team-switch]');
+        eq([sw.options.length, sw.value, sw.options[0].textContent], [2, S1, 'متجر <أ>'], 'a store picker, the name as text');
+        ok(/دورك في هذا المتجر: المالك/.test(b.textContent), b.textContent);
+        var rows = b.querySelectorAll('.team-list')[0].querySelectorAll('.team-person');
+        eq(rows.length, 3);
+        ok(/\(أنت\)/.test(rows[0].textContent) && !rows[0].querySelector('[data-team-role]') && !rows[0].querySelector('[data-team-remove]'), 'the owner (me) is not touched');
+        ok(rows[1].querySelector('[data-team-role="' + MAN + '"]').value === 'manager' && rows[1].querySelector('[data-team-remove="' + MAN + '"]'), 'a manager row: role and remove');
+        ok(rows[2].querySelector('.team-email').textContent === '<b>v</b>@x.example' && !rows[2].querySelector('.team-email b'), 'emails as text');
+        ok(b.querySelector('[data-team-email]') && b.querySelector('[data-team-invite-role]').value === 'viewer', 'invite form (viewer by default)');
+        ok(b.querySelector('[data-team-revoke="i1"]') && /تنتهي/.test(b.textContent), 'pending invitations');
+        var log = b.querySelector('.team-log');
+        eq(log.querySelectorAll('li').length, 2);
+        ok(/me@x\.example: دعا new@x\.example \(viewer\)/.test(log.textContent) && /أنشأ المتجر/.test(log.textContent), log.textContent);
+        ok(b.querySelector('[data-team-transfer-to]').options.length === 2 && b.querySelector('[data-team-delete]') && b.querySelector('[data-team-name]').value === 'متجر <أ>', 'owner options');
+        ok(!b.querySelector('[data-team-leave]'), 'the owner does not leave (transfers first)');
+        // الدعوات مقفولة (الأساس قبل قائمة حسابات المتجر): مفيش نموذج دعوة، ومفيش «أضف عضواً أولاً» تحت النقل — والسجل والاسم والحذف زي ما هم
+        teamData = { role: 'owner', people: [people().people[0]], invites: [], audit: people().audit, invitesOpen: false };
+        renderTeamCard();
+        b = team();
+        ok(!b.querySelector('[data-team-email]') && !b.querySelector('[data-team-invite]') && !/دعوة عضو/.test(b.textContent), 'no invite form while invites are closed');
+        ok(!/أضف عضواً إلى الفريق أولاً/.test(b.textContent) && !b.querySelector('[data-team-transfer-to]'), 'no transfer hint either');
+        ok(b.querySelector('.team-log') && b.querySelector('[data-team-rename]') && b.querySelector('[data-team-delete]'), 'the log, the name and delete stay');
+        // ولو الخادم القديم مبعتش invitesOpen: مقفولة كمان
+        delete teamData.invitesOpen;
+        renderTeamCard();
+        ok(!team().querySelector('[data-team-email]'), 'closed unless the server says open');
+        teamData = people();
+        // المدير: بيدير الأعضاء والدعوات والاسم، لكن صف المالك ملوش لمسة (لا دور ولا إزالة)، ومن غير نقل ملكية أو حذف
+        AuthLogin.read = function () { return { access_token: 't', email: 'Man@X.example' }; };
+        activeStore = storeList[1]; teamData = people(); teamData.role = 'manager';
+        renderTeamCard();
+        b = team();
+        rows = b.querySelectorAll('.team-list')[0].querySelectorAll('.team-person');
+        ok(/دورك في هذا المتجر: مدير/.test(b.textContent), b.textContent);
+        ok(!rows[0].querySelector('[data-team-role]') && !rows[0].querySelector('[data-team-remove]') && /المالك/.test(rows[0].textContent), 'a manager cannot touch the owner');
+        ok(/\(أنت\)/.test(rows[1].textContent) && !rows[1].querySelector('[data-team-role]') && !rows[1].querySelector('[data-team-remove]'), 'nor their own row');
+        ok(rows[2].querySelector('[data-team-role="' + VIEW + '"]') && rows[2].querySelector('[data-team-remove="' + VIEW + '"]'), 'but manages the viewer');
+        ok(b.querySelector('[data-team-email]') && b.querySelector('[data-team-revoke="i1"]') && b.querySelector('.team-log') && b.querySelector('[data-team-rename]'),
+          'invites, pending invitations, the log and the name');
+        ok(!b.querySelector('[data-team-transfer-to]') && !b.querySelector('[data-team-delete]') && !!b.querySelector('[data-team-leave]'), 'no transfer or delete (owner only), and can leave');
+        AuthLogin.read = function () { return { access_token: 't', email: 'Me@X.example' }; };
+        // المشاهد
+        storeList[1].role = 'viewer'; activeStore = storeList[1]; teamData = { role: 'viewer', people: people().people };
+        renderTeamCard();
+        b = team();
+        ok(!b.querySelector('[data-team-email]') && !b.querySelector('[data-team-role]') && !b.querySelector('[data-team-remove]') && !b.querySelector('.team-log') &&
+          !b.querySelector('[data-team-delete]') && !b.querySelector('[data-team-rename]'), 'a viewer only sees the team');
+        ok(!!b.querySelector('[data-team-leave]'), 'and can leave');
+        // من غير متجر: داخل بدعوة واتشال، أو مفعّل يعمل متجره
+        activeStore = null; storeList = []; storeCanCreate = false;
+        renderTeamCard();
+        ok(/لست عضواً في فريق أي متجر/.test(team().textContent) && !team().querySelector('[data-team-create]'), team().textContent);
+        storeCanCreate = true;
+        renderTeamCard();
+        ok(/أنشئ متجرك/.test(team().textContent) && !!team().querySelector('[data-team-create]'));
+        storeState = 'loading';
+        renderTeamCard();
+        ok(/جارٍ تحميل المتجر/.test(team().textContent));
+      } finally { AuthLogin.read = prevRead; }
+    });
+
+    testAsync('بطاقة «المتجر وفريقه»: الدعوة (والبريد الغلط)، والإزالة بضغطتين، والدور، والمغادرة، والحذف باسم المتجر بس، والتبديل بين المتاجر', function () {
+      var settle = function () { return tick().then(tick).then(tick); };
+      return withStores({
+        'store.team': function () { return people(); },
+        'store.invite': function (b) { return b.email === 'man@x.example' ? { reject: 409, code: 'member' } : { invite: { id: 'i2' } }; },
+        'store.remove': { ok: true }, 'store.role': { ok: true }, 'store.leave': { ok: true }, 'store.delete': { ok: true },
+        'store.list': { stores: [{ id: S1, name: 'متجر أ', role: 'owner' }] },
+        'usettings.get': function (b) { return { settings: { all: {} }, store: { id: b.store || S1, role: 'owner' } }; }
+      }, function (calls) {
+        // الفريق بيتقري وصفحة الإعدادات ظاهرة بس (وفتحها بيسأل عن الملخص بالبريد كمان — مش موضوع الاختبار ده)
+        showView('settings');
+        storeList = [{ id: S1, name: 'متجر أ', role: 'owner' }, { id: S2, name: 'متجر ب', role: 'manager' }];
+        activeStore = storeList[0]; teamData = people();
+        renderTeamCard();
+        calls.length = 0;
+        var click = function (sel) { team().querySelector(sel).click(); };
+        // بريد غلط: رسالة ومفيش طلب
+        team().querySelector('[data-team-email]').value = 'not an email';
+        click('[data-team-invite]');
+        ok(/اكتب بريداً إلكترونياً صحيحاً/.test(team().textContent) && calls.length === 0, team().textContent);
+        team().querySelector('[data-team-email]').value = ' new2@x.example ';
+        team().querySelector('[data-team-invite-role]').value = 'manager';
+        click('[data-team-invite]');
+        eq(calls[0], { store: S1, action: 'store.invite', email: 'new2@x.example', role: 'manager', lang: 'ar' });
+        return settle().then(function () {
+          ok(/أُرسلت الدعوة إلى new2@x\.example/.test(team().textContent), 'sent: ' + team().textContent);
+          eq(actions(calls).slice(-1), ['store.team'], 'the team is read again');
+          team().querySelector('[data-team-email]').value = 'man@x.example';
+          click('[data-team-invite]');
+          return settle();
+        }).then(function () {
+          ok(/هذا البريد في الفريق بالفعل/.test(team().textContent), 'already in the team: ' + team().textContent);
+          // الإزالة: الضغطة الأولى بتسلّح الزرار (من غير طلب)، والتانية بتشيل
+          calls.length = 0;
+          click('[data-team-remove="' + MAN + '"]');
+          ok(calls.length === 0 && /اضغط مرة أخرى للإزالة/.test(team().querySelector('[data-team-remove="' + MAN + '"]').textContent), 'armed first');
+          click('[data-team-remove="' + MAN + '"]');
+          eq(calls[0], { store: S1, action: 'store.remove', user: MAN });
+          return settle();
+        }).then(function () {
+          // الدور من القائمة
+          calls.length = 0;
+          var sel = team().querySelector('[data-team-role="' + VIEW + '"]');
+          sel.value = 'manager';
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+          eq(calls[0], { store: S1, action: 'store.role', user: VIEW, role: 'manager' });
+          return settle();
+        }).then(function () {
+          // الحذف: الاسم لازم يطابق
+          calls.length = 0;
+          team().querySelector('[data-team-delete-name]').value = 'اسم تاني';
+          click('[data-team-delete]');
+          ok(calls.length === 0 && /غير مطابق/.test(team().textContent), 'the name must match');
+          team().querySelector('[data-team-delete-name]').value = 'متجر أ';
+          click('[data-team-delete]');
+          eq(calls[0], { store: S1, action: 'store.delete', name: 'متجر أ' });
+          return settle();
+        }).then(function () {
+          eq(actions(calls).slice(1, 3), ['store.list', 'usettings.get'], 'after deleting: the stores and settings are read again');
+          // المغادرة (مدير في متجر تاني) بضغطتين
+          storeList = [{ id: S1, name: 'متجر أ', role: 'owner' }, { id: S2, name: 'متجر ب', role: 'manager' }];
+          activeStore = storeList[1]; teamData = { role: 'manager', people: people().people }; storeState = 'ready';
+          renderTeamCard();
+          calls.length = 0;
+          click('[data-team-leave]');
+          click('[data-team-leave]');
+          eq(calls[0], { store: S2, action: 'store.leave' });
+          return settle();
+        }).then(function () {
+          // التبديل: إعدادات المتجر التاني وسجل «ما حققته» بتاعه
+          storeList = [{ id: S1, name: 'متجر أ', role: 'owner' }, { id: S2, name: 'متجر ب', role: 'manager' }];
+          activeStore = storeList[0]; teamData = people(); storeState = 'ready'; userSetState = 'ready';
+          valueEpisodes['meta:act_1'] = [{ id: 1 }];
+          renderTeamCard();
+          calls.length = 0;
+          var sw = team().querySelector('[data-team-switch]');
+          sw.value = S2;
+          sw.dispatchEvent(new Event('change', { bubbles: true }));
+          eq([activeStore.id, localStorage.getItem(STORE_KEY), valueEpisodes['meta:act_1']], [S2, S2, undefined], 'the other store, remembered, with its own record');
+          eq(calls.map(function (c) { return [c.action, c.store]; }).filter(function (x) { return x[0] === 'usettings.get'; }), [['usettings.get', S2]], 'its settings');
+          return settle();
+        }).then(function () { showView('summary'); }, function (e) { showView('summary'); throw e; });
+      });
+    });
+    test('الفريق بيتقري لما صفحة الإعدادات تتفتح بس — مش مع كل فتح للأداة', function () {
+      var prev = window.syncCall, calls = [];
+      window.syncCall = function (b) { calls.push(b.action); return new Promise(function () {}); };
+      try {
+        storeList = [{ id: S1, name: 'متجر أ', role: 'owner' }]; activeStore = storeList[0]; teamData = null;
+        renderTeamCard();
+        eq(calls, [], 'the settings page is hidden: nothing asked');
+        showView('settings');
+        eq(calls, ['store.team'], 'opening the settings page reads the team');
+      } finally { window.syncCall = prev; teamBusy = false; showView('summary'); }
     });
   });
 

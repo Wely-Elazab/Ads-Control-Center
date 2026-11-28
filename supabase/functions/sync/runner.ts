@@ -300,7 +300,19 @@ async function firstRow(path: string): Promise<any | null> {
 function objectOrNull(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null;
 }
-async function userSettingsOf(user: string): Promise<Record<string, unknown> | null> {
+// من ٢٧ نوفمبر ٢٠٢٦ الإعدادات للمتجر (stores.ts — صاحبه وفريقه بنفس التنبيهات): متجر الحساب في الملخص (store_id)، وإلا أول متجر للمستخدم
+// (اللي بيملكه الأول)، وإلا سجله القديم (قبل ما يبقى له متجر)
+async function userSettingsOf(user: string, store?: string | null): Promise<Record<string, unknown> | null> {
+  let sid = store || null;
+  if (!sid) {
+    const own = await firstRow('stores?select=id&owner_id=eq.' + user + '&order=created_at.asc&limit=1');
+    const mem = own ? null : await firstRow('store_members?select=store_id&user_id=eq.' + user + '&order=created_at.asc&limit=1');
+    sid = own ? own.id : (mem ? mem.store_id : null);
+  }
+  if (sid) {
+    const srow = await firstRow('store_settings?select=settings&store_id=eq.' + sid);
+    if (srow) return objectOrNull(srow.settings);
+  }
   const row = await firstRow('user_settings?select=settings&user_id=eq.' + user);
   return objectOrNull(row && row.settings);
 }
@@ -1031,7 +1043,7 @@ export function needsAttention(sec: { sum: { composed: { tone?: string } } }): b
 type Settings = { user_id: string; email: string; lang: string; timezone: string; summary_days: number[]; summary_hour: number; last_summary_until: string | null;
   last_monthly?: string | null; summary_pending?: string | null; summary_pending_at?: string | null; monthly_pending?: string | null; monthly_pending_at?: string | null };
 type DAcct = { user_id: string; platform: string; account_id: string; name?: string | null; checked_at: string | null; claimed_until?: string | null;
-  need_summary?: string | null; need_monthly?: string | null; urgent_due?: boolean; edits_at?: string | null };
+  need_summary?: string | null; need_monthly?: string | null; urgent_due?: boolean; edits_at?: string | null; store_id?: string | null };
 // التعديلات تتقري من إمتى؟ من آخر قراءة ناجحة لسجل التعديلات (edits_at — ولو لسه مفيش: آخر فحص)، وبحد أقصى EDITS_LOOKBACK_MS لورا؛
 // أول فحص خالص: آخر ساعتين. التدقيق الشامل ١١ نوفمبر ٢٠٢٦: كانت من «آخر فحص» (checked_at)، والفحص اللي فشل مؤقتاً — أو نجح وسجل
 // التعديلات نفسه مرجعش — بيحرّك checked_at، فالتعديلات اللي قبله مكانتش بتتقيّم أبداً («تعديل كبير» بيضيع من البريد)
@@ -1411,7 +1423,7 @@ async function enabledUsers(): Promise<Settings[]> {
   return (await r.json()) as Settings[];
 }
 async function accountsNow(user: string): Promise<DAcct[]> {
-  const r = await db('user_digest_accounts?select=user_id,platform,account_id,name,checked_at,claimed_until,need_summary,need_monthly&user_id=eq.' + user +
+  const r = await db('user_digest_accounts?select=user_id,platform,account_id,name,checked_at,claimed_until,need_summary,need_monthly,store_id&user_id=eq.' + user +
     '&platform=in.(' + RUN_PLATFORM_LIST.join(',') + ')&order=added_at.asc', { method: 'GET' });
   return (await r.json()) as DAcct[];
 }
@@ -1465,10 +1477,12 @@ async function runJob(a: DAcct, s: Settings, ctx: RunCtx): Promise<string> {
   const user = s.user_id;
   g.I18N.setLang(s.lang === 'en' ? 'en' : 'ar');
   const stop = ctx.stop[user] || (ctx.stop[user] = await stopUrl(user));
-  if (!(user in ctx.us)) ctx.us[user] = await userSettingsOf(user);
+  // الإعدادات لكل (مستخدم، متجر) — متجر الحساب في الملخص لو معروف (٢٧ نوفمبر ٢٠٢٦)
+  const usKey = user + '|' + (a.store_id || '');
+  if (!(usKey in ctx.us)) ctx.us[usKey] = await userSettingsOf(user, a.store_id);
   const o: CheckOpts = { doUrgent: !!a.urgent_due, due: keyWindow(a.need_summary), monthly: monthWindow(a.need_monthly), stop };
   let r: AcctResult;
-  try { r = await checkUserAccount(s, a, ctx.us[user], o); } catch (e) {
+  try { r = await checkUserAccount(s, a, ctx.us[usKey], o); } catch (e) {
     console.error('runner account failed', String((e as Error).message || e).slice(0, 200));
     r = blankResult(a.platform, a.account_id, a.name || a.account_id);
   }

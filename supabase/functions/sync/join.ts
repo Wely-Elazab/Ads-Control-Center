@@ -277,6 +277,9 @@ export async function handleJoin(action: string, body: any, origin: string | nul
     // التفعيل = البريد بقى مسموح له يدخل الأداة (auth.ts) — قبل الرسالة، عشان أول ما توصله يقدر يدخل
     await db('app_access?on_conflict=email', { method: 'POST', headers: { 'prefer': 'resolution=ignore-duplicates,return=minimal' },
       body: JSON.stringify({ email: r.email.toLowerCase(), role: 'pilot' }) });
+    // كان داخل بدعوة متجر بس (member — ٢٧ نوفمبر ٢٠٢٦): التفعيل بيخلّيه مفعّل في التجربة (يعمل متجر لنفسه). المدير (admin) مبيتلمسش
+    await db('app_access?email=eq.' + encodeURIComponent(r.email.toLowerCase()) + '&role=eq.member', { method: 'PATCH',
+      headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ role: 'pilot' }) });
     const mail = activationMail(r);
     try { await sendEmail(r.email, mail.subject, mail.html, mail.text); } catch (e) {
       console.error('join activation mail failed', String((e as Error).message || e).slice(0, 160));

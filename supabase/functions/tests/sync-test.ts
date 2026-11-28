@@ -17,6 +17,7 @@ import { ACCT_MAX, MAX_KEYS, cleanAccountSettings, cleanPrefs, cleanUserSettings
 import { amountsFinal, cleanAmounts, cleanDecisions, cleanOpen, decisionOk, handleEpisodes, moneyOf } from '../sync/episodes.ts';
 import { handle } from '../sync/handler.ts';
 import { activationMail, adminMail, handleJoin, joinReminders } from '../sync/join.ts';
+import { TEAM, handleInvite, handleStores, inviteMail, newInviteToken, storeName, tokenHash } from '../sync/stores.ts';
 
 // مفتاح تشفير تجريبي (٣٢ بايت) — بيتقري وقت أول استخدام، مش وقت الاستيراد
 Deno.env.set('TOKEN_ENC_KEY', btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))));
@@ -32,6 +33,32 @@ function restoreFetch() { globalThis.fetch = realFetch; }
 // DNS الحقيقي مقفول في كل الاختبارات (CI مفيهوش صلاحية شبكة، والمتصفح مفيهوش DNS) — اختبار DNS بيحط واحد مزيف ويرجّعه null (١١٩)
 setResolverForTests(null);
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+// متجر مزيف (٢٧ نوفمبر ٢٠٢٦ — الإعدادات وسجل المشكلات بقوا للمتجر — stores.ts): مالكه owner، وأعضاؤه members (رقم ← دور)، وإعداداته
+// settings. بيرد على stores / store_members / store_settings / store_settings_apply، وأي طلب تاني = null (الاختبار بيكمّل بطريقته)
+const STORE = '99999999-8888-7777-6666-555555555555';
+type StoreWorld = { owner: string; members?: Record<string, string>; settings?: any; applied?: any[] };
+function storeRest(url: string, init: RequestInit | undefined, w: StoreWorld): Response | null {
+  const method = (init && init.method) || 'GET';
+  if (url.indexOf('/rest/v1/stores?') > -1 && method === 'GET') {
+    if (url.indexOf('owner_id=eq.') > -1) return json(url.indexOf('owner_id=eq.' + w.owner) > -1 ? [{ id: STORE, name: 'متجر', owner_id: w.owner }] : []);
+    return json(url.indexOf('id=eq.' + STORE) > -1 ? [{ id: STORE, name: 'متجر', owner_id: w.owner }] : []);
+  }
+  if (url.indexOf('/rest/v1/store_members?') > -1 && method === 'GET') {
+    const m = /user_id=eq\.([0-9a-f-]+)/.exec(url), role = m ? (w.members || {})[m[1]] : undefined;
+    if (url.indexOf('stores(') > -1) return json(role ? [{ role, stores: { id: STORE, name: 'متجر' } }] : []);
+    return json(role ? [{ role }] : []);
+  }
+  if (url.indexOf('/rest/v1/store_settings?') > -1 && method === 'GET') return json(w.settings ? [{ settings: w.settings, updated_at: '2026-11-27T00:00:00Z' }] : []);
+  if (url.indexOf('/rest/v1/rpc/store_settings_apply') > -1) {
+    const a = JSON.parse(String(init && init.body));
+    (w.applied = w.applied || []).push(a);
+    w.settings = { ...(w.settings || { all: {} }), ...(a.p_changes || {}) };
+    if (a.p_goals) w.settings.all = { ...(w.settings.all || {}), ...a.p_goals };
+    return json(w.settings);
+  }
+  return null;
+}
 
 // ---------- lib.ts ----------
 Deno.test('CORS: موقعنا بس هو اللي يقدر يكلّم الدالة من المتصفح', () => {
@@ -268,7 +295,9 @@ Deno.test('نقطة الدخول: الطرق وCORS وحد الحجم، والع
     assertEquals((await post({ action: 'run' }, { 'x-runner-key': 'guess' })).status, 403, 'the runner only with its key');
     // كل الباقي: دخول مكتمل الأول — حتى لو الطلب فيه مفتاح Meta، مفيش سؤال لـ Meta قبل الدخول
     for (const action of ['seen', 'list', 'save', 'selfcheck', 'testmail', 'digest.preview', 'digest.previewSummary', 'digest.status', 'meta.seal', 'meta.renew',
-      'usettings.get', 'usettings.set', 'settings.get', 'episodes.sync', 'episodes.decide', 'episodes.amounts', 'nonsense', '']) {
+      'usettings.get', 'usettings.set', 'settings.get', 'episodes.sync', 'episodes.decide', 'episodes.amounts',
+      // المتجر وفريقه (٢٧ نوفمبر ٢٠٢٦): كل عمليات «store.» بدخول — الدعوة بس من غير دخول (invite.*)
+      'store.list', 'store.create', 'store.team', 'store.invite', 'store.remove', 'store.role', 'store.leave', 'store.transfer', 'store.delete', 'nonsense', '']) {
       asked.length = 0;
       const r = await post({ action, token: TOK, accountId: 'act_1', viewKey: 'meta:act_1' });
       assertEquals([r.status, r.body], [401, { error: 'login', code: 'LOGIN' }], JSON.stringify(action));
@@ -689,7 +718,11 @@ function fakeJoinDb(opts: { budget?: boolean; recent?: number; mailFails?: boole
       return json({ id: 'mail-' + store.mails.length });
     }
     if (url.indexOf('/rest/v1/rpc/mail_budget_take') > -1) { store.budget.push(body.p_kind); return json(opts.budget !== false); }
-    if (url.indexOf('/rest/v1/app_access') > -1) { store.access.push(body); return new Response(null, { status: 201 }); }
+    // الترقية من «member» (دعوة متجر بس) لـ«pilot» بتتسجّل بشرطها (٢٧ نوفمبر ٢٠٢٦)
+    if (url.indexOf('/rest/v1/app_access') > -1) {
+      store.access.push(init && init.method === 'PATCH' ? { patch: decodeURIComponent(url.split('?')[1] || ''), ...body } : body);
+      return new Response(null, { status: 201 });
+    }
     if (url.indexOf('/rest/v1/pilot_requests') > -1) {
       const p = new URLSearchParams(url.split('?')[1] || '');
       if (method === 'GET') {
@@ -784,7 +817,8 @@ Deno.test('رابط الدعوة: بالتوقيع بس، والعرض من غي
     // التفعيل: الدخول مسموح (بريد صغير) قبل الرسالة، ورسالة للعميل نفسه، والطلب «مفعّل»
     const [st2, act] = await call('join.activate', { id: JOIN_ID, sig });
     assertEquals([st2, act.ok, act.request.status], [200, true, 'activated']);
-    assertEquals(s.access, [{ email: 'sara@x.example', role: 'pilot' }]);
+    // ومن كان داخل بدعوة متجر بس (member) بيتفعّل «pilot» — بشرط الدور، فالمدير (admin) مبيتلمسش
+    assertEquals(s.access, [{ email: 'sara@x.example', role: 'pilot' }, { patch: 'email=eq.sara@x.example&role=eq.member', role: 'pilot' }]);
     assertEquals([s.mails.length, s.mails[0].to, s.reqs[0].status, !!s.reqs[0].activated_at], [1, ['Sara@X.example'], 'activated', true]);
     assertEquals(await call('join.other', { id: JOIN_ID, sig }), [400, { error: 'action' }]);
     restoreDigestEnv();
@@ -792,7 +826,7 @@ Deno.test('رابط الدعوة: بالتوقيع بس، والعرض من غي
     const s2 = fakeJoinDb({ mailFails: true });
     s2.reqs.push({ ...s.reqs[0], status: 'new', activated_at: null });
     assertEquals(await call('join.activate', { id: JOIN_ID, sig }), [502, { error: 'mail' }]);
-    assertEquals([s2.access.length, s2.reqs[0].status], [1, 'new']);
+    assertEquals([s2.access.length, s2.reqs[0].status], [2, 'new'], 'access (and the member upgrade) before the mail');
   } finally { restoreDigestEnv(); }
 });
 // تذكير الطلبات المتأخرة (المُشغّل كل ١٠ دقايق): الوعد في صفحة الطلب «التفعيل خلال ٢٤ ساعة» — بعد ١٨ ساعة ولحد أسبوع، مرة واحدة بحجز قبل
@@ -890,18 +924,29 @@ Deno.test('إعدادات المستخدم: سجل صاحب الدخول بس �
   const U = '11111111-2222-3333-4444-555555555555';
   const calls: { method: string; url: string; body: any }[] = [];
   let usedAt = '2025-01-01T00:00:00Z';
+  // من ٢٧ نوفمبر ٢٠٢٦: الإعدادات لكل حساب من المتجر، والتفضيلات من سجل المستخدم
+  const w: StoreWorld = { owner: U, settings: { all: { roasTarget: 5 }, acct: { 'meta:act_1': { roasTarget: 3 } } } };
   stubFetch((url, init) => {
+    const s = storeRest(url, init, w);
+    if (s) return s;
     if (url.indexOf('/rest/v1/user_settings') > -1) {
       const method = (init && init.method) || 'GET';
       calls.push({ method, url, body: init && init.body ? JSON.parse(String(init.body)) : null });
-      if (method === 'GET') return json([{ settings: { all: { roasTarget: 5 } }, updated_at: '2026-10-26T00:00:00Z', used_at: usedAt }]);
+      if (method === 'GET') return json([{ settings: { all: { roasTarget: 9 }, prefs: { currency: 'SAR' } }, updated_at: '2026-10-26T00:00:00Z', used_at: usedAt }]);
       return new Response(null, { status: 204 });
     }
     throw new Error('unexpected fetch ' + url);
   });
   try {
     const get = await handleUserSettings('usettings.get', {}, U, null);
-    assertEquals((await get.json()).settings, { all: { roasTarget: 5 } });
+    const body = await get.json();
+    assertEquals(body.settings, { all: { roasTarget: 5 }, acct: { 'meta:act_1': { roasTarget: 3 } }, prefs: { currency: 'SAR' } },
+      'the store settings with this user own preferences (his old copy of «all» is not shown)');
+    assertEquals(body.store, { id: STORE, role: 'owner' }, 'his first store by default');
+    assertEquals((await handleUserSettings('usettings.get', { store: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }, U, null)).status, 404, 'a store he is not in');
+    calls.length = 0;
+    usedAt = '2025-01-01T00:00:00Z';
+    await handleUserSettings('usettings.get', { store: STORE }, U, null);
     assert(calls.every((c) => c.url.indexOf('user_id=eq.' + U) > -1), 'only this user record');
     assertEquals(calls.filter((c) => c.method === 'PATCH').length, 1, 'old last-use: touched (12-month retention)');
     calls.length = 0;
@@ -919,8 +964,12 @@ Deno.test('إعدادات المستخدم: موافقة نموذج الانضم
   const U = '11111111-2222-3333-4444-555555555555';
   let stored: any = { all: { roasTarget: 5 } }, version: string | null = '2026-11-26', joinFails = false, applyFails = false;
   const asks: string[] = [], applies: any[] = [];
+  // إعدادات المتجر (all = ٧) بتظهر مع تفضيلات المستخدم — نسخته القديمة من «كل الحسابات» (٥) مبتظهرش (٢٧ نوفمبر ٢٠٢٦)
+  const w: StoreWorld = { owner: U, settings: { all: { roasTarget: 7 } } }, view = (prefs: any) => ({ all: { roasTarget: 7 }, prefs });
   stubFetch((url, init) => {
     const method = (init && init.method) || 'GET';
+    const s = storeRest(url, init, w);
+    if (s) return s;
     if (url.indexOf('/rest/v1/user_settings') > -1) {
       if (method === 'GET') return json(stored ? [{ settings: stored, updated_at: '2026-11-26T00:00:00Z', used_at: new Date().toISOString() }] : []);
       return new Response(null, { status: 204 });
@@ -941,27 +990,27 @@ Deno.test('إعدادات المستخدم: موافقة نموذج الانضم
   const get = async (email?: string) => (await (await handleUserSettings('usettings.get', {}, U, null, email)).json()).settings;
   try {
     // وافق على شروط ٢٦ نوفمبر: الموافقة بتتحفظ (بالدمج — من غير ما تلمس باقي سجله)، والبريد مترمّز في الطلب
-    assertEquals(await get('a+b@x.example'), { all: { roasTarget: 5 }, prefs: { valueAck2: true } });
+    assertEquals(await get('a+b@x.example'), view({ valueAck2: true }));
     assertEquals(applies, [{ p_user: U, p_base: null, p_changes: { prefs: { valueAck2: true } }, p_goals: null, p_asked: false }]);
     assert(asks[0].indexOf('email=eq.a%2Bb%40x.example') > -1 && asks[0].indexOf('select=consent_version') > -1, asks[0]);
     // مستخدم جديد مالوش سجل لسه: السجل بيتعمل بالموافقة بس
     stored = null; applies.length = 0;
-    assertEquals(await get('new@x.example'), { all: {}, prefs: { valueAck2: true } });
+    assertEquals(await get('new@x.example'), view({ valueAck2: true }));
     assertEquals(applies.length, 1);
     // محفوظة قبل كده: مفيش سؤال عن طلب الانضمام ولا كتابة
     stored = { all: {}, prefs: { valueAck2: true } }; asks.length = 0; applies.length = 0;
-    assertEquals(await get('a@x.example'), stored);
+    assertEquals(await get('a@x.example'), view({ valueAck2: true }));
     assertEquals([asks.length, applies.length], [0, 0], 'already stored: nothing asked or written');
     // شروط أقدم (٢٦ أكتوبر)، أو مفيش طلب انضمام (حساب اتعمل يدوياً)، أو قراءة الطلب فشلت، أو مفيش بريد: الملاحظة زي ما هي
     stored = { all: {}, prefs: { valueAck: true } };
     for (const [v, fails, email, why] of [['2026-10-26', false, 'a@x.example', 'older terms'], [null, false, 'a@x.example', 'no join request'],
       ['2026-11-26', true, 'a@x.example', 'reading the request failed'], ['2026-11-26', false, undefined, 'no email']] as [string | null, boolean, string | undefined, string][]) {
       version = v; joinFails = fails; applies.length = 0;
-      assertEquals([await get(email), applies.length], [stored, 0], why);
+      assertEquals([await get(email), applies.length], [view({ valueAck: true }), 0], why);
     }
     // الحفظ فشل: القراءة بتكمل بالسجل زي ما هو (الملاحظة بتظهر المرة دي، وضغطتها بتحفظ نفس الموافقة)
     version = '2026-11-26'; joinFails = false; applyFails = true; applies.length = 0;
-    assertEquals([await get('a@x.example'), applies.length], [stored, 1], 'saving failed: the record as it is');
+    assertEquals([await get('a@x.example'), applies.length], [view({ valueAck: true }), 1], 'saving failed: the record as it is');
   } finally { restoreFetch(); }
 });
 // مراجعة ٣١ أكتوبر («دقق جيداً»): الحفظ بالسجل كله من نسخة الجهاز كان بيمسح تعديل جهاز تاني — دلوقتي المجموعات اللي اتغيّرت بس،
@@ -1003,34 +1052,54 @@ Deno.test('حفظ إعدادات المستخدم: المجموعات اللي �
   assertEquals(Object.keys((ok2000.changes.all as any).campaignMaxCost).length, MAX_KEYS, 'exactly the cap: all kept');
 });
 Deno.test('حفظ إعدادات المستخدم: دالة الدمج المقفولة لصاحب الدخول بس، والرد = السجل كله — والصفحة القديمة بالسجل كله مبتمسحش تخصيص مش فيه', async () => {
-  const U = '11111111-2222-3333-4444-555555555555';
+  const U = '11111111-2222-3333-4444-555555555555', V = '22222222-3333-4444-5555-666666666666', O = '33333333-4444-5555-6666-777777777777';
   const rpcs: any[] = [];
+  // من ٢٧ نوفمبر ٢٠٢٦: الإعدادات لكل حساب و«كل الحسابات» والمستهدف للمتجر (store_settings_apply)، و«شاف النافذة» والتفضيلات للمستخدم
+  const w: StoreWorld = { owner: U, settings: { all: { roasTarget: 4 } } };
   stubFetch((url, init) => {
+    const s = storeRest(url, init, w);
+    if (s) return s;
     if (url.indexOf('/rest/v1/rpc/user_settings_apply') > -1) {
       const args = JSON.parse(String(init && init.body));
       rpcs.push(args);
-      return json({ all: { roasTarget: 4 }, acct: { 'meta:act_1': { roasTarget: 9 } }, asked: true });
+      return json({ asked: true, prefs: args.p_changes.prefs || undefined });
     }
+    if (url.indexOf('/rest/v1/user_settings') > -1) return json([{ settings: { prefs: { currency: 'USD' } } }]);
     throw new Error('unexpected fetch ' + url);
   });
   try {
     const set = await handleUserSettings('usettings.set', { changes: { acct: { 'meta:act_1': { roasTarget: 9, evil: 9 } } }, asked: true, userId: 'someone-else' }, U, null);
     assertEquals(set.status, 200);
-    assertEquals(rpcs[0], { p_user: U, p_base: null, p_changes: { acct: { 'meta:act_1': { roasTarget: 9 } } }, p_goals: null, p_asked: true }, 'cleaned, and only for this user');
-    assertEquals((await set.json()).settings, { all: { roasTarget: 4 }, acct: { 'meta:act_1': { roasTarget: 9 } }, asked: true }, 'the whole merged record back');
+    assertEquals(w.applied![0], { p_store: STORE, p_base: null, p_changes: { acct: { 'meta:act_1': { roasTarget: 9 } } }, p_goals: null }, 'cleaned, for his store');
+    assertEquals(rpcs[0], { p_user: U, p_base: null, p_changes: {}, p_goals: null, p_asked: true }, '«asked» stays his own');
+    const out = await set.json();
+    assertEquals(out.settings, { all: { roasTarget: 4 }, acct: { 'meta:act_1': { roasTarget: 9 } }, asked: true }, 'the whole merged view back');
+    assertEquals(out.store, { id: STORE, role: 'owner' });
     // صفحة اتفتحت قبل ٣١ أكتوبر (السجل كله): بيتحوّل لتعديل «كل الحسابات» والمنصات اللي فيه — من غير إلغاء تخصيص مش فيه
     await handleUserSettings('usettings.set', { settings: { all: { roasTarget: 6 }, plat: { snapchat: { roasTarget: 2 }, myspace: {} }, asked: true } }, U, null);
-    assertEquals(rpcs[1].p_changes, { all: { roasTarget: 6 }, snapchat: { roasTarget: 2 } });
+    assertEquals(w.applied![1].p_changes, { all: { roasTarget: 6 }, snapchat: { roasTarget: 2 } });
     assertEquals(rpcs[1].p_asked, true);
-    assert(!('meta' in rpcs[1].p_changes), 'Meta (customized from another device) is not removed');
-    const before = rpcs.length;
+    assert(!('meta' in w.applied![1].p_changes), 'Meta (customized from another device) is not removed');
+    // التفضيلات للمستخدم بس — مفيش كتابة على المتجر
+    const nStore = w.applied!.length;
+    await handleUserSettings('usettings.set', { changes: { prefs: { currency: 'SAR' } }, store: STORE }, U, null);
+    assertEquals([w.applied!.length, rpcs[2].p_changes], [nStore, { prefs: { currency: 'SAR' } }], 'preferences: his record only');
+    // المشاهد بيشوف من غير ما يغيّر: إعدادات المتجر = ٤٠٣، وتفضيلاته هو مسموحة؛ والمتجر اللي مش فيه = ٤٠٤
+    w.owner = O; w.members = { [V]: 'viewer', [U]: 'manager' };
+    const viewer = await handleUserSettings('usettings.set', { changes: { all: { roasTarget: 2 } }, store: STORE }, V, null);
+    assertEquals([viewer.status, (await viewer.json()).error, w.applied!.length], [403, 'role', nStore], 'a viewer cannot change the store settings');
+    assertEquals((await handleUserSettings('usettings.set', { changes: { prefs: { currency: 'SAR' } }, store: STORE }, V, null)).status, 200, 'his own preferences');
+    assertEquals((await handleUserSettings('usettings.set', { changes: { all: { roasTarget: 2 } }, store: STORE }, U, null)).status, 200, 'a manager can');
+    assertEquals((await handleUserSettings('usettings.set', { changes: { all: { roasTarget: 2 } }, store: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }, U, null)).status, 404);
+    w.owner = U; w.members = {};
+    const before = rpcs.length + w.applied!.length;
     const big: Record<string, number> = {};
     for (let i = 0; i <= MAX_KEYS; i++) big['c' + i] = 1;
     const tooMany = await handleUserSettings('usettings.set', { changes: { all: { campaignMaxCost: big } } }, U, null);
-    assertEquals([tooMany.status, (await tooMany.json()).error, rpcs.length], [400, 'too many', before], 'refused with a clear reason, nothing saved');
+    assertEquals([tooMany.status, (await tooMany.json()).error, rpcs.length + w.applied!.length], [400, 'too many', before], 'refused with a clear reason, nothing saved');
     assertEquals((await handleUserSettings('usettings.set', { changes: { all: null } }, U, null)).status, 400);
     assertEquals((await handleUserSettings('usettings.set', {}, U, null)).status, 400);
-    assertEquals(rpcs.length, before, 'bad requests save nothing');
+    assertEquals(rpcs.length + w.applied!.length, before, 'bad requests save nothing');
     assertEquals((await handleUserSettings('usettings.set', { asked: true }, 'not-a-user', null)).status, 401);
   } finally { restoreFetch(); }
 });
@@ -1092,7 +1161,11 @@ Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم
   let metaOk = true;
   const calls: { method: string; url: string; body: any }[] = [];
   const first = new Date(Date.now() - 30 * 3600000).toISOString();
+  // السجل للمتجر (٢٧ نوفمبر ٢٠٢٦): المستخدم هنا مالك المتجر STORE
+  const w: StoreWorld = { owner: '11111111-2222-3333-4444-555555555555' };
   stubFetch((url, init) => {
+    const s = storeRest(url, init, w);
+    if (s) return s;
     if (url.indexOf('graph.facebook.com') > -1) return metaOk ? json({ id: 'act_123', name: 'X' }) : json({ error: { code: 100 } }, 400);
     if (url.indexOf('/rest/v1/alert_episodes') > -1) {
       const method = (init && init.method) || 'GET';
@@ -1116,9 +1189,10 @@ Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم
     const patches = calls.filter((c) => c.method === 'PATCH'), posts = calls.filter((c) => c.method === 'POST');
     assert(patches.some((c) => /id=in\.\(1\)/.test(c.url) && c.body.last_seen_at), 'still open: seen again');
     assert(patches.some((c) => /id=in\.\(2\)/.test(c.url) && c.body.ended_at), 'gone: ended');
-    assertEquals(posts.map((c) => c.body), [[{ user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '33', kind: 'loss', amount_currency: 'SAR' },
-      { user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '44', kind: 'waste' }]], 'only the new ones are added, for this user, with the currency and no daily loss');
-    assert(calls.every((c) => c.method === 'POST' || c.url.indexOf('user_id=eq.' + U) > -1), 'every read and update is limited to this user');
+    assertEquals(posts.map((c) => c.body), [[{ store_id: STORE, user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '33', kind: 'loss', amount_currency: 'SAR' },
+      { store_id: STORE, user_id: U, platform: 'meta', account_id: 'act_123', ad_id: '44', kind: 'waste' }]],
+      'only the new ones are added, for his store (recorded by him), with the currency and no daily loss');
+    assert(calls.every((c) => c.method === 'POST' || c.url.indexOf('store_id=eq.' + STORE) > -1), 'every read and update is limited to this store');
     // كل المشكلات من أول يوم (سطر «منذ بدأت») — من غير حد بفترة
     assert(calls.some((c) => c.method === 'GET' && /order=first_at\.desc&limit=5000$/.test(c.url) && c.url.indexOf('first_at=gte') < 0), 'all of them, newest first');
     assert(calls.every((c) => c.url.indexOf('baseline_daily') < 0), 'the daily loss is not read');
@@ -1141,6 +1215,15 @@ Deno.test('سجل المشكلات: الجديد بيتسجّل، والقديم
     assertEquals(calls.length, 0, 'no access: nothing read or written');
     assertEquals((await handleEpisodes('episodes.sync', { platform: 'google', accountId: '1', platformToken: T, open: [] }, U, null)).status, 400);
     assertEquals((await handleEpisodes('episodes.sync', { ...who, open: [] }, '', null)).status, 401, 'no user: refused');
+    // متجر مش عضو فيه: ٤٠٤ قبل أي قراءة أو كتابة في السجل (ولا حتى سؤال المنصة)
+    metaOk = true; calls.length = 0;
+    assertEquals((await handleEpisodes('episodes.sync', { ...who, open: [], store: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }, U, null)).status, 404);
+    assertEquals(calls.length, 0, 'another store: nothing read or written');
+    // عضو في المتجر (مشاهد) بيسجّل في سجل المتجر نفسه — اللي فتح الأداة من الفريق
+    const V = '22222222-3333-4444-5555-666666666666';
+    w.members = { [V]: 'viewer' };
+    await handleEpisodes('episodes.sync', { ...who, open: [{ ad: '55', kind: 'waste' }], store: STORE }, V, null);
+    assertEquals(calls.filter((c) => c.method === 'POST').map((c) => c.body[0].store_id + '|' + c.body[0].user_id), [STORE + '|' + V]);
   } finally { restoreFetch(); }
 });
 // البريد بسجل الحساب بس: من غيره حكم الربح بيستنى زي الأداة (النسخة القديمة اللي كانت مع الملخص كانت ×٣/×١ غلط — اتشاف حياً)
@@ -3248,7 +3331,10 @@ Deno.test('حواف سجل المشكلات: بداية مش تاريخ، وتس
   assert(!decisionOk('not a date', { handledAt: null }, Date.now()), 'no start date: never accepted');
   const calls: { method: string; url: string; body: any }[] = [];
   const first = new Date(Date.now() - 30 * 3600000).toISOString();
+  const w: StoreWorld = { owner: '11111111-2222-3333-4444-555555555555' };
   stubFetch((url, init) => {
+    const s = storeRest(url, init, w);
+    if (s) return s;
     if (url.indexOf('graph.facebook.com') > -1) return json({ id: 'act_123', name: 'X' });
     if (url.indexOf('/rest/v1/alert_episodes') > -1) {
       const method = (init && init.method) || 'GET', body = init && init.body ? JSON.parse(String(init.body)) : null;
@@ -3290,7 +3376,10 @@ Deno.test('حواف سجل المشكلات: بداية مش تاريخ، وتس
 Deno.test('سجل المشكلات: المبالغ بتتحفظ مرة واحدة للمشكلة اللي أيامها كملت، بعملتها، ومن غير الخسارة اليومية', async () => {
   const calls: { method: string; url: string; body: any }[] = [];
   const day = 86400000, old = new Date(Date.now() - 9 * day).toISOString(), recent = new Date(Date.now() - 2 * day).toISOString();
+  const w: StoreWorld = { owner: '11111111-2222-3333-4444-555555555555' };
   stubFetch((url, init) => {
+    const s = storeRest(url, init, w);
+    if (s) return s;
     if (url.indexOf('graph.facebook.com') > -1) return json({ id: 'act_123', name: 'X' });
     if (url.indexOf('/rest/v1/alert_episodes') > -1) {
       const method = (init && init.method) || 'GET';
@@ -3312,7 +3401,7 @@ Deno.test('سجل المشكلات: المبالغ بتتحفظ مرة واحد�
     const res = await handleEpisodes('episodes.amounts', { ...who, amounts }, U, null);
     assertEquals([res.status, (await res.json()).saved], [200, 2]);
     const get = calls.find((c) => c.method === 'GET');
-    assert(!!get && get.url.indexOf('amounts_at=is.null') > -1 && get.url.indexOf('user_id=eq.' + U) > -1, 'only rows without amounts, of this user');
+    assert(!!get && get.url.indexOf('amounts_at=is.null') > -1 && get.url.indexOf('store_id=eq.' + STORE) > -1, 'only rows without amounts, of this store');
     assert(get!.url.indexOf('baseline_daily') < 0, 'the daily loss is not even read');
     const p = calls.filter((c) => c.method === 'PATCH');
     assertEquals(p.map((c) => [/id=eq\.(\d+)&amounts_at=is\.null/.exec(c.url)?.[1], c.body.saved_amount, c.body.lost_amount, c.body.amount_currency, 'baseline_daily' in c.body]),
@@ -3500,6 +3589,10 @@ Deno.test('نقطة الدخول — بعد الدخول كل عملية بتو�
     // موافقة طلب الانضمام لبريد الدخول اللي في الرمز (a@b.co) بس — التوجيه لازم يوصّل البريد لإعدادات المستخدم (٢٦ نوفمبر ٢٠٢٦)
     if (url.indexOf('/rest/v1/pilot_requests') > -1) return json(url.indexOf('email=eq.a%40b.co&') > -1 ? [{ consent_version: '2026-11-26' }] : []);
     if (url.indexOf('/rest/v1/rpc/user_settings_apply') > -1) return json({ all: {}, prefs: { valueAck2: true } });
+    // المستخدم مالك المتجر STORE (المتجر وفريقه — ٢٧ نوفمبر ٢٠٢٦)
+    const s = storeRest(url, init, { owner: '11111111-2222-3333-4444-555555555555' });
+    if (s) return s;
+    if (url.indexOf('/rest/v1/rpc/store_people') > -1) return json([{ user_id: '11111111-2222-3333-4444-555555555555', email: 'a@b.co', role: 'owner', since: '2026-11-27T00:00:00Z' }]);
     if (url.indexOf('/rest/v1/') > -1) return ((init && init.method) || 'GET') === 'GET' || url.indexOf('/rpc/') > -1 ? json([]) : new Response(null, { status: 204 });
     throw new Error('unexpected fetch ' + url);
   });
@@ -3522,6 +3615,13 @@ Deno.test('نقطة الدخول — بعد الدخول كل عملية بتو�
     assert(ep.status === 200 && Array.isArray(ep.body.episodes), 'episodes.sync: ' + JSON.stringify(ep));
     const dg = await post({ action: 'digest.get' });
     assert(dg.status === 200 && Array.isArray(dg.body.accounts) && 'current' in dg.body, 'digest.get: ' + JSON.stringify(dg));
+    // المتجر وفريقه (stores.ts — ٢٧ نوفمبر ٢٠٢٦): عمليات «store.» بعد الدخول بتوصل لمعالجها
+    const st = await post({ action: 'store.team', store: STORE });
+    assert(st.status === 200 && st.body.role === 'owner' && Array.isArray(st.body.people), 'store.team: ' + JSON.stringify(st));
+    // ودعوة المتجر من غير دخول: رمز مش موجود = «gone» (مش ٤٠١)
+    const r = await handle(({ method: 'POST', headers: new Headers({ origin: 'https://adscenter.online' }),
+      text: () => Promise.resolve(JSON.stringify({ action: 'invite.peek', t: 'x'.repeat(43) })) }) as unknown as Request);
+    assertEquals([r.status, await r.json()], [200, { state: 'gone' }], 'invite.peek without sign-in');
   } finally { restoreFetch(); }
 });
 // البريد وقع وقت إرسال العاجل (Resend): الوعد في تعليق sendUrgent — «لو الإرسال فشل البصمات المستنية متتحفظش، فالفحص الجاي بيلاقي التنبيه ويبعته
@@ -3631,4 +3731,312 @@ Deno.test('قرار العاجل — إعلانين بيهدروا في نفس �
   const host = wasteAlerts[0], other = host.adId === 'waste' ? 'waste2' : 'waste';
   assertEquals(host.setMerged, [other], 'the other ad is merged into it');
   assert(u.alive[fam + '|' + other], 'the merged ad stays open in the marks: ' + JSON.stringify(Object.keys(u.alive)));
+});
+
+// ---------- المتجر وفريقه (stores.ts — المرحلة ١، قرارات صاحب المنتج ٢٦–٢٧ نوفمبر ٢٠٢٦) ----------
+// قاعدة بيانات في الذاكرة بتفهم طلبات stores.ts بس (الفلاتر eq/is.null/gt/gte/or وselect المتداخل stores(...))، وحسابات الدخول، وResend
+type TeamDb = {
+  users: Record<string, string>; access: Record<string, string>; stores: any[]; members: any[]; invites: any[]; audit: any[]; settings: any[];
+  userSettings: Record<string, any>; requests: Record<string, any>; mails: any[]; created: string[]; failMail?: boolean;
+};
+function fakeTeam(seed: Partial<TeamDb>): TeamDb {
+  // الدعوات مقفولة في النشر لحد قائمة «حسابات المتجر»: اختبارات الفريق بتشتغل وهي مفتوحة، واختبار «مقفولة» بيقفلها بنفسه
+  TEAM.invitesOpen = true;
+  const t: TeamDb = { users: {}, access: {}, stores: [], members: [], invites: [], audit: [], settings: [], userSettings: {}, requests: {}, mails: [], created: [], ...seed };
+  let n = 0;
+  const uuid = () => (++n).toString(16).padStart(8, '0') + '-aaaa-4bbb-8ccc-' + (n * 7).toString(16).padStart(12, '0');
+  const emailOf = (id: string) => t.users[id];
+  Deno.env.set('RESEND_API_KEY', 'test-resend-key');
+  stubFetch((url, init) => {
+    const method = (init && init.method) || 'GET', body = init && init.body ? JSON.parse(String(init.body)) : null;
+    if (url.indexOf('api.resend.com/emails') > -1) {
+      if (t.failMail) return json({ message: 'down' }, 500);
+      t.mails.push(body);
+      return json({ id: 'mail' + t.mails.length });
+    }
+    const u = new URL(url.replace(/^undefined/, 'http://db'));
+    const eq = (k: string) => { const v = u.searchParams.get(k); return v && v.indexOf('eq.') === 0 ? v.slice(3) : null; };
+    const isNull = (k: string) => u.searchParams.get(k) === 'is.null';
+    const path = u.pathname;
+    if (path === '/auth/v1/admin/users') { const id = uuid(); t.users[id] = body.email; t.created.push(body.email); return json({ id }); }
+    if (path === '/auth/v1/admin/generate_link') return json({ properties: { hashed_token: 'reset_' + body.email.replace(/[^a-z0-9]/g, '_') } });
+    if (path === '/rest/v1/rpc/auth_user_id') return json(Object.keys(t.users).find((id) => t.users[id] === body.p_email) || null);
+    if (path === '/rest/v1/rpc/store_people') {
+      const s = t.stores.find((x) => x.id === body.p_store);
+      if (!s) return json([]);
+      return json([{ user_id: s.owner_id, email: emailOf(s.owner_id), role: 'owner', since: s.created_at }]
+        .concat(t.members.filter((m) => m.store_id === s.id).map((m) => ({ user_id: m.user_id, email: emailOf(m.user_id), role: m.role, since: m.created_at }))));
+    }
+    if (path === '/rest/v1/rpc/store_audit_view') {
+      return json(t.audit.filter((a) => a.store_id === body.p_store).slice().reverse().slice(0, body.p_limit)
+        .map((a) => ({ action: a.action, actor_email: a.actor ? emailOf(a.actor) : null, target: a.target, at: a.at })));
+    }
+    if (path === '/rest/v1/rpc/store_transfer') {
+      const s = t.stores.find((x) => x.id === body.p_store && x.owner_id === body.p_from);
+      const i = t.members.findIndex((m) => m.store_id === body.p_store && m.user_id === body.p_to);
+      if (!s || i < 0 || body.p_from === body.p_to) return json(false);
+      t.members.splice(i, 1);
+      s.owner_id = body.p_to;
+      t.members.push({ store_id: s.id, user_id: body.p_from, role: 'manager', created_at: new Date().toISOString() });
+      return json(true);
+    }
+    if (path === '/rest/v1/stores') {
+      if (method === 'POST') { const s = { id: uuid(), owner_id: body.owner_id, name: body.name, created_at: new Date().toISOString() }; t.stores.push(s); return json([s]); }
+      const id = eq('id'), owner = eq('owner_id');
+      const hit = t.stores.filter((s) => (!id || s.id === id) && (!owner || s.owner_id === owner));
+      if (method === 'PATCH') { hit.forEach((s) => Object.assign(s, body)); return new Response(null, { status: 204 }); }
+      if (method === 'DELETE') {
+        hit.forEach((s) => {
+          t.stores.splice(t.stores.indexOf(s), 1);
+          t.members = t.members.filter((m) => m.store_id !== s.id); t.invites = t.invites.filter((x) => x.store_id !== s.id); t.audit = t.audit.filter((a) => a.store_id !== s.id);
+        });
+        return new Response(null, { status: 204 });
+      }
+      return json(hit);
+    }
+    if (path === '/rest/v1/store_members') {
+      const sid = eq('store_id'), uid = eq('user_id');
+      const hit = t.members.filter((m) => (!sid || m.store_id === sid) && (!uid || m.user_id === uid));
+      if (method === 'POST') {
+        if (!t.members.some((m) => m.store_id === body.store_id && m.user_id === body.user_id)) t.members.push({ ...body, created_at: new Date().toISOString() });
+        return new Response(null, { status: 201 });
+      }
+      if (method === 'PATCH') { hit.forEach((m) => Object.assign(m, body)); return new Response(null, { status: 204 }); }
+      if (method === 'DELETE') { t.members = t.members.filter((m) => hit.indexOf(m) < 0); return new Response(null, { status: 204 }); }
+      if ((u.searchParams.get('select') || '').indexOf('stores(') > -1) {
+        return json(hit.map((m) => { const s = t.stores.find((x) => x.id === m.store_id); return { role: m.role, stores: s ? { id: s.id, name: s.name } : null }; }));
+      }
+      return json(hit.map((m) => ({ role: m.role })));
+    }
+    if (path === '/rest/v1/store_settings') { t.settings.push(body); return new Response(null, { status: 201 }); }
+    if (path === '/rest/v1/store_audit') { t.audit.push({ ...body, at: new Date().toISOString() }); return new Response(null, { status: 201 }); }
+    if (path === '/rest/v1/user_settings') { const uid = eq('user_id'); return json(uid && t.userSettings[uid] ? [{ settings: t.userSettings[uid] }] : []); }
+    if (path === '/rest/v1/pilot_requests') { const e = eq('email'); return json(e && t.requests[e] ? [t.requests[e]] : []); }
+    if (path === '/rest/v1/app_access') {
+      const e = eq('email');
+      if (method === 'POST') { if (!t.access[body.email]) t.access[body.email] = body.role; return new Response(null, { status: 201 }); }
+      return json(e && t.access[e] ? [{ role: t.access[e] }] : []);
+    }
+    if (path === '/rest/v1/store_invites') {
+      const now = Date.now();
+      if (method === 'POST') { const inv = { id: uuid(), created_at: new Date().toISOString(), accepted_at: null, revoked_at: null, accepted_by: null, ...body }; t.invites.push(inv); return json([inv]); }
+      const id = eq('id'), sid = eq('store_id'), em = eq('email'), th = eq('token_hash');
+      const gte = (u.searchParams.get('created_at') || '').replace(/^gte\./, ''), gt = (u.searchParams.get('expires_at') || '').replace(/^gt\./, '');
+      let hit = t.invites.filter((x) => (!id || x.id === id) && (!sid || x.store_id === sid) && (!em || x.email === em) && (!th || x.token_hash === th) &&
+        (!isNull('accepted_at') || !x.accepted_at) && (!isNull('revoked_at') || !x.revoked_at) && (!gte || Date.parse(x.created_at) >= Date.parse(gte)) &&
+        (!gt || Date.parse(x.expires_at) > Date.parse(gt)));
+      const or = u.searchParams.get('or');
+      if (or) {
+        const cut = Date.parse((/lt\.([^,)]+)/.exec(or) || [])[1] || '');
+        hit = hit.filter((x) => [x.accepted_at, x.revoked_at, x.expires_at].some((v) => v && Date.parse(v) < cut));
+      }
+      if (method === 'PATCH') { hit.forEach((x) => Object.assign(x, body)); return new Response(null, { status: 204 }); }
+      if (method === 'DELETE') { t.invites = t.invites.filter((x) => hit.indexOf(x) < 0); return new Response(null, { status: 204 }); }
+      void now;
+      return json(hit.map((x) => { const s = t.stores.find((y) => y.id === x.store_id); return { ...x, stores: s ? { name: s.name } : null }; }));
+    }
+    throw new Error('unexpected fetch ' + url);
+  });
+  return t;
+}
+const OWNER = '0a0a0a0a-0000-4000-8000-000000000001', MANAGER = '0a0a0a0a-0000-4000-8000-000000000002', VIEWER = '0a0a0a0a-0000-4000-8000-000000000003',
+  OUTSIDER = '0a0a0a0a-0000-4000-8000-000000000004', TEAM_STORE = '0b0b0b0b-0000-4000-8000-000000000001';
+function teamWorld(extra: Partial<TeamDb> = {}): TeamDb {
+  return fakeTeam({
+    users: { [OWNER]: 'owner@x.example', [MANAGER]: 'manager@x.example', [VIEWER]: 'viewer@x.example', [OUTSIDER]: 'out@x.example' },
+    access: { 'owner@x.example': 'pilot', 'manager@x.example': 'member', 'viewer@x.example': 'member', 'out@x.example': 'pilot' },
+    stores: [{ id: TEAM_STORE, owner_id: OWNER, name: 'متجر سارة', created_at: '2026-11-27T00:00:00Z' }],
+    members: [{ store_id: TEAM_STORE, user_id: MANAGER, role: 'manager', created_at: '2026-11-27T01:00:00Z' },
+      { store_id: TEAM_STORE, user_id: VIEWER, role: 'viewer', created_at: '2026-11-27T02:00:00Z' }],
+    ...extra
+  });
+}
+const as = (id: string, t: TeamDb) => ({ id, email: t.users[id] });
+async function storeCall(t: TeamDb, who: string, action: string, body: Record<string, unknown> = {}): Promise<[number, any]> {
+  const r = await handleStores(action, { store: TEAM_STORE, ...body }, as(who, t), null);
+  return [r.status, await r.json()];
+}
+const tokenOf = (mail: any) => (/\/invite\?t=([A-Za-z0-9_-]{43})/.exec(mail.text) || [])[1];
+
+Deno.test('المتجر وفريقه: القائمة والإنشاء — المفعّل في التجربة بيتعمله متجر باسم نشاطه وبقيم الأداة، والداخل بدعوة لأ', async () => {
+  const NEW = '0a0a0a0a-0000-4000-8000-000000000009';
+  const t = fakeTeam({ users: { [NEW]: 'new@x.example', [VIEWER]: 'viewer@x.example' }, access: { 'new@x.example': 'pilot', 'viewer@x.example': 'member' },
+    requests: { 'new@x.example': { business: '  متجر   الورد  ', lang: 'ar' } },
+    userSettings: { [NEW]: { all: { roasTarget: 4 }, acct: { 'meta:act_1': { roasTarget: 3 } }, prefs: { currency: 'SAR' }, asked: true } } });
+  try {
+    const r = await handleStores('store.list', {}, as(NEW, t), null);
+    const out = await r.json();
+    assertEquals([out.stores.map((s: any) => [s.name, s.role]), out.canCreate], [[['متجر الورد', 'owner']], true], 'his first store, named from his join request');
+    // نقل الإعدادات القديمة حصل مرة واحدة في الترحيل: نسخة سجله القديمة مبترجعش لمتجر جديد (ولا بعد ما يحذف متجره)
+    assertEquals(t.settings, [{ store_id: out.stores[0].id, settings: { all: {} } }], 'a new store starts from the tool defaults, not the old user record');
+    assertEquals(t.audit.map((a) => a.action), ['create']);
+    await handleStores('store.list', {}, as(NEW, t), null);
+    assertEquals(t.stores.length, 1, 'only once');
+    // داخل بدعوة متجر بس (member) ومالوش متجر: مفيش متجر بيتعمله، ومينفعش يعمل
+    const v = await (await handleStores('store.list', {}, as(VIEWER, t), null)).json();
+    assertEquals([v.stores, v.canCreate, t.stores.length], [[], false, 1]);
+    assertEquals((await handleStores('store.create', { name: 'متجري' }, as(VIEWER, t), null)).status, 403);
+    // المفعّل يعمل متجر تاني باسم صالح بس
+    assertEquals((await handleStores('store.create', { name: '   ' }, as(NEW, t), null)).status, 400);
+    const c = await (await handleStores('store.create', { name: 'فرع جدة' }, as(NEW, t), null)).json();
+    assertEquals([c.store.name, c.store.role, t.stores.length], ['فرع جدة', 'owner', 2]);
+    assertEquals(t.settings[1], { store_id: c.store.id, settings: { all: {} } }, 'an extra store starts from the tool defaults too');
+    assertEquals((await handleStores('store.list', {}, { id: 'not-a-user', email: 'x' }, null)).status, 401);
+  } finally { restoreDigestEnv(); }
+  assertEquals([storeName('  متجر' + String.fromCharCode(0x200f) + '   الورد '), storeName(''), storeName('x'.repeat(81)), storeName(5)], ['متجر الورد', null, null, null], 'one clean line, 1–80');
+});
+
+Deno.test('المتجر وفريقه: الصلاحيات — المالك والمدير بيديروا، والمشاهد بيشوف بس، واللي برّه المتجر «مش موجود»', async () => {
+  const t = teamWorld();
+  try {
+    // الفريق: الكل يشوف الأعضاء، والدعوات والسجل للمالك والمدير
+    const [s1, own] = await storeCall(t, OWNER, 'store.team');
+    assertEquals([s1, own.role, own.people.map((p: any) => p.role), Array.isArray(own.invites), Array.isArray(own.audit)], [200, 'owner', ['owner', 'manager', 'viewer'], true, true]);
+    const [, view] = await storeCall(t, VIEWER, 'store.team');
+    assertEquals([view.role, view.people.length, 'invites' in view, 'audit' in view], ['viewer', 3, false, false], 'a viewer sees the team only');
+    assertEquals(await storeCall(t, OUTSIDER, 'store.team'), [404, { error: 'store' }], 'not in the store = not found');
+    assertEquals((await handleStores('store.team', { store: 'not-an-id' }, as(OWNER, t), null)).status, 404);
+    // الاسم: المالك والمدير
+    assertEquals((await storeCall(t, MANAGER, 'store.rename', { name: 'متجر سارة الجديد' }))[0], 200);
+    assertEquals([t.stores[0].name, t.audit.slice(-1)[0].action], ['متجر سارة الجديد', 'rename']);
+    assertEquals(await storeCall(t, VIEWER, 'store.rename', { name: 'x' }), [403, { error: 'role' }]);
+    assertEquals(await storeCall(t, OUTSIDER, 'store.rename', { name: 'x' }), [404, { error: 'store' }]);
+    assertEquals((await storeCall(t, OWNER, 'store.rename', { name: '' }))[0], 400);
+    // الأدوار: المدير بيغيّر دور المشاهد ويرجّعه، ومحدش يلمس المالك
+    assertEquals((await storeCall(t, MANAGER, 'store.role', { user: VIEWER, role: 'manager' }))[0], 200);
+    assertEquals(t.members.find((m) => m.user_id === VIEWER).role, 'manager');
+    assertEquals((await storeCall(t, OWNER, 'store.role', { user: VIEWER, role: 'viewer' }))[0], 200);
+    assertEquals(await storeCall(t, MANAGER, 'store.role', { user: OWNER, role: 'viewer' }), [409, { error: 'owner' }], 'nobody changes the owner');
+    assertEquals(await storeCall(t, MANAGER, 'store.role', { user: VIEWER, role: 'owner' }), [400, { error: 'role' }], 'nobody is made owner this way');
+    assertEquals(await storeCall(t, VIEWER, 'store.role', { user: MANAGER, role: 'viewer' }), [403, { error: 'role' }]);
+    assertEquals(await storeCall(t, OWNER, 'store.role', { user: OUTSIDER, role: 'viewer' }), [404, { error: 'user' }], 'not a member');
+    // نقل الملكية: المالك بس، لعضو موجود، والمالك القديم بيبقى مدير
+    assertEquals(await storeCall(t, MANAGER, 'store.transfer', { user: VIEWER }), [403, { error: 'role' }]);
+    assertEquals(await storeCall(t, OWNER, 'store.transfer', { user: OUTSIDER }), [409, { error: 'member' }]);
+    assertEquals((await storeCall(t, OWNER, 'store.transfer', { user: MANAGER }))[0], 200);
+    assertEquals([t.stores[0].owner_id, t.members.find((m) => m.user_id === OWNER).role], [MANAGER, 'manager']);
+    assertEquals(t.audit.slice(-1)[0], { ...t.audit.slice(-1)[0], action: 'transfer', target: 'manager@x.example' });
+    // المغادرة: العضو يمشي، والمالك لأ (ينقل الملكية الأول)
+    assertEquals(await storeCall(t, MANAGER, 'store.leave'), [409, { error: 'owner' }]);
+    assertEquals((await storeCall(t, VIEWER, 'store.leave'))[0], 200);
+    assertEquals(t.members.some((m) => m.user_id === VIEWER), false);
+    // الإزالة: المدير (المالك القديم) بيشيل… والمالك ميتشالش
+    t.members.push({ store_id: TEAM_STORE, user_id: VIEWER, role: 'viewer', created_at: new Date().toISOString() });
+    assertEquals((await storeCall(t, OWNER, 'store.remove', { user: VIEWER }))[0], 200, 'the old owner (now a manager) removes a viewer');
+    assertEquals(await storeCall(t, OWNER, 'store.remove', { user: MANAGER }), [409, { error: 'owner' }]);
+    assertEquals(await storeCall(t, OWNER, 'store.remove', { user: 'bad' }), [400, { error: 'user' }]);
+    // الحذف: المالك بس، وبتأكيد اسم المتجر
+    assertEquals(await storeCall(t, OWNER, 'store.delete', { name: 'متجر سارة الجديد' }), [403, { error: 'role' }], 'a manager cannot delete');
+    assertEquals(await storeCall(t, MANAGER, 'store.delete', { name: 'اسم تاني' }), [400, { error: 'name' }]);
+    assertEquals((await storeCall(t, MANAGER, 'store.delete', { name: 'متجر سارة الجديد' }))[0], 200);
+    assertEquals([t.stores.length, t.members.length], [0, 0], 'the store and its team are gone');
+    assertEquals(await storeCall(t, OWNER, 'store.other'), [404, { error: 'store' }]);
+  } finally { restoreDigestEnv(); }
+});
+
+Deno.test('المتجر وفريقه: الدعوات مقفولة (الأساس قبل قائمة حسابات المتجر) — مفيش دعوة ولا رسالة، والفريق بيقول للواجهة', async () => {
+  const t = teamWorld();
+  TEAM.invitesOpen = false;
+  try {
+    assertEquals(await storeCall(t, OWNER, 'store.invite', { email: 'new@x.example', role: 'viewer' }), [403, { error: 'invites' }], 'the owner cannot invite yet');
+    assertEquals(await storeCall(t, MANAGER, 'store.invite', { email: 'new@x.example', role: 'manager' }), [403, { error: 'invites' }], 'nor a manager');
+    assertEquals(await storeCall(t, VIEWER, 'store.invite', { email: 'new@x.example', role: 'viewer' }), [403, { error: 'role' }], 'a viewer is refused by role first');
+    assertEquals([t.mails.length, t.invites.length, t.audit.length], [0, 0, 0], 'no email, no invitation, no log line');
+    const [, own] = await storeCall(t, OWNER, 'store.team');
+    assertEquals([own.invitesOpen, own.people.length, Array.isArray(own.audit)], [false, 3, true], 'the interface hides the invite form; the team and the log stay');
+    // الباقي شغال زي ما هو: الاسم
+    assertEquals((await storeCall(t, OWNER, 'store.rename', { name: 'متجر سارة ٢' }))[0], 200);
+  } finally { TEAM.invitesOpen = true; restoreDigestEnv(); }
+});
+
+Deno.test('المتجر وفريقه: الدعوة — رسالة برابط صالح ٧ أيام والرمز نفسه مبيتحفظش، والإعادة بتلغي القديمة، وحد الساعة، وفشل الرسالة يلغيها', async () => {
+  const t = teamWorld();
+  try {
+    assertEquals(await storeCall(t, VIEWER, 'store.invite', { email: 'new@x.example', role: 'viewer' }), [403, { error: 'role' }]);
+    assertEquals(await storeCall(t, MANAGER, 'store.invite', { email: 'not an email', role: 'viewer' }), [400, { error: 'email' }]);
+    assertEquals(await storeCall(t, MANAGER, 'store.invite', { email: 'new@x.example', role: 'owner' }), [400, { error: 'role' }], 'nobody is invited as owner');
+    assertEquals(await storeCall(t, MANAGER, 'store.invite', { email: 'Viewer@X.example', role: 'manager' }), [409, { error: 'member' }], 'already in the team');
+    assertEquals(t.mails.length, 0);
+    const before = Date.now();
+    const [st, out] = await storeCall(t, MANAGER, 'store.invite', { email: ' New@X.example ', role: 'viewer', lang: 'en' });
+    assertEquals([st, out.invite.email, out.invite.role], [200, 'new@x.example', 'viewer']);
+    const mail = t.mails[0], tok = tokenOf(mail);
+    assertEquals(mail.to, ['new@x.example']);
+    assert(!!tok && mail.text.indexOf('https://adscenter.online/invite?t=' + tok + '&lang=en') > -1, 'the English link');
+    assert(mail.text.indexOf('manager@x.example') > -1 && mail.subject.indexOf('متجر سارة') > -1, 'who invited, to which store');
+    const inv = t.invites[0];
+    assertEquals([inv.token_hash, inv.role, 'token' in inv], [await tokenHash(tok), 'viewer', false], 'only the fingerprint is stored');
+    const days = (Date.parse(inv.expires_at) - before) / 86400000;
+    assert(days > 6.99 && days < 7.01, 'valid 7 days: ' + days);
+    assertEquals(t.audit.slice(-1)[0].target, 'new@x.example (viewer)');
+    // الإرسال تاني لنفس البريد: رابط جديد والقديم بيتلغي — دعوة مفتوحة واحدة
+    await storeCall(t, OWNER, 'store.invite', { email: 'new@x.example', role: 'manager' });
+    assertEquals(t.invites.map((x) => [x.role, !!x.revoked_at]), [['viewer', true], ['manager', false]]);
+    const [, team] = await storeCall(t, OWNER, 'store.team');
+    assertEquals(team.invites.map((x: any) => [x.email, x.role]), [['new@x.example', 'manager']], 'the open one only');
+    // الإلغاء: المالك والمدير، والدعوة اللي مش موجودة ٤٠٤
+    assertEquals((await storeCall(t, MANAGER, 'store.invite.revoke', { id: t.invites[1].id }))[0], 200);
+    assertEquals(await storeCall(t, MANAGER, 'store.invite.revoke', { id: t.invites[1].id }), [404, { error: 'invite' }], 'already revoked');
+    assertEquals(await storeCall(t, MANAGER, 'store.invite.revoke', { id: 'x' }), [400, { error: 'id' }]);
+    // الرسالة موصلتش: ٥٠٢ والدعوة بتتلغي (متفضلش مفتوحة من غير رابط)
+    t.failMail = true;
+    assertEquals(await storeCall(t, OWNER, 'store.invite', { email: 'other@x.example', role: 'viewer' }), [502, { error: 'mail' }]);
+    assert(!!t.invites.slice(-1)[0].revoked_at, 'revoked after the failed mail');
+    t.failMail = false;
+    // ٢٠ دعوة في الساعة للمتجر بالكتير
+    for (let i = t.invites.length; i < 20; i++) t.invites.push({ id: 'x' + i, store_id: TEAM_STORE, email: 'n' + i + '@x.example', role: 'viewer', created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 86400000).toISOString(), revoked_at: new Date().toISOString() });
+    assertEquals(await storeCall(t, OWNER, 'store.invite', { email: 'late@x.example', role: 'viewer' }), [429, { error: 'busy' }]);
+    // دعوات مقفولة من أكتر من ٣٠ يوم بتتمسح مع الدعوة الجاية (فيها بريد)
+    t.invites = [{ id: 'old', store_id: TEAM_STORE, email: 'gone@x.example', role: 'viewer', created_at: '2026-09-01T00:00:00Z', expires_at: '2026-09-08T00:00:00Z',
+      accepted_at: null, revoked_at: null }];
+    await storeCall(t, OWNER, 'store.invite', { email: 'fresh@x.example', role: 'viewer' });
+    assertEquals(t.invites.map((x) => x.email), ['fresh@x.example']);
+  } finally { restoreDigestEnv(); }
+});
+
+Deno.test('دعوة المتجر: الرابط هو الإثبات — حساب جديد بدور member ورابط كلمة المرور، واللي دخل قبل كده بكلمة مروره، ومرة واحدة، وأي رابط تاني «gone»', async () => {
+  const t = teamWorld();
+  try {
+    await storeCall(t, OWNER, 'store.invite', { email: 'new@x.example', role: 'manager' });
+    const tok = tokenOf(t.mails[0]);
+    const peek = async (x: unknown) => { const r = await handleInvite('invite.peek', { t: x }, null); return await r.json(); };
+    assertEquals(await peek(tok), { state: 'open', store: 'متجر سارة', role: 'manager', email: 'new@x.example' });
+    for (const bad of ['', 'x', 'y'.repeat(43), 42, null]) assertEquals(await peek(bad), { state: 'gone' }, JSON.stringify(bad));
+    // القبول: الحساب بيتعمل، ودخول «member»، والعضوية بدورها، والدعوة مقفولة، ورابط إنشاء كلمة المرور
+    const acc = await (await handleInvite('invite.accept', { t: tok }, null)).json();
+    const uid = Object.keys(t.users).find((id) => t.users[id] === 'new@x.example')!;
+    assertEquals([acc.ok, acc.reset, t.created, t.access['new@x.example']], [true, 'reset_new_x_example', ['new@x.example'], 'member']);
+    assertEquals(t.members.find((m) => m.user_id === uid), { ...t.members.find((m) => m.user_id === uid), store_id: TEAM_STORE, role: 'manager', added_by: OWNER });
+    assertEquals([!!t.invites[0].accepted_at, t.invites[0].accepted_by, t.audit.slice(-1)[0].action], [true, uid, 'accept']);
+    // مرة واحدة
+    assertEquals(await peek(tok), { state: 'used', store: 'متجر سارة', role: 'manager', email: 'new@x.example' });
+    const again = await handleInvite('invite.accept', { t: tok }, null);
+    assertEquals([again.status, await again.json()], [409, { error: 'used' }]);
+    // اللي دخل قبل كده (عنده دخول): العضوية من غير رابط كلمة مرور — بيدخل بكلمة مروره
+    await storeCall(t, OWNER, 'store.invite', { email: 'out@x.example', role: 'viewer' });
+    const r2 = await (await handleInvite('invite.accept', { t: tokenOf(t.mails[1]) }, null)).json();
+    assertEquals([r2, t.access['out@x.example'], t.members.some((m) => m.user_id === OUTSIDER && m.role === 'viewer')], [{ ok: true }, 'pilot', true], 'his access is not changed');
+    // منتهية: الرابط بيقول كده ومبيقبلش؛ وملغية = «gone»
+    await storeCall(t, OWNER, 'store.invite', { email: 'late@x.example', role: 'viewer' });
+    const late = t.invites.slice(-1)[0], lateTok = tokenOf(t.mails.slice(-1)[0]);
+    late.expires_at = new Date(Date.now() - 1000).toISOString();
+    assertEquals((await peek(lateTok)).state, 'expired');
+    assertEquals((await handleInvite('invite.accept', { t: lateTok }, null)).status, 409);
+    late.revoked_at = new Date().toISOString();
+    assertEquals(await peek(lateTok), { state: 'gone' });
+    assertEquals((await handleInvite('invite.other', { t: tok }, null)).status, 400);
+  } finally { restoreDigestEnv(); }
+});
+
+Deno.test('رسالة الدعوة ورمزها: اسم المتجر والبريد مترمّزين، والدور باللغتين، والرمز ٤٣ حرف عشوائي وبصمته SHA-256', async () => {
+  const ar = inviteMail('<b>متجر</b>', 'viewer', 'a&b@x.example', 'https://adscenter.online/invite?t=T', false);
+  assert(ar.html.indexOf('<b>متجر</b>') < 0 && ar.html.indexOf('&lt;b&gt;متجر&lt;/b&gt;') > -1, 'the store name is escaped');
+  assert(ar.html.indexOf('a&amp;b@x.example') > -1 && /بصفة مشاهد/.test(ar.html) && /دون أن تغيّر شيئاً/.test(ar.text), ar.text);
+  const en = inviteMail('Rose', 'manager', 'a@x.example', 'https://adscenter.online/invite?t=T&lang=en', true);
+  assert(/as a manager/.test(en.text) && /manage its team/.test(en.text) && en.text.indexOf('https://adscenter.online/invite?t=T&lang=en') > -1, en.text);
+  const a = newInviteToken(), b = newInviteToken();
+  assert(/^[A-Za-z0-9_-]{43}$/.test(a) && a !== b, a);
+  assertMatch(await tokenHash(a), /^[0-9a-f]{64}$/);
+  assertEquals(await tokenHash('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad', 'SHA-256');
 });

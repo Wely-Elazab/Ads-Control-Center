@@ -20,6 +20,7 @@
 //   settings.get ← { platform, accountId, platformToken }  → { settings | null }
 import { META_ID, UUID_SHAPE, USER_ID, db, rpc, reply, metaAccount } from './lib.ts';
 import { VALUE_CONSENT_FROM } from './join.ts';
+import { storeFor, canManage } from './stores.ts';
 
 const SNAP_API = 'https://adsapi.snapchat.com/v1';
 const SNAP_ID = new RegExp('^' + UUID_SHAPE + '$', 'i');   // نفس digest.ts — رقم حساب Snapchat معرّف UUID
@@ -201,29 +202,51 @@ export async function joinConsented(email: string): Promise<boolean> {
   return typeof v === 'string' && v >= VALUE_CONSENT_FROM;
 }
 
-// email = بريد الدخول (من الرمز الموقّع — handler.ts requireLogin)، للموافقة اللي في طلب الانضمام بس
+// الشكل اللي الأداة بتشوفه زي ما هو (alerts.js settingsForAccount): { all, plat, acct } من إعدادات المتجر (المرحلة ١ — ٢٧ نوفمبر ٢٠٢٦:
+// إعدادات التنبيهات للمتجر كله، فصاحب المتجر وفريقه بيشوفوا نفس التنبيهات)، و{ prefs, asked } من سجل المستخدم نفسه (حاجات شخصية)
+export function settingsView(storeSet: unknown, userSet: unknown): Record<string, unknown> {
+  const obj = (v: unknown) => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, any> : {};
+  const s = obj(storeSet), u = obj(userSet);
+  const out: Record<string, unknown> = { all: obj(s.all) };
+  if (s.plat && typeof s.plat === 'object') out.plat = s.plat;
+  if (s.acct && typeof s.acct === 'object') out.acct = s.acct;
+  if (u.prefs && typeof u.prefs === 'object') out.prefs = u.prefs;
+  if (u.asked === true) out.asked = true;
+  return out;
+}
+async function firstSettings(path: string): Promise<{ settings: unknown; updated_at?: string; used_at?: string } | null> {
+  const r = await db(path, { method: 'GET' });
+  const rows = await r.json().catch(() => null);
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
+
+// email = بريد الدخول (من الرمز الموقّع — handler.ts requireLogin)، للموافقة اللي في طلب الانضمام بس. body.store = المتجر اللي فاتحه (من غيره:
+// أول متجر ليه — الصفحات القديمة مبتبعتهوش)؛ متجر مش عضو فيه = ٤٠٤ store
 export async function handleUserSettings(action: string, body: any, userId: string, origin: string | null, email?: string): Promise<Response> {
   if (typeof userId !== 'string' || !USER_ID.test(userId)) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
   const where = 'user_settings?user_id=eq.' + userId;
   const now = new Date().toISOString();
+  const storeArg = body && body.store;
   if (action === 'usettings.get') {
-    const r = await db(where + '&select=settings,updated_at,used_at', { method: 'GET' });
-    const rows = await r.json().catch(() => null);
-    const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+    const store = await storeFor(userId, storeArg);
+    if (storeArg != null && !store) return reply(404, { error: 'store' }, origin);
+    const row = await firstSettings(where + '&select=settings,updated_at,used_at');
     // آخر استخدام (مدة الاحتفاظ — السجل بيتمسح بعد ١٢ شهر من غير فتح، purge_stale): مرة في اليوم بالكتير، وفشله مبيوقفش القراءة
-    if (row && !(Date.parse(row.used_at) > Date.now() - 86400000)) {
+    if (row && !(Date.parse(String(row.used_at)) > Date.now() - 86400000)) {
       await db(where, { method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify({ used_at: now }) }).catch(() => null);
     }
-    let settings = row ? row.settings : null;
+    let userRec: any = row ? row.settings : null;
     // وافق على سجل لوحة «ما حققته» في نموذج الانضمام (٢٦ نوفمبر ٢٠٢٦): بتتحفظ في سجله مرة واحدة (طلب الانضمام نفسه بيتمسح بعد ١٢ شهر من آخر
     // تحديث له) فاللوحة بتبدأ له لوحدها من غير ملاحظتها. فشل الحفظ = الملاحظة بتظهر المرة دي بس، وضغطتها بتحفظ نفس الموافقة
-    const prefs = settings && typeof settings === 'object' ? settings.prefs : null;
+    const prefs = userRec && typeof userRec === 'object' ? userRec.prefs : null;
     if (typeof email === 'string' && email && !(prefs && prefs.valueAck2 === true) && (await joinConsented(email))) {
       const merged = await rpc('user_settings_apply', { p_user: userId, p_base: null, p_changes: { prefs: { valueAck2: true } }, p_goals: null, p_asked: false })
         .catch(() => null);
-      if (merged && typeof merged === 'object' && !Array.isArray(merged)) settings = merged;
+      if (merged && typeof merged === 'object' && !Array.isArray(merged)) userRec = merged;
     }
-    return reply(200, { settings, updatedAt: row ? row.updated_at : null }, origin);
+    const srow = store ? await firstSettings('store_settings?store_id=eq.' + store.id + '&select=settings,updated_at') : null;
+    return reply(200, { settings: settingsView(srow ? srow.settings : null, userRec), updatedAt: srow ? srow.updated_at : (row ? row.updated_at : null),
+      store: store ? { id: store.id, role: store.role } : null }, origin);
   }
   if (action === 'usettings.set') {
     let req = body;
@@ -240,8 +263,24 @@ export async function handleUserSettings(action: string, body: any, userId: stri
     const w = cleanUserWrite(req);
     if (w === 'too many') return reply(400, { error: 'too many' }, origin);
     if (!w) return reply(400, { error: 'settings' }, origin);
-    const settings = await rpc('user_settings_apply', { p_user: userId, p_base: w.base, p_changes: w.changes, p_goals: w.goals, p_asked: w.asked });
-    return reply(200, { ok: true, settings }, origin);
+    // التفضيلات و«شاف نافذة أول مرة» لسجل المستخدم؛ وكل الباقي (الإعدادات لكل حساب، و«كل الحسابات»، والعائد المستهدف، والنقل) للمتجر —
+    // للمالك والمدير بس (المشاهد بيشوف من غير ما يغيّر)
+    const storeChanges: Record<string, unknown> = { ...w.changes };
+    delete storeChanges.prefs;
+    const toStore = Object.keys(storeChanges).length > 0 || !!w.goals || !!w.base;
+    const store = await storeFor(userId, storeArg);
+    if ((toStore || storeArg != null) && !store) return reply(404, { error: 'store' }, origin);
+    if (toStore && !canManage(store!.role)) return reply(403, { error: 'role' }, origin);
+    let userRec: unknown = null, storeRec: unknown = null;
+    if (w.changes.prefs || w.asked) {
+      userRec = await rpc('user_settings_apply', { p_user: userId, p_base: null, p_changes: w.changes.prefs ? { prefs: w.changes.prefs } : {}, p_goals: null, p_asked: w.asked });
+    } else {
+      const u = await firstSettings(where + '&select=settings');
+      userRec = u ? u.settings : null;
+    }
+    if (toStore) storeRec = await rpc('store_settings_apply', { p_store: store!.id, p_base: w.base, p_changes: storeChanges, p_goals: w.goals });
+    else if (store) { const s = await firstSettings('store_settings?store_id=eq.' + store.id + '&select=settings'); storeRec = s ? s.settings : null; }
+    return reply(200, { ok: true, settings: settingsView(storeRec, userRec), store: store ? { id: store.id, role: store.role } : null }, origin);
   }
   return reply(400, { error: 'action' }, origin);
 }

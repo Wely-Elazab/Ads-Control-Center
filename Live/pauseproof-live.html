@@ -670,6 +670,22 @@
   .set-card-label { font-size: 13.5px; color: var(--ink); }
   .set-card-wide { grid-column: 1 / -1; }
   .set-card .dx-auto { margin: 0; width: 100%; }
+  /* المتجر وفريقه (٢٧ نوفمبر ٢٠٢٦ — renderTeamCard): صف لكل عضو، والخانات بتلف على الموبايل من غير تمرير أفقي */
+  .team-body { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+  .team-sub { margin: 6px 0 0; font-size: 13.5px; }
+  .team-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; width: 100%; }
+  .team-person { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .team-email { font-size: 13.5px; color: var(--ink); overflow-wrap: anywhere; flex: 1 1 180px; min-width: 0; }
+  .team-you, .team-role, .team-when { font-size: 12.5px; color: var(--ink-soft); }
+  .team-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
+  .team-input { flex: 1 1 200px; min-width: 0; max-width: 100%; padding: 10px 12px; border: 1px solid var(--ink-faint); border-radius: 9px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; }
+  .team-log, .team-owner { width: 100%; font-size: 13px; color: var(--ink-soft); }
+  .team-log summary, .team-owner summary { cursor: pointer; color: var(--ink); min-height: 24px; }
+  .team-log ul { margin: 8px 0 0; padding-inline-start: 18px; line-height: 1.8; }
+  .team-owner > * + * { margin-top: 10px; }
+  .ghost-btn.armed { border-color: var(--alert); color: var(--alert); font-weight: 600; }
+  .stop-btn.danger { background: var(--alert); color: var(--on-alert); }
+  .set-card-text.err { color: var(--alert); font-weight: 600; }
 
   /* شريط الحالة تحت الشريط العلوي + مؤشر تحميل */
   .status-strip { position: relative; max-width: 1100px; margin: 0 auto; padding: 8px 16px 0; font-size: 12.5px; color: var(--ink-soft); display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 30px; }
@@ -1428,6 +1444,12 @@
   <section id="viewSettings" class="view-page hidden" aria-labelledby="settingsPageTitle">
     <h2 class="sec-title" id="settingsPageTitle" data-i18n="set.page.title">الإعدادات</h2>
     <div class="set-cards">
+      <!-- المتجر وفريقه (المرحلة ١ — ٢٧ نوفمبر ٢٠٢٦): المتجر المفتوح والتبديل بين المتاجر، والأعضاء وأدوارهم، والدعوة بالبريد، والدعوات
+           المفتوحة، وسجل التغييرات، وخيارات المالك — renderTeamCard في ui.js. الخادم: supabase/functions/sync/stores.ts -->
+      <div class="set-card set-card-wide" id="teamCard">
+        <h3 class="set-card-title" data-i18n="team.title">المتجر وفريقه</h3>
+        <div id="teamBody" class="team-body" aria-live="polite"></div>
+      </div>
       <div class="set-card">
         <h3 class="set-card-title" data-i18n="set.page.accounts">الحسابات الإعلانية</h3>
         <p class="set-card-text" data-i18n="set.page.accountsText">اربط منصاتك الإعلانية أو افصلها. وللتنقل بين حساباتك استخدم قائمة الحساب أعلى الصفحة.</p>

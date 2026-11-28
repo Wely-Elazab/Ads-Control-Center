@@ -159,7 +159,7 @@
   // مالوش سجل لسه بتتنقل لسجله أول ما يفتح الأداة (ui.js legacyMerge) — فلو فضلت بعد «خروج» أو بعد تغيّر صاحب الدخول، اللي يدخل بعده
   // كان هيورث مستهدف وحدود اللي قبله من غير ما يعرف
   var DEVICE_KEYS = ['acc.renew.v1', 'acc.lastAccount.v1', 'acc.dx.fb.v1', 'pauseproof.value.money.v1', 'pauseproof.value.money.v2', 'pauseproof.value.ack.v1', 'pauseproof.value.ack.v2',
-    'acc.digestHint', 'acc.welcome.accounts.v1', 'pauseproof.alertSettings.v1'];
+    'acc.digestHint', 'acc.welcome.accounts.v1', 'pauseproof.alertSettings.v1', 'acc.store.v1'];
   // ---------- بيانات الجهاز لصاحب الدخول بس ----------
   // التدقيق الشامل ١١ نوفمبر ٢٠٢٦ (OWASP ASVS 3.3.1 و4.1.x — عزل المستخدمين): ربط المنصات المحفوظ (acc.renew.v1) وجلسة التاب
   // (sessionStorage: مفاتيح Google وSnapchat، ومفتاح Meta الطويل نحو ٦٠ يوم) كانوا بيفضلوا لو صاحب الدخول اتغيّر من غير «خروج» — جلسة

@@ -9,6 +9,7 @@ import { handleLogin, requireLogin } from './auth.ts';
 import { handleMetaLink } from './metalink.ts';
 import { handleSettings, handleUserSettings } from './settings.ts';
 import { handleEpisodes } from './episodes.ts';
+import { handleStores, handleInvite } from './stores.ts';
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
@@ -106,6 +107,8 @@ export async function handle(req: Request): Promise<Response> {
     if (action === 'stop') return await handleDigest(action, body, origin);
     // طلب الانضمام عام (من غير دخول)، و«أرسلت الدعوة» توقيعه هو الإثبات
     if (action === 'join' || action === 'join.peek' || action === 'join.activate') return await handleJoin(action, body, origin);
+    // دعوة متجر (stores.ts — ٢٧ نوفمبر ٢٠٢٦): رابط الدعوة اللي وصل لبريد المدعو هو الإثبات، من غير دخول
+    if (action === 'invite.peek' || action === 'invite.accept') return await handleInvite(action, body, origin);
 
     // المُشغّل: بنرد فوراً ونكمّل في الخلفية (pg_net مش محتاج يستنى)
     if (action === 'run') {
@@ -129,6 +132,8 @@ export async function handle(req: Request): Promise<Response> {
     // إعدادات التنبيهات لكل مستخدم (settings.ts — قرار ٢٦ أكتوبر): سجل صاحب الدخول نفسه، من غير مفتاح أي منصة. وبريد الدخول للموافقة على
     // سجل لوحة «ما حققته» اللي في طلب انضمامه (٢٦ نوفمبر ٢٠٢٦)
     if (action === 'usettings.get' || action === 'usettings.set') return await handleUserSettings(action, body, user.id, origin, user.email);
+    // المتجر وفريقه (stores.ts — ٢٧ نوفمبر ٢٠٢٦): الدور من قاعدة البيانات في كل طلب
+    if (typeof action === 'string' && action.indexOf('store.') === 0) return await handleStores(action, body, user, origin);
     // سجل الحساب الإعلاني القديم (قراءة بس — النقل لإعدادات المستخدم) بإثبات الوصول للحساب في منصته
     if (action === 'settings.get') return await handleSettings(action, body, origin);
     // سجل مشكلات التنبيه لكل مستخدم على كل حساب إعلاني (episodes.ts — لوحة «ما حققته مع الأداة») بنفس إثبات الوصول؛

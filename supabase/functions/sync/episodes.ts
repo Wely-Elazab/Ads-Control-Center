@@ -1,7 +1,7 @@
-// سجل مشكلات التنبيه لكل مستخدم على كل حساب إعلاني (لوحة «ما حققته مع الأداة» — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦: «سجل على
+// سجل مشكلات التنبيه لكل متجر على كل حساب إعلاني (لوحة «ما حققته مع الأداة» — قرار صاحب المنتج ٢٥ أكتوبر ٢٠٢٦: «سجل على
 // خادمنا… وحدث سياسة الخصوصية»). صف لكل مشكلة على إعلان (جدول alert_episodes): من أول ما الأداة نبّهت عليها لحد ما اختفت، ونوع
-// التعديل اللي اتعمل بعدها ووقته. لكل مستخدم (من ٢٦ أكتوبر — الإعدادات بقت لكل مستخدم، فالتنبيهات نفسها بتختلف من مستخدم لمستخدم
-// على نفس الحساب)، بالشرطين: دخول الأداة (السجل بتاع صاحب الدخول بس)، ومفتاح المنصة بيثبت إن صاحبه شايف الحساب.
+// التعديل اللي اتعمل بعدها ووقته. كان لكل مستخدم (٢٦ أكتوبر — الإعدادات كانت لكل مستخدم)، ومن ٢٧ نوفمبر ٢٠٢٦ للمتجر كله (الإعدادات بقت
+// للمتجر، فالتنبيهات واحدة لصاحبه وفريقه — stores.ts)، بالشرطين: دخول الأداة وعضوية المتجر، ومفتاح المنصة بيثبت إن صاحبه شايف الحساب.
 //
 // ثلاثة أرقام (قرارات صاحب المنتج ٢٦ نوفمبر ٢٠٢٦ — «مشكلات رصدناها · وفّرته بعد تنبيه Ads Center · ضاع قبل التصرّف»):
 //  - Meta وSnapchat وGoogle (كان القسم بيحسب منصتين بس — التدقيق الشامل ١٣٢)
@@ -21,6 +21,7 @@
 //                       مبالغ المشكلة بعد ما أيامها تكمل (اتعالجت من ٨ أيام أو أكتر، أو خلصت من غير تصرّف من يوم أو أكتر) — مرة واحدة
 import { USER_ID, db, reply } from './lib.ts';
 import { verifyAccount } from './settings.ts';
+import { storeFor } from './stores.ts';
 
 const AD_ID: Record<string, RegExp> = { meta: /^\d{1,30}$/, snapchat: /^[A-Za-z0-9-]{1,64}$/, google: /^\d{1,30}$/ };
 const KINDS = ['waste', 'loss'];
@@ -102,11 +103,15 @@ function numOrNull(v: unknown): number | null { return v == null ? null : (isFin
 const GET = { method: 'GET' };
 const PATCH = (body: unknown) => ({ method: 'PATCH', headers: { 'prefer': 'return=minimal' }, body: JSON.stringify(body) });
 
+// السجل للمتجر كله من ٢٧ نوفمبر ٢٠٢٦ (المتجر وفريقه — stores.ts): اللي يفتح الأداة من الفريق (أي دور) بيسجّل في سجل المتجر اللي فاتحه، فصاحب
+// المتجر بيشوف اللي عمله فريقه بعد التنبيه. user_id = مين سجّلها. body.store = المتجر (من غيره: أول متجر ليه — الصفحات القديمة)
 export async function handleEpisodes(action: string, body: any, userId: string, origin: string | null): Promise<Response> {
   if (typeof userId !== 'string' || !USER_ID.test(userId)) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
+  const store = await storeFor(userId, body && body.store);
+  if (!store) return reply(404, { error: 'store' }, origin);
   const acc = await verifyAccount(body, origin);
   if (acc instanceof Response) return acc;
-  const base = 'alert_episodes?user_id=eq.' + userId + '&platform=eq.' + acc.platform + '&account_id=eq.' + encodeURIComponent(acc.id);
+  const base = 'alert_episodes?store_id=eq.' + store.id + '&platform=eq.' + acc.platform + '&account_id=eq.' + encodeURIComponent(acc.id);
   const now = new Date().toISOString();
 
   if (action === 'episodes.sync') {
@@ -122,7 +127,7 @@ export async function handleEpisodes(action: string, body: any, userId: string, 
       for (const ids of chunks(still)) await db(base + '&id=in.(' + ids.join(',') + ')', PATCH({ last_seen_at: now }));
       for (const ids of chunks(gone)) await db(base + '&id=in.(' + ids.join(',') + ')', PATCH({ ended_at: now }));
       const fresh = open.filter((x) => !have[x.ad + '|' + x.kind]).map((x) => {
-        const row: Record<string, unknown> = { user_id: userId, platform: acc.platform, account_id: acc.id, ad_id: x.ad, kind: x.kind };
+        const row: Record<string, unknown> = { store_id: store.id, user_id: userId, platform: acc.platform, account_id: acc.id, ad_id: x.ad, kind: x.kind };
         if (x.cur) row.amount_currency = x.cur;
         return row;
       });

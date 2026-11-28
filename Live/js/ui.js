@@ -454,6 +454,277 @@
   var userSetBase = null, userSetFetchedAt = 0, userSetGen = 0, userSetInFlight = 0, userSetRefreshing = false, userSetFails = 0;
   var USER_RETRY_MS = [30000, 60000, 120000, 300000];
   function settingsKnown() { return userSetState === 'ready'; }
+
+  // ---------- المتجر وفريقه (المرحلة ١ — قرارات صاحب المنتج ٢٦–٢٧ نوفمبر ٢٠٢٦؛ الخادم supabase/functions/sync/stores.ts) ----------
+  // الإعدادات لكل حساب وسجل «ما حققته» بقوا للمتجر كله (صاحبه وفريقه بنفس التنبيهات). أول ما الأداة تتفتح بنجيب متاجر المستخدم
+  // (store.list) قبل الإعدادات، والمتجر المفتوح بيتبعت مع قراءة الإعدادات وحفظها وسجل المشكلات. الدور الخادم بيقرر بيه في كل طلب — هنا بس
+  // للواجهة (المشاهد بيشوف الإعدادات من غير ما يغيّرها). المتجر اللي اختاره على الجهاز ده بيتفتح المرة الجاية (STORE_KEY — بيتمسح مع «خروج»)
+  var STORE_KEY = 'acc.store.v1';
+  var storeList = [], storeCanCreate = false, storeState = 'none', activeStore = null, storeWaiters = [], storeGoneCount = 0;
+  function storeId() { return activeStore ? activeStore.id : null; }
+  // مشاهد بالتأكيد (الدور معروف) — من غير متجر معروف الواجهة زي ما كانت، والخادم هو اللي بيرفض
+  function storeReadOnly() { return !!activeStore && activeStore.role === 'viewer'; }
+  function storeManages() { return !!activeStore && (activeStore.role === 'owner' || activeStore.role === 'manager'); }
+  function rememberStore(id) {
+    try { if (id) localStorage.setItem(STORE_KEY, id); else localStorage.removeItem(STORE_KEY); } catch (e) { /* الجلسة دي بس */ }
+  }
+  function pickStore(list) {
+    var saved = null;
+    try { saved = localStorage.getItem(STORE_KEY); } catch (e) { /* التخزين مقفول */ }
+    return list.filter(function (s) { return s.id === saved; })[0] || list[0] || null;
+  }
+  function flushStoreWaiters() { var w = storeWaiters; storeWaiters = []; w.forEach(function (f) { f(); }); }
+  // متاجر المستخدم — مرة في الجلسة. اللي مستني (قراءة الإعدادات) بيكمّل بعدها نجحت أو فشلت (الفشل = الخادم بيختار أول متجر ليه)
+  function pullStores(then) {
+    if (then) storeWaiters.push(then);
+    if (storeState === 'ready' || storeState === 'error') { flushStoreWaiters(); return; }
+    if (storeState === 'loading') return;
+    if (window.AuthLogin && !AuthLogin.read()) { storeWaiters = []; return; }
+    storeState = 'loading';
+    syncCall({ action: 'store.list', lang: isAr() ? 'ar' : 'en' }).then(function (res) {
+      storeList = (Array.isArray(res && res.stores) ? res.stores : []).filter(function (s) { return s && typeof s.id === 'string'; });
+      storeCanCreate = !!(res && res.canCreate);
+      activeStore = pickStore(storeList);
+      rememberStore(activeStore && activeStore.id);
+      storeState = 'ready';
+      flushStoreWaiters();
+      renderTeamCard();
+    }, function () {
+      storeState = 'error';
+      flushStoreWaiters();
+      renderTeamCard();
+    });
+  }
+  // الدور اللي الخادم رجّعه مع الإعدادات هو الأحدث (المالك ممكن يكون غيّره من جهازه)
+  function adoptStoreFrom(res) {
+    var s = res && res.store;
+    if (!s || typeof s.id !== 'string') return;
+    var known = storeList.filter(function (x) { return x.id === s.id; })[0];
+    if (known) known.role = s.role; else storeList.push(known = { id: s.id, name: '', role: s.role });
+    if (!activeStore || activeStore.id === s.id) activeStore = known;
+  }
+  // المتجر المفتوح مبقاش متاح له (اتشال من الفريق، أو المتجر اتمسح): بنجيب متاجره من جديد ونقرا الإعدادات تاني
+  function storeGone() {
+    rememberStore(null);
+    storeState = 'none';
+    activeStore = null;
+    userSetState = 'none';
+    pullUserSettings();
+  }
+  // ---------- بطاقة «المتجر وفريقه» في صفحة الإعدادات ----------
+  // الكل يشوف الفريق؛ المالك والمدير بيدعوا ويزيلوا ويغيّروا الأدوار ويشوفوا الدعوات المفتوحة وسجل التغييرات؛ المالك بس بينقل الملكية ويحذف
+  // المتجر. الإجراءات اللي متترجعش (إزالة، مغادرة، نقل الملكية) بضغطتين على نفس الزرار — والحذف بكتابة اسم المتجر
+  var teamData = null, teamBusy = false, teamNote = '', teamNoteErr = false, teamArmed = '', teamArmTimer = null;
+  var ROLE_KEYS = { owner: 'team.role.owner', manager: 'team.role.manager', viewer: 'team.role.viewer' };
+  var TEAM_LOG_KEYS = { create: 'team.log.create', rename: 'team.log.rename', invite: 'team.log.invite', revoke: 'team.log.revoke', accept: 'team.log.accept',
+    remove: 'team.log.remove', role: 'team.log.role', leave: 'team.log.leave', transfer: 'team.log.transfer', settings: 'team.log.settings' };
+  var TEAM_ERR_KEYS = { email: 'team.err.email', member: 'team.err.member', busy: 'team.err.busy', mail: 'team.err.mail', name: 'team.err.name', owner: 'team.err.owner' };
+  function roleName(r) { return t(ROLE_KEYS[r] || 'team.role.viewer'); }
+  function teamDay(iso) { var k = iso ? DX._.keyInTz(iso, BROWSER_TZ) : null; return k ? fmtKey(k) : ''; }
+  function myEmail() { var s = window.AuthLogin && AuthLogin.read ? AuthLogin.read() : null; return s && s.email ? String(s.email).toLowerCase() : ''; }
+  function loadTeam() {
+    var sid = storeId();
+    if (!sid || teamBusy) return;
+    teamBusy = true;
+    syncCall({ action: 'store.team', store: sid }).then(function (res) {
+      teamBusy = false;
+      if (sid !== storeId()) return;
+      teamData = res && Array.isArray(res.people) ? res : { people: [] };
+      if (res && res.role && activeStore && res.role !== activeStore.role) { activeStore.role = res.role; settingsRefreshed(); }
+      renderTeamCard();
+    }, function (e) {
+      teamBusy = false;
+      if (sid !== storeId()) return;
+      if (e && e.status === 404 && storeGoneCount++ < 2) { storeGone(); return; }
+      teamNote = t('team.err.load'); teamNoteErr = true;
+      teamData = { people: [], failed: true };
+      renderTeamCard();
+    });
+  }
+  function teamButton(attr, key, armedKey, armed) {
+    return '<button type="button" class="ghost-btn' + (armed ? ' armed' : '') + '" ' + attr + '>' + esc(t(armed ? armedKey : key)) + '</button>';
+  }
+  function renderTeamCard() {
+    var body = document.getElementById('teamBody');
+    if (!body) return;
+    var html = '';
+    if (storeState === 'none' || storeState === 'loading') { body.innerHTML = '<p class="set-card-text">' + esc(t('team.loading')) + '</p>'; return; }
+    if (!activeStore) {
+      html = storeState === 'error'
+        ? '<p class="set-card-text">' + esc(t('team.err.load')) + '</p><button type="button" class="ghost-btn" data-team-retry>' + esc(t('settings.retry')) + '</button>'
+        : '<p class="set-card-text">' + esc(t(storeCanCreate ? 'team.noStoreCreate' : 'team.noStore')) + '</p>' +
+          (storeCanCreate ? '<div class="team-row"><input type="text" class="team-input" maxlength="80" data-team-new-name aria-label="' + esc(t('team.create.label')) + '" placeholder="' + esc(t('team.create.label')) + '">' +
+            '<button type="button" class="stop-btn" data-team-create>' + esc(t('team.create.btn')) + '</button></div>' : '');
+      body.innerHTML = html + (teamNote ? '<p class="set-card-text' + (teamNoteErr ? ' err' : '') + '" role="status">' + esc(teamNote) + '</p>' : '');
+      return;
+    }
+    // المتجر: الاسم أو اختيار من متاجره، والدور
+    html += '<div class="set-card-row"><span class="set-card-label">' + esc(t('team.store')) + '</span>' + (storeList.length > 1
+      ? '<select class="sort-select" data-team-switch aria-label="' + esc(t('team.switch')) + '">' + storeList.map(function (s) {
+        return '<option value="' + esc(s.id) + '"' + (s.id === activeStore.id ? ' selected' : '') + '>' + esc(s.name || '—') + '</option>';
+      }).join('') + '</select>'
+      : '<b class="team-store-name">' + esc(activeStore.name || '—') + '</b>') + '</div>';
+    html += '<p class="set-card-text">' + esc(t('team.yourRole', { role: roleName(activeStore.role) })) + '</p>';
+    // الفريق بيتقري لما صفحة الإعدادات تبقى ظاهرة بس (showView بيرسم البطاقة) — مش مع كل فتح للأداة
+    if (!teamData) {
+      var shown = document.getElementById('viewSettings');
+      if (shown && !shown.classList.contains('hidden')) loadTeam();
+      body.innerHTML = html + '<p class="set-card-text">' + esc(t('team.loading')) + '</p>';
+      return;
+    }
+    var manages = storeManages(), me = myEmail();
+    // الأعضاء
+    html += '<h4 class="team-sub">' + esc(t('team.members')) + '</h4><ul class="team-list">' + (teamData.people || []).map(function (p) {
+      var self = p.email === me, canTouch = manages && p.role !== 'owner' && !self;
+      var roleCell = canTouch
+        ? '<select class="sort-select" data-team-role="' + esc(p.id) + '" aria-label="' + esc(t('team.roleLabel', { email: p.email })) + '">' +
+          ['manager', 'viewer'].map(function (r) { return '<option value="' + r + '"' + (p.role === r ? ' selected' : '') + '>' + esc(roleName(r)) + '</option>'; }).join('') + '</select>'
+        : '<span class="team-role">' + esc(roleName(p.role)) + '</span>';
+      return '<li class="team-person"><span class="team-email" dir="ltr">' + esc(p.email || '') + '</span>' + (self ? ' <span class="team-you">' + esc(t('team.you')) + '</span>' : '') +
+        roleCell + (canTouch ? teamButton('data-team-remove="' + esc(p.id) + '"', 'team.remove', 'team.removeConfirm', teamArmed === 'remove:' + p.id) : '') + '</li>';
+    }).join('') + '</ul>';
+    // الدعوة مقفولة لحد قائمة «حسابات المتجر» (الخادم بيقول — invitesOpen في store.team): النموذج مبيظهرش، والسجل والخيارات زي ما هي
+    var invitesOpen = teamData.invitesOpen === true;
+    if (manages) {
+      // الدعوة
+      if (invitesOpen) html += '<h4 class="team-sub">' + esc(t('team.invite.title')) + '</h4><p class="set-card-text">' + esc(t('team.invite.help')) + '</p>' +
+        '<div class="team-row"><input type="email" class="team-input" dir="ltr" autocomplete="off" data-team-email aria-label="' + esc(t('team.invite.email')) + '" placeholder="' + esc(t('team.invite.email')) + '">' +
+        '<select class="sort-select" data-team-invite-role aria-label="' + esc(t('team.invite.roleLabel')) + '">' +
+        '<option value="manager">' + esc(roleName('manager')) + '</option><option value="viewer" selected>' + esc(roleName('viewer')) + '</option></select>' +
+        '<button type="button" class="stop-btn" data-team-invite>' + esc(t('team.invite.btn')) + '</button></div>';
+      var invites = teamData.invites || [];
+      if (invites.length) {
+        html += '<h4 class="team-sub">' + esc(t('team.pending')) + '</h4><ul class="team-list">' + invites.map(function (i) {
+          return '<li class="team-person"><span class="team-email" dir="ltr">' + esc(i.email) + '</span><span class="team-role">' + esc(roleName(i.role)) + '</span>' +
+            '<span class="team-when">' + esc(t('team.expires', { date: teamDay(i.expires) })) + '</span>' +
+            '<button type="button" class="ghost-btn" data-team-revoke="' + esc(i.id) + '">' + esc(t('team.revoke')) + '</button></li>';
+        }).join('') + '</ul>';
+      }
+      var log = teamData.audit || [];
+      if (log.length) {
+        html += '<details class="team-log"><summary>' + esc(t('team.log')) + '</summary><ul>' + log.map(function (a) {
+          var what = TEAM_LOG_KEYS[a.action] ? t(TEAM_LOG_KEYS[a.action], { target: a.target || '' }) : a.action;
+          return '<li>' + esc(t('team.log.line', { date: teamDay(a.at), by: a.by || '—', what: what })) + '</li>';
+        }).join('') + '</ul></details>';
+      }
+    }
+    if (activeStore.role !== 'owner') html += '<div class="team-row">' + teamButton('data-team-leave', 'team.leave', 'team.leaveConfirm', teamArmed === 'leave') + '</div>';
+    if (manages) {
+      // اسم المتجر (المالك والمدير)، ونقل الملكية والحذف (المالك بس)
+      var others = (teamData.people || []).filter(function (p) { return p.role !== 'owner'; });
+      html += '<details class="team-owner"><summary>' + esc(t('team.options')) + '</summary>' +
+        '<div class="team-row"><input type="text" class="team-input" maxlength="80" data-team-name value="' + esc(activeStore.name || '') + '" aria-label="' + esc(t('team.rename')) + '">' +
+        '<button type="button" class="ghost-btn" data-team-rename>' + esc(t('team.rename.btn')) + '</button></div>';
+      if (activeStore.role === 'owner') {
+        html += others.length
+          ? '<div class="team-row"><select class="sort-select" data-team-transfer-to aria-label="' + esc(t('team.transfer')) + '">' + others.map(function (p) {
+            return '<option value="' + esc(p.id) + '">' + esc(p.email) + '</option>';
+          }).join('') + '</select>' + teamButton('data-team-transfer', 'team.transfer.btn', 'team.transfer.confirm', teamArmed === 'transfer') + '</div>'
+          : (invitesOpen ? '<p class="set-card-text">' + esc(t('team.transfer.none')) + '</p>' : '');
+        html += '<p class="set-card-text">' + esc(t('team.delete.help')) + '</p><div class="team-row"><input type="text" class="team-input" maxlength="80" data-team-delete-name aria-label="' + esc(t('team.delete')) + '">' +
+          '<button type="button" class="stop-btn danger" data-team-delete>' + esc(t('team.delete.btn')) + '</button></div>';
+      }
+      html += '</details>';
+    }
+    if (teamNote) html += '<p class="set-card-text' + (teamNoteErr ? ' err' : '') + '" role="status">' + esc(teamNote) + '</p>';
+    body.innerHTML = html;
+  }
+  function teamSay(note, err) { teamNote = note; teamNoteErr = !!err; renderTeamCard(); }
+  function teamErr(e) { return t(TEAM_ERR_KEYS[e && e.code] || 'team.err.action'); }
+  // الإجراء اتعمل: الفريق بيتقري تاني (والمتاجر نفسها لو المتجر المفتوح اتغيّر — مغادرة أو حذف أو نقل ملكية)
+  function teamDone(note, storesChanged) {
+    teamArmed = '';
+    teamNote = note || ''; teamNoteErr = false;
+    teamData = null;
+    if (storesChanged) { storeState = 'none'; activeStore = null; userSetState = 'none'; pullUserSettings(); }
+    renderTeamCard();
+  }
+  // الضغطة الأولى على زرار مايترجعش بتسلّحه ٦ ثواني، والتانية بتنفّذ
+  function teamArm(key) {
+    if (teamArmed === key) { teamArmed = ''; clearTimeout(teamArmTimer); return true; }
+    teamArmed = key;
+    clearTimeout(teamArmTimer);
+    teamArmTimer = setTimeout(function () { teamArmed = ''; renderTeamCard(); }, 6000);
+    renderTeamCard();
+    return false;
+  }
+  function teamAction(body, note, storesChanged) {
+    return syncCall(Object.assign({ store: storeId() }, body)).then(function (res) { teamDone(note, storesChanged); return res; },
+      function (e) { teamArmed = ''; teamSay(teamErr(e), true); });
+  }
+  (function () {
+    var card = document.getElementById('teamBody');
+    if (!card) return;
+    card.addEventListener('change', function (e) {
+      var el = e.target;
+      if (el.matches('[data-team-switch]')) { teamNote = ''; switchStore(el.value); return; }
+      if (el.matches('[data-team-role]')) teamAction({ action: 'store.role', user: el.getAttribute('data-team-role'), role: el.value }, t('team.saved'));
+    });
+    card.addEventListener('click', function (e) {
+      var el = e.target.closest('button');
+      if (!el || !card.contains(el)) return;
+      if (el.hasAttribute('data-team-retry')) { storeState = 'none'; userSetState = 'none'; teamNote = ''; pullUserSettings(); renderTeamCard(); return; }
+      if (el.hasAttribute('data-team-create')) {
+        var nameEl = card.querySelector('[data-team-new-name]'), nm = nameEl ? nameEl.value.trim() : '';
+        if (!nm) { teamSay(t('team.err.name'), true); return; }
+        syncCall({ action: 'store.create', name: nm }).then(function (res) {
+          rememberStore(res && res.store && res.store.id);
+          teamDone('', true);
+        }, function (e2) { teamSay(teamErr(e2), true); });
+        return;
+      }
+      if (el.hasAttribute('data-team-invite')) {
+        var emailEl = card.querySelector('[data-team-email]'), roleEl = card.querySelector('[data-team-invite-role]');
+        var email = emailEl ? emailEl.value.trim() : '';
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { teamSay(t('team.err.email'), true); return; }
+        el.disabled = true;
+        teamAction({ action: 'store.invite', email: email, role: roleEl ? roleEl.value : 'viewer', lang: isAr() ? 'ar' : 'en' }, t('team.invite.sent', { email: email }));
+        return;
+      }
+      if (el.hasAttribute('data-team-revoke')) { teamAction({ action: 'store.invite.revoke', id: el.getAttribute('data-team-revoke') }, t('team.revoked')); return; }
+      if (el.hasAttribute('data-team-remove')) {
+        var who = el.getAttribute('data-team-remove');
+        if (teamArm('remove:' + who)) teamAction({ action: 'store.remove', user: who }, t('team.removed'));
+        return;
+      }
+      if (el.hasAttribute('data-team-leave')) { if (teamArm('leave')) teamAction({ action: 'store.leave' }, t('team.left'), true); return; }
+      if (el.hasAttribute('data-team-rename')) {
+        var n2 = card.querySelector('[data-team-name]'), name = n2 ? n2.value.trim() : '';
+        if (!name) { teamSay(t('team.err.name'), true); return; }
+        teamAction({ action: 'store.rename', name: name }, t('team.saved')).then(function (res) {
+          if (res && res.name && activeStore) { activeStore.name = res.name; renderTeamCard(); }
+        });
+        return;
+      }
+      if (el.hasAttribute('data-team-transfer')) {
+        var to = card.querySelector('[data-team-transfer-to]');
+        if (to && teamArm('transfer')) teamAction({ action: 'store.transfer', user: to.value }, t('team.transferred'), true);
+        return;
+      }
+      if (el.hasAttribute('data-team-delete')) {
+        var dn = card.querySelector('[data-team-delete-name]'), typed = dn ? dn.value.trim() : '';
+        if (!activeStore || typed !== activeStore.name) { teamSay(t('team.err.name'), true); return; }
+        rememberStore(null);
+        teamAction({ action: 'store.delete', name: typed }, t('team.deleted'), true);
+      }
+    });
+  })();
+  // التبديل بين المتاجر: إعدادات المتجر التاني وسجل «ما حققته» بتاعه
+  function switchStore(id) {
+    var s = storeList.filter(function (x) { return x.id === id; })[0];
+    if (!s || (activeStore && activeStore.id === id)) return;
+    activeStore = s;
+    rememberStore(id);
+    userSet = null;
+    userSetState = 'none';
+    userSetFails = 0;
+    valueEpisodes = {};
+    valueState = {};
+    teamData = null;
+    pullUserSettings();
+    renderTeamCard();
+    render();
+  }
   function sourceCurrency(source) {
     var info = accountInfo[source];
     if (info && info.currency) return info.currency;
@@ -478,6 +749,8 @@
     var platform = platformOfSource(source), token = platformTokenOf(platform);
     if (!token) { var e = new Error('no session'); e.code = 'session'; return Promise.reject(e); }
     var body = Object.assign({ action: action, platform: platform, accountId: source.slice(platform.length + 1), platformToken: token }, extra || {});
+    // سجل المشكلات للمتجر المفتوح (٢٧ نوفمبر ٢٠٢٦ — stores.ts)
+    if (storeId()) body.store = storeId();
     // حساب Google تحت حساب مدير (MCC): رقم المدير لازم يتبعت عشان الخادم يقدر يوصل للحساب (زي طلبات الإعلانات)
     var login = platform === 'google' ? (accountInfo[source] || {}).loginCustomerId : null;
     if (login) body.loginCustomerId = String(login);
@@ -510,8 +783,13 @@
     if (userSetState === 'migrate') { migrateUserSettings(); return; }
     if (userSetState !== 'none') return;
     if (window.AuthLogin && !AuthLogin.read()) return;   // من غير دخول (صفحة الاختبارات قبل ما تجهّز): مفيش سجل نجيبه
+    // المتجر الأول (إعداداته هي اللي بتتقري) — القراءة بتكمّل بعده
+    if (storeState === 'none' || storeState === 'loading') { pullStores(pullUserSettings); return; }
     userSetState = 'loading';
-    syncCall({ action: 'usettings.get' }).then(function (res) {
+    var req = { action: 'usettings.get' };
+    if (storeId()) req.store = storeId();
+    syncCall(req).then(function (res) {
+      adoptStoreFrom(res);
       var rec = plainObject(res && res.settings);
       if (rec) { adoptUserSet(rec); settingsArrived(); render(); return; }
       // مالوش سجل: قيم البداية لحد ما النقل يخلص (النافذة من غير حساب متصل بتعرضها، والحفظ منها بيعمل السجل ويلغي النقل)
@@ -525,7 +803,9 @@
   // القراءة فشلت (شبكة): التنبيهات بقيم البداية لحد ما تنجح. قبل ٣١ أكتوبر ده كان بيحصل في صمت ومن غير إعادة — دلوقتي بنقول كده مرة
   // في شريط الحالة، وبنعيد لوحدنا بفواصل متزايدة (٣٠ ثانية ← ٥ دقايق — «Exponential Backoff And Jitter»، AWS Architecture Blog)،
   // وفوراً لما المستخدم يرجع للتبويب
-  function userSettingsFailed() {
+  function userSettingsFailed(e) {
+    // مرتين بالكتير في الجلسة: خادم بيرجّع متجر وبعدين بيرفضه كان هيعمل لفّة طلبات
+    if (e && e.status === 404 && e.code === 'store' && storeId() && storeGoneCount++ < 2) { storeGone(); return; }
     userSetState = 'error';
     var wait = USER_RETRY_MS[Math.min(userSetFails, USER_RETRY_MS.length - 1)];
     if (!userSetFails) setStatus(msg('settings.err.loadAuto'));
@@ -542,18 +822,27 @@
   // جهاز تاني بيظهر هنا من غير إعادة تحميل الصفحة. قبل ٣١ أكتوبر الصفحة الفاتحة فضلت تحكم بالإعدادات القديمة لحد ما تتقفل
   function refreshUserSettings() {
     if (userSetState !== 'ready' || userSetRefreshing || (window.AuthLogin && !AuthLogin.read())) return;
-    var gen = userSetGen;
+    var gen = userSetGen, sid = storeId(), req = { action: 'usettings.get' };
+    if (sid) req.store = sid;
     userSetRefreshing = true;
-    syncCall({ action: 'usettings.get' }).then(function (res) {
+    syncCall(req).then(function (res) {
       userSetRefreshing = false;
       var rec = plainObject(res && res.settings);
-      if (!rec || gen !== userSetGen || userSetInFlight) return;   // حفظ حصل وهي ماشية: رده هو الأحدث
+      // حفظ حصل وهي ماشية (رده هو الأحدث)، أو المتجر اتغيّر وهي ماشية (الرد لمتجر تاني)
+      if (!rec || gen !== userSetGen || userSetInFlight || sid !== storeId()) return;
+      var role = activeStore && activeStore.role;
+      adoptStoreFrom(res);
       userSetFetchedAt = Date.now();
+      // الدور اتغيّر (المالك غيّره من جهازه): الإعدادات والفريق بيترسموا بالدور الجديد
+      if (activeStore && activeStore.role !== role) { renderTeamCard(); settingsRefreshed(); }
       if (canonText(normUserSet(rec)) === canonText(userSet)) return;
       adoptUserSet(rec);
       settingsRefreshed();
       render();
-    }, function () { userSetRefreshing = false; });
+    }, function (e) {
+      userSetRefreshing = false;
+      if (e && e.status === 404 && e.code === 'store' && sid === storeId() && storeGoneCount++ < 2) storeGone();
+    });
   }
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState !== 'visible') return;
@@ -623,9 +912,12 @@
   // الحفظ: المجموعات اللي اتغيّرت بس (changes)، أو العائد المستهدف لـ«كل الحسابات» كقيمة بداية (goals)، أو asked — والسيرفر بيدمجها على
   // السجل الحالي وهو مقفول، ويرجّع السجل كله (settings.ts cleanUserWrite). قبل ٣١ أكتوبر الحفظ كان بالسجل كله من نسخة الجهاز، فجهاز
   // فاتح من بدري كان بيمسح تعديل جهاز تاني من غير ما حد يعرف («التحديث المفقود»)
+  // المتجر المفتوح بيتبعت (الإعدادات لكل حساب للمتجر كله — ٢٧ نوفمبر ٢٠٢٦)؛ ٤٠٣ role = دوره «مشاهد» (اتغيّر من جهاز تاني مثلاً):
+  // الدور بيتصحّح والإعدادات بتترسم للقراءة بس
   function writeUserSettings(body) {
     var req = Object.assign({ action: 'usettings.set' }, body);
     if (userSetBase) req.base = userSetBase;
+    if (storeId()) req.store = storeId();
     userSetGen++;
     userSetInFlight++;
     return syncCall(req).then(function (r) {
@@ -634,12 +926,14 @@
       var rec = plainObject(r && r.settings);
       if (!rec) throw new Error('bad reply');
       userSetBase = null;
+      adoptStoreFrom(r);
       adoptUserSet(rec);
       dropDeviceSettings();
       return userSet;
     }, function (e) {
       userSetInFlight--;
       userSetGen++;
+      if (e && e.status === 403 && e.code === 'role' && activeStore) { activeStore.role = 'viewer'; renderTeamCard(); }
       throw e;
     });
   }
@@ -3037,9 +3331,11 @@
     var key = JSON.stringify(open && open.map(function (x) { return x.ad + '|' + x.kind; }));
     if (st.key === key && Date.now() - st.at < VALUE_RESYNC) return;
     st.busy = true; st.key = key; st.at = Date.now();
+    var sid = storeId();
     accountCall('episodes.sync', source, { open: open }).then(function (res) {
       st.busy = false;
-      if (!res || !Array.isArray(res.episodes) || sourceOf(platformOfSource(source)) !== source) return;
+      // الرد لمتجر تاني (اتبدّل وهو ماشي — switchStore) مبيتحطش في سجل المتجر الجديد
+      if (!res || !Array.isArray(res.episodes) || sourceOf(platformOfSource(source)) !== source || sid !== storeId()) return;
       valueEpisodes[source] = res.episodes;
       valueDecide(source);
       valueLoadMoney(source);
@@ -4135,8 +4431,8 @@
     document.getElementById('viewAds').classList.toggle('hidden', view !== 'ads');
     document.getElementById('viewAlerts').classList.toggle('hidden', view !== 'alerts');
     document.getElementById('viewSettings').classList.toggle('hidden', view !== 'settings');
-    // بطاقة الملخص التلقائي بتجيب حالتها من السيرفر أول ما الصفحة تتفتح (مش مع كل فتح للأداة)
-    if (view === 'settings') renderDigest();
+    // بطاقة الملخص التلقائي بتجيب حالتها من السيرفر أول ما الصفحة تتفتح (مش مع كل فتح للأداة) — وكذلك بطاقة «المتجر وفريقه»
+    if (view === 'settings') { renderDigest(); renderTeamCard(); }
   }
   // فتح صفحة جديدة من القائمة = أول الصفحة. التنبيهات بترجع للعرض العادي (العاجل + المهم) حتى لو كانت متفلترة قبل كده
   function goView(view) {
@@ -4481,7 +4777,14 @@
       Object.keys(groups).map(function (g) {
         return '<fieldset class="settings-group"><legend>' + esc(g) + '</legend>' + groups[g].map(function (m) { return settingRow(m, current[m.key]); }).join('') + '</fieldset>';
       }).join('') + '</details>';
-    settingsForm.innerHTML = scopeHtml(settingsScope) + settingsCoreHtml(current) + costSectionHtml(scopeSources(settingsScope), current, set.maxCostCur) + advancedHtml;
+    // المشاهد في المتجر (٢٧ نوفمبر ٢٠٢٦): بيشوف إعدادات المتجر من غير ما يغيّرها — الخانات مقفولة والحفظ كمان، والتنقل بين الحسابات شغال
+    var readOnly = storeReadOnly();
+    settingsForm.innerHTML = (readOnly ? '<p class="settings-where" role="note" data-settings-readonly>' + esc(t('team.readonly')) + '</p>' : '') +
+      scopeHtml(settingsScope) + settingsCoreHtml(current) + costSectionHtml(scopeSources(settingsScope), current, set.maxCostCur) + advancedHtml;
+    if (readOnly) {
+      settingsSaveBtn.disabled = true;
+      Array.prototype.forEach.call(settingsForm.querySelectorAll('input, select, textarea'), function (el) { el.disabled = true; });
+    }
   }
   // كتب حاجة في التبويب الظاهر (التبديل بيتحقق منها ويحتفظ بيها، والتحديث من جهاز تاني ميمسحهاش)
   settingsForm.addEventListener('input', function () { settingsDirty = true; });
@@ -4673,8 +4976,9 @@
     try { var v = JSON.parse(localStorage.getItem(WELCOME_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
     catch (e) { return null; }
   }
+  // المشاهد في المتجر مبيتسألش عن المستهدف (مبيقدرش يحفظه — ٢٧ نوفمبر ٢٠٢٦)
   function welcomeWanted() {
-    return !welcomeDone && settingsKnown() && !userSet.asked && settingsSources().length > 0 &&
+    return !welcomeDone && settingsKnown() && !userSet.asked && settingsSources().length > 0 && !storeReadOnly() &&
       PauseProofAlerts.mergeSettings(userSet.all).roasTarget == null;
   }
   function maybeShowWelcome() {

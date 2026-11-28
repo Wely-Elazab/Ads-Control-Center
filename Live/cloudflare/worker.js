@@ -65,6 +65,8 @@ export const REWRITES = {
   // نموذج طلب الانضمام (join.html)، وصفحة «أرسلت الدعوة» لصاحب الأداة من إشعار الطلب (invited.html)
   '/join': '/join.html',
   '/invited': '/invited.html',
+  // رابط دعوة فريق المتجر اللي بيوصل للمدعو بالبريد (invite.html — المتجر وفريقه، ٢٧ نوفمبر ٢٠٢٦)
+  '/invite': '/invite.html',
   // المتصفحات بتطلب الأيقونة من المسار ده لوحدها — الأيقونة نفسها SVG
   '/favicon.ico': '/favicon.svg'
 };
