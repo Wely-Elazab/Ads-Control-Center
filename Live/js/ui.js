@@ -89,22 +89,34 @@
   var acctDone = document.getElementById('acctDone');
   // «Meta — اسم الحساب» ← «اسم الحساب» (الشعار بيقول المنصة)
   function acctName(label) { return String(label || '').replace(/^[^—]*—\s*/, ''); }
-  function acctPlats() { return PLAT_ORDER.filter(function (p) { return (platformOptions[p] || []).length; }); }
+  // جوّه المتجر: حسابات المتجر بس (storeOptions — «مثل ثندر»)، ومع أكتر من متجر الزرار بيبدأ باسم المتجر واللوحة فيها اختياره
+  function acctPlats() { return PLAT_ORDER.filter(function (p) { return storeOptions(p).length; }); }
+  function manyStores() { return !!activeStore && storeList.length > 1; }
   function renderAccountPicker() {
     if (!acctPicker) return;
     var plats = acctPlats();
-    acctPicker.hidden = !plats.length;
-    acctPickBtn.innerHTML = plats.map(function (p) {
+    acctPicker.hidden = !plats.length && !manyStores();
+    acctPickBtn.innerHTML = (manyStores() ? '<span class="acct-pick-store" dir="auto">' + esc(activeStore.name || '—') + '</span>' : '') + plats.map(function (p) {
       var cur = (platformOptions[p] || []).filter(function (o) { return o.value === activeSources[p]; })[0], name = cur ? acctName(cur.label) : t('acct.pick.none');
       return '<span class="acct-pick-item" title="' + esc(PLATFORM_NAMES[p] + ' — ' + name) + '">' + platLogo(p) +
         '<span class="acct-pick-name" dir="auto">' + esc(name) + '</span></span>';
     }).join('') + '<span class="acct-pick-caret" aria-hidden="true">▾</span>';
+    var storeBox = document.getElementById('acctStore');
+    if (storeBox) {
+      storeBox.hidden = !manyStores();
+      storeBox.innerHTML = manyStores() ? '<label class="acct-store-label" for="acctStoreSel">' + esc(t('acct.store')) + '</label>' +
+        '<select id="acctStoreSel" class="sort-select" data-acct-store>' + storeList.map(function (s) {
+          return '<option value="' + esc(s.id) + '"' + (s.id === activeStore.id ? ' selected' : '') + '>' + esc(s.name || '—') + '</option>';
+        }).join('') + '</select>' : '';
+    }
     if (!acctPanel.hidden) renderAccountList();
+    // قائمة حسابات منصة لسه واصلة، أو المتجر اتغيّر: الحساب المفتوح بيتبع حساب المتجر (بعد الرسم — مش جوّاه)
+    scheduleStoreSync();
   }
   function renderAccountList() {
     var q = String(acctSearch.value || '').trim().toLowerCase(), html = '', any = false;
     acctPlats().forEach(function (p) {
-      var opts = (platformOptions[p] || []).filter(function (o) {
+      var opts = storeOptions(p).filter(function (o) {
         return !q || acctName(o.label).toLowerCase().indexOf(q) > -1 || String(o.value).toLowerCase().indexOf(q) > -1;
       });
       if (!opts.length) return;
@@ -127,7 +139,8 @@
           '<span class="acct-opt-name" dir="auto">' + esc(acctName(o.label)) + '</span></button>';
       });
     });
-    acctList.innerHTML = any ? html : '<p class="acct-empty">' + esc(t('acct.none')) + '</p>';
+    // جوّه متجر مفيهوش حسابات تتعرض: المالك يختار (منصة لسه مالهاش حساب بتتعرض حساباته كلها — فده لما مفيش منصات مربوطة)، وغيره مستني المالك
+    acctList.innerHTML = any ? html : '<p class="acct-empty">' + esc(t(activeStore && !q ? (storeOwner() ? 'acct.storeOwnerNone' : 'acct.storeNone') : 'acct.none')) + '</p>';
   }
   function openAccountPanel(open) {
     acctPanel.hidden = !open;
@@ -157,7 +170,11 @@
       if (!b) return;
       var p = b.getAttribute('data-acct-plat'), id = b.getAttribute('data-acct-id');
       if (activeSources[p] === id) deselectAccount(p);
-      else { accountSelect.value = id; loadSource(p, id); }
+      else {
+        accountSelect.value = id; loadSource(p, id);
+        // منصة لسه مالهاش حساب في المتجر (المالك بس بيشوف حساباته كلها فيها): اختياره بيبقى حساب المتجر
+        if (storeOwner() && !storeAccountOf(p) && p !== 'tiktok') chooseStoreAccount(p, id);
+      }
       renderAccountPicker();
       renderAccountList();
       // التركيز بيفضل على نفس الصف بعد إعادة الرسم (القائمة بتتبني من أول وجديد)
@@ -165,6 +182,10 @@
       if (again) again.focus();
     });
     if (acctDone) acctDone.addEventListener('click', function () { openAccountPanel(false); acctPickBtn.focus(); });
+    // اختيار المتجر من اللوحة نفسها (مع أكتر من متجر — «منتقي الحسابات بيبقى مبدّل متاجر»)
+    acctPanel.addEventListener('change', function (e) {
+      if (e.target && e.target.matches && e.target.matches('[data-acct-store]')) switchStore(e.target.value);
+    });
     // القفل بالضغط برّه القائمة. بنسأل مسار الحدث مش الصفحة: الضغطة على حساب بتعيد بناء القائمة فوراً،
     // فالعنصر اللي اتضغط بيطلع برّه الصفحة قبل ما السطر ده يشتغل، وcontains كانت بترد «برّه» وتقفل القائمة
     // غلط (ظهرت في الاختبار، ٢ نوفمبر ٢٠٢٦). composedPath بيتحسب وقت إطلاق الحدث فمبيتأثرش
@@ -465,6 +486,83 @@
   // مشاهد بالتأكيد (الدور معروف) — من غير متجر معروف الواجهة زي ما كانت، والخادم هو اللي بيرفض
   function storeReadOnly() { return !!activeStore && activeStore.role === 'viewer'; }
   function storeManages() { return !!activeStore && (activeStore.role === 'owner' || activeStore.role === 'manager'); }
+
+  // ---------- حسابات المتجر («مثل ثندر» — قرارات صاحب المنتج ٢٨ نوفمبر ٢٠٢٦) ----------
+  // لكل متجر حساب إعلاني واحد في كل منصة، المالك بس بيختاره (من «حسابات المتجر» في البطاقة، أو من منتقي الحسابات لمنصة لسه مالهاش حساب)،
+  // وجوّه المتجر الكل — والمالك نفسه — بيشتغلوا عليه بس: المنتقي بيعرضه هو، والإعدادات لكل حساب وسجل «ما حققته» الخادم مبيقبلش غيره
+  // (settings.ts / episodes.ts). متجر المالك الأول اللي لسه مالوش حساب في منصة بياخد الحساب المفتوح عنده فيها لوحده («المتاجر الحالية تملأ
+  // تلقائياً»)؛ المتجر الإضافي مفيهوش حساب يتعرض لحد ما المالك يختار — فحسابات متجره الأول مبتتحسبش بإعدادات متجر تاني
+  var storeFilling = {}, storeSyncQueued = false;
+  function storeAccountOf(p) { return activeStore && activeStore.accounts ? activeStore.accounts[p] || null : null; }
+  function firstOwnedStore() { return storeList.filter(function (s) { return s.role === 'owner'; })[0] || null; }
+  function storeOwner() { return !!activeStore && activeStore.role === 'owner'; }
+  // الحسابات اللي تتعرض في المنتقي للمنصة: من غير متجر معروف = كلها (زي قبل). حساب المتجر = هو بس لو صاحب الدخول شايفه (غير كده مفيش).
+  // منصة لسه مالهاش حساب في المتجر: المالك يختار من حساباته كلها، وغيره مفيش
+  function storeOptions(p) {
+    var all = platformOptions[p] || [];
+    if (!activeStore) return all;
+    var want = storeAccountOf(p);
+    if (want) return all.filter(function (o) { return o.value === want; });
+    return storeOwner() ? all : [];
+  }
+  function scheduleStoreSync() {
+    if (storeSyncQueued || !activeStore) return;
+    storeSyncQueued = true;
+    setTimeout(function () { storeSyncQueued = false; syncStoreAccounts(); }, 0);
+  }
+  // الحساب المفتوح في كل منصة مربوطة = حساب المتجر. المنصة اللي قائمة حساباتها لسه موصلتش بتستنى (المنتقي بيتعاد رسمه أول ما توصل)
+  function syncStoreAccounts() {
+    if (!activeStore) return;
+    var changed = false;
+    PLAT_ORDER.forEach(function (p) {
+      var opts = platformOptions[p] || [];
+      var want = storeAccountOf(p), cur = activeSources[p] || null;
+      // الحساب المحفوظ للمنصة = حساب المتجر: أول ما قائمة حساباتها توصل بيتفتح هو (core.js pickAccount) بدل ما حساب تاني يتحمّل الأول
+      if (want && p !== 'tiktok') rememberAccount(p, want);
+      if (!opts.length || p === 'tiktok') return;
+      if (want) {
+        // حساب المتجر مش ظاهر لصاحب الدخول (مالوش صلاحية عليه في المنصة): مفيش حساب يتعرض في المنصة دي جوّه المتجر
+        if (!opts.some(function (o) { return o.value === want; })) { if (cur) { deselectAccount(p); changed = true; } return; }
+        if (cur !== want) { accountSelect.value = want; loadSource(p, want); changed = true; }
+        return;
+      }
+      if (!cur || storeFilling[p]) return;
+      // متجر المالك الأول: الحساب المفتوح عنده بيبقى حساب المتجر (مرة واحدة — بإثبات من المنصة على الخادم)
+      if (storeOwner() && firstOwnedStore() && firstOwnedStore().id === activeStore.id) { chooseStoreAccount(p, cur); return; }
+      // متجر تاني للمالك، أو عضو: مفيش حساب يتعرض لحد ما المالك يختار
+      deselectAccount(p);
+      changed = true;
+    });
+    if (changed) renderAccountPicker();
+  }
+  // المالك بيختار حساب المتجر في المنصة (store.account — الخادم بيتأكد من المنصة إنه شايفه). بعدها الإعدادات لكل حساب وسجل «ما حققته»
+  // بتاعته بيتقروا من جديد (قبلها الخادم مكانش بيرجّعهم)
+  function chooseStoreAccount(p, id) {
+    var sid = storeId(), source = p + ':' + id, token = platformTokenOf(p);
+    if (!sid || !storeOwner() || !token) return Promise.resolve(false);
+    var body = { action: 'store.account', store: sid, platform: p, accountId: id, platformToken: token };
+    var login = p === 'google' ? (accountInfo[source] || {}).loginCustomerId : null;
+    if (login) body.loginCustomerId = String(login);
+    storeFilling[p] = true;
+    return syncCall(body).then(function (res) {
+      storeFilling[p] = false;
+      if (sid !== storeId()) return false;
+      if (res && res.accounts && typeof res.accounts === 'object') activeStore.accounts = res.accounts;
+      else (activeStore.accounts = activeStore.accounts || {})[p] = id;
+      valueState[source] = {};
+      refreshUserSettings();
+      if (valueReady(source)) valueSync(source);
+      syncStoreAccounts();
+      renderAccountPicker();
+      renderTeamCard();
+      return true;
+    }, function () {
+      // المنصة رفضت أو الشبكة: مبنعيدش لوحدنا في الجلسة دي (المالك يختار من «حسابات المتجر»)
+      storeFilling[p] = 'failed';
+      renderTeamCard();
+      return false;
+    });
+  }
   function rememberStore(id) {
     try { if (id) localStorage.setItem(STORE_KEY, id); else localStorage.removeItem(STORE_KEY); } catch (e) { /* الجلسة دي بس */ }
   }
@@ -483,11 +581,13 @@
     storeState = 'loading';
     syncCall({ action: 'store.list', lang: isAr() ? 'ar' : 'en' }).then(function (res) {
       storeList = (Array.isArray(res && res.stores) ? res.stores : []).filter(function (s) { return s && typeof s.id === 'string'; });
+      storeList.forEach(function (s) { if (!s.accounts || typeof s.accounts !== 'object') s.accounts = {}; });
       storeCanCreate = !!(res && res.canCreate);
       activeStore = pickStore(storeList);
       rememberStore(activeStore && activeStore.id);
       storeState = 'ready';
       flushStoreWaiters();
+      syncStoreAccounts();
       renderTeamCard();
     }, function () {
       storeState = 'error';
@@ -500,7 +600,12 @@
     var s = res && res.store;
     if (!s || typeof s.id !== 'string') return;
     var known = storeList.filter(function (x) { return x.id === s.id; })[0];
-    if (known) known.role = s.role; else storeList.push(known = { id: s.id, name: '', role: s.role });
+    if (known) known.role = s.role; else storeList.push(known = { id: s.id, name: '', role: s.role, accounts: {} });
+    // حسابات المتجر الأحدث (المالك ممكن يكون غيّرها من جهازه): الحساب المفتوح بيتبعها
+    if (s.accounts && typeof s.accounts === 'object' && JSON.stringify(s.accounts) !== JSON.stringify(known.accounts || {})) {
+      known.accounts = s.accounts;
+      if (!activeStore || activeStore.id === s.id) scheduleStoreSync();
+    }
     if (!activeStore || activeStore.id === s.id) activeStore = known;
   }
   // المتجر المفتوح مبقاش متاح له (اتشال من الفريق، أو المتجر اتمسح): بنجيب متاجره من جديد ونقرا الإعدادات تاني
@@ -517,7 +622,7 @@
   var teamData = null, teamBusy = false, teamNote = '', teamNoteErr = false, teamArmed = '', teamArmTimer = null;
   var ROLE_KEYS = { owner: 'team.role.owner', manager: 'team.role.manager', viewer: 'team.role.viewer' };
   var TEAM_LOG_KEYS = { create: 'team.log.create', rename: 'team.log.rename', invite: 'team.log.invite', revoke: 'team.log.revoke', accept: 'team.log.accept',
-    remove: 'team.log.remove', role: 'team.log.role', leave: 'team.log.leave', transfer: 'team.log.transfer', settings: 'team.log.settings' };
+    remove: 'team.log.remove', role: 'team.log.role', leave: 'team.log.leave', transfer: 'team.log.transfer', settings: 'team.log.settings', account: 'team.log.account' };
   var TEAM_ERR_KEYS = { email: 'team.err.email', member: 'team.err.member', busy: 'team.err.busy', mail: 'team.err.mail', name: 'team.err.name', owner: 'team.err.owner' };
   function roleName(r) { return t(ROLE_KEYS[r] || 'team.role.viewer'); }
   function teamDay(iso) { var k = iso ? DX._.keyInTz(iso, BROWSER_TZ) : null; return k ? fmtKey(k) : ''; }
@@ -565,6 +670,8 @@
       }).join('') + '</select>'
       : '<b class="team-store-name">' + esc(activeStore.name || '—') + '</b>') + '</div>';
     html += '<p class="set-card-text">' + esc(t('team.yourRole', { role: roleName(activeStore.role) })) + '</p>';
+    // حسابات المتجر (من store.list — مش محتاجة الفريق)
+    html += storeAccountsHtml();
     // الفريق بيتقري لما صفحة الإعدادات تبقى ظاهرة بس (showView بيرسم البطاقة) — مش مع كل فتح للأداة
     if (!teamData) {
       var shown = document.getElementById('viewSettings');
@@ -574,7 +681,7 @@
     }
     var manages = storeManages(), me = myEmail();
     // الأعضاء
-    html += '<h4 class="team-sub">' + esc(t('team.members')) + '</h4><ul class="team-list">' + (teamData.people || []).map(function (p) {
+    html += '<h4 class="team-sub">' + esc(t('team.members')) + '</h4><ul class="team-list team-people">' + (teamData.people || []).map(function (p) {
       var self = p.email === me, canTouch = manages && p.role !== 'owner' && !self;
       var roleCell = canTouch
         ? '<select class="sort-select" data-team-role="' + esc(p.id) + '" aria-label="' + esc(t('team.roleLabel', { email: p.email })) + '">' +
@@ -603,7 +710,9 @@
       var log = teamData.audit || [];
       if (log.length) {
         html += '<details class="team-log"><summary>' + esc(t('team.log')) + '</summary><ul>' + log.map(function (a) {
-          var what = TEAM_LOG_KEYS[a.action] ? t(TEAM_LOG_KEYS[a.action], { target: a.target || '' }) : a.action;
+          // «غيّر حساب Meta للمتجر»: السجل فيه المنصة بس (من غير رقم الحساب) — بتتعرض باسمها
+          var target = a.action === 'account' ? (PLATFORM_NAMES[a.target] || a.target || '') : (a.target || '');
+          var what = TEAM_LOG_KEYS[a.action] ? t(TEAM_LOG_KEYS[a.action], { target: target }) : a.action;
           return '<li>' + esc(t('team.log.line', { date: teamDay(a.at), by: a.by || '—', what: what })) + '</li>';
         }).join('') + '</ul></details>';
       }
@@ -626,8 +735,41 @@
       }
       html += '</details>';
     }
+    // متجر جديد (للمفعّل في التجربة): لكل نشاط متجر بحساباته وإعداداته وفريقه — بيبدأ من غير حسابات لحد ما المالك يختار
+    if (storeCanCreate) {
+      html += '<details class="team-owner"><summary>' + esc(t('team.newStore.title')) + '</summary><p class="set-card-text">' + esc(t('team.newStore.help')) + '</p>' +
+        '<div class="team-row"><input type="text" class="team-input" maxlength="80" data-team-new-name aria-label="' + esc(t('team.create.label')) + '" placeholder="' + esc(t('team.create.label')) + '">' +
+        '<button type="button" class="stop-btn" data-team-create>' + esc(t('team.create.btn')) + '</button></div></details>';
+    }
     if (teamNote) html += '<p class="set-card-text' + (teamNoteErr ? ' err' : '') + '" role="status">' + esc(teamNote) + '</p>';
     body.innerHTML = html;
+  }
+  // «حسابات المتجر»: المالك بيختار حساب كل منصة من حساباته فيها (المنصة لازم تكون مربوطة عنده)؛ المدير والمشاهد بيشوفوها — واللي حساب المتجر
+  // مش ظاهر له (مالوش صلاحية عليه في المنصة) بيعرف ليه وإيه الحل
+  var STORE_ACCT_PLATS = ['meta', 'google', 'snapchat'];
+  function storeAccountsHtml() {
+    var owner = storeOwner(), rows = '';
+    STORE_ACCT_PLATS.forEach(function (p) {
+      var opts = platformOptions[p] || [], want = storeAccountOf(p);
+      var mine = want ? opts.filter(function (o) { return o.value === want; })[0] : null, line;
+      if (owner && opts.length) {
+        line = '<select class="sort-select" data-team-acct-pick="' + p + '" aria-label="' + esc(t('team.accounts.pick', { platform: PLATFORM_NAMES[p] })) + '">' +
+          (mine ? '' : '<option value="">' + esc(t(want ? 'team.accounts.lost' : 'team.accounts.pick', { platform: PLATFORM_NAMES[p] })) + '</option>') +
+          opts.map(function (o) { return '<option value="' + esc(o.value) + '"' + (o.value === want ? ' selected' : '') + '>' + esc(acctName(o.label)) + '</option>'; }).join('') +
+          '</select><button type="button" class="ghost-btn" data-team-acct-save="' + p + '">' + esc(t('team.accounts.save')) + '</button>';
+      } else if (owner) {
+        line = '<span class="set-card-text">' + esc(t(want ? 'team.accounts.setNotConnected' : 'team.accounts.notConnected', { platform: PLATFORM_NAMES[p] })) + '</span>';
+      } else if (!want) {
+        line = '<span class="team-role">' + esc(t('team.accounts.none')) + '</span>';
+      } else if (mine) {
+        line = '<span class="team-acct-name" dir="auto">' + esc(acctName(mine.label)) + '</span>';
+      } else {
+        line = '<span class="set-card-text">' + esc(t('team.accounts.noAccess', { platform: PLATFORM_NAMES[p] })) + '</span>';
+      }
+      rows += '<li class="team-person team-acct">' + platLogo(p) + '<span class="team-acct-plat">' + esc(PLATFORM_NAMES[p]) + '</span>' + line + '</li>';
+    });
+    return '<h4 class="team-sub">' + esc(t('team.accounts.title')) + '</h4><p class="set-card-text">' + esc(t(owner ? 'team.accounts.help' : 'team.accounts.helpMember')) + '</p>' +
+      '<ul class="team-list">' + rows + '</ul>' + (owner ? '<p class="set-card-text">' + esc(t('team.accounts.missing')) + '</p>' : '');
   }
   function teamSay(note, err) { teamNote = note; teamNoteErr = !!err; renderTeamCard(); }
   function teamErr(e) { return t(TEAM_ERR_KEYS[e && e.code] || 'team.err.action'); }
@@ -671,6 +813,18 @@
           rememberStore(res && res.store && res.store.id);
           teamDone('', true);
         }, function (e2) { teamSay(teamErr(e2), true); });
+        return;
+      }
+      // المالك بيختار حساب المتجر في منصة (الخادم بيتأكد من المنصة إنه شايفه)
+      if (el.hasAttribute('data-team-acct-save')) {
+        var ap = el.getAttribute('data-team-acct-save'), pickEl = card.querySelector('[data-team-acct-pick="' + ap + '"]');
+        var pickId = pickEl ? pickEl.value : '';
+        if (!pickId) { teamSay(t('team.accounts.pick', { platform: PLATFORM_NAMES[ap] || ap }), true); return; }
+        if (pickId === storeAccountOf(ap)) { teamSay(t('team.saved')); return; }
+        el.disabled = true;
+        chooseStoreAccount(ap, pickId).then(function (ok) {
+          teamSay(ok ? t('team.accounts.saved', { platform: PLATFORM_NAMES[ap] || ap }) : t('team.accounts.err'), !ok);
+        });
         return;
       }
       if (el.hasAttribute('data-team-invite')) {
@@ -721,6 +875,9 @@
     valueEpisodes = {};
     valueState = {};
     teamData = null;
+    storeFilling = {};
+    // الحسابات المفتوحة بتتبع المتجر الجديد (حساب كل منصة فيه، أو مفيش لحد ما المالك يختار)
+    syncStoreAccounts();
     pullUserSettings();
     renderTeamCard();
     render();

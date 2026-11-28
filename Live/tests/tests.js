@@ -15548,7 +15548,7 @@
         var sw = b.querySelector('[data-team-switch]');
         eq([sw.options.length, sw.value, sw.options[0].textContent], [2, S1, 'متجر <أ>'], 'a store picker, the name as text');
         ok(/دورك في هذا المتجر: المالك/.test(b.textContent), b.textContent);
-        var rows = b.querySelectorAll('.team-list')[0].querySelectorAll('.team-person');
+        var rows = b.querySelector('.team-people').querySelectorAll('.team-person');
         eq(rows.length, 3);
         ok(/\(أنت\)/.test(rows[0].textContent) && !rows[0].querySelector('[data-team-role]') && !rows[0].querySelector('[data-team-remove]'), 'the owner (me) is not touched');
         ok(rows[1].querySelector('[data-team-role="' + MAN + '"]').value === 'manager' && rows[1].querySelector('[data-team-remove="' + MAN + '"]'), 'a manager row: role and remove');
@@ -15577,7 +15577,7 @@
         activeStore = storeList[1]; teamData = people(); teamData.role = 'manager';
         renderTeamCard();
         b = team();
-        rows = b.querySelectorAll('.team-list')[0].querySelectorAll('.team-person');
+        rows = b.querySelector('.team-people').querySelectorAll('.team-person');
         ok(/دورك في هذا المتجر: مدير/.test(b.textContent), b.textContent);
         ok(!rows[0].querySelector('[data-team-role]') && !rows[0].querySelector('[data-team-remove]') && /المالك/.test(rows[0].textContent), 'a manager cannot touch the owner');
         ok(/\(أنت\)/.test(rows[1].textContent) && !rows[1].querySelector('[data-team-role]') && !rows[1].querySelector('[data-team-remove]'), 'nor their own row');
@@ -15604,6 +15604,138 @@
         renderTeamCard();
         ok(/جارٍ تحميل المتجر/.test(team().textContent));
       } finally { AuthLogin.read = prevRead; }
+    });
+
+    // حسابات المتجر («مثل ثندر» — قرارات صاحب المنتج ٢٨ نوفمبر ٢٠٢٦): حساب واحد لكل منصة، المالك بس بيختاره، وجوّه المتجر الكل بيشتغل عليه بس
+    function keepAccounts() {
+      var o = { opts: Object.assign({}, platformOptions), act: Object.assign({}, activeSources), last: Object.assign({}, lastAccounts),
+        load: window.loadSource, tok: window.platformTokenOf };
+      return function () {
+        activeStore = null; storeList = []; storeCanCreate = false; teamData = null; teamNote = ''; storeFilling = {};
+        Object.keys(platformOptions).forEach(function (k) { delete platformOptions[k]; }); Object.assign(platformOptions, o.opts);
+        Object.keys(activeSources).forEach(function (k) { delete activeSources[k]; }); Object.assign(activeSources, o.act);
+        Object.keys(lastAccounts).forEach(function (k) { delete lastAccounts[k]; }); Object.assign(lastAccounts, o.last);
+        window.loadSource = o.load; window.platformTokenOf = o.tok;
+        renderAccountPicker();
+      };
+    }
+    test('حسابات المتجر: المنتقي جوّه المتجر بيعرض حساب المتجر بس، والمالك يختار للمنصة اللي مالهاش، وغيره مفيش — ومن غير متجر زي قبل', function () {
+      var restore = keepAccounts();
+      try {
+        platformOptions.meta = [{ value: 'act_1', label: 'Meta — One' }, { value: 'act_2', label: 'Meta — Two' }];
+        platformOptions.snapchat = [{ value: 'sn1', label: 'Snapchat — Snap' }];
+        delete platformOptions.google; delete platformOptions.tiktok;
+        activeStore = null;
+        eq([storeOptions('meta').length, storeOptions('snapchat').length], [2, 1], 'no store known: all, like before');
+        activeStore = { id: S1, name: 'متجر أ', role: 'owner', accounts: { meta: 'act_2' } }; storeList = [activeStore];
+        eq([storeOptions('meta').map(function (o) { return o.value; }), storeOptions('snapchat').length], [['act_2'], 1], 'the store account only; a platform with none: the owner picks from all');
+        activeStore.role = 'manager';
+        eq([storeOptions('meta').length, storeOptions('snapchat').length], [1, 0], 'a member: the store account, and nothing where the owner has not chosen');
+        activeStore.accounts = { meta: 'act_9' };
+        eq(storeOptions('meta').length, 0, 'the store account not visible to this login: nothing');
+        // مع أكتر من متجر: الزرار بيبدأ باسم المتجر واللوحة فيها اختياره
+        activeStore.role = 'owner'; activeStore.accounts = { meta: 'act_1', snapchat: 'sn1' };
+        storeList = [activeStore, { id: S2, name: 'متجر ب', role: 'owner', accounts: {} }];
+        activeSources.meta = 'act_1'; activeSources.snapchat = 'sn1';
+        renderAccountPicker();
+        ok(/متجر أ/.test(document.getElementById('acctPickBtn').textContent), 'the store name first');
+        var sel = document.querySelector('#acctStore [data-acct-store]');
+        ok(sel && sel.options.length === 2 && sel.value === S1 && !document.getElementById('acctStore').hidden, 'the store picker in the panel');
+        // متجر واحد: مفيش اختيار متجر
+        storeList = [activeStore];
+        renderAccountPicker();
+        ok(document.getElementById('acctStore').hidden && !/متجر أ/.test(document.getElementById('acctPickBtn').textContent), 'one store: accounts only');
+      } finally { restore(); }
+    });
+
+    testAsync('حسابات المتجر: الحساب المفتوح بيتبع حساب المتجر — بيتحمّل لو مختلف، وبيختفي لو العضو مش شايفه، ومتجر المالك الأول بياخد المفتوح، والتاني لأ', function () {
+      var restore = keepAccounts(), asked = [];
+      window.loadSource = function (p, id) { asked.push([p, id]); activeSources[p] = id; };
+      window.platformTokenOf = function () { return 'tok_abcdefghijklmnopqrstuvwxyz'; };
+      platformOptions.meta = [{ value: 'act_1', label: 'Meta — One' }, { value: 'act_2', label: 'Meta — Two' }];
+      delete platformOptions.google; delete platformOptions.snapchat; delete platformOptions.tiktok;
+      return withStores({
+        'store.account': function (b) { return { ok: true, accounts: { meta: b.accountId } }; },
+        'usettings.get': { settings: { all: {} } }
+      }, function (calls) {
+        // ١) حساب المتجر مش هو المفتوح: بيتحمّل، وبيبقى المحفوظ للمنصة
+        activeStore = { id: S1, name: 'أ', role: 'owner', accounts: { meta: 'act_2' } }; storeList = [activeStore];
+        activeSources.meta = 'act_1';
+        syncStoreAccounts();
+        eq([asked, lastAccounts.meta], [[['meta', 'act_2']], 'act_2'], 'the store account is opened and remembered');
+        // ٢) عضو مش شايف حساب المتجر: المنصة بتختفي
+        activeStore.role = 'viewer'; activeStore.accounts = { meta: 'act_9' }; activeSources.meta = 'act_1';
+        syncStoreAccounts();
+        eq(activeSources.meta, undefined, 'not visible to the member: nothing shown');
+        // والعضو مبيبعتش اختيار حساب للمتجر حتى لو اتطلب منه (الخادم بيرفض كمان — المالك بس)
+        var sentBefore = calls.length;
+        chooseStoreAccount('meta', 'act_1');
+        eq(calls.length, sentBefore, 'a member never sends a store account');
+        // ٣) متجر المالك الأول من غير حساب في المنصة: المفتوح بيبقى حساب المتجر (طلب للخادم بإثبات المنصة)
+        activeStore.role = 'owner'; activeStore.accounts = {}; activeSources.meta = 'act_1';
+        syncStoreAccounts();
+        syncStoreAccounts();
+        var sent = calls.filter(function (c) { return c.action === 'store.account'; });
+        eq(sent.length, 1, 'once, even if asked again while it is on its way');
+        eq([sent[0].store, sent[0].platform, sent[0].accountId, !!sent[0].platformToken], [S1, 'meta', 'act_1', true], 'auto-filled from the open account');
+        return tick().then(tick).then(function () {
+          eq(activeStore.accounts, { meta: 'act_1' }, 'the store has it now');
+          // ٤) متجر تاني للمالك من غير حساب: مفيش حساب يتعرض لحد ما يختار، ومفيش تعبئة
+          var second = { id: S2, name: 'ب', role: 'owner', accounts: {} };
+          storeList = [activeStore, second]; activeStore = second; activeSources.meta = 'act_1';
+          var before = calls.length;
+          syncStoreAccounts();
+          eq([activeSources.meta, calls.length], [undefined, before], 'a second store: nothing shown, nothing chosen for it');
+          // ...وأول ما المالك يختار من المنتقي، الاختيار بيبقى حساب المتجر التاني
+          renderAccountPicker();
+          document.getElementById('acctPickBtn').click();
+          document.querySelector('#acctList [data-acct-id="act_2"]').click();
+          var last = calls.filter(function (c) { return c.action === 'store.account'; }).slice(-1)[0];
+          eq([last.store, last.accountId, asked.slice(-1)[0]], [S2, 'act_2', ['meta', 'act_2']], 'picking in a store with no account chooses it');
+          document.getElementById('acctDone').click();
+          return tick();
+        });
+      }).then(restore, function (e) { restore(); throw e; });
+    });
+
+    testAsync('بطاقة «حسابات المتجر»: المالك يختار حساب كل منصة مربوطة ويحفظه، والمنصة غير المربوطة تطلب الربط؛ والعضو يرى الحساب أو سبب غيابه', function () {
+      var restore = keepAccounts();
+      window.platformTokenOf = function () { return 'tok_abcdefghijklmnopqrstuvwxyz'; };
+      window.loadSource = function (p, id) { activeSources[p] = id; };
+      platformOptions.meta = [{ value: 'act_1', label: 'Meta — One' }, { value: 'act_2', label: 'Meta — Two' }];
+      delete platformOptions.google; delete platformOptions.snapchat; delete platformOptions.tiktok;
+      return withStores({ 'store.account': function (b) { return { ok: true, accounts: { meta: b.accountId } }; }, 'usettings.get': { settings: { all: {} } } }, function (calls) {
+        storeList = [{ id: S1, name: 'متجر أ', role: 'owner', accounts: { meta: 'act_1' } }]; activeStore = storeList[0];
+        teamData = { role: 'owner', people: [{ id: OWN, email: 'me@x.example', role: 'owner' }], invites: [],
+          audit: [{ action: 'account', by: 'me@x.example', target: 'meta', at: '2026-11-28T10:00:00Z' }], invitesOpen: true };
+        renderTeamCard();
+        var b = team();
+        var pick = b.querySelector('[data-team-acct-pick="meta"]');
+        ok(pick && pick.value === 'act_1' && pick.options.length === 2, 'the owner picks among his Meta accounts, the store one selected');
+        ok(/اربط Google Ads من «حساباتك» لتختار حسابها/.test(b.textContent) && /اربط Snapchat من «حساباتك»/.test(b.textContent), 'a platform not connected asks to connect it');
+        ok(/لا تجد حساب متجرك؟/.test(b.textContent), 'the owner hint');
+        ok(/غيّر حساب Meta للمتجر/.test(b.querySelector('.team-log').textContent), 'the log names the platform, not the account');
+        pick.value = 'act_2';
+        b.querySelector('[data-team-acct-save="meta"]').click();
+        return tick().then(tick).then(function () {
+          var call = calls.filter(function (c) { return c.action === 'store.account'; })[0];
+          eq(call && [call.store, call.platform, call.accountId], [S1, 'meta', 'act_2'], 'saved through the server');
+          eq([activeStore.accounts, activeSources.meta], [{ meta: 'act_2' }, 'act_2'], 'the store account changed, and the open account follows it');
+          ok(/صار هذا حساب المتجر في Meta/.test(team().textContent), team().textContent);
+          // العضو: الحساب باسمه لو ظاهر له، وسبب غيابه لو لأ، و«لم يُختر بعد» للمنصة من غير حساب — ومن غير اختيار
+          activeStore.role = 'manager'; activeStore.accounts = { meta: 'act_2', snapchat: 'sn9' }; teamNote = '';
+          renderTeamCard();
+          var t2 = team();
+          ok(!t2.querySelector('[data-team-acct-pick]') && !t2.querySelector('[data-team-acct-save]'), 'a manager does not choose');
+          ok(/Two/.test(t2.querySelector('.team-acct-name').textContent), 'the store account by name');
+          ok(/ليس لديك صلاحية على حساب المتجر في Snapchat/.test(t2.textContent), 'why it is missing');
+          ok(/لم يُختر بعد/.test(t2.textContent), 'Google Ads not chosen yet');
+          // متجر جديد للمفعّل
+          storeCanCreate = true;
+          renderTeamCard();
+          ok(/متجر جديد/.test(team().textContent) && !!team().querySelector('[data-team-create]'), 'a new store for an activated user');
+        });
+      }).then(restore, function (e) { restore(); throw e; });
     });
 
     testAsync('بطاقة «المتجر وفريقه»: الدعوة (والبريد الغلط)، والإزالة بضغطتين، والدور، والمغادرة، والحذف باسم المتجر بس، والتبديل بين المتاجر', function () {

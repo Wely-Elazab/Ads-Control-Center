@@ -20,7 +20,7 @@
 //   settings.get ← { platform, accountId, platformToken }  → { settings | null }
 import { META_ID, UUID_SHAPE, USER_ID, db, rpc, reply, metaAccount } from './lib.ts';
 import { VALUE_CONSENT_FROM } from './join.ts';
-import { storeFor, canManage } from './stores.ts';
+import { storeFor, canManage, storeAccounts, roleIn, audit } from './stores.ts';
 
 const SNAP_API = 'https://adsapi.snapchat.com/v1';
 const SNAP_ID = new RegExp('^' + UUID_SHAPE + '$', 'i');   // نفس digest.ts — رقم حساب Snapchat معرّف UUID
@@ -204,12 +204,29 @@ export async function joinConsented(email: string): Promise<boolean> {
 
 // الشكل اللي الأداة بتشوفه زي ما هو (alerts.js settingsForAccount): { all, plat, acct } من إعدادات المتجر (المرحلة ١ — ٢٧ نوفمبر ٢٠٢٦:
 // إعدادات التنبيهات للمتجر كله، فصاحب المتجر وفريقه بيشوفوا نفس التنبيهات)، و{ prefs, asked } من سجل المستخدم نفسه (حاجات شخصية)
-export function settingsView(storeSet: unknown, userSet: unknown): Record<string, unknown> {
+// accounts = حسابات المتجر (store_accounts): الإعدادات لكل حساب بتطلع لحساباته بس — رقم حساب تاني اتحفظ قبل «حسابات المتجر» (متجر كان
+// فيه حسابات كذا عميل) مبيوصلش لأعضائه
+export function acctOfStore(acct: unknown, accounts: Record<string, string> | null): Record<string, unknown> | null {
+  if (!acct || typeof acct !== 'object' || Array.isArray(acct)) return null;
+  if (!accounts) return acct as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  Object.keys(acct as Record<string, unknown>).forEach((k) => {
+    const p = k.split(':')[0];
+    if (accounts[p] && k === p + ':' + accounts[p]) out[k] = (acct as Record<string, unknown>)[k];
+  });
+  return Object.keys(out).length ? out : null;
+}
+// كل مفاتيح التعديل لحسابات المتجر؟ (المسح null كمان — مفيش مسح لحساب مش بتاعه)
+export function acctOfStoreOk(acct: Record<string, unknown>, accounts: Record<string, string>): boolean {
+  return Object.keys(acct).every((k) => { const p = k.split(':')[0]; return !!accounts[p] && k === p + ':' + accounts[p]; });
+}
+export function settingsView(storeSet: unknown, userSet: unknown, accounts: Record<string, string> | null = null): Record<string, unknown> {
   const obj = (v: unknown) => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, any> : {};
   const s = obj(storeSet), u = obj(userSet);
   const out: Record<string, unknown> = { all: obj(s.all) };
   if (s.plat && typeof s.plat === 'object') out.plat = s.plat;
-  if (s.acct && typeof s.acct === 'object') out.acct = s.acct;
+  const acct = acctOfStore(s.acct, accounts);
+  if (acct) out.acct = acct;
   if (u.prefs && typeof u.prefs === 'object') out.prefs = u.prefs;
   if (u.asked === true) out.asked = true;
   return out;
@@ -245,8 +262,9 @@ export async function handleUserSettings(action: string, body: any, userId: stri
       if (merged && typeof merged === 'object' && !Array.isArray(merged)) userRec = merged;
     }
     const srow = store ? await firstSettings('store_settings?store_id=eq.' + store.id + '&select=settings,updated_at') : null;
-    return reply(200, { settings: settingsView(srow ? srow.settings : null, userRec), updatedAt: srow ? srow.updated_at : (row ? row.updated_at : null),
-      store: store ? { id: store.id, role: store.role } : null }, origin);
+    const accounts = store ? await storeAccounts(store.id) : null;
+    return reply(200, { settings: settingsView(srow ? srow.settings : null, userRec, accounts), updatedAt: srow ? srow.updated_at : (row ? row.updated_at : null),
+      store: store ? { id: store.id, role: store.role, accounts } : null }, origin);
   }
   if (action === 'usettings.set') {
     let req = body;
@@ -271,6 +289,14 @@ export async function handleUserSettings(action: string, body: any, userId: stri
     const store = await storeFor(userId, storeArg);
     if ((toStore || storeArg != null) && !store) return reply(404, { error: 'store' }, origin);
     if (toStore && !canManage(store!.role)) return reply(403, { error: 'role' }, origin);
+    // الإعدادات لكل حساب: لحسابات المتجر بس («مثل ثندر» — حساب واحد لكل منصة). حساب تاني = ٤٠٩ account (عضو فاتح حساب متجر تاني جوّه المتجر
+    // ده)، والنقل القديم (base) بيتفلتر عليها
+    const accounts = store ? await storeAccounts(store.id) : null;
+    if (accounts && w.changes.acct && !acctOfStoreOk(w.changes.acct as Record<string, unknown>, accounts)) return reply(409, { error: 'account' }, origin);
+    if (accounts && w.base && w.base.acct) {
+      const kept = acctOfStore(w.base.acct, accounts);
+      if (kept) w.base.acct = kept; else delete w.base.acct;
+    }
     let userRec: unknown = null, storeRec: unknown = null;
     if (w.changes.prefs || w.asked) {
       userRec = await rpc('user_settings_apply', { p_user: userId, p_base: null, p_changes: w.changes.prefs ? { prefs: w.changes.prefs } : {}, p_goals: null, p_asked: w.asked });
@@ -280,7 +306,7 @@ export async function handleUserSettings(action: string, body: any, userId: stri
     }
     if (toStore) storeRec = await rpc('store_settings_apply', { p_store: store!.id, p_base: w.base, p_changes: storeChanges, p_goals: w.goals });
     else if (store) { const s = await firstSettings('store_settings?store_id=eq.' + store.id + '&select=settings'); storeRec = s ? s.settings : null; }
-    return reply(200, { ok: true, settings: settingsView(storeRec, userRec), store: store ? { id: store.id, role: store.role } : null }, origin);
+    return reply(200, { ok: true, settings: settingsView(storeRec, userRec, accounts), store: store ? { id: store.id, role: store.role, accounts } : null }, origin);
   }
   return reply(400, { error: 'action' }, origin);
 }
@@ -329,6 +355,27 @@ export async function verifyAccount(body: any, origin: string | null): Promise<{
     : (platform === 'snapchat' ? await snapAccount(token, id) : await googleAccount(token, id, login || null));
   if (!ok) return reply(403, { error: 'not verified' }, origin);
   return { platform, id };
+}
+
+// حساب المتجر في المنصة (store.account — قرار صاحب المنتج ٢٨ نوفمبر ٢٠٢٦، «مثل ثندر»): واحد لكل منصة، المالك بس اللي بيختاره ويغيّره
+// («اليس من المفترض المالك فقط؟»). الإثبات من المنصة نفسها زي settings.get: صاحب المفتاح شايف الحساب، فمحدش يحط حساب ملوش صلاحية عليه.
+// التغيير بيبدّل القديم وبيتسجّل في سجل تغييرات الفريق بالمنصة بس (من غير رقم الحساب)؛ ونفس الحساب تاني = مفيش تغيير ولا سطر في السجل
+export async function handleStoreAccount(body: any, userId: string, origin: string | null): Promise<Response> {
+  if (typeof userId !== 'string' || !USER_ID.test(userId)) return reply(401, { error: 'login', code: 'LOGIN' }, origin);
+  const store = body && body.store;
+  const role = await roleIn(userId, store);
+  if (!role) return reply(404, { error: 'store' }, origin);
+  if (role !== 'owner') return reply(403, { error: 'role' }, origin);
+  const acc = await verifyAccount(body, origin);
+  if (acc instanceof Response) return acc;
+  const accounts = await storeAccounts(store);
+  if (accounts[acc.platform] !== acc.id) {
+    await db('store_accounts?on_conflict=store_id,platform', { method: 'POST', headers: { 'prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ store_id: store, platform: acc.platform, account_id: acc.id, chosen_by: userId, chosen_at: new Date().toISOString() }) });
+    await audit(store, userId, 'account', acc.platform);
+    accounts[acc.platform] = acc.id;
+  }
+  return reply(200, { ok: true, accounts }, origin);
 }
 
 // سجل الحساب القديم: قراءة بس (النقل لإعدادات المستخدم). الحفظ اتشال — إعدادات المستخدم هي المصدر من التحديث ده

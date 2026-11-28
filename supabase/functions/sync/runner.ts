@@ -300,14 +300,24 @@ async function firstRow(path: string): Promise<any | null> {
 function objectOrNull(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null;
 }
-// من ٢٧ نوفمبر ٢٠٢٦ الإعدادات للمتجر (stores.ts — صاحبه وفريقه بنفس التنبيهات): متجر الحساب في الملخص (store_id)، وإلا أول متجر للمستخدم
-// (اللي بيملكه الأول)، وإلا سجله القديم (قبل ما يبقى له متجر)
-async function userSettingsOf(user: string, store?: string | null): Promise<Record<string, unknown> | null> {
-  let sid = store || null;
-  if (!sid) {
-    const own = await firstRow('stores?select=id&owner_id=eq.' + user + '&order=created_at.asc&limit=1');
-    const mem = own ? null : await firstRow('store_members?select=store_id&user_id=eq.' + user + '&order=created_at.asc&limit=1');
-    sid = own ? own.id : (mem ? mem.store_id : null);
+// من ٢٧ نوفمبر ٢٠٢٦ الإعدادات للمتجر (stores.ts — صاحبه وفريقه بنفس التنبيهات). ومن ٢٨ نوفمبر (حسابات المتجر — «مثل ثندر»): إعدادات متجر
+// بس لو الحساب هو حساب المتجر ده في المنصة — متجر الحساب في الملخص (store_id) لو كده، وإلا متجر للمستخدم (بيملكه الأول، وبعدين عضو فيه)
+// حسابه في المنصة دي هو الحساب ده. وإلا سجله القديم (قبل المتاجر) — فحساب متجر تاني عند عضو مبيتحسبش بإعدادات متجره
+const STORE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export async function userSettingsOf(user: string, platform: string, accountId: string, store?: string | null): Promise<Record<string, unknown> | null> {
+  const r = await db('store_accounts?select=store_id&platform=eq.' + encodeURIComponent(platform) + '&account_id=eq.' + encodeURIComponent(accountId),
+    { method: 'GET' }).catch(() => null);
+  const found = r ? await r.json().catch(() => null) : null;
+  const ids: string[] = (Array.isArray(found) ? found : []).map((x: any) => String(x && x.store_id)).filter((id: string) => STORE_ID.test(id));
+  let sid: string | null = null;
+  if (ids.length) {
+    if (store && ids.indexOf(store) > -1) sid = store;
+    else {
+      const inList = '&store_id=in.(' + ids.join(',') + ')';
+      const own = await firstRow('stores?select=id&owner_id=eq.' + user + '&id=in.(' + ids.join(',') + ')&order=created_at.asc&limit=1');
+      const mem = own ? null : await firstRow('store_members?select=store_id&user_id=eq.' + user + inList + '&order=created_at.asc&limit=1');
+      sid = own ? own.id : (mem ? mem.store_id : null);
+    }
   }
   if (sid) {
     const srow = await firstRow('store_settings?select=settings&store_id=eq.' + sid);
@@ -1477,9 +1487,9 @@ async function runJob(a: DAcct, s: Settings, ctx: RunCtx): Promise<string> {
   const user = s.user_id;
   g.I18N.setLang(s.lang === 'en' ? 'en' : 'ar');
   const stop = ctx.stop[user] || (ctx.stop[user] = await stopUrl(user));
-  // الإعدادات لكل (مستخدم، متجر) — متجر الحساب في الملخص لو معروف (٢٧ نوفمبر ٢٠٢٦)
-  const usKey = user + '|' + (a.store_id || '');
-  if (!(usKey in ctx.us)) ctx.us[usKey] = await userSettingsOf(user, a.store_id);
+  // الإعدادات لكل (مستخدم، حساب، متجر) — من متجر الحساب لو هو حساب المتجر ده (٢٨ نوفمبر ٢٠٢٦)
+  const usKey = user + '|' + a.platform + '|' + a.account_id + '|' + (a.store_id || '');
+  if (!(usKey in ctx.us)) ctx.us[usKey] = await userSettingsOf(user, a.platform, a.account_id, a.store_id);
   const o: CheckOpts = { doUrgent: !!a.urgent_due, due: keyWindow(a.need_summary), monthly: monthWindow(a.need_monthly), stop };
   let r: AcctResult;
   try { r = await checkUserAccount(s, a, ctx.us[usKey], o); } catch (e) {
@@ -1722,7 +1732,7 @@ export async function previewSummary(token: string, accountId: string, lang: str
       if (!win) return { error: 'window' };
       const s: Settings = { user_id: user, email: '', lang: en ? 'en' : 'ar', timezone: tz, summary_days: [0, 3], summary_hour: 9, last_summary_until: null };
       const cands = (await loadCandidates(accountId, acct)) || [];
-      const eff = effectiveFor(user ? await userSettingsOf(user) : null, 'meta', acct.currency || null, accountId);
+      const eff = effectiveFor(user ? await userSettingsOf(user, 'meta', accountId) : null, 'meta', acct.currency || null, accountId);
       const sum = await buildSummary(user, accountId, acct, win.since, win.until, eff.target, cands, eff.sens);
       const alerts = alertStatusHtml(user ? await marksOf(user, 'meta', accountId) : {}, cands, win.since, tz, en, eff.target);
       const mail = summaryMail([{ platform: 'meta', account: accountId, name: acct.name || accountId, sum, alerts }], win.since, win.until, s, en, await stopUrl(user), monthly);
@@ -1748,7 +1758,7 @@ export async function preview(token: string, accountId: string, lang: string, us
       const cands = await loadCandidates(accountId, acct);
       if (!cands) return { error: 'retry' };
       // المعاينة: التعديلات الكبيرة من آخر ٢٤ ساعة (عشان تبان أمثلة)
-      const eff = effectiveFor(user ? await userSettingsOf(user) : null, 'meta', acct.currency || null, accountId);
+      const eff = effectiveFor(user ? await userSettingsOf(user, 'meta', accountId) : null, 'meta', acct.currency || null, accountId);
       const urgent = (await allUrgent(accountId, acct, cands, Date.now() - 24 * 3600000, eff.target, eff.sens)).urgent;
       const mail = urgentMail([{ platform: 'meta', account: accountId, name: acct.name || accountId, fresh: urgent, remind: [] }], acct.timezone_name || 'UTC', en, await stopUrl(user));
       return {

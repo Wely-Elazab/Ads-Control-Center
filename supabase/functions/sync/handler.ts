@@ -7,7 +7,7 @@ import { handleJoin } from './join.ts';
 import { runAll, preview, previewSummary } from './runner.ts';
 import { handleLogin, requireLogin } from './auth.ts';
 import { handleMetaLink } from './metalink.ts';
-import { handleSettings, handleUserSettings } from './settings.ts';
+import { handleSettings, handleUserSettings, handleStoreAccount } from './settings.ts';
 import { handleEpisodes } from './episodes.ts';
 import { handleStores, handleInvite } from './stores.ts';
 
@@ -132,6 +132,9 @@ export async function handle(req: Request): Promise<Response> {
     // إعدادات التنبيهات لكل مستخدم (settings.ts — قرار ٢٦ أكتوبر): سجل صاحب الدخول نفسه، من غير مفتاح أي منصة. وبريد الدخول للموافقة على
     // سجل لوحة «ما حققته» اللي في طلب انضمامه (٢٦ نوفمبر ٢٠٢٦)
     if (action === 'usettings.get' || action === 'usettings.set') return await handleUserSettings(action, body, user.id, origin, user.email);
+    // حساب المتجر في المنصة (settings.ts — ٢٨ نوفمبر ٢٠٢٦، «مثل ثندر»): المالك بس، بإثبات من المنصة نفسها. جنب التحقق من المنصة عشان
+    // stores.ts ميستوردش settings.ts (هي بتستورد منه)
+    if (action === 'store.account') return await handleStoreAccount(body, user.id, origin);
     // المتجر وفريقه (stores.ts — ٢٧ نوفمبر ٢٠٢٦): الدور من قاعدة البيانات في كل طلب
     if (typeof action === 'string' && action.indexOf('store.') === 0) return await handleStores(action, body, user, origin);
     // سجل الحساب الإعلاني القديم (قراءة بس — النقل لإعدادات المستخدم) بإثبات الوصول للحساب في منصته

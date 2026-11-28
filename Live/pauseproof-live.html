@@ -574,6 +574,13 @@
   .acct-opt.on { background: color-mix(in srgb, var(--brand, var(--verified)) 10%, transparent); font-weight: 700; }
   .acct-opt.on .acct-box { background: var(--brand, var(--verified)); border-color: var(--brand, var(--verified)); color: var(--on-brand, #fff); }
   .acct-empty { margin: 10px 6px; font-size: 13px; color: var(--ink-soft); }
+  /* المتجر المفتوح (مع أكتر من متجر): أول الزرار، واختياره أول اللوحة */
+  .acct-pick-store { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; padding-inline-end: 8px;
+    border-inline-end: 1px solid var(--line); }
+  .acct-store { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .acct-store[hidden] { display: none; }
+  .acct-store-label { font-size: 12.5px; font-weight: 800; color: var(--ink-soft); }
+  .acct-store .sort-select { flex: 1 1 auto; min-width: 0; }
   .install-btn { border-color: var(--verified); color: var(--verified); }
   .install-btn[hidden] { display: none; }
   .install-steps { margin: 4px 0 14px; padding-inline-start: 22px; font-size: 14px; line-height: 1.9; }
@@ -676,6 +683,12 @@
   .team-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; width: 100%; }
   .team-person { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .team-email { font-size: 13.5px; color: var(--ink); overflow-wrap: anywhere; flex: 1 1 180px; min-width: 0; }
+  /* حسابات المتجر: شعار المنصة واسمها، وبعدهم الحساب (أو اختياره للمالك) */
+  .team-acct .plat-logo { width: 16px; height: 16px; flex: 0 0 auto; }
+  .team-acct-plat { font-size: 13px; font-weight: 800; color: var(--ink-soft); flex: 0 0 auto; min-width: 70px; }
+  .team-acct-name { font-size: 13.5px; color: var(--ink); overflow-wrap: anywhere; flex: 1 1 160px; min-width: 0; }
+  .team-acct .sort-select { flex: 1 1 180px; min-width: 0; }
+  .team-acct .set-card-text { margin: 0; flex: 1 1 200px; }
   .team-you, .team-role, .team-when { font-size: 12.5px; color: var(--ink-soft); }
   .team-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
   .team-input { flex: 1 1 200px; min-width: 0; max-width: 100%; padding: 10px 12px; border: 1px solid var(--ink-faint); border-radius: 9px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; }
@@ -1172,6 +1185,8 @@
       <div class="acct-picker" id="acctPicker" hidden>
         <button type="button" class="acct-pick-btn" id="acctPickBtn" aria-haspopup="true" aria-expanded="false" aria-controls="acctPanel" aria-label="الحسابات الإعلانية المختارة" data-i18n-aria="acct.pick.aria"></button>
         <div class="acct-panel" id="acctPanel" hidden>
+          <!-- اختيار المتجر مع أكتر من متجر (حسابات المتجر — ٢٨ نوفمبر ٢٠٢٦): الحسابات تحته بتاعته هو بس (ui.js renderAccountPicker) -->
+          <div id="acctStore" class="acct-store" hidden></div>
           <input type="search" id="acctSearch" class="acct-search" autocomplete="off" placeholder="ابحث باسم الحساب" data-i18n-placeholder="acct.search" aria-label="ابحث باسم الحساب" data-i18n-aria="acct.search">
           <!-- group مش listbox: كل صف مربع اختيار مستقل بيتفتح ويتقفل (٢ نوفمبر ٢٠٢٦) -->
           <div id="acctList" class="acct-list" role="group" aria-label="الحسابات الإعلانية" data-i18n-aria="acct.list"></div>

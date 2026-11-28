@@ -14,6 +14,9 @@
 //   store.leave         ← { store }                                   أي عضو غير المالك (المالك بينقل الملكية الأول)
 //   store.transfer      ← { store, user }                             المالك بس — لعضو موجود، والمالك القديم بيبقى مدير
 //   store.delete        ← { store, name }                             المالك بس — بتأكيد اسم المتجر (كل اللي تحته بيتمسح)
+//   store.account       ← { store, platform, accountId, platformToken, loginCustomerId? } → { accounts }   (settings.ts handleStoreAccount)
+//                         المالك بس — حساب المتجر في المنصة (واحد لكل منصة — «مثل ثندر»)، بعد ما المنصة نفسها تأكد إنه شايفه.
+//                         store.list بيرجّع حسابات كل متجر (accounts: { meta?, snapchat?, google? })
 // من غير دخول (الرابط نفسه هو الإثبات — اتبعت لصاحب البريد، زي «نسيت كلمة المرور»):
 //   invite.peek         ← { t } → { state, store, role, email }
 //   invite.accept       ← { t } → { ok, reset? }   العضوية بتتضاف؛ والبريد اللي مالوش دخول في الأداة بياخد دور «member» ورابط إنشاء
@@ -22,10 +25,12 @@ import { USER_ID, SITE, db, rpc, reply, sendEmail, mailHtml, esc, authAdmin, str
 import { cleanEmail } from './digest.ts';
 
 export type StoreRole = 'owner' | 'manager' | 'viewer';
-// الدعوات مقفولة لحد قائمة «حسابات المتجر» (قرار صاحب المنتج ٢٨ نوفمبر ٢٠٢٦ — «الأساس الآن والدعوات بعد القائمة»): من غيرها العضو بيفتح
-// أي حساب عنده صلاحية عليه وهو جوّه المتجر، فحسابات متاجر تانية بتتحسب بإعدادات المتجر وبتتسجّل في سجله ورقمها بيوصل لفريقه.
-// الاختبارات بتفتحها (TEAM.invitesOpen = true) — ومن غيرها store.invite بيرفض والواجهة بتخفي الدعوة
-export const TEAM = { invitesOpen: false };
+// الدعوات كانت مقفولة لحد «حسابات المتجر» (قرار صاحب المنتج ٢٨ نوفمبر ٢٠٢٦ — «الأساس الآن والدعوات بعد القائمة»): من غيرها العضو كان بيفتح
+// أي حساب عنده صلاحية عليه وهو جوّه المتجر، فحسابات متاجر تانية بتتحسب بإعدادات المتجر وبتتسجّل في سجله ورقمها بيوصل لفريقه. دلوقتي
+// المتجر ليه حساب واحد لكل منصة (store_accounts) والخادم مبيقبلش غيره، فاتفتحت. المفتاح فاضل لو احتجنا نقفلها تاني من غير ما نشيل الكود
+export const TEAM = { invitesOpen: true };
+// المنصات اللي ليها «حساب المتجر» (تيك توك لسه مش متاح في الأداة)
+export const STORE_PLATFORMS = ['meta', 'snapchat', 'google'];
 const MEMBER_ROLES = ['manager', 'viewer'];
 const INVITE_MS = 7 * 86400000, INVITES_PER_HOUR = 20, AUDIT_LIMIT = 30, CLOSED_KEEP_MS = 30 * 86400000;
 const TOKEN_SHAPE = /^[A-Za-z0-9_-]{43}$/;
@@ -73,12 +78,33 @@ export async function storeFor(userId: string, storeId: unknown): Promise<{ id: 
   const list = await storesOf(userId);
   return list.length ? { id: list[0].id, role: list[0].role } : null;
 }
+// حسابات المتجر: { meta?: 'act_…', snapchat?: '…', google?: '…' } — واحد لكل منصة (store_accounts). الإعدادات لكل حساب وسجل «ما حققته»
+// (settings.ts / episodes.ts) مبيقبلوش غيرها
+export async function storeAccounts(storeId: string): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  if (!isId(storeId)) return out;
+  (await rows('store_accounts?store_id=eq.' + storeId + '&select=platform,account_id')).forEach((r) => {
+    if (STORE_PLATFORMS.indexOf(r.platform) > -1 && typeof r.account_id === 'string') out[r.platform] = r.account_id;
+  });
+  return out;
+}
+// حسابات كذا متجر في طلب واحد (store.list)
+async function accountsOfStores(ids: string[]): Promise<Record<string, Record<string, string>>> {
+  const out: Record<string, Record<string, string>> = {};
+  ids.forEach((id) => { out[id] = {}; });
+  const ok = ids.filter(isId);
+  if (!ok.length) return out;
+  (await rows('store_accounts?store_id=in.(' + ok.join(',') + ')&select=store_id,platform,account_id')).forEach((r) => {
+    if (out[r.store_id] && STORE_PLATFORMS.indexOf(r.platform) > -1 && typeof r.account_id === 'string') out[r.store_id][r.platform] = r.account_id;
+  });
+  return out;
+}
 // دور الدخول للأداة: admin / pilot (اتفعّل في التجربة) / member (دخل بدعوة متجر بس)
 async function accessRole(email: string): Promise<string | null> {
   const r = await rows('app_access?select=role&email=eq.' + encodeURIComponent(email.toLowerCase()));
   return r.length ? String(r[0].role) : null;
 }
-function audit(store: string, actor: string | null, action: string, target?: string | null): Promise<unknown> {
+export function audit(store: string, actor: string | null, action: string, target?: string | null): Promise<unknown> {
   return db('store_audit', POST({ store_id: store, actor, action, target: target ? target.slice(0, 254) : null })).catch(() => null);
 }
 // متجر جديد بقيم الأداة. نقل إعدادات المستخدمين الحاليين لمتاجرهم حصل مرة واحدة في الترحيل (20261128103849_stores_team.sql)، فأي متجر
@@ -149,7 +175,8 @@ export async function handleStores(action: string, body: any, user: { id: string
       await createStore(user.id, await firstName(user.email, en));
       list = await storesOf(user.id);
     }
-    return reply(200, { stores: list, canCreate }, origin);
+    const accounts = await accountsOfStores(list.map((s) => s.id));
+    return reply(200, { stores: list.map((s) => ({ ...s, accounts: accounts[s.id] || {} })), canCreate }, origin);
   }
   if (action === 'store.create') {
     const access = await accessRole(user.email);
@@ -157,7 +184,7 @@ export async function handleStores(action: string, body: any, user: { id: string
     const name = storeName(body && body.name);
     if (!name) return reply(400, { error: 'name' }, origin);
     const s = await createStore(user.id, name);
-    return reply(200, { store: { id: s.id, name: s.name, role: 'owner' } }, origin);
+    return reply(200, { store: { id: s.id, name: s.name, role: 'owner', accounts: {} } }, origin);
   }
 
   const store = body && body.store;
@@ -197,8 +224,9 @@ export async function handleStores(action: string, body: any, user: { id: string
     const people = (await rpc('store_people', { p_store: store })) || [];
     if (people.some((p: any) => p.email === email)) return reply(409, { error: 'member' }, origin);
     const now = Date.now();
-    // حماية من استخدامنا في إرسال رسائل لأي حد: ٢٠ دعوة في الساعة للمتجر بالكتير
-    const recent = await rows('store_invites?store_id=eq.' + store + '&created_at=gte.' + encodeURIComponent(new Date(now - 3600000).toISOString()) +
+    // حماية من استخدامنا في إرسال رسائل لأي حد: ٢٠ دعوة في الساعة لكل اللي بيدعي (مش لكل متجر — اللي عنده كذا متجر كان بياخد ٢٠ لكل
+    // واحد). ده مش حد لحجم الفريق («فوراً بلا حد»)
+    const recent = await rows('store_invites?invited_by=eq.' + user.id + '&created_at=gte.' + encodeURIComponent(new Date(now - 3600000).toISOString()) +
       '&select=id&limit=' + (INVITES_PER_HOUR + 1));
     if (recent.length >= INVITES_PER_HOUR) return reply(429, { error: 'busy' }, origin);
     // دعوة مفتوحة لنفس البريد بتتلغي (الإرسال من جديد = رابط جديد)، والدعوات المقفولة من أكتر من ٣٠ يوم بتتمسح (فيها بريد)

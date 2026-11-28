@@ -21,7 +21,7 @@
 //                       مبالغ المشكلة بعد ما أيامها تكمل (اتعالجت من ٨ أيام أو أكتر، أو خلصت من غير تصرّف من يوم أو أكتر) — مرة واحدة
 import { USER_ID, db, reply } from './lib.ts';
 import { verifyAccount } from './settings.ts';
-import { storeFor } from './stores.ts';
+import { storeFor, storeAccounts } from './stores.ts';
 
 const AD_ID: Record<string, RegExp> = { meta: /^\d{1,30}$/, snapchat: /^[A-Za-z0-9-]{1,64}$/, google: /^\d{1,30}$/ };
 const KINDS = ['waste', 'loss'];
@@ -111,6 +111,8 @@ export async function handleEpisodes(action: string, body: any, userId: string, 
   if (!store) return reply(404, { error: 'store' }, origin);
   const acc = await verifyAccount(body, origin);
   if (acc instanceof Response) return acc;
+  // حساب المتجر في المنصة بس («مثل ثندر» — ٢٨ نوفمبر ٢٠٢٦): حساب متجر تاني عند عضو مبيتسجّلش في سجل المتجر ده ولا بيتقري منه
+  if ((await storeAccounts(store.id))[acc.platform] !== acc.id) return reply(409, { error: 'account' }, origin);
   const base = 'alert_episodes?store_id=eq.' + store.id + '&platform=eq.' + acc.platform + '&account_id=eq.' + encodeURIComponent(acc.id);
   const now = new Date().toISOString();
 
